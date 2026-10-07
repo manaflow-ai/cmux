@@ -176,6 +176,8 @@ extension ConversationViewController {
     /// the send button becomes a checkmark; X cancels.
     func enterEditMode(for message: ConversationMessage) {
         if replyTarget != nil { exitReplyMode() }
+        // Editing borrows the composer; whatever I was writing waits.
+        if editingMessageID == nil { draftBeforeEdit = composer.text }
         editingMessageID = message.id
         revealRowID = message.rowID
         composer.isEditMode = true
@@ -189,6 +191,8 @@ extension ConversationViewController {
         revealRowID = nil
         composer.isEditMode = false
         composer.clearAfterSend()
+        if let draft = draftBeforeEdit, !draft.isEmpty { composer.text = draft }
+        draftBeforeEdit = nil
         header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
     }
 }

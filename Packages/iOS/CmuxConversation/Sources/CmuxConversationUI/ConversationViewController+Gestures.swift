@@ -225,6 +225,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     func toggleSelection(_ rowID: String) {
         if selectedRowIDs.contains(rowID) { selectedRowIDs.remove(rowID) } else { selectedRowIDs.insert(rowID) }
+        (view.viewWithTag(Self.selectionTrashTag) as? UIButton)?.isEnabled = !selectedRowIDs.isEmpty
         if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
             cell.setSelectionMode(true, selected: selectedRowIDs.contains(rowID), animated: true)
         }
@@ -242,6 +243,12 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             trashButton.setImage(UIImage(systemName: "trash"), for: .normal)
             trashButton.tintColor = .label
             trashButton.accessibilityLabel = String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module)
+            trashButton.tag = Self.selectionTrashTag
+            trashButton.isEnabled = !selectedRowIDs.isEmpty
+            trashButton.addAction(UIAction { [weak self, weak trashButton] _ in
+                guard let self, let trashButton else { return }
+                self.confirmDeleteSelection(from: trashButton)
+            }, for: .touchUpInside)
             let shareButton = UIButton(type: .system)
             shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
             shareButton.tintColor = .label
@@ -270,6 +277,28 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 self.composerContainer.alpha = 1
             } completion: { _ in bar.removeFromSuperview() }
         }
+    }
+
+    static let selectionTrashTag = 4243
+
+    /// Messages asks before deleting: one destructive "Delete N Messages"
+    /// action, then the rows collapse and select mode ends.
+    private func confirmDeleteSelection(from source: UIView) {
+        let doomed = selectedRowIDs
+        guard !doomed.isEmpty else { return }
+        let title = doomed.count == 1
+            ? String(localized: "conversation.select.deleteOne", defaultValue: "Delete Message", bundle: .module)
+            : String(format: String(localized: "conversation.select.deleteMany", defaultValue: "Delete %lld Messages", bundle: .module), doomed.count)
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: title, style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            self.setSelecting(false)
+            self.store.deleteLocally(rowIDs: doomed)
+        })
+        sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = source
+        sheet.popoverPresentationController?.sourceRect = source.bounds
+        present(sheet, animated: true)
     }
 
     private func shareSelection() {

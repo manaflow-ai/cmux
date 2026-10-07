@@ -9,6 +9,8 @@ enum ConversationRow: Hashable {
     case timestamp(id: String, date: Date)
     case message(MessageRowModel)
     case typing(participantIDs: [String])
+    /// A centered system line in a message's place ("You unsent a message").
+    case notice(id: String, text: String)
 
     var id: String {
         switch self {
@@ -17,6 +19,7 @@ enum ConversationRow: Hashable {
         case let .timestamp(id, _): return id
         case let .message(model): return model.rowID
         case .typing: return "typing"
+        case let .notice(id, _): return id
         }
     }
 }
@@ -84,6 +87,12 @@ enum ConversationRowBuilder {
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
+            if message.isUnsent {
+                // Its own id: the bubble row leaves (with the poof) and the
+                // notice arrives, never a bubble cell reconfigured as a notice.
+                rows.append(.notice(id: "unsent:\(message.rowID)", text: unsentNotice(message, meID: meID, info: info)))
+                continue
+            }
             let groupedWithPrevious = !entry.isFirstInRun
             let nextBreaksGroup = entry.isLastInRun
             let isOutgoing = message.senderID == meID
@@ -118,6 +127,14 @@ enum ConversationRowBuilder {
             rows.append(.typing(participantIDs: typingIDs))
         }
         return rows
+    }
+
+    static func unsentNotice(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> String {
+        if message.senderID == meID {
+            return String(localized: "conversation.unsent.mine", defaultValue: "You unsent a message", bundle: .module)
+        }
+        let name = info.participant(message.senderID)?.name.split(separator: " ").first.map(String.init) ?? ""
+        return String(format: String(localized: "conversation.unsent.other", defaultValue: "%@ unsent a message", bundle: .module), name)
     }
 
     private static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {

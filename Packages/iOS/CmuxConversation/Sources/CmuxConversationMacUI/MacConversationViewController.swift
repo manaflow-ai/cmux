@@ -73,6 +73,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var replyTarget: ConversationMessage?
     private var replyFocus: MacReplyFocusView?
     private var editingMessageID: String?
+    /// Rows animating to zero height before Delete removes them.
+    private var collapsingRowIDs: Set<String> = []
     private let replyBanner = MacReplyBanner()
 
     // Swipe state.
@@ -441,6 +443,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             case let .insert(offset, _, _): insertions.insert(offset)
             }
         }
+        let newIDSet = Set(newIDs)
+        for index in removals {
+            guard case let .message(model) = oldRows[index], newIDSet.contains("unsent:\(model.rowID)"),
+                  let bubble = rowView(at: index) else { continue }
+            dissolve(bubble)
+        }
         var oldByID: [String: (index: Int, row: MacConversationRow)] = [:]
         for (index, row) in oldRows.enumerated() { oldByID[row.id] = (index, row) }
         var changed = IndexSet()
@@ -459,9 +467,95 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         for index in changed {
             guard let view = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) else { continue }
+            let oldModel = oldByID[newRows[index].id].flatMap { entry -> MacMessageRowModel? in
+                if case let .message(model) = entry.row { return model } else { return nil }
+            }
+            let oldMinX = (view as? MacMessageContainerView)?.row.contentFrame.minX
             configure(view, row: index)
+            if let oldModel, let oldMinX, let newModel = messageModel(at: index),
+               (oldModel.footer == .notDelivered) != (newModel.footer == .notDelivered) {
+                (view as? MacMessageContainerView)?.row.animateFailedChange(fromContentMinX: oldMinX, failed: newModel.footer == .notDelivered)
+            }
         }
         tableView.layoutSubtreeIfNeeded()
+    }
+
+    /// Undo Send: a snapshot of the bubble swells slightly and fades where it
+    /// stood while the row turns into its notice underneath.
+    private func dissolve(_ rowView: MacMessageRowView) {
+        let frame = rowView.contentFrame
+        guard frame.width > 0, frame.height > 0,
+              let rep = rowView.bitmapImageRepForCachingDisplay(in: frame) else { return }
+        rowView.cacheDisplay(in: frame, to: rep)
+        let image = NSImage(size: frame.size)
+        image.addRepresentation(rep)
+        let ghost = NSImageView(frame: rowView.convert(frame, to: tableView))
+        ghost.image = image
+        ghost.imageScaling = .scaleAxesIndependently
+        ghost.wantsLayer = true
+        tableView.addSubview(ghost)
+        guard let layer = ghost.layer else { ghost.removeFromSuperview(); return }
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: ghost.frame.midX, y: ghost.frame.midY)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { ghost.removeFromSuperview() }
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 1
+        scale.toValue = 1.12
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        let group = CAAnimationGroup()
+        group.animations = [scale, fade]
+        group.duration = 0.35
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.opacity = 0
+        layer.add(group, forKey: "dissolve")
+        CATransaction.commit()
+    }
+
+    /// Delete for me: the rows fade and collapse (neighbors close the gap on
+    /// the same curve), then leave the store.
+    func deleteLocally(_ rowIDs: Set<String>) {
+        let indexes = IndexSet(rowIDs.compactMap { rowIndex[$0] })
+        guard !indexes.isEmpty else { return store.deleteLocally(rowIDs: rowIDs) }
+        collapsingRowIDs.formUnion(rowIDs)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            for index in indexes {
+                tableView.view(atColumn: 0, row: index, makeIfNecessary: false)?.animator().alphaValue = 0
+            }
+            programmatic { tableView.noteHeightOfRows(withIndexesChanged: indexes) }
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.store.deleteLocally(rowIDs: rowIDs)
+                self.collapsingRowIDs.subtract(rowIDs)
+                for index in indexes where index < self.tableView.numberOfRows {
+                    self.tableView.view(atColumn: 0, row: index, makeIfNecessary: false)?.alphaValue = 1
+                }
+            }
+        }
+    }
+
+    private func confirmDelete(_ model: MacMessageRowModel) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "conversation.delete.confirmTitle", defaultValue: "Are you sure you want to delete this message?", bundle: .module)
+        alert.informativeText = String(localized: "conversation.delete.confirmBody", defaultValue: "This message will be deleted from this device.", bundle: .module)
+        alert.addButton(withTitle: String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module)).hasDestructiveAction = true
+        alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))
+        let rowID = model.rowID
+        let handle: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.deleteLocally([rowID])
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
     }
 
     private func withoutAnimation(_ body: () -> Void) {
@@ -594,9 +688,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         switch rows[row] {
         case let .message(model):
+            // A row being deleted collapses to nothing before it leaves.
+            if collapsingRowIDs.contains(model.rowID) { return 0.01 }
             let layout = layoutCache.layout(model, width: transcriptWidth)
             return layout.height + topSpacing(at: row, model)
-        case .timestamp: return MacTimestampRowView.height
+        case .timestamp, .notice: return MacTimestampRowView.height
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
         case .typing: return max(0.01, MacTypingRowView.height * typingProgress)
@@ -607,7 +703,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let identifier: String
         switch rows[row] {
         case .message: identifier = "m"
-        case .timestamp: identifier = "t"
+        case .timestamp, .notice: identifier = "t"
         case .loadingOlder: identifier = "l"
         case .conversationStart: identifier = "s"
         case .typing: identifier = "y"
@@ -615,7 +711,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let view: NSView = tableView.makeView(withIdentifier: .init(identifier), owner: nil) ?? {
             switch rows[row] {
             case .message: return MacMessageContainerView()
-            case .timestamp: return MacTimestampRowView()
+            case .timestamp, .notice: return MacTimestampRowView()
             case .loadingOlder: return MacSpinnerRowView()
             case .conversationStart: return MacConversationStartRowView()
             case .typing: return MacTypingRowView()
@@ -645,6 +741,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
+        case let .notice(_, text):
+            (view as? MacTimestampRowView)?.configure(notice: text)
         case .loadingOlder:
             (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
         case .conversationStart:
@@ -1023,6 +1121,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if store.canEdit(message) {
             menu.addItem(item(String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), "pencil") { [weak self] in self?.enterEdit(message) })
         }
+        if store.canUnsend(message) {
+            menu.addItem(item(String(localized: "conversation.menu.undoSend", defaultValue: "Undo Send", bundle: .module), "arrow.uturn.backward.circle") { [weak self] in
+                self?.store.unsend(messageID: message.id)
+            })
+        }
         menu.addItem(.separator())
         menu.addItem(item(String(localized: "conversation.menu.copy", defaultValue: "Copy", bundle: .module), "doc.on.doc") {
             NSPasteboard.general.clearContents()
@@ -1030,7 +1133,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         })
         if message.delivery?.isFailed == true {
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
-            menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.store.discardFailed(rowID: model.rowID) })
+            menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.deleteLocally([model.rowID]) })
+        } else {
+            menu.addItem(.separator())
+            menu.addItem(item(String(localized: "conversation.menu.deleteEllipsis", defaultValue: "Delete…", bundle: .module), "trash") { [weak self] in self?.confirmDelete(model) })
         }
         // Messages darkens the bubble while its menu is open.
         menuHighlight.begin(rowView)
@@ -1047,7 +1153,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             self?.store.retry(rowID: model.rowID)
         })
         menu.addItem(MacClosureMenuItem(title: String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module)) { [weak self] in
-            self?.store.discardFailed(rowID: model.rowID)
+            self?.deleteLocally([model.rowID])
         })
         menu.popUp(positioning: nil, at: point, in: view)
     }
@@ -1149,6 +1255,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 }
             }
             return "ok"
+        case "unsend", "delete", "retry":
+            // The same paths the context menu runs (delete skips its confirmation).
+            guard let index = lastMessageRow(matching: argument), let model = messageModel(at: index) else { return "error no row" }
+            switch verb {
+            case "unsend":
+                guard store.canUnsend(model.message) else { return "error not unsendable" }
+                store.unsend(messageID: model.message.id)
+            case "delete": deleteLocally([model.rowID])
+            default: store.retry(rowID: model.rowID)
+            }
+            return "ok"
         case "react":
             let bits = argument.split(separator: " ").map(String.init)
             guard bits.count == 2, let index = lastMessageRow(matching: bits[0]), let model = messageModel(at: index),
@@ -1173,6 +1290,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             isPinnedToBottom = false
             tableView.scrollRowToVisible(index)
             return "found \(model.message.id) \(model.reactionKinds.map(\.rawValue).joined(separator: ","))"
+        case "slowmo":
+            // Core Animation runs this many times slower, so window captures
+            // can sample short transitions.
+            let factor = max(1, Double(argument) ?? 1)
+            view.window?.contentView?.layer?.speed = Float(1 / factor)
+            return "ok"
         case "faketyping":
             debugTyping = argument == "on"
             storeDidChange(.typing)

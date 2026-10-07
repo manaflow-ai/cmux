@@ -75,6 +75,8 @@ public final class ConversationViewController: UIViewController {
     var replyHapticFired = false
     var replyTarget: ConversationMessage?
     var editingMessageID: String?
+    /// The composer's draft when editing began; it comes back when editing ends.
+    var draftBeforeEdit: String?
     /// A row kept visible above the composer as insets change (the message
     /// being edited stays in view when the keyboard rises).
     var revealRowID: String?
@@ -376,7 +378,7 @@ public final class ConversationViewController: UIViewController {
                 flyingRowIDs.insert(id)
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: arrivingRowIDs.append(id)
-            case .loadingOlder: appearances[id] = .fade
+            case .loadingOlder, .notice: appearances[id] = .fade
             default: break
             }
         }
@@ -406,6 +408,15 @@ public final class ConversationViewController: UIViewController {
         // Non-animated changes (a page landing) can regroup visible rows
         // (spacing, tail, sender name); rows that move a few points glide.
         let screenBefore = animateLive ? [:] : visibleScreenTops()
+
+        // Undo Send: the bubble dissolves where it stood while its notice fades in.
+        if animateLive {
+            for indexPath in deleted where indexPath.item < rows.count {
+                guard case let .message(model) = rows[indexPath.item], newIndex["unsent:\(model.rowID)"] != nil,
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { continue }
+                dissolve(cell)
+            }
+        }
 
         let updates = {
             self.rows = newRows
@@ -569,6 +580,22 @@ public final class ConversationViewController: UIViewController {
         }
     }
 
+    /// Unsent bubble: a snapshot swells slightly and fades out in place (the
+    /// cell itself is hidden so the row's own removal shows nothing).
+    private func dissolve(_ cell: MessageCell) {
+        let frame = cell.liftedContentFrame
+        guard let snapshot = cell.shiftable.resizableSnapshotView(from: frame, afterScreenUpdates: false, withCapInsets: .zero) else { return }
+        snapshot.frame = cell.convert(frame, to: view)
+        view.insertSubview(snapshot, aboveSubview: collectionView)
+        UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+        UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut]) {
+            snapshot.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
+        }
+    }
+
     private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {
         if case let .live(inserted, mine) = change { return mine && !inserted.isEmpty }
         return false
@@ -649,6 +676,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
             cell.configure(date: date)
             return cell
+        case let .notice(_, text):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
+            cell.configure(notice: text)
+            return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
             cell.configure(active: true)
@@ -712,7 +743,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         switch rows[index] {
         case let .message(model):
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
-        case .timestamp: return TimestampCell.height
+        case .timestamp, .notice: return TimestampCell.height
         case .loadingOlder: return LoadingCell.height
         case .conversationStart: return ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)

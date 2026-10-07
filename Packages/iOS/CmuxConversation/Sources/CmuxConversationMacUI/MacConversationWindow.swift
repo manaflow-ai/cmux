@@ -608,7 +608,11 @@ final class MacConversationListRow: MacFlippedView {
             avatar.colorHex = others.first?.colorHex
         }
         if let last = store.messages.last(where: { $0.seq != nil }) {
-            preview.stringValue = last.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : last.text
+            if last.isUnsent, let info {
+                preview.stringValue = MacConversationRowBuilder.unsentNotice(last, meID: store.meID, info: info)
+            } else {
+                preview.stringValue = last.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : last.text
+            }
             time.stringValue = Calendar.current.isDateInToday(last.sentAt)
                 ? last.sentAt.formatted(date: .omitted, time: .shortened)
                 : last.sentAt.formatted(.dateTime.weekday(.wide))

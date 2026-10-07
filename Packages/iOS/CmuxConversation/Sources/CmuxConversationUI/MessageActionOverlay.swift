@@ -348,6 +348,12 @@ extension ConversationViewController {
                 self?.enterEditMode(for: message)
             }, at: 1)
         }
+        if store.canUnsend(message) {
+            let editIndex = items.firstIndex { $0.symbol == "pencil" }.map { $0 + 1 } ?? 1
+            items.insert(.init(title: String(localized: "conversation.menu.undoSend", defaultValue: "Undo Send", bundle: .module), symbol: "arrow.uturn.backward.circle") { [weak self] in
+                self?.store.unsend(messageID: message.id)
+            }, at: editIndex)
+        }
         if model.message.delivery?.isFailed == true {
             items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
                 self?.store.retry(rowID: model.rowID)

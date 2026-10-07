@@ -417,6 +417,16 @@ final class TimestampCell: UICollectionViewCell {
         setNeedsLayout()
     }
 
+    /// A system line in the transcript ("You unsent a message"): the
+    /// timestamp's regular weight and color.
+    func configure(notice: String) {
+        label.attributedText = NSAttributedString(string: notice, attributes: [
+            .font: ConversationTheme.timestampFont,
+            .foregroundColor: ConversationTheme.secondaryText,
+        ])
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         label.frame = contentView.bounds.inset(by: UIEdgeInsets(top: 10, left: 16, bottom: 4, right: 16))
