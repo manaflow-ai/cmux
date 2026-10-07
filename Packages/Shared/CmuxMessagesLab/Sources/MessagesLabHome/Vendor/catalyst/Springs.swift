@@ -164,6 +164,16 @@ enum Springs {
     static var read: SpringElement { element("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
+    /// A received photo or video (lossless send-typed-media take: an ease-in-out move, the
+    /// photo's opacity following it).
+    static var receiveMedia: SpringElement { element("transcript.receiveMedia") }
+    /// My tapback (lossless tapback-menu-heart-take1: the rows above the part move 27.5 pt
+    /// 90 ms after our react commit, an ease-in-out of 0.29 s).
+    static var tapback: SpringElement { element("transcript.tapback") }
+    static func isMedia(_ p: Part) -> Bool {
+        if case let .attachment(a) = p { return a.kind == "image" || a.kind == "video" }
+        return false
+    }
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
@@ -202,7 +212,8 @@ enum Springs {
 /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
 /// Further animations on the same key path add up (no snap on interruption).
 enum Animate {
-    private static var serial = 0
+    /// Animations added so far (also the key serial; the bench counts animations per commit).
+    private(set) static var serial = 0
 
     /// Local time of `layer` now (virtual time when the root is paused).
     static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }

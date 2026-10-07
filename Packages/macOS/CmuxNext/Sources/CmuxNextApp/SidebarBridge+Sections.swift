@@ -25,10 +25,6 @@ extension SidebarBridge {
         .newTerminal: "newSurface",
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
-        .newWorkspace: "newTab",
-        // The combined import entry opens onboarding, whose role step starts
-        // both the classic-session and agent-chat scans.
-        .importSync: "importAndSync.show",
         .customize: "appearance.customize",
     ]
 
