@@ -14,6 +14,9 @@ extension SidebarWorkspaceTableController {
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         payloadWorkspaceId: UUID?
     ) -> Bool {
+        // A drop ends the drag: stop the pointer poll now, so a tick landing
+        // before `endedAt` cannot re-lift the block the commit is placing.
+        stopReorderPoll()
         reorderDragWindowPoint = nil
         guard let actions else {
             retireReorderIndicator()

@@ -902,11 +902,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     // a workspace); bigger edits (a group collapsing) and edits
                     // that change heights stay instant. The nested group opts
                     // back into animation inside the no-animation wrapper.
-                    let editCount: Int
+                    // An inserted row's own height arrives from the delegate on
+                    // insert, so only other rows' height changes block it.
+                    let editIndexes: IndexSet
+                    let otherHeightChanges: IndexSet
                     switch pureEdit {
-                    case .remove(let indexes), .insert(let indexes): editCount = indexes.count
+                    case .remove(let indexes):
+                        editIndexes = indexes
+                        otherHeightChanges = heightChanges
+                    case .insert(let indexes):
+                        editIndexes = indexes
+                        otherHeightChanges = heightChanges.subtracting(indexes)
                     }
-                    let animates = heightChanges.isEmpty && editCount <= 3
+                    let animates = otherHeightChanges.isEmpty && editIndexes.count <= 3
                     NSAnimationContext.runAnimationGroup { context in
                         context.duration = animates ? 0.22 : 0
                         context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.0, 0.4, 1.0)

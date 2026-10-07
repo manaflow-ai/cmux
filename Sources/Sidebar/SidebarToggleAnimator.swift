@@ -25,6 +25,9 @@ final class SidebarToggleAnimator: ObservableObject {
     private var restingWidth: CGFloat = 0
     /// A hide sweep is running: `isVisible` stays true until it lands.
     private var isHiding = false
+    /// The width a running show sweep is heading to. A hide that interrupts
+    /// it rests at this, not at the half-open live width.
+    private var showTarget: CGFloat?
 
     deinit {
         timer?.invalidate()
@@ -58,6 +61,8 @@ final class SidebarToggleAnimator: ObservableObject {
         SidebarNavigationTimings.begin(targetVisible ? "toggle.show" : "toggle.hide")
         cancelSweep()
         isHiding = false
+        let interruptedShowTarget = showTarget
+        showTarget = nil
         if targetVisible {
             // Docking over an already-revealed peek card swaps in place: the
             // card is where the pane belongs, so any sweep would be a ghost.
@@ -73,10 +78,11 @@ final class SidebarToggleAnimator: ObservableObject {
             // terminal steps aside in this very turn); the sweep that follows
             // is the pane gliding in.
             SidebarNavigationTimings.end("toggle.show")
-            sweep(from: 1, to: target, completion: nil)
+            showTarget = target
+            sweep(from: 1, to: target) { [weak self] in self?.showTarget = nil }
             return true
         } else {
-            restingWidth = layout.width
+            restingWidth = interruptedShowTarget ?? layout.width
             isHiding = true
             sweep(from: layout.width, to: 1) { [weak self] in
                 self?.isHiding = false
