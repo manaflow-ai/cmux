@@ -22,7 +22,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N]";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N]";
 
 fn code(n: u8) -> u8 {
     n
@@ -129,22 +129,13 @@ fn usage(msg: &str) -> u8 {
 pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
     let Some((verb, rest)) = args.split_first() else { return usage("missing verb") };
     match verb.as_str() {
-        "run" if cfg!(not(target_os = "linux")) || rest.iter().any(|a| a == "--roles-only") => {
-            if rest.iter().any(|a| a != "--roles-only") {
-                return usage("run --roles-only takes no other flags");
-            }
-            match install_layout() {
-                Ok((layout, _)) => crate::run_roles::run_roles(&layout),
-                Err(e) => {
-                    eprintln!("cmux host run: {e}");
-                    code(1)
-                }
-            }
+        "run" => {
+            let (mode, rest) = match split_mode(rest) {
+                Ok(split) => split,
+                Err(e) => return usage(&e),
+            };
+            run_verb(mode, &rest, self_argv)
         }
-        "run" => match parse_run(rest, self_argv) {
-            Ok(cfg) => run_agent(cfg),
-            Err(e) => usage(&e),
-        },
         "status" => status_verb(rest),
         "roles" => roles_verb(rest),
         "logs" => logs_verb(rest),
@@ -157,9 +148,57 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
     }
 }
 
-/// The install layout roles receive (CMUX_SERVER_MODE, else system as root).
-fn install_layout() -> Result<(Layout, InstallMode), String> {
-    let mode = cmux_server::host::resolve_mode(false);
+/// `run`: the roles-only loop (macOS, or `--roles-only`), else the Linux
+/// bind agent. `mode` is the units' `--mode`.
+fn run_verb(mode: Option<InstallMode>, rest: &[String], self_argv: Vec<String>) -> u8 {
+    if cfg!(not(target_os = "linux")) || rest.iter().any(|a| a == "--roles-only") {
+        if rest.iter().any(|a| a != "--roles-only") {
+            return usage("run --roles-only takes only --mode");
+        }
+        return match install_layout(mode) {
+            Ok((layout, _)) => crate::run_roles::run_roles(&layout),
+            Err(e) => {
+                eprintln!("cmux host run: {e}");
+                code(1)
+            }
+        };
+    }
+    match parse_run(rest, self_argv) {
+        Ok(mut cfg) => {
+            cfg.server_mode = mode;
+            run_agent(cfg)
+        }
+        Err(e) => usage(&e),
+    }
+}
+
+/// Takes `--mode <user|system>` (at most once, anywhere) out of `args`.
+fn split_mode(args: &[String]) -> Result<(Option<InstallMode>, Vec<String>), String> {
+    let mut mode = None;
+    let mut rest = Vec::new();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        if arg != "--mode" {
+            rest.push(arg.clone());
+            continue;
+        }
+        let value = match it.next().map(String::as_str) {
+            Some("user") => InstallMode::User,
+            Some("system") => InstallMode::System,
+            Some(other) => return Err(format!("--mode {other:?}: use user or system")),
+            None => return Err("--mode needs user or system".to_owned()),
+        };
+        if mode.replace(value).is_some() {
+            return Err("--mode may be given once".to_owned());
+        }
+    }
+    Ok((mode, rest))
+}
+
+/// The install layout roles receive: the units' `--mode`, else
+/// CMUX_SERVER_MODE, else system as root.
+fn install_layout(mode: Option<InstallMode>) -> Result<(Layout, InstallMode), String> {
+    let mode = mode.unwrap_or_else(|| cmux_server::host::resolve_mode(false));
     cmux_server::host::layout_for(mode, &cmux_server::host::layout_env())
         .map(|layout| (layout, mode))
         .map_err(|e| e.to_string())
@@ -171,7 +210,7 @@ fn roles_verb(args: &[String]) -> u8 {
         [flag] if flag == "--json" => true,
         _ => return usage("roles takes --json only"),
     };
-    let layout = match install_layout() {
+    let layout = match install_layout(None) {
         Ok((layout, _)) => layout,
         Err(e) => return usage(&e),
     };
@@ -204,7 +243,7 @@ fn logs_verb(args: &[String]) -> u8 {
     if !cmux_server_core::role_spec::valid_name(name) {
         return usage("invalid role name");
     }
-    let layout = match install_layout() {
+    let layout = match install_layout(None) {
         Ok((layout, _)) => layout,
         Err(e) => return usage(&e),
     };
@@ -226,7 +265,7 @@ fn run_agent(mut cfg: Config) -> u8 {
     use crate::agent::{ActionLog, Agent};
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
-    let install = install_layout();
+    let install = install_layout(cfg.server_mode);
     if let Ok((layout, _)) = &install {
         cfg.server_config = Some(PathBuf::from(layout.config_file.as_str()));
     }
