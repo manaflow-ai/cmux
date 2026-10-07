@@ -184,9 +184,10 @@ final class DaemonService {
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
     /// `bridge`: each connection runs this child instead of connecting to the
-    /// socket (``DaemonEndpoint/bridge``).
+    /// socket (``DaemonEndpoint/bridge``). `onEnd` runs each time an
+    /// established connection ends (EOF, heartbeat), before the reconnect.
     func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
-               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
         let machineID = machineID
@@ -247,6 +248,7 @@ final class DaemonService {
                 await store.run(connection: connection, scheduler: scheduler)
                 await connection.close()
                 if Task.isCancelled { return }
+                _ = onEnd // RED: the end is not reported
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
         }
