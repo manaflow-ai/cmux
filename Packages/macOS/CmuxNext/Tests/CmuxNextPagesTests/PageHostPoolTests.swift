@@ -75,6 +75,7 @@ struct PageHostPoolTests {
         #expect(!first.touched)
         pool.release(first)
         #expect(pool.spareHost === first)
+        await Self.spareReady(pool)
 
         let second = try #require(pool.claim(.settings, routes: [], window: window))
         await second.waitUntilLoaded()

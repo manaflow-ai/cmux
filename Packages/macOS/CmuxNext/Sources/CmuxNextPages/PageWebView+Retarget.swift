@@ -36,11 +36,23 @@ extension PageWebView {
     }
 
     /// Clears the router before an untouched host is parked for another claim.
-    func resetPooledPage() {
+    func resetPooledPage() async {
         router.rebind(descriptor: descriptor, routes: [])
         dynamicResources = nil
         route = nil
         countsTouches = false
         touched = false
+        guard loaded else { return }
+        let script = """
+        localStorage.clear();
+        sessionStorage.clear();
+        if (indexedDB?.databases) {
+          for (const database of await indexedDB.databases()) {
+            if (database.name) indexedDB.deleteDatabase(database.name);
+          }
+        }
+        return true;
+        """
+        _ = try? await webView.callAsyncJavaScript(script, contentWorld: .page)
     }
 }

@@ -107,11 +107,16 @@ public final class PageHostPool {
             return
         }
         if !host.touched, spare == nil, let content = target?.contentView {
-            host.resetPooledPage()
+            host.countsTouches = false
             park(host, in: content)
             spare = host
-            spareReady = true
-            onSpareReady?(host)
+            spareReady = false
+            Task { @MainActor [weak self, weak host] in
+                await host?.resetPooledPage()
+                guard let self, let host, self.spare === host else { return }
+                self.spareReady = true
+                self.onSpareReady?(host)
+            }
             return
         }
         host.close()
