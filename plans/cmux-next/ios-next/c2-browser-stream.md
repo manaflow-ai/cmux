@@ -1,6 +1,6 @@
 # C2 `browser-stream`: Mac browser surfaces on the phone
 
-Status: lane C2 of [PLAN.md](PLAN.md), 2026-10-06, branch `feat-cmux-next-ios-c2-browser`.
+Status: landed on branch `feat-cmux-next-ios-c2-browser` (lane C2 of [PLAN.md](PLAN.md)), 2026-10-06.
 Wire: [a0-rpc.md](a0-rpc.md) 3.4 and 5.4. Link: [a3-link.md](a3-link.md). Host: [b5-mac-host.md](b5-mac-host.md)
 (`MobileChannelHandler`, `MobileSessionGate`). Shell seam: [a1-shell.md](a1-shell.md) 2.3. Protocol it reuses:
 `cmux.rd/1` (`cmux-rd-proto`) and `cmux.rb/1` (`cmux-remote-browser`, `schemas/remote-tab/`), remote-tab.md RT4 to RT6.
@@ -72,7 +72,7 @@ datagram (16-byte `DatagramHeader` + payload). Directions:
 | Mac to phone | 1 | rd `{t: "service", service: "rb/1", body: <rb control>}`: `rb.page`, `rb.state`, `rb.cursor`, `rb.text_input`, `rb.clipboard.write`, `rb.screen_applied`, `rb.navigate.result`, `rb.open_tab`, `rb.menu.show`, `rb.dialog.show`, `rb.closed` |
 | Mac to phone | 2 | rd `video` datagrams (FrameBody shards, `fec_count` 0), `input_ack` |
 | phone to Mac | 1 | rb `rb.navigate`, `rb.history`, `rb.screen`, `rb.visibility`, `rb.clipboard.push`, `rb.menu.result`, `rb.dialog.result`, `rb.close` |
-| phone to Mac | 2 | rd `input` packets (rb input events as `service` events, `must_deliver`), rd `feedback` |
+| phone to Mac | 2 | rd `input` packets (rb input events as `service` events, `must_deliver`), rd `feedback` (loss statistics on the lane; a `need_recovery` request always on the reliable channel so it cannot be lost) |
 
 The rd `hello`/`welcome`/`start` handshake is replaced by `channel.open`/`channel.opened`: the device is
 already authenticated by B5's hello proof, so rd's token claims are not used on the link.
@@ -196,12 +196,19 @@ the CEF shim / WebKit driver input paths, `rb.page` from the tab model) and regi
 
 ## 11. Tests, verification, follow-ups
 
-Swift Testing: `CmuxBrowserStreamTests` (rd header, FrameBody, feedback and input packet vectors that
-match `cmux-rd-proto`; rb message vectors from `schemas/remote-tab/messages.json`; packetizer and
-reassembler incl. loss and reference chains; Annex-B parsing; client against a scripted host) and
-`CmuxMobileHostTests/Browser*` over loopback with `MobileHost` (frame flow, keyframe on gap, input
-ordering, scheme refusal, gate closed on revoke, datagram lane switch). The iOS screen compiles in
-`CmuxiOSApp` for the simulator.
+Swift Testing, all green on macOS: `CmuxBrowserStreamTests` (22: rd header golden vector and
+FrameBody, feedback and input packets matching `cmux-rd-proto`; every rb message in
+`schemas/remote-tab/messages.json`; packetizer and reassembler incl. loss, reference chains and
+duplicates from both lanes; Annex-B; the client against a scripted host: a missing frame makes the
+phone ask for recovery, input seqs, refusal); `CmuxMobileHostTests/BrowserChannelTests` (8, real
+`MobileHost` over loopback: frame flow and references, video moving to the datagram lane and a
+recovery request bringing a keyframe, 41 input events applied once and in order, scheme refusal for
+`file`/`javascript`/`data`/custom, unknown tab, revocation stops input and navigation, resize forces
+a keyframe, clipboard both ways; the 45 B5 tests still pass); `CmuxiOSBrowserCoreTests` (10: the real
+`LinkBrowserStreamSource` against `MobileHost`, plus lens, tap, scroll-phase, key-map and URL-bar
+math). `CmuxiOSApp` and the test targets compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
+Rust: `rb.navigate`/`rb.navigate.result` in `proto.rs` with a vectors test, not run locally (no
+cargo on this Mac).
 
 Needs live verification (tagged Mac+iOS pair): ScreenCaptureKit capture of a CEF pane, VideoToolbox
 encode and decode end to end, gesture feel, IME commit into a page, latency numbers for D2.

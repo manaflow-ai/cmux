@@ -99,8 +99,8 @@ actor BrowserChannelSession {
         }
         let started = clock.now
         for datagram in datagrams {
-            guard (try? await channel.send(binary: BrowserStreamPayload.encodedDatagram(datagram),
-                                           flags: encoded.isKeyframe ? .keyframe : [])) != nil else { return }
+            // No record keyframe flag: one shard does not restore state by itself.
+            guard (try? await channel.send(binary: BrowserStreamPayload.encodedDatagram(datagram))) != nil else { return }
         }
         let interval = Duration.seconds(1) / Int(max(1, min(screen.refreshHz, 60)))
         if clock.now - started > interval * 2 { bitrate.sendStalled() }
