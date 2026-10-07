@@ -12,6 +12,17 @@ fn attach(hub: &Hub, conn: &Conn, id: &str) {
     }
 }
 
+fn resolved_session(
+    hub: &Hub,
+    resolved: Option<&Arc<crate::hub::Session>>,
+    params: &Value,
+) -> Result<Arc<crate::hub::Session>, RpcError> {
+    match resolved {
+        Some(session) => Ok(session.clone()),
+        None => hub.resolve(session_key(params)?),
+    }
+}
+
 pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
     match m {
         method::SESSION_CANCEL => {
@@ -67,9 +78,10 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
-    super::trust_gate::check(hub, conn.origin, m, &params).await?; // the folder-trust gate
+    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
-    let mut reply = dispatch_request(hub, conn, m, params).await;
+    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
@@ -79,13 +91,37 @@ async fn dispatch_request(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
+    // Trust answers for a remote session belong to the daemon that owns it.
+    if matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET)
+        && let Ok(key) = session_key(&params)
+        && hub.resolve(key).is_err()
+        && let Some((peer, id, _)) = hub.resolve_remote(key)
+    {
+        if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+            return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
+        let mut forwarded = params.clone();
+        if let Some(object) = forwarded.as_object_mut() {
+            object.insert("sessionId".into(), Value::String(id));
+        }
+        super::remote_guard::mark_forwarded(conn.origin, &params, &mut forwarded);
+        let mut result = peer.request(m, forwarded).await?;
+        if let Some(object) = result.as_object_mut() {
+            object.insert("peer".into(), Value::String(peer.name.clone()));
+        }
+        return Ok(result);
+    }
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(&params)
         && hub.resolve(key).is_err()
         && let Some((peer, id, _)) = hub.resolve_remote(key)
     {
+        if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+            return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -159,7 +195,7 @@ async fn dispatch_request(
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups"]}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -172,10 +208,14 @@ async fn dispatch_request(
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+                    return Err(super::trust_gate::peer_unsupported(&peer.name));
+                }
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
                 }
+                super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
@@ -237,7 +277,7 @@ async fn dispatch_request(
             }))
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             let events =
@@ -284,7 +324,7 @@ async fn dispatch_request(
             Ok(json!({"sessions": sessions}))
         }
         method::SESSION_PROMPT => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             let blocks = params
                 .get("prompt")
@@ -321,6 +361,7 @@ async fn dispatch_request(
                 })),
                 resend,
                 control: super::remote_guard::control_of(conn.origin, &params),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -335,7 +376,7 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         method::SESSION_FORK => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let name = mux_meta(&params)
                 .and_then(|m| m.get("name"))
@@ -351,13 +392,13 @@ async fn dispatch_request(
             )
         }
         method::SESSION_SET_MODE => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
             hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let id = str_param(&params, "configId")
                 .ok_or_else(|| RpcError::invalid_params("configId is required"))?;
             let value = params
@@ -409,6 +450,7 @@ async fn dispatch_request(
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             })
             .await
         }

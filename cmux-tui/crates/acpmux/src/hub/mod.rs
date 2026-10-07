@@ -140,6 +140,9 @@ pub struct PromptOptions {
     pub resend: bool,
     /// The rules the prompt runs under, checked again at dispatch.
     pub control: Control,
+    /// Whether this prompt came from a gated app/Web path and must be checked
+    /// again when a queued turn is dispatched.
+    pub trust_gate: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
