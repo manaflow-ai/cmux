@@ -85,6 +85,8 @@ impl Harness {
             r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}"#,
         )
         .unwrap();
+        fs::set_permissions(self.at("/etc/cmux/host.json"), fs::Permissions::from_mode(0o644))
+            .unwrap();
         self
     }
 
@@ -393,5 +395,24 @@ fn a_refused_host_config_falls_back_to_loopback() {
     assert!(!argv.contains("0.0.0.0"), "{argv}");
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(out.contains("host.json refused"), "{out}");
+    terminate(&mut agent);
+}
+
+/// A host.json that others can write is refused even when it names the
+/// edge carrier: the session host falls back to loopback.
+#[test]
+fn a_shared_writable_host_config_is_refused() {
+    let h = Harness::new().with_cloud_edge();
+    fs::set_permissions(h.at("/etc/cmux/host.json"), fs::Permissions::from_mode(0o666)).unwrap();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = AgentProc(h.start(&log));
+    wait_until("daemon argv", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
+    });
+    let argv = fs::read_to_string(&h.daemon_log).unwrap();
+    assert!(argv.contains("--remote-ws 127.0.0.1:1337"), "{argv}");
+    assert!(!argv.contains("trusted-carrier"), "{argv}");
+    let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
+    assert!(out.contains("host.json refused") && out.contains("writable"), "{out}");
     terminate(&mut agent);
 }
