@@ -64,6 +64,9 @@ impl SshProvider {
         if let Some(state_dir) = &config.remote_state_dir {
             validate_remote_word(state_dir)?;
         }
+        if let Some(socket) = &config.remote_mux_socket {
+            validate_remote_word(socket)?;
+        }
         for provider in &config.agent_hooks {
             validate_agent_hook_provider(provider)?;
         }
@@ -274,6 +277,9 @@ fn remote_link_command(config: &SshProviderConfig) -> Vec<String> {
     ];
     if let Some(state_dir) = &config.remote_state_dir {
         command.extend(["--state-dir".into(), state_dir.clone()]);
+    }
+    if let Some(socket) = &config.remote_mux_socket {
+        command.extend(["--mux-socket".into(), socket.clone()]);
     }
     if !config.agent_hooks.is_empty() {
         command.extend(["--agent-hooks".into(), config.agent_hooks.join(",")]);

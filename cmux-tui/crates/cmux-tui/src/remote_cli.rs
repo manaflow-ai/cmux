@@ -2420,6 +2420,7 @@ fn ensure_daemon(
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
     let mux_socket_is_derived = explicit_mux_socket.is_none();
+    let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if mux_socket_is_derived {
@@ -2428,6 +2429,9 @@ fn ensure_daemon(
         cmux_tui_core::server::prepare_socket_parent(&mux_socket, true)?;
     }
     if connect_same_user_socket(&mux_socket).is_err() {
+        if attach_only {
+            return Err(remote_link_mux::not_running(&mux_socket));
+        }
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
@@ -3315,7 +3319,10 @@ mod tests {
             "~/.cmux/brains/chief/daemon/cmux.sock".into(),
         ])
         .unwrap();
-        assert_eq!(flags.remote_mux_socket.as_deref(), Some("~/.cmux/brains/chief/daemon/cmux.sock"));
+        assert_eq!(
+            flags.remote_mux_socket.as_deref(),
+            Some("~/.cmux/brains/chief/daemon/cmux.sock")
+        );
     }
 
     #[test]
