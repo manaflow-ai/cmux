@@ -325,12 +325,12 @@ The bake also fully allocates a 1 GiB ext4 image at
 SQLite registry and journal a bounded filesystem even when general-purpose
 files fill the root filesystem. The image consumes space from the existing
 root disk; it does not change the Freestyle VM size or the image ladder. The
-boot supervisor writes a reservation marker only after the image is fully
-created and seeded, then requires the marker, helper, image, and mount after a
-snapshot resume before starting cmux-tui. If any of those checks fail, startup
-is deferred instead of falling back to the root filesystem. Older images
-without the marker continue using their existing state layout until they are
-replaced.
+bake writes a reservation marker only after the image is fully created and
+seeded. The boot supervisor reads that marker and requires the marker, helper,
+image, and mount after a snapshot resume before starting cmux-tui. If any of
+those checks fail, startup is deferred instead of falling back to the root
+filesystem. Older images without the marker continue using their existing
+state layout until they are replaced.
 
 ## Sizes: one bake, one snapshot per size
 
