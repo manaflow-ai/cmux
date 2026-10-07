@@ -13,7 +13,7 @@ import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "../icons/Icon";
-import { useT } from "./i18n";
+import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -127,16 +127,21 @@ export function ModelPicker(props: ModelPickerProps) {
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(refreshDate))
+    ? new Intl.DateTimeFormat(currentLanguage(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(refreshDate))
     : undefined;
-  const refreshTitle =
-    refreshStatus === "fetching"
-      ? t("picker.catalogRefreshing")
-      : refreshStatus === "error"
-        ? t("picker.catalogRefreshError")
-        : formattedRefreshDate
-          ? t("picker.catalogUpdated", { date: formattedRefreshDate })
-          : t("picker.refreshCatalog");
+  const refreshTitle = (() => {
+    const label =
+      refreshStatus === "fetching"
+        ? t("picker.catalogRefreshing")
+        : refreshStatus === "error"
+          ? t("picker.catalogRefreshError")
+          : formattedRefreshDate
+            ? t("picker.catalogUpdated", { date: formattedRefreshDate })
+            : t("picker.refreshCatalog");
+    return formattedRefreshDate && (refreshStatus === "fetching" || refreshStatus === "error")
+      ? `${label} · ${formattedRefreshDate}`
+      : label;
+  })();
   useEffect(() => {
     // A host event is authoritative: let its fetching, updated, or error state replace
     // the local promise state from the previous click.
@@ -429,7 +434,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   {refreshStatus === "fetching" ? (
                     <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
                   ) : (
-                    <Icon name="refresh" size={14} />
+                    <Icon name="action.reload" size={14} />
                   )}
                 </button>
               )}
