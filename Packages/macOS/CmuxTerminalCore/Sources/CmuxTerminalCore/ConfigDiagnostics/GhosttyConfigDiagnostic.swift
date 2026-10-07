@@ -17,8 +17,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     public let filePath: String?
     /// The 1-based line in ``filePath``, when present.
     public let line: Int?
-    /// The config key the diagnostic is about, when it has a file location
-    /// and a key.
+    /// The config key the diagnostic is about, when Ghostty includes one.
     public let key: String?
 
     /// Parses a Ghostty diagnostic message.
@@ -48,7 +47,13 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     }
 
     private static func parseFileLocation(_ message: String) -> (path: String?, line: Int?, key: String?) {
-        guard message.hasPrefix("/") || message.hasPrefix("~") else { return (nil, nil, nil) }
+        guard message.hasPrefix("/") || message.hasPrefix("~") else {
+            // Ghostty omits the source location for diagnostics from some
+            // config layers, including cmux's App Support override. Preserve
+            // the leading key so the notice policy can still distinguish an
+            // expected cmux-owned field from a real user error.
+            return (nil, nil, parseKey(message[message.startIndex..<message.endIndex]))
+        }
         // Find the first ":<digits>:" after the path.
         var searchStart = message.startIndex
         while let colon = message[searchStart...].firstIndex(of: ":") {
@@ -67,8 +72,9 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         return (nil, nil, nil)
     }
 
-    /// Ghostty writes `<key>: <message>` after the location, or
-    /// ` <message>` when the diagnostic has no key.
+    /// Ghostty writes `<key>: <message>` after the location, or as the whole
+    /// diagnostic when it omits the source location. It writes only the
+    /// message when the diagnostic has no key.
     private static func parseKey(_ rest: Substring) -> String? {
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon]
