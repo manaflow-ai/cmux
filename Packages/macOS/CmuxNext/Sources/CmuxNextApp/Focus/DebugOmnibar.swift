@@ -2,12 +2,14 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
 
-/// `debug.omnibar` and (DEBUG builds) `debug.mouse`: the omnibar of a
+/// `debug.omnibar` and (DEBUG builds) `debug.mouse` and
+/// `debug.omnibar_type`: the omnibar of a
 /// browser pane (default: the focused pane of the first window, or of
 /// `window`). `debug.omnibar` reports the state machine next to what the
 /// field editor shows; `debug.mouse` presses, drags and releases over the
 /// omnibar text as AppKit would for a key window, without activating the
-/// app or making the window key (plans/cmux-next/focus.md, section 7).
+/// app or making the window key (plans/cmux-next/focus.md, section 7);
+/// `debug.omnibar_type` types text and presses Return in the field the same way.
 enum DebugOmnibar {
     static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let bar = addressBar(params, services: services) else { return .object(["error": .string("no browser pane")]) }
@@ -62,6 +64,21 @@ enum DebugOmnibar {
         )
         if let error = bar.debugMouse(gesture) { return .object(["error": .string(error)]) }
         return report(params, services: services)
+    }
+
+    /// `debug.omnibar_type`. Params: `text`, `commit` (default true),
+    /// `pane`, `window`. Focuses the omnibar, types `text` through its field
+    /// editor and presses Return there (`AddressBarView.debugTypeAndCommit`):
+    /// the path typed keys take once they reach the field, without
+    /// activating the app or making the window key. Reports the omnibar
+    /// after, plus `typed` (false when the field did not start editing).
+    static func type(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let text = params["text"]?.stringValue else { return .object(["error": .string("text is required")]) }
+        guard let bar = addressBar(params, services: services) else { return .object(["error": .string("no browser pane")]) }
+        let typed = bar.debugTypeAndCommit(text, commit: params["commit"]?.boolValue ?? true)
+        guard case .object(var fields) = report(params, services: services) else { return .object(["typed": .bool(typed)]) }
+        fields["typed"] = .bool(typed)
+        return .object(fields)
     }
     #endif
 
