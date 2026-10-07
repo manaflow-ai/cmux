@@ -163,7 +163,8 @@ import Testing
         try home.write("x", to: root.appending(path: "Default/Login Data"))
         try home.write("{}", to: root.appending(path: "Default/Bookmarks"))
         let profile = try #require(BrowserSourceDetector(environment: home.environment).detect(.yandex)?.profiles.first)
-        #expect(profile.availability(of: .passwords) == .unsupported(.sourceEncrypted))
+        #expect(profile.availability(of: .passwords) == .unsupported(.exportFromSource))
+        #expect(!ImportBrowser.yandex.readsSavedPasswords)
         #expect(profile.availability(of: .bookmarks) == .available)
     }
 

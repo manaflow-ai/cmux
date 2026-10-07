@@ -29,7 +29,7 @@ public struct BrowserSourceDetector: Sendable {
         guard !unsupported.isEmpty else { return source }
         for index in source.profiles.indices {
             for kind in unsupported where source.profiles[index].availability[kind] != nil && source.profiles[index].availability[kind] != .absent {
-                source.profiles[index].availability[kind] = .unsupported(.sourceEncrypted)
+                source.profiles[index].availability[kind] = .unsupported(.exportFromSource)
             }
         }
         return source
@@ -47,7 +47,7 @@ public struct BrowserSourceDetector: Sendable {
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
                 let avatar = entry.avatarFileName.map { path.appending(path: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-                var availability = Self.chromiumAvailability(path, files: browser.source?.files)
+                var availability = Self.chromiumAvailability(path, browser: browser)
                 if browser.bookmarksFormat == .noStore || browser.bookmarksFormat == .htmlExport {
                     availability[.bookmarks] = .absent
                 }
@@ -112,7 +112,8 @@ public struct BrowserSourceDetector: Sendable {
         return nil
     }
 
-    static func chromiumAvailability(_ profile: URL, files: BrowserDataFiles? = nil) -> [ImportDataKind: DataAvailability] {
+    static func chromiumAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
+        let files = browser.source?.files
         func present(_ name: String?) -> Bool { name.map { FileManager.default.fileExists(atPath: profile.appending(path: $0).path) } ?? false }
         let sessions = profile.appending(path: "Sessions")
         let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
@@ -122,7 +123,7 @@ public struct BrowserSourceDetector: Sendable {
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
             // Read only after the consent step (PasswordImporter).
-            .passwords: present(files?.passwords ?? "Login Data") ? .available : .absent,
+            .passwords: !present(files?.passwords ?? "Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
     }
@@ -139,7 +140,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: session(places),
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
-            .passwords: present("logins.json") ? .unsupported(.exportFromSource) : .absent,
+            // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
+            .passwords: session(FirefoxLoginReader.hasLogins(profile) ? .available : present("logins.json") ? .unsupported(.exportFromSource) : .absent),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
         ]
     }

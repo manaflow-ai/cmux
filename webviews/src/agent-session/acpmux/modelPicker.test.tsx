@@ -161,7 +161,10 @@ describe("T3 model picker", () => {
       (row) => row.textContent === "Codex",
     )!;
     await act(async () => codex.click());
-    expect([...modelRows()].map((row) => row.textContent)).toEqual(["o3", "GPT-6-Astra"]);
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
     await act(async () => modelRows()[0]!.click());
     expect(calls).toEqual(["harness codex"]);
     expect(menu()).toBeNull();
@@ -211,5 +214,16 @@ describe("T3 model picker", () => {
     expect(fast.textContent).toContain("Off");
     await act(async () => fast.click());
     expect(calls).toEqual(["config fast-mode on"]);
+  });
+
+  test("shows T3 subtitles, stable command hotkeys, and local favorites", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")?.textContent).toContain("Claude Code");
+    expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
+    const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
+    expect(favorite.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => favorite.click());
+    expect(favorite.getAttribute("aria-pressed")).toBe("true");
   });
 });

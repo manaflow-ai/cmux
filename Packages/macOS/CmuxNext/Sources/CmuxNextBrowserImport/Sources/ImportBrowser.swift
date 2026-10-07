@@ -71,6 +71,10 @@ public struct ImportBrowser: RawRepresentable, Sendable, Hashable, Codable, Iden
     /// encrypts the browser's cookies and passwords.
     public var safeStorageService: String? { row?.safeStorage?.service }
 
+    /// Whether cmux can read this browser's saved passwords. Yandex seals them
+    /// with its own scheme, so its passwords show as unsupported (use its export).
+    public var readsSavedPasswords: Bool { !(row?.unsupportedKinds ?? []).contains(ImportDataKind.passwords.rawValue) && !refusesSessionData }
+
     /// Chromium browsers that keep one profile in the data folder itself
     /// (Opera), not in `Default` / `Profile N` subfolders.
     public var profileIsDataDirectory: Bool { source?.profiles == .dataDirectory }
