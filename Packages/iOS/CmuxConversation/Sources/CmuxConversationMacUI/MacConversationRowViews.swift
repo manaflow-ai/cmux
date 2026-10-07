@@ -423,7 +423,12 @@ final class MacMessageRowView: MacFlippedView {
 
         configureAudio(model, layout: layout)
         toolTip = model.message.sentAt.formatted(date: .abbreviated, time: .shortened)
-        setAccessibilityLabel([model.isOutgoing ? nil : model.senderName, audioAccessibilityText ?? model.message.text].compactMap { $0 }.joined(separator: ", "))
+        // The controller adds tapbacks (it knows reactor names) and actions;
+        // an audio message speaks its duration and transcript.
+        var spoken = model.message
+        spoken.reactions = []
+        if let audio = audioAccessibilityText { spoken.text = audio }
+        setAccessibilityLabel(ConversationAccessibilityText.messageLabel(spoken, isOutgoing: model.isOutgoing, senderName: model.senderName, reactorName: { _ in nil }))
         setAccessibilityIdentifier("conversation.message.\(model.message.id)")
     }
 

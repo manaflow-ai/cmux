@@ -6,11 +6,32 @@ import UIKit
 enum ConversationTheme {
     // MARK: Metrics (points)
 
-    /// Composer text (the composer keeps its own fixed metrics).
-    static let bodyFont = UIFont.systemFont(ofSize: 17)
+    // MARK: Dynamic Type
+    //
+    // Messages sizes transcript text with the body style (ChatKit's
+    // ShortBody): 14 pt at XS, 17 at Large, 21 at XXL, 40 at AX3. Metrics
+    // given as Large values are scaled by the current content size category
+    // at each read.
+
+    /// `value` (a Large-size metric) at the current content size category.
+    static func scaled(_ value: CGFloat, _ style: UIFont.TextStyle = .body) -> CGFloat {
+        UIFontMetrics(forTextStyle: style).scaledValue(for: value)
+    }
+
+    /// A system font scaled like `style`. Bold Text needs nothing here: UIKit
+    /// already returns the heavier face (.SFUI-Semibold for regular) when it
+    /// is on, so bumping the weight again would double it.
+    static func font(_ size: CGFloat, _ weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body, maximum: CGFloat? = nil) -> UIFont {
+        var pointSize = scaled(size, style)
+        if let maximum { pointSize = min(pointSize, maximum) }
+        return .systemFont(ofSize: pointSize, weight: weight)
+    }
+
+    /// Composer text: 17 pt at Large, following Dynamic Type.
+    static var bodyFont: UIFont { font(17) }
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
-    /// Composer line pitch.
-    static let lineHeight: CGFloat = 24
+    /// Composer line pitch (measured 24 pt at Large).
+    static var lineHeight: CGFloat { ceil(scaled(24)) }
 
     // Bubble metrics follow ChatKit's CKUIBehavior on iOS 26.3 and scale
     // with Dynamic Type the way Messages does.
@@ -23,7 +44,7 @@ enum ConversationTheme {
     }
 
     /// The accessibility text sizes start where body text reaches 28 pt.
-    private static var isAccessibilitySize: Bool { bubbleFont.pointSize >= 28 }
+    static var isAccessibilitySize: Bool { bubbleFont.pointSize >= 28 }
 
     /// Text inset inside the bubble body: 10/14 pt, 12/16.67 pt at the
     /// accessibility sizes.
@@ -41,10 +62,16 @@ enum ConversationTheme {
     /// The narrowest text bubble.
     static let minBubbleWidth: CGFloat = 48
 
+    /// At accessibility sizes ChatKit drops the 85% cap: the bubble column is
+    /// the transcript width less both margins and 23.33 pt (346.7 on a 402 pt
+    /// transcript with 16 pt margins, 376.7 on 440/20), at every AX size.
+    static let accessibilityBubbleInset: CGFloat = 70.0 / 3.0
+
     /// Widest bubble for `width` of transcript between the side margins:
-    /// 85%, or the full width less 23.3 pt at the accessibility sizes.
+    /// 85%, or the full width less `accessibilityBubbleInset` at the
+    /// accessibility sizes.
     static func maxBubbleWidth(forAvailableWidth width: CGFloat) -> CGFloat {
-        isAccessibilitySize ? width - 70.0 / 3 : width * 0.85
+        isAccessibilitySize ? width - accessibilityBubbleInset : width * 0.85
     }
 
     /// Body-to-body gap between bubbles in a run (`balloonContiguousSpace`).
@@ -69,19 +96,20 @@ enum ConversationTheme {
     /// from the bubble's leading edge.
     static var senderNameFont: UIFont { .preferredFont(forTextStyle: .caption2) }
     static let senderNameInset: CGFloat = 14
-    /// "Delivered"/"Read": 11 pt semibold, 13.33 pt tall, 6 pt under the body
-    /// and 20 pt in from its trailing edge.
-    static let footerFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
-    static let footerDetailFont = UIFont.systemFont(ofSize: 11, weight: .regular)
-    static let footerHeight: CGFloat = 40.0 / 3
+    /// "Delivered"/"Read": caption 2 semibold (11 pt, 13.33 pt tall at Large;
+    /// Messages scales it: 20.3 pt tall at XXXL, 48 at AX5), 6 pt under the
+    /// body and 20 pt in from its trailing edge.
+    static var footerFont: UIFont { font(11, .semibold, style: .caption2) }
+    static var footerDetailFont: UIFont { font(11, style: .caption2) }
+    static var footerHeight: CGFloat { scaled(40.0 / 3, .caption2) }
     static let footerGap: CGFloat = 6
     static let footerInset: CGFloat = 20
-    static let editedFont = UIFont.systemFont(ofSize: 11, weight: .regular)
+    static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
     static var quoteFont: UIFont { .preferredFont(forTextStyle: .subheadline) }
-    /// Status, separators and swipe times are 11 pt in Messages (iOS 26).
-    static let timestampFont = UIFont.systemFont(ofSize: 11, weight: .regular)
-    static let timestampBoldFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
+    static var timestampFont: UIFont { font(11, style: .caption2) }
+    static var timestampBoldFont: UIFont { font(11, .semibold, style: .caption2) }
     /// Separator, swipe-time and status gray: Messages draws these in the
     /// system secondary label color (138,138,142 on white).
     static let timestampText = UIColor.secondaryLabel
@@ -90,15 +118,29 @@ enum ConversationTheme {
     static let composerSideInset: CGFloat = 27
     static let plusButtonSize: CGFloat = 40
     static let composerFieldGap: CGFloat = 13
-    static let composerMinHeight: CGFloat = 42
+    /// One line plus 9 pt above and below (42 pt at Large).
+    static var composerMinHeight: CGFloat { lineHeight + 18 }
 
     // MARK: Colors
 
     /// iMessage blue. iOS 26 tints it slightly brighter in dark mode.
-    static let outgoingBubble = UIColor.systemBlue
+    static let outgoingBubble = UIColor { traits in
+        // Increase Contrast: ChatKit's blue goes flat and darker (sampled
+        // 0,105,233 light / 0,98,219 dark).
+        guard traits.accessibilityContrast == .high else { return UIColor.systemBlue.resolvedColor(with: traits) }
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0, green: 98 / 255, blue: 219 / 255, alpha: 1)
+            : UIColor(red: 0, green: 105 / 255, blue: 233 / 255, alpha: 1)
+    }
 
     static let incomingBubble = UIColor { traits in
-        traits.userInterfaceStyle == .dark
+        if traits.accessibilityContrast == .high {
+            // ChatKit's high-contrast gray (CKBalloonShapeLayer fill).
+            return traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.188, green: 0.188, blue: 0.201, alpha: 1)
+                : UIColor(red: 0.873, green: 0.873, blue: 0.880, alpha: 1)
+        }
+        return traits.userInterfaceStyle == .dark
             ? UIColor(red: 38 / 255, green: 38 / 255, blue: 41 / 255, alpha: 1)
             : UIColor(red: 233 / 255, green: 233 / 255, blue: 235 / 255, alpha: 1)
     }
@@ -112,6 +154,11 @@ enum ConversationTheme {
 
         /// Colors and locations covering window fractions `top...bottom`.
         func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
+            // Increase Contrast: Messages' blue goes flat (no gradient).
+            if traits.accessibilityContrast == .high {
+                let flat = ConversationTheme.outgoingBubble.resolvedColor(with: traits).cgColor
+                return ([flat, flat], [0, 1])
+            }
             let stops = traits.userInterfaceStyle == .dark ? dark : light
             func color(at fraction: CGFloat) -> CGColor {
                 let f = max(0, min(1, fraction)) * CGFloat(stops.count - 1)
@@ -152,13 +199,16 @@ enum ConversationTheme {
     ]
     static let monogramFontScale: CGFloat = 0.472
 
-    static let failedBubble = UIColor.systemBlue
+    static let failedBubble = outgoingBubble
 
     static let outgoingText = UIColor.white
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
     static let secondaryText = UIColor { traits in
-        traits.userInterfaceStyle == .dark
+        // Increase Contrast: Messages' captions use the system's high-contrast
+        // secondary label (99,99,105 on white, measured).
+        if traits.accessibilityContrast == .high { return UIColor.secondaryLabel.resolvedColor(with: traits) }
+        return traits.userInterfaceStyle == .dark
             ? UIColor(red: 133 / 255, green: 132 / 255, blue: 136 / 255, alpha: 1)
             : UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
     }
@@ -183,23 +233,27 @@ enum ConversationTheme {
     }
 
     /// Body paragraph with the measured 24 pt pitch, glyphs vertically centered in the line.
-    nonisolated(unsafe) static let bodyParagraph: NSParagraphStyle = {
+    static var bodyParagraph: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = lineHeight
         style.maximumLineHeight = lineHeight
         style.lineBreakMode = .byWordWrapping
+        // At accessibility sizes Messages hyphenates long words ("din-ner").
+        if isAccessibilitySize { style.hyphenationFactor = 1 }
         return style
-    }()
+    }
 
     /// A fixed line height puts its extra space above the glyphs; frames shift up by this to center them.
     static var bodyGlyphLift: CGFloat { ((lineHeight - bodyFont.lineHeight) / 2).rounded(.down) }
 
-    /// Bubble text paragraph: natural line height, word wrapping.
-    nonisolated(unsafe) static let bubbleParagraph: NSParagraphStyle = {
+    /// Bubble text paragraph: natural line height, word wrapping; at
+    /// accessibility sizes Messages hyphenates long words ("din-ner").
+    static var bubbleParagraph: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byWordWrapping
+        if isAccessibilitySize { style.hyphenationFactor = 1 }
         return style
-    }()
+    }
 
     static func color(hex: String) -> UIColor {
         var value: UInt64 = 0

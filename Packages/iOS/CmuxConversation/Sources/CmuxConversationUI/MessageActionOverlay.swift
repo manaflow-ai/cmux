@@ -61,6 +61,8 @@ final class MessageActionOverlay: UIView {
         detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: 22) : nil
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.actions"
+        // Like a context menu: VoiceOver stays inside until it is dismissed.
+        accessibilityViewIsModal = true
 
         blur.frame = bounds
         dim.frame = bounds
@@ -93,7 +95,8 @@ final class MessageActionOverlay: UIView {
             if reaction == currentReaction {
                 button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.9)
             }
-            button.accessibilityLabel = reaction.rawValue
+            button.accessibilityLabel = ConversationAccessibilityText.tapbackName(reaction)
+            if reaction == currentReaction { button.accessibilityTraits.insert(.selected) }
             button.accessibilityIdentifier = "conversation.tapback.\(reaction.rawValue)"
             button.addAction(UIAction { [weak self] _ in
                 UISelectionFeedbackGenerator().selectionChanged()
@@ -140,6 +143,8 @@ final class MessageActionOverlay: UIView {
                 row.addArrangedSubview(name)
                 row.addArrangedSubview(UIView())
                 row.addArrangedSubview(glyph)
+                row.isAccessibilityElement = true
+                row.accessibilityLabel = "\(reactor.name), \(ConversationAccessibilityText.tapbackName(reactor.reaction))"
                 stack.addArrangedSubview(row)
             }
             stack.frame = CGRect(x: 14, y: 12, width: 240, height: CGFloat(reactors.count) * 40 - 10)
@@ -230,13 +235,15 @@ final class MessageActionOverlay: UIView {
 
     func present() {
         let target = layoutFinal()
+        UIAccessibility.post(notification: .screenChanged, argument: detailCard ?? reactionButtons.first)
         snapshotClip.frame = sourceFrame
         for view in [reactionBar, menu, emojiButton] + (detailCard.map { [$0] } ?? []) {
             // Grow out of the bubble's side and edge.
             let dx = (isOutgoing ? 1 : -1) * view.bounds.width * 0.2
             let dy = (view === menu ? -1 : 1) * view.bounds.height * 0.2
             view.alpha = 0
-            view.transform = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: 0.6, y: 0.6)
+            // Reduce Motion: the bar and menu fade in place, as system context menus do.
+            view.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: dx, y: dy).scaledBy(x: 0.6, y: 0.6)
         }
         // A partial blur: the transcript stays faintly legible behind the menu.
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
@@ -251,7 +258,7 @@ final class MessageActionOverlay: UIView {
         UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             self.dim.alpha = 1
             self.snapshotClip.frame = target
-            self.snapshotClip.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            self.snapshotClip.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 1.02, y: 1.02)
             for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 1
                 view.transform = .identity
@@ -268,7 +275,7 @@ final class MessageActionOverlay: UIView {
             self.snapshotClip.transform = .identity
             for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 0
-                view.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+                view.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
             }
         } completion: { _ in
             self.blurAnimator?.stopAnimation(true)
@@ -277,6 +284,12 @@ final class MessageActionOverlay: UIView {
             self.onDismiss?()
             completion?()
         }
+    }
+
+    /// VoiceOver's two-finger scrub closes the menu like a tap outside it.
+    override func accessibilityPerformEscape() -> Bool {
+        dismiss()
+        return true
     }
 
     @objc private func backgroundTapped(_ tap: UITapGestureRecognizer) {

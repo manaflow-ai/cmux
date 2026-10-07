@@ -130,6 +130,7 @@ public final class ConversationViewController: UIViewController {
         collectionView.register(ConversationStartCell.self, forCellWithReuseIdentifier: ConversationStartCell.reuseID)
         collectionView.register(TypingCell.self, forCellWithReuseIdentifier: TypingCell.reuseID)
         collectionView.accessibilityIdentifier = "conversation.transcript"
+        collectionView.accessibilityLabel = ConversationAccessibilityText.transcript
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(collectionView)
 
@@ -239,6 +240,13 @@ public final class ConversationViewController: UIViewController {
             || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
             layoutCache.invalidateAll()
             collectionView.reloadData()
+        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            // Dynamic Type or Bold Text: every row re-measures at the new size.
+            layoutCache.invalidateAll()
+            layout.invalidateLayout()
+            collectionView.reloadData()
+            view.setNeedsLayout()
         }
     }
 
@@ -517,6 +525,7 @@ public final class ConversationViewController: UIViewController {
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals()
+        announceArrivals(newRows, inserted: inserted, isLive: animateLive)
     }
 
     private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
@@ -718,6 +727,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
             cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"
+            configureAccessibility(cell, model: model)
             return cell
         case let .timestamp(_, date):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell

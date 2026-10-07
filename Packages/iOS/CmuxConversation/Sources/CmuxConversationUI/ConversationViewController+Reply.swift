@@ -18,6 +18,7 @@ final class ReplyThreadOverlay: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.replyThread"
+        content.accessibilityLabel = String(localized: "conversation.ax.replyTranscript", defaultValue: "Reply transcript", bundle: .module)
         addSubview(blur)
         dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.62) : UIColor.white.withAlphaComponent(0.45) }
         dim.alpha = 0
@@ -31,6 +32,11 @@ final class ReplyThreadOverlay: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    override func accessibilityPerformEscape() -> Bool {
+        onClose?()
+        return true
+    }
 
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: content)
@@ -65,6 +71,9 @@ extension ConversationViewController {
         populate(overlay, rootID: rootID)
         composer.isReplyMode = true
         header.setTrailingMode(.close, animated: true)
+        // The blurred transcript behind the thread is out of VoiceOver's reach.
+        collectionView.accessibilityElementsHidden = true
+        UIAccessibility.post(notification: .screenChanged, argument: overlay.content)
         // The replied-to bubble is one continuous object: its sharp copy
         // starts exactly over the transcript bubble and rides up to the
         // composer while the rest of the thread fades in around it.
@@ -79,7 +88,7 @@ extension ConversationViewController {
             chrome.forEach { $0.alpha = 0 }
         } else {
             overlay.content.alpha = 0
-            overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
+            overlay.content.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: 0, y: 24)
         }
         composer.textView.becomeFirstResponder()
         UIView.animate(withDuration: 0.37, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
@@ -143,6 +152,7 @@ extension ConversationViewController {
             let cellLayout = MessageCellLayout.compute(model: model, width: width, margin: layoutMargin, text: layoutCache.attributedText(for: model))
             let cell = MessageCell(frame: CGRect(x: 0, y: y, width: width, height: cellLayout.height))
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
+            configureAccessibility(cell, model: model)
             overlay.content.addSubview(cell)
             cell.layoutIfNeeded()
             cells.append(cell)
@@ -177,6 +187,8 @@ extension ConversationViewController {
         replyTarget = nil
         composer.isReplyMode = false
         header.setTrailingMode(isSelecting ? .close : .action, animated: true)
+        collectionView.accessibilityElementsHidden = false
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
         // The bubble settles back onto its transcript row as the blur clears;
         // with that row off screen the thread just fades.
         let settle = settling ? overlay.anchorMessageID.flatMap { transcriptOffset(of: $0, in: overlay) } : nil

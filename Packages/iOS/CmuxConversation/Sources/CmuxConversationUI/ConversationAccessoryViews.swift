@@ -17,6 +17,8 @@ final class ConversationAvatarView: UIView {
         addSubview(label)
         clipsToBounds = true
         isAccessibilityElement = false
+        // Decorative: the sender is spoken in the bubble, the header has its own button.
+        accessibilityElementsHidden = true
     }
 
     @available(*, unavailable)

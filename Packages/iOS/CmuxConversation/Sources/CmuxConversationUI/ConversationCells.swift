@@ -30,6 +30,7 @@ final class MessageCell: UICollectionViewCell {
     /// Audio messages (created on first use; see ConversationAudioViews).
     weak var audioDelegate: (any AudioMessageCellDelegate)?
     var audioViews: AudioMessageCellViews?
+    private(set) lazy var accessibility = MessageCellAccessibility(cell: self)
 
     private(set) var model: MessageRowModel?
     private var previousRowID: String?
@@ -128,6 +129,7 @@ final class MessageCell: UICollectionViewCell {
         self.cellLayout = layout
         let message = model.message
         placeShiftable()
+        applyScaledFonts()
 
         senderLabel.isHidden = layout.senderNameFrame == nil
         senderLabel.font = ConversationTheme.senderNameFont
@@ -292,13 +294,7 @@ final class MessageCell: UICollectionViewCell {
         timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
         setNeedsLayout()
         applyShifts()
-        accessibilityLabel = [model.senderName, audioAccessibilityText ?? message.text].compactMap { $0 }.joined(separator: ", ")
-        // VoiceOver hears what the bubble shows: "Edited" and the current status.
-        accessibilityValue = [
-            editedLabel.isHidden ? nil : editedLabel.text,
-            footerLabel.isHidden ? nil : footerLabel.text,
-        ].compactMap { $0 }.joined(separator: ", ")
-        isAccessibilityElement = true
+        accessibility.update(model: model, layout: layout)
     }
 
     /// Keeps outgoing bubbles' screen-anchored gradient in step with scrolling.
@@ -518,11 +514,12 @@ final class TimestampCell: UICollectionViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        label.frame = CGRect(x: 16, y: 10, width: contentView.bounds.width - 32, height: 18)
+        label.frame = CGRect(x: 16, y: 10, width: contentView.bounds.width - 32, height: max(18, ceil(ConversationTheme.timestampFont.lineHeight)))
     }
 
-    /// Messages sets the next bubble 10.6 pt below the separator's baseline.
-    static let height: CGFloat = 28.6
+    /// Messages sets the next bubble 10.6 pt below the separator's baseline
+    /// (28.6 pt at Large); the row grows with the caption 2 timestamp font.
+    static var height: CGFloat { 28.6 + max(0, ceil(ConversationTheme.timestampFont.lineHeight) - 14) }
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
@@ -583,7 +580,7 @@ final class LoadingCell: UICollectionViewCell {
 /// The top of history: service name and subtitle, as Messages shows above the first message.
 final class ConversationStartCell: UICollectionViewCell {
     static let reuseID = "start"
-    static let height: CGFloat = 54
+    static var height: CGFloat { max(54, 2 * ceil(ConversationTheme.font(11, style: .caption2).lineHeight) + 26) }
     private let title = UILabel()
     private let subtitle = UILabel()
 
@@ -603,17 +600,19 @@ final class ConversationStartCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(title: String, subtitle: String) {
+        self.title.font = ConversationTheme.font(11, .semibold, style: .caption2)
         self.title.text = title
         let attachment = NSTextAttachment(image: UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!.withTintColor(ConversationTheme.secondaryText, renderingMode: .alwaysOriginal))
         let text = NSMutableAttributedString(attachment: attachment)
-        text.append(NSAttributedString(string: " " + subtitle, attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: ConversationTheme.secondaryText]))
+        text.append(NSAttributedString(string: " " + subtitle, attributes: [.font: ConversationTheme.font(11, style: .caption2), .foregroundColor: ConversationTheme.secondaryText]))
         self.subtitle.attributedText = text
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        title.frame = CGRect(x: 0, y: 14, width: contentView.bounds.width, height: 14)
-        subtitle.frame = CGRect(x: 0, y: 29, width: contentView.bounds.width, height: 14)
+        let line = max(14, ceil(title.font.lineHeight))
+        title.frame = CGRect(x: 0, y: 14, width: contentView.bounds.width, height: line)
+        subtitle.frame = CGRect(x: 0, y: 15 + line, width: contentView.bounds.width, height: line)
     }
 }
 

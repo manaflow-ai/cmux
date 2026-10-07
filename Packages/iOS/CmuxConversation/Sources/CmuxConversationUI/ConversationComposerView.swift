@@ -113,7 +113,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             guard let self else { return }
             self.delegate?.composerDidTapPlus(self)
         }, for: .touchUpInside)
-        plusButton.accessibilityLabel = String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)
+        plusButton.accessibilityLabel = String(localized: "conversation.ax.composerPlus", defaultValue: "Add", bundle: .module)
+        plusButton.accessibilityHint = String(localized: "conversation.ax.composerPlus.hint", defaultValue: "Add photos or apps to this conversation", bundle: .module)
         plusButton.accessibilityIdentifier = "conversation.composer.plus"
 
         addSubview(fieldGlass)
@@ -142,12 +143,15 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.delegate = self
         textView.returnKeyType = .default
         textView.accessibilityIdentifier = "conversation.composer.text"
+        // Messages: a text field labeled "Message" whose value is the placeholder while empty.
+        textView.accessibilityLabel = String(localized: "conversation.ax.composerField", defaultValue: "Message", bundle: .module)
         fieldGlass.contentView.addSubview(textView)
         _ = mentionController
 
         placeholder.font = ConversationTheme.bodyFont
         placeholder.textColor = .placeholderText
         placeholder.isUserInteractionEnabled = false
+        placeholder.isAccessibilityElement = false
         fieldGlass.contentView.addSubview(placeholder)
         updatePlaceholder()
 
@@ -204,6 +208,28 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         fieldGlass.layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            applyScaledFonts()
+        }
+    }
+
+    /// The field's text and placeholder follow Dynamic Type; the field grows with them.
+    private func applyScaledFonts() {
+        textView.font = ConversationTheme.bodyFont
+        textView.typingAttributes = [
+            .font: ConversationTheme.bodyFont,
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: ConversationTheme.bodyParagraph,
+        ]
+        if let text = textView.text, !text.isEmpty {
+            let selection = textView.selectedRange
+            textView.attributedText = NSAttributedString(string: text, attributes: textView.typingAttributes)
+            textView.selectedRange = selection
+        }
+        placeholder.font = ConversationTheme.bodyFont
+        fieldHeight = 0
+        updateHeight()
+        setNeedsLayout()
     }
 
     // MARK: Text
@@ -269,6 +295,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             ? String(localized: "conversation.composer.addComment", defaultValue: "Add comment or Send", bundle: .module)
             : (isReplyMode ? replyPlaceholderText : placeholderText)
         placeholder.isHidden = !(textView.text ?? "").isEmpty
+        textView.accessibilityPlaceholder = placeholder.text
     }
 
     private func updateSendButton(animated: Bool) {
@@ -461,6 +488,14 @@ final class ComposerTextView: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         refreshEffects()
+    }
+
+    /// Spoken as the value while empty, as a text field speaks its placeholder.
+    var accessibilityPlaceholder: String?
+
+    override var accessibilityValue: String? {
+        get { (text ?? "").isEmpty ? accessibilityPlaceholder : super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
     }
 
     override func paste(_ sender: Any?) {
