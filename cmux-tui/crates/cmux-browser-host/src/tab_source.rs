@@ -57,6 +57,8 @@ pub struct TabRow {
     /// Tabs with equal `dataStore` share cookies and storage.
     pub data_store: String,
     pub opener: Option<String>,
+    /// In an in-memory store that keeps nothing (private data P1).
+    pub incognito: bool,
 }
 
 impl TabRow {
@@ -68,6 +70,9 @@ impl TabRow {
         });
         if let Some(opener) = &self.opener {
             row["openerTargetId"] = Value::String(opener.clone());
+        }
+        if self.incognito {
+            row["incognito"] = Value::Bool(true);
         }
         row
     }

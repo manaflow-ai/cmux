@@ -1,58 +1,12 @@
-//! Environment-reference helpers for harness profiles.
+//! Env references in a harness profile: `${keychain:service[/account]}` and
+//! `${env:VAR}`, resolved only when a harness starts. Part of
+//! `config/profiles.rs`.
 
 use std::collections::BTreeMap;
 
-fn is_reference(value: &str) -> bool {
+pub(super) fn is_reference(value: &str) -> bool {
     value.contains("${keychain:") || value.contains("${env:")
 }
-
-/// JSON with `//` and `/* */` comments, comments removed (strings kept).
-fn strip_json_comments(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut in_string = false;
-    while let Some(c) = chars.next() {
-        if in_string {
-            out.push(c);
-            if c == '\\' {
-                if let Some(n) = chars.next() {
-                    out.push(n);
-                }
-            } else if c == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match (c, chars.peek()) {
-            ('"', _) => {
-                in_string = true;
-                out.push(c);
-            }
-            ('/', Some('/')) => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        out.push('\n');
-                        break;
-                    }
-                }
-            }
-            ('/', Some('*')) => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-// ------------------------------------------------------- env references
 
 /// Replace `${keychain:…}` and `${env:…}` in env values with their values.
 /// `lookup_env` reads the login environment; `lookup_keychain` reads one
