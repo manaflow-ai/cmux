@@ -28,6 +28,11 @@ enum SidebarHiddenSections {
         return target.id == SidebarLayoutDocument.recentsSectionID.rawValue
     }
 
+    /// The setting Hide Section turns off.
+    static let hidePath = SidebarSectionsSetting.showRecentsPath
+    /// The settings Show Hidden Sections turns back on.
+    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath, SidebarSectionsSetting.showRecentsPath]
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
         registry.bind("sidebar.section.hide", unavailable: { settings().showRecents ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in

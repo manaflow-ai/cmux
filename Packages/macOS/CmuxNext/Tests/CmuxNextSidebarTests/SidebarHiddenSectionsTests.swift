@@ -3,9 +3,10 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// Leo (2026-10-06): Hide Section on the Projects or Recents header hides it
-/// (`sidebar.showProjects`, `sidebar.showRecents`) until Settings or the
-/// sidebar's menu shows it again.
+/// Leo (2026-10-06): Hide Section on the Projects header hides it
+/// (`sidebar.showProjects`) until Settings or the sidebar's menu shows it
+/// again. Hiding Chats turns `sidebar.showChats` off, which takes its section
+/// out of the layout.
 @MainActor @Suite(.serialized) struct SidebarHiddenSectionsTests {
     @Test func hiddenProjectsLayOutNoRows() {
         var options = SidebarLayoutOptions()
@@ -23,11 +24,10 @@ import Testing
         #expect(!model.listOptions().hidesWorkspaces)
     }
 
-    @Test func hiddenRecentsDrawsNothing() {
-        let saved = DesignSettings.shared.sidebarSections
-        defer { DesignSettings.shared.sidebarSections = saved }
-        DesignSettings.shared.sidebarSections.showRecents = false
-        let view = SidebarView(model: SidebarModel(sections: SidebarDemoMock.makeSections()))
+    @Test func hiddenChatsDrawsNothing() {
+        let model = SidebarModel(sections: SidebarDemoMock.makeSections())
+        model.layout = SidebarRecentsUnderListTests.layout.chatsLayout(enabled: false)
+        let view = SidebarView(model: model)
         view.appSections = SidebarRecentsUnderListTests.Recents()
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()

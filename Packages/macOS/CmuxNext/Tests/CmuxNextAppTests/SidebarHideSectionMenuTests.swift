@@ -1,11 +1,13 @@
 import CmuxNextActions
+import CmuxNextSettings
 import CmuxNextSidebar
 import Testing
 @testable import CmuxNextApp
 
 /// Leo (2026-10-06): the Recents header's menu has Hide Section; the Projects
 /// header (the sidebar's menu) has Hide Projects; the sidebar's menu has Show
-/// Hidden Sections to bring them back.
+/// Hidden Sections to bring them back. Recents is now the optional Chats
+/// section (SIDEBAR-NO-RECENTS), so its Hide turns `sidebar.showChats` off.
 @MainActor @Suite struct SidebarHideSectionMenuTests {
     private func ids(_ context: ActionMenuContext) -> [ActionID] {
         ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context))
@@ -33,5 +35,13 @@ import Testing
         #expect(SidebarHiddenSections.hidesRecents(ActionTargetRef(kind: .sidebarSection, id: recents.rawValue)))
         #expect(SidebarHiddenSections.hidesRecents(nil))
         #expect(!SidebarHiddenSections.hidesRecents(ActionTargetRef(kind: .sidebarSection, id: SidebarLayoutDocument.topSectionID.rawValue)))
+    }
+
+    /// One setting per section: hiding Chats from its header turns off Show
+    /// Chats, and Show Hidden Sections brings back Projects only (Chats is
+    /// opt in; Show Chats in Settings brings it back).
+    @Test func hidingChatsTurnsOffShowChats() {
+        #expect(SidebarHiddenSections.hidePath == SidebarSectionsSetting.showChatsPath)
+        #expect(SidebarHiddenSections.showHiddenPaths == [SidebarSectionsSetting.showProjectsPath])
     }
 }
