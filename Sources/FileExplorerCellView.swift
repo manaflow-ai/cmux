@@ -91,7 +91,7 @@ final class FileExplorerCellView: NSTableCellView {
         if let materialIcon = MaterialFileIconResolver.shared.image(
             name: node.name, isDirectory: node.isDirectory, pointSize: style.iconSize
         ) {
-            // VS Code-style Material icons ship their own colors; no tint.
+            // The bundled Symbols icons ship their own colors; no tint.
             iconView.apply(CmuxResolvedIconRequest(
                 source: .image(materialIcon),
                 size: NSSize(width: style.iconSize, height: style.iconSize)

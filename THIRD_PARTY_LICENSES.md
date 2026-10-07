@@ -16,6 +16,20 @@ license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
 
 ---
 
+## Symbols icon theme (file explorer icons)
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2020-22 Miguel Solorio
+- **Source:** https://github.com/miguelsolorio/vscode-symbols
+
+Selected file and folder SVGs from the theme are bundled under
+`Resources/MaterialIcons`, and `Resources/material-icons.json` is derived from
+the theme's `symbol-icon-theme.json` (file names, extensions and folder names
+mapped to icon names). The complete license text is in
+`Resources/MaterialIcons/LICENSE`.
+
+---
+
 ## Primer Octicons (selected diff viewer icons)
 
 - **License:** MIT License

@@ -1,9 +1,10 @@
 import AppKit
 
-/// Resolves VS Code-style Material file icons from the bundled icon set.
+/// Resolves VS Code-style file icons from the bundled icon set.
 ///
 /// The mapping (`material-icons.json`) and the SVGs (`Resources/MaterialIcons`)
-/// are the Material Icon Theme's: file names beat extensions, and compound
+/// come from Miguel Solorio's Symbols icon theme (MIT, see
+/// THIRD_PARTY_LICENSES.md): file names beat extensions, and compound
 /// extensions match longest-first ("foo.test.tsx" tries "test.tsx" before
 /// "tsx"). Resolution is cached per icon and point size; a name with no SVG is
 /// remembered so the file system is only consulted once per icon.
