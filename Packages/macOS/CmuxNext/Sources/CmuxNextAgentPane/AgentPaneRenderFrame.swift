@@ -13,6 +13,8 @@ import Foundation
 nonisolated enum AgentPaneRenderFrame {
     static let host = "render"
     static let path = "/frame"
+    /// The frame's origin, for the pane's CSP `frame-src` (PageDescriptor.agent).
+    static let source = "cmux-agent://\(host)"
 
     /// True for the frame document's URL, and nothing else on the render host.
     static func isFrame(_ url: URL) -> Bool {

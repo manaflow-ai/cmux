@@ -8,13 +8,13 @@ public extension PageDescriptor {
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
-    /// loopback previews in frames, and runs only its own script files, no inline script. The page's
+    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script. The page's
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
-                     frame: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      inlineScript: false))
 }
 
