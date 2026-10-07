@@ -30,15 +30,26 @@ import Testing
         String(cString: class_getName(type(of: view))) == "SwiftUI.KeyViewProxy"
     }
 
-    private func spinRunLoop(_ iterations: Int = 10) {
-        for _ in 0..<iterations {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    private func focusProxy(in window: NSWindow, host: NSView) async throws -> NSView {
+        host.layoutSubtreeIfNeeded()
+        let proxyCreated = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.subviews.contains(where: isKeyViewProxy)
         }
+        try #require(proxyCreated, "SwiftUI should create a focus proxy in the hosting view")
+
+        try #require(window.makeFirstResponder(host))
+        window.selectNextKeyView(nil)
+        let proxyFocused = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            guard let responder = window.firstResponder as? NSView else { return false }
+            return isKeyViewProxy(responder)
+        }
+        try #require(proxyFocused, "Keyboard focus should reach a SwiftUI focus proxy")
+        return try #require(window.firstResponder as? NSView)
     }
 
     /// Focuses a SwiftUI element, then frees its hosting view while something still holds the
     /// proxy, which is the state every crashing walker reached.
-    private func makeProxyThatOutlivedItsHost() throws -> NSView {
+    private func makeProxyThatOutlivedItsHost() async throws -> NSView {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
             styleMask: [.titled],
@@ -46,41 +57,41 @@ import Testing
             defer: false
         )
         window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         window.contentView = container
 
-        var proxy: NSView?
-        weak var weakHost: NSView?
+        var host: NSHostingView<FocusableContent>? = NSHostingView(rootView: FocusableContent())
+        weak var weakHost = host
         autoreleasepool {
-            let host = NSHostingView(rootView: FocusableContent())
-            host.frame = container.bounds
-            container.addSubview(host)
-            weakHost = host
-            spinRunLoop()
-            window.makeFirstResponder(host)
-            spinRunLoop()
-            window.selectNextKeyView(nil)
-            spinRunLoop()
-            proxy = window.firstResponder as? NSView
-            host.removeFromSuperview()
+            host?.frame = container.bounds
+            if let host { container.addSubview(host) }
         }
-        spinRunLoop(20)
+        let proxy = try await focusProxy(in: window, host: #require(host))
+        autoreleasepool {
+            host?.removeFromSuperview()
+            host = nil
+        }
+        let hostReleased = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            weakHost == nil
+        }
 
-        let stale = try #require(proxy)
-        try #require(isKeyViewProxy(stale))
-        try #require(weakHost == nil)
-        return stale
+        try #require(hostReleased, "The proxy must outlive its host to exercise the crash")
+        return proxy
     }
 
-    @Test func walkingAProxyThatOutlivedItsHostEndsTheChain() throws {
+    @Test func walkingAProxyThatOutlivedItsHostEndsTheChain() async throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
-        let proxy = try makeProxyThatOutlivedItsHost()
+        let proxy = try await makeProxyThatOutlivedItsHost()
 
         #expect(proxy.superview == nil)
         #expect(proxy.nextResponder == nil)
     }
 
-    @Test func attachedProxyStillForwardsToItsHost() throws {
+    @Test func attachedProxyStillForwardsToItsHost() async throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
@@ -89,17 +100,14 @@ import Testing
             defer: false
         )
         window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         let host = NSHostingView(rootView: FocusableContent())
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
         window.contentView = host
-        spinRunLoop()
-        window.makeFirstResponder(host)
-        spinRunLoop()
-        window.selectNextKeyView(nil)
-        spinRunLoop()
-
-        let proxy = try #require(window.firstResponder as? NSView)
-        try #require(isKeyViewProxy(proxy))
+        let proxy = try await focusProxy(in: window, host: host)
         #expect(proxy.nextResponder === host)
     }
 }
