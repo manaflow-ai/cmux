@@ -60,6 +60,10 @@ public final class ConversationStore {
     }
 
     public let pageSize: Int
+    /// Messages pages history 50 messages at a time on iPhone
+    /// (CKUIBehavior.defaultConversationLoadMoreCount); the Mac pages 100.
+    public static let defaultPageSize = 50
+    public static let macPageSize = 100
     private let backend: any ConversationBackend
     private let clock: any Clock<Duration>
     private let makeClientMessageID: @Sendable () -> String
@@ -78,7 +82,7 @@ public final class ConversationStore {
 
     public init(
         backend: any ConversationBackend,
-        pageSize: Int = 40,
+        pageSize: Int = ConversationStore.defaultPageSize,
         clock: any Clock<Duration> = ContinuousClock(),
         makeClientMessageID: @escaping @Sendable () -> String = { UUID().uuidString }
     ) {
