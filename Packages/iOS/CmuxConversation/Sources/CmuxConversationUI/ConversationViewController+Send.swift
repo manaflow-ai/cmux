@@ -64,9 +64,12 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         container.isUserInteractionEnabled = false
         view.insertSubview(container, belowSubview: header)
 
-        // Images fly at their final size and shape (tail included), scaled
-        // down to the composer thumbnail, so the tail never pops in late.
-        var imageFlights: [(view: UIView, start: CGAffineTransform)] = []
+        // Measured on iOS 26 Messages: photos never shrink to the card's
+        // thumbnails. The stack rises at its final size from where the card
+        // showed the first photo, fading in, on a critically damped spring.
+        var imageFlights: [UIView] = []
+        let stackTop = cellLayout.imageFrames.first.map { $0.minY + cellOrigin.y }
+        let rise = stackTop.map { max(0, flight.fieldFrame.minY + 6 - $0) } ?? 0
         for (offset, imageFrame) in cellLayout.imageFrames.enumerated() where offset < flight.attachments.count {
             let imageView = UIImageView(image: flight.attachments[offset])
             imageView.contentMode = .scaleAspectFill
@@ -78,12 +81,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let mask = CAShapeLayer()
             mask.path = BubbleShape.path(in: maskRect, side: .trailing, tail: tailed).cgPath
             imageView.layer.mask = mask
-            let from = CGRect(x: flight.fieldFrame.minX + 12, y: flight.fieldFrame.minY + 8, width: min(flight.fieldFrame.width - 24, 120 * CGFloat(flight.attachments[offset].size.width / max(1, flight.attachments[offset].size.height))), height: 120)
-            let scale = min(from.width / to.width, from.height / to.height)
-            let start = CGAffineTransform(translationX: from.midX - to.midX, y: from.midY - to.midY).scaledBy(x: scale, y: scale)
-            imageView.transform = start
+            imageView.transform = CGAffineTransform(translationX: 0, y: rise)
+            imageView.alpha = 0
             container.addSubview(imageView)
-            imageFlights.append((imageView, start))
+            imageFlights.append(imageView)
         }
 
         var bubbleFlight: (bubble: BubbleBackgroundView, clip: UIView, label: UILabel, from: CGRect, to: CGRect, textFrom: CGRect, textTo: CGRect)?
@@ -139,9 +140,14 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         CATransaction.setCompletionBlock { [weak self] in
             self?.landFlight(rowID: rowID)
         }
-        // Images travel farther from the card and take ~0.5 s (A20/A21).
-        UIView.animate(withDuration: 1.1, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-            for image in imageFlights { image.view.transform = .identity }
+        // Frame fit of Messages' 2-photo send: residual offset follows
+        // (1 + wt)e^-wt with w ~ 23/s (0.27 s response, no overshoot); opacity
+        // reaches ~0.4 by 67 ms and ~0.9 by 200 ms.
+        UIView.animate(springDuration: 0.27, bounce: 0, options: [.allowUserInteraction]) {
+            for image in imageFlights { image.transform = .identity }
+        }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            for image in imageFlights { image.alpha = 1 }
         }
         UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             if let flight = bubbleFlight {
