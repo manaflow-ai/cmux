@@ -333,20 +333,43 @@ fn cmux_server_runs_with_default_termination_signals() {
     }
 }
 
-/// Review P3 (17011): an option value is not the noun, and the old
-/// `--session NAME server status` spelling points to `cmux daemon`.
+/// Review P3 (17011): an option value is not the noun. The old
+/// `--session NAME server status` spelling is the daemon lifecycle,
+/// rewritten to `daemon` (compatibility, with a deprecation hint).
 #[test]
 fn cmux_server_option_values_and_old_lifecycle_routing() {
-    let refused = |line: &[&str]| match machine_server::args_for(&strings(line), Surface::Cmux) {
-        Some(Err((error, _))) => error.0,
+    let route = |line: &[&str]| match machine_server::args_for(&strings(line), Surface::Cmux) {
+        Some(Ok(route)) => route,
         other => panic!("{line:?}: {other:?}"),
     };
-    let error = refused(&["--session", "agents", "server", "status"]);
-    assert!(error.contains("--session") && error.contains("cmux daemon status"), "{error}");
-    let error = refused(&["--socket", "/tmp/s.sock", "server", "stop"]);
-    assert!(error.contains("cmux daemon stop"), "{error}");
-    let error = refused(&["--session", "agents", "server", "install"]);
-    assert!(!error.contains("cmux daemon"), "{error}");
+    assert_eq!(
+        route(&["--session", "agents", "server", "status"]),
+        ServerRoute::DeprecatedLifecycle {
+            args: strings(&["--session", "agents", "daemon", "status"]),
+            verb: "status".to_owned(),
+        }
+    );
+    assert_eq!(
+        route(&["server", "status", "--session", "agents", "--json"]),
+        ServerRoute::DeprecatedLifecycle {
+            args: strings(&["daemon", "status", "--session", "agents", "--json"]),
+            verb: "status".to_owned(),
+        }
+    );
+    assert_eq!(
+        route(&["--socket", "/tmp/s.sock", "server", "stop"]),
+        ServerRoute::DeprecatedLifecycle {
+            args: strings(&["--socket", "/tmp/s.sock", "daemon", "stop"]),
+            verb: "stop".to_owned(),
+        }
+    );
+    // A machine server verb with --session is refused, without a daemon hint.
+    let Some(Err((error, _))) =
+        machine_server::args_for(&strings(&["--session", "agents", "server", "install"]), Surface::Cmux)
+    else {
+        panic!("server install with --session was accepted");
+    };
+    assert!(error.0.contains("--session") && !error.0.contains("cmux daemon"), "{}", error.0);
     // `server` here is the value of --session, not the noun.
     assert!(
         machine_server::args_for(&strings(&["--session", "server", "--bogus"]), Surface::Cmux)
@@ -360,17 +383,20 @@ fn cmux_server_is_the_machine_server() {
     let args = |line: &[&str], surface| {
         machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
     };
-    assert_eq!(args(&["server", "status"], Surface::Cmux), Some(Ok(strings(&["status"]))));
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(args(&["server", "status"], Surface::Cmux), machine(&["status"]));
     assert_eq!(
         args(&["--json", "server", "upgrade", "--channel-url", "https://c.example"], Surface::Cmux),
-        Some(Ok(strings(&["upgrade", "--channel-url", "https://c.example", "--json"])))
+        machine(&["upgrade", "--channel-url", "https://c.example", "--json"])
     );
-    assert_eq!(args(&["server", "--help"], Surface::Cmux), Some(Ok(strings(&["--help"]))));
+    assert_eq!(args(&["server", "--help"], Surface::Cmux), machine(&["--help"]));
     assert_eq!(args(&["server", "status"], Surface::CmuxTui), None, "cmux-tui keeps the lifecycle");
     assert_eq!(args(&["daemon", "status"], Surface::Cmux), None);
     assert_eq!(args(&["workspace", "list"], Surface::Cmux), None);
     // The routed words parse as the machine server's `status` verb.
-    let routed = args(&["server", "status"], Surface::Cmux).unwrap().unwrap();
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["server", "status"], Surface::Cmux) else {
+        panic!("server status was not routed to the machine server");
+    };
     assert_eq!(cmux_server::cli::parse(&routed).unwrap().verb_str(), "status");
 }
 
@@ -378,8 +404,8 @@ fn cmux_server_is_the_machine_server() {
 fn cmux_server_refuses_global_options_that_do_not_apply() {
     // CLI owner condition: refused with a usage error, never dropped.
     for (line, option) in [
-        (vec!["--session", "build", "server", "status"], "--session"),
-        (vec!["--socket", "/tmp/x.sock", "server", "status"], "--socket"),
+        (vec!["--session", "build", "server", "install"], "--session"),
+        (vec!["--socket", "/tmp/x.sock", "server", "uninstall"], "--socket"),
         (vec!["server", "status", "--quiet"], "--quiet"),
         (vec!["--jsonl", "server", "status"], "--jsonl"),
         (vec!["--all-sessions", "server", "status"], "--all-sessions"),
@@ -397,28 +423,38 @@ fn cmux_server_refuses_global_options_that_do_not_apply() {
     );
     assert_eq!(
         routed.map(|r| r.ok()),
-        Some(Some(strings(&["pin", "1.2.3", "--idempotency-key=k1"])))
+        Some(Some(ServerRoute::Machine(strings(&["pin", "1.2.3", "--idempotency-key=k1"]))))
     );
 }
 
 #[test]
-fn old_lifecycle_verbs_under_cmux_server_point_to_cmux_daemon() {
-    // Released `uvx cmux server stop|start|stats|reload-config|ensure`:
-    // a usage error (exit 2) with the hint, no alias. `status` is a machine
-    // server verb and is not refused.
+fn old_lifecycle_verbs_under_cmux_server_still_run_the_daemon_lifecycle() {
+    // Released `uvx cmux server stop|start|stats|reload-config|ensure` and
+    // pre-D1 scripts: the words are rewritten to `cmux daemon <verb>` and
+    // run, with a deprecation hint. `status` alone is the machine server's.
     for verb in ["start", "ensure", "stats", "stop", "reload-config"] {
-        let Some(Err((error, output))) =
-            machine_server::args_for(&strings(&["--json", "server", verb]), Surface::Cmux)
-        else {
-            panic!("server {verb} was routed");
-        };
-        assert!(error.0.contains(&format!("run `cmux daemon {verb}`")), "{}", error.0);
-        assert_eq!(output, OutputMode::Json, "the error keeps the output mode");
+        let routed = machine_server::args_for(&strings(&["--json", "server", verb]), Surface::Cmux);
+        assert_eq!(
+            routed.map(|r| r.map_err(|(e, _)| e.0)),
+            Some(Ok(ServerRoute::DeprecatedLifecycle {
+                args: strings(&["--json", "daemon", verb]),
+                verb: verb.to_owned(),
+            })),
+            "server {verb}"
+        );
+        // The rewritten words parse as the daemon lifecycle on `cmux`.
+        let parsed = parse(&strings(&["--session", "s", "daemon", verb]), Surface::Cmux);
+        assert!(
+            matches!(parsed, Ok(ParsedCommand::Command { plan: CommandPlan::Server(_), .. })),
+            "daemon {verb} did not parse as the daemon lifecycle"
+        );
     }
     assert!(matches!(
         machine_server::args_for(&strings(&["server", "status"]), Surface::Cmux),
-        Some(Ok(_))
+        Some(Ok(ServerRoute::Machine(_)))
     ));
+    let hint = crate::localization::server_mount().daemon_lifecycle_deprecated;
+    assert!(hint.contains("{verb}") && hint.contains("cmux daemon"), "{hint}");
 }
 
 #[test]
