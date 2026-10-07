@@ -361,15 +361,17 @@ final class CmuxMainWindow: NSWindow {
     private var initialDisplayCompletion: (() -> Void)?
     private var isCompletingInitialDisplay = false
     private var didCompleteInitialDisplay = false
+    private var didDeliverInitialDisplayCompletion = false
 
-    /// Arms readiness after the caller has finished configuring this window.
+    /// Subscribes after configuration, replaying a display that already completed.
     func whenInitialDisplayCompletes(_ completion: @escaping () -> Void) {
-        guard !didCompleteInitialDisplay else { return }
+        guard !didDeliverInitialDisplayCompletion else { return }
         initialDisplayCompletion = completion
+        deliverInitialDisplayCompletionIfNeeded()
     }
 
     override func displayIfNeeded() {
-        guard initialDisplayCompletion != nil, !isCompletingInitialDisplay else {
+        guard !didCompleteInitialDisplay, !isCompletingInitialDisplay else {
             super.displayIfNeeded()
             return
         }
@@ -381,7 +383,7 @@ final class CmuxMainWindow: NSWindow {
     }
 
     override func display() {
-        guard initialDisplayCompletion != nil, !isCompletingInitialDisplay else {
+        guard !didCompleteInitialDisplay, !isCompletingInitialDisplay else {
             super.display()
             return
         }
@@ -396,9 +398,16 @@ final class CmuxMainWindow: NSWindow {
     private func completeInitialDisplayIfNeeded() {
         guard isVisible, contentView != nil, !didCompleteInitialDisplay else { return }
         didCompleteInitialDisplay = true
-        let completion = initialDisplayCompletion
+        deliverInitialDisplayCompletionIfNeeded()
+    }
+
+    /// Delivers the retained event once, without scheduling or requiring another draw.
+    private func deliverInitialDisplayCompletionIfNeeded() {
+        guard didCompleteInitialDisplay, !didDeliverInitialDisplayCompletion,
+              let completion = initialDisplayCompletion else { return }
+        didDeliverInitialDisplayCompletion = true
         initialDisplayCompletion = nil
-        completion?()
+        completion()
     }
 
     private var isSoftHiddenForVisibilityController = false
