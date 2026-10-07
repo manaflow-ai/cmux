@@ -4,7 +4,7 @@ import Foundation
 public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
     public let matchTerminalBackground = DefaultsKey<Bool>(
         id: "sidebarAppearance.matchTerminalBackground",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "sidebarMatchTerminalBackground"
     )
 

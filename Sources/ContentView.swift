@@ -2043,7 +2043,7 @@ struct ContentView: View {
     // sidebar lives directly on it, with the workspace card as the one
     // opaque surface on top (the Aside model).
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
-    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -2052,7 +2052,7 @@ struct ContentView: View {
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.active.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    // Fork glass: clear window ground + compositor blur, so the blur radius is
+    // Compositor glass: clear window ground + compositor blur, so the blur radius is
     // a real slider instead of whatever an AppKit material bakes in.
     @AppStorage("sidebarCompositorGlass") private var sidebarCompositorGlass = true
     @AppStorage("sidebarGlassBlurRadius") private var sidebarGlassBlurRadius = SidebarAppearanceCatalogSection.glassBlurRadiusRange.lowerBound
@@ -2060,7 +2060,7 @@ struct ContentView: View {
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    // Fork default: window glass on. With behindWindow blending this keeps
+    // Window glass on by default. With behindWindow blending this keeps
     // the window transparent so the sidebar's vibrancy samples the actual
     // desktop (an opaque window kills behind-window sampling and leaves only
     // the material's flat frost).

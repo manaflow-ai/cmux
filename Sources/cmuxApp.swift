@@ -445,41 +445,10 @@ struct cmuxApp: App {
         let targetVersion = 1
         guard defaults.integer(forKey: migrationKey) < targetVersion else { return }
 
-        func normalizeHex(_ value: String) -> String {
-            value
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "#", with: "")
-                .uppercased()
-        }
-
-        func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.0001) -> Bool {
-            abs(lhs - rhs) <= tolerance
-        }
-
-        let material = defaults.string(forKey: "sidebarMaterial") ?? SidebarMaterialOption.sidebar.rawValue
-        let blendMode = defaults.string(forKey: "sidebarBlendMode") ?? SidebarBlendModeOption.behindWindow.rawValue
-        let state = defaults.string(forKey: "sidebarState") ?? SidebarStateOption.followWindow.rawValue
-        let tintHex = defaults.string(forKey: "sidebarTintHex") ?? "#101010"
-        let tintOpacity = defaults.object(forKey: "sidebarTintOpacity") as? Double ?? 0.54
-        let blurOpacity = defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? 0.79
-        let cornerRadius = defaults.object(forKey: "sidebarCornerRadius") as? Double ?? 0.0
-
-        let usesLegacyDefaults =
-            material == SidebarMaterialOption.sidebar.rawValue &&
-            blendMode == SidebarBlendModeOption.behindWindow.rawValue &&
-            state == SidebarStateOption.followWindow.rawValue &&
-            normalizeHex(tintHex) == "101010" &&
-            approximatelyEqual(tintOpacity, 0.54) &&
-            approximatelyEqual(blurOpacity, 0.79) &&
-            approximatelyEqual(cornerRadius, 0.0)
-
-        // Fork: upstream stamped the nativeSidebar preset here, which stores
-        // sidebarBlendMode = withinWindow and tintOpacity = 0 into every fresh
-        // defaults domain. Stored values beat the code defaults, so that stamp
-        // silently killed the fork's behind-window glass on first launch.
-        // Legacy-default users now simply stay on the code defaults.
-        _ = usesLegacyDefaults
-
+        // This migration used to stamp the native-sidebar preset over legacy
+        // defaults. Stored values beat code defaults, so the stamp would pin
+        // fresh installs to the old within-window look; everyone now stays on
+        // the code defaults, and only the version marker is still written.
         defaults.set(targetVersion, forKey: migrationKey)
     }
 
@@ -1782,7 +1751,7 @@ private enum DebugWindowConfigSnapshot {
         """
 
         let backgroundPayload = """
-        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: false))
+        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: true))
         bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
         bgGlassTintHex=\(stringValue(defaults, key: "bgGlassTintHex", fallback: "#000000"))
         bgGlassTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "bgGlassTintOpacity", fallback: 0.03)))

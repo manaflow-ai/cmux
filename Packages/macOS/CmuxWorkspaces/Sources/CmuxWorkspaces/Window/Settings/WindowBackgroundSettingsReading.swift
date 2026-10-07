@@ -8,9 +8,9 @@
 /// match the legacy god-file reads byte-for-byte: `sidebarBlendMode` defaults
 /// to `"withinWindow"` and `bgGlassEnabled` defaults to `false`.
 public protocol WindowBackgroundSettingsReading: Sendable {
-    /// The raw `sidebarBlendMode` value (legacy default `"withinWindow"`).
+    /// The raw `sidebarBlendMode` value (default `"behindWindow"`).
     var sidebarBlendModeRawValue: String { get }
 
-    /// Whether the background-glass effect is enabled (legacy default `false`).
+    /// Whether the background-glass effect is enabled (default `true`).
     var isBackgroundGlassEnabled: Bool { get }
 }

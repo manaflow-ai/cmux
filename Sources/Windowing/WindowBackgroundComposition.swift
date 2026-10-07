@@ -2,7 +2,7 @@ import AppKit
 import CmuxWorkspaces
 
 /// App-side `UserDefaults`-backed conformance to the window-background settings
-/// seam. Fork defaults: `sidebarBlendMode` -> `"behindWindow"` and
+/// seam. Defaults: `sidebarBlendMode` -> `"behindWindow"` and
 /// `bgGlassEnabled` -> `true`, so the glass look holds on a fresh domain.
 struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
     // `UserDefaults` accessors are documented as thread-safe; the seam requires

@@ -177,7 +177,7 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `sidebarAppearance.matchTerminalBackground` | boolean | `true` | Use the terminal background instead of the sidebar tint. |
+| `sidebarAppearance.matchTerminalBackground` | boolean | `false` | Use the terminal background instead of the sidebar tint. |
 | `sidebarAppearance.tintColor` | colorHex | `"#393939"` | Base sidebar tint color used when light/dark overrides are not set. |
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |

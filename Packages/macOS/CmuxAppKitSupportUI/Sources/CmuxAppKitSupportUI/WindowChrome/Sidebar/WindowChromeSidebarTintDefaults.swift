@@ -9,7 +9,7 @@ public struct WindowChromeSidebarTintDefaults: Sendable {
     /// Whether the sidebar uses the terminal background instead of the tint
     /// when the user has not chosen. Mirrors the
     /// `sidebarAppearance.matchTerminalBackground` catalog default.
-    public static let matchesTerminalBackground = true
+    public static let matchesTerminalBackground = false
 
     /// Creates sidebar tint defaults.
     public init(
