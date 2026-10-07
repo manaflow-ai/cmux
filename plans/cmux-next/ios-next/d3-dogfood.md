@@ -291,6 +291,36 @@ Left for owners, most severe first:
   `ImageViewController` and `PDFViewController` content (CmuxiOSViewers).
 - `ios/Config/Info.plist` still lists `_cmux-iroh._udp` in `NSBonjourServices` (iroh is dropped).
 
+F1 hygiene (2026-10-07, branch `feat-cmux-next-ios-f1-hygiene` off `feat-cmux-next-ios` at `32d4627b0da`),
+every check on the merged tree, before -> after:
+
+| check | before | after |
+| --- | --- | --- |
+| `scripts/lint-ios-package-conventions.sh` | exit 1: 2 lock (`NSLock` in `SFTPProgressCounter`, `MemoryTerminalComposePersistence`), 3 namespace-type (`BrowserCDPInput`, `AcpmuxCatalog`, `MobileWorkspaceRoots`), 1 namespace-enum (`TerminalComposeText`) | exit 0, no violations (147 warnings, unchanged) |
+| `check-concurrency.sh --mobile` | exit 1: 2 unbounded `AsyncStream` (`HostSocketLease.swift:75`, `SharedHostSocket.swift:143`), 2 `NSLock` | exit 0; baseline 51 files / 63 hits -> 28 files / 31 hits |
+| `check-crash-safety.sh --mobile` | exit 1: ratchet +1 unchecked SFTPCore, +1 unchecked TerminalComposeCore, +1 force_unwrap CmuxiOSTerminal, +3 force_unwrap and +2 iuo CmuxiOSTerminalCompose, +1 unowned CmuxiOSApp | exit 0 (one reviewed `crash-allow`: the `UITextView.text: String!` override) |
+| `check-l10n.sh --mobile` | exit 0: 28 tables, 1396 keys, 0 errors | same |
+| `check-workspace-package-groups.py` | OK | OK |
+
+Fixes: the shared host socket gives each lease a `StreamUpdateBuffer` at the client's backlog limit and,
+on overflow, drops the backlog, skips events and resubscribes so the lease repairs from a snapshot. Every
+acceptor's `incoming` (direct, WebRTC, WG over WebRTC, merged, loopback, datagram and underlay listeners)
+holds 64 transports and closes one past that. `SignalRouter` caps a session inbox at 256 signals and ends a
+session that outruns its reader; an offer past an acceptor's 64 pending sessions is refused without
+registering an inbox (before, `bufferingNewest(64)` silently dropped an `Incoming` and leaked its inbox).
+`PathSelector` sizes its outcome stream to its attempts; the in-memory signaling hub and underlay network
+doubles are bounded. Left in the concurrency baseline: app-layer streams (CmuxiOS sources, mocks,
+CmuxMobileHost remote desktop/simulator, CmuxMobileSSH, CmuxRemoteDesktop, CmuxBrowserStream client) and
+the `DirectTransport.close` drain race (the socket is cut inside the group, so the loser finishes).
+The crash ratchet reports 11 lower counts in Mac and Rust modules this lane did not touch; its baseline
+was left for those owners.
+
+Tests: CmuxControlPlane 21 (new `aLeaseThatStopsReadingIsBoundedAndResyncsFromASnapshot`), CmuxLink 43,
+CmuxLinkWebRTC 39 (new `routerBounds`), CmuxLinkDirect 25, CmuxLinkWG 41, CmuxMobileConnect 10; scratch
+macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch package over CmuxNextMobileLink
++ CmuxNextMobileHostUI 17 (Daemon/Wakeups in Swift 5 mode, as D1b); CmuxiOSApp builds for
+`arm64-apple-ios17.0-simulator`.
+
 ## 5. Package tests on the integration state
 
 `swift test` once per new Shared package on a `git archive` of `feat-cmux-next-ios` (Shared packages
