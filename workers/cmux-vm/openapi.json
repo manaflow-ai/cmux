@@ -3920,7 +3920,7 @@
             }
           }
         },
-        "description": "List a mesh's devices. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "List a mesh's devices. Requires the mesh:read scope. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "List a mesh's devices"
       }
     },
@@ -4030,7 +4030,7 @@
             }
           }
         },
-        "description": "Get a device. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Get a device. Requires the mesh:read scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Get a device"
       },
       "delete": {
@@ -4131,7 +4131,7 @@
             }
           }
         },
-        "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Remove a device and its tunnel"
       }
     },
@@ -4241,7 +4241,7 @@
             }
           }
         },
-        "description": "What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "What this device may reach"
       }
     },
@@ -4351,7 +4351,7 @@
             }
           }
         },
-        "description": "Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Get a device tunnel's config"
       }
     },
