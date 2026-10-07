@@ -58,15 +58,13 @@ import Testing
         #expect(model.presentation == start)
     }
 
-    /// With the sidebar hidden the window controls collapse at rest and the
-    /// strip keeps no room for them (nxdog41, which supersedes R68's "the
-    /// strip starts after the toggle" for the resting state). While the
-    /// corner is hovered the toggle shows and the strip starts after it.
-    /// The sidebar state reaches the window root through an observation, so
-    /// the test waits for it instead of for a fixed number of turns. The hide
-    /// is the animated one a click makes; in a window with no screen (the
-    /// aws-m4pro fleet Macs) Motion applies it at once
-    /// (`Motion.canAnimate(in:)`), so it settles on every host.
+    /// With the sidebar hidden the strip starts its tabs after the toggle (R68), at rest too:
+    /// the traffic lights always show (TRAFFIC-LIGHTS-ALWAYS-AND-CLEAN-SIDEBAR-TOGGLE, which
+    /// supersedes nxdog41's collapse), so the strip keeps their room and the band's, and a hover
+    /// on the top row never moves the tabs. The sidebar state reaches the window root through an
+    /// observation, so the test waits for it instead of for a fixed number of turns. The hide is
+    /// the animated one a click makes; in a window with no screen (the fleet Macs) Motion
+    /// applies it at once (`Motion.canAnimate(in:)`), so it settles on every host.
     @Test func withTheSidebarHiddenTheStripStartsAfterTheToggle() async throws {
         let harness = try await ViewChangePermissionTests.harness()
         defer { harness.stop() }
@@ -85,15 +83,12 @@ import Testing
         let stripFrame = strip.convert(strip.bounds, to: nil)
         try #require(stripFrame.minX < toggle.minX, "the strip reaches the window edge, under the toggle")
 
-        root.cornerReveal.setPointerInside(false)
-        try #require(!root.cornerReveal.isRevealed, "nothing else holds the corner open")
-        #expect(root.windowControlsCollapsed)
-        #expect(strip.computeWindowControlsInset() == 0, "collapsed: the strip keeps no room for the controls")
-
-        root.cornerReveal.setPointerInside(true)
-        #expect(!root.windowControlsCollapsed)
-        #expect(stripFrame.minX + strip.computeWindowControlsInset() >= toggle.maxX)
-        root.cornerReveal.setPointerInside(false)
+        root.titlebarReveal.setPointerInside(false)
+        let resting = strip.computeWindowControlsInset()
+        #expect(stripFrame.minX + resting >= toggle.maxX, "at rest the tabs start after the toggle")
+        root.titlebarReveal.setPointerInside(true)
+        #expect(strip.computeWindowControlsInset() == resting, "a hover on the top row does not move the tabs")
+        root.titlebarReveal.setPointerInside(false)
     }
 
     @Test func theToggleNamesItsActionAndShortcut() async throws {

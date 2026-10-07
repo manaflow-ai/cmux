@@ -90,6 +90,24 @@ import Testing
         }
     }
 
+    /// The band's buttons hover like the sidebar's icon buttons next to them
+    /// (TRAFFIC-LIGHTS-ALWAYS-AND-CLEAN-SIDEBAR-TOGGLE: a quiet hover, one family). Before, no
+    /// pointer event reached their hover, so it never showed.
+    @Test func aBandButtonTakesTheChromeHover() throws {
+        try withSettings(.always) { root in
+            for button in [root.toolbarBand.sidebarToggle, root.toolbarBand.backButton] {
+                let entered = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                                  windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+                let exited = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
+                                                                 windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+                button.mouseEntered(with: entered)
+                #expect(button.hover.state.hovering, "the pointer over a band button shows the hover")
+                button.mouseExited(with: exited)
+                #expect(!button.hover.state.hovering)
+            }
+        }
+    }
+
     /// The reveal region is the whole top row, not just the buttons.
     @Test func theRegionSpansTheTopRow() throws {
         try withSettings(.hover) { root in
