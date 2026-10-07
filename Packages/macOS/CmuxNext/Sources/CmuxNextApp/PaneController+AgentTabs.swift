@@ -24,11 +24,32 @@ extension PaneController {
     /// An agent chat tab in this pane on the workspace store, shown and selected at once
     /// (``AgentTabStore/openTab(in:session:seed:newTab:spare:linked:select:then:)``). False when
     /// the pane cannot hold one (refused with the reason).
+    /// A new chat opens in the chat dock (``NewChatPlacement``), except a New Tab page that
+    /// becomes a chat where it is (`newTab`).
     @discardableResult
     func openAgentTab(session: String? = nil, seed: AgentPaneSeedSource? = nil,
                       newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                       linked: Bool = false, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
-        services.agentTabs.openTab(in: self, session: session, seed: seed, newTab: newTab, spare: spare, linked: linked,
-                                   select: select, then: then)
+        var target = self
+        var then = then
+        if newTab == nil {
+            switch NewChatPlacement.resolve(from: self) {
+            case .here:
+                break
+            case .dock(let pane):
+                if let dock = workspace?.panes[pane] {
+                    target = dock
+                    if select, let content = workspace { PaneHandlers.focus(pane, in: content) }
+                }
+            case .newDock:
+                let opened = then
+                then = { [weak self] key in
+                    if let self { NewChatPlacement.dock(key, from: self) }
+                    opened?(key)
+                }
+            }
+        }
+        return services.agentTabs.openTab(in: target, session: session, seed: seed, newTab: newTab, spare: spare,
+                                          linked: linked, select: select, then: then)
     }
 }
