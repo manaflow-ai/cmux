@@ -897,6 +897,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func handleClick(_ event: NSEvent, in table: NSTableView) -> Bool {
+        if event.clickCount == 2, let (index, point) = row(at: event, in: table), let rowView = rowView(at: index),
+           rowView.quickLookPhoto(at: rowView.convert(point, from: table)) {
+            return true
+        }
         guard event.clickCount == 1, let (index, point) = row(at: event, in: table),
               let model = messageModel(at: index), let rowView = rowView(at: index) else { return false }
         let local = rowView.convert(point, from: table)
