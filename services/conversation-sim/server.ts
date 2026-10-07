@@ -428,6 +428,7 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
     const m = drafts[i];
     m.text = "";
     m.editedAt = undefined;
+    delete m.mentions; // they indexed the replaced text
     m.attachments = [makeAudioAttachment(`aud_${conv.id}_${i + 1}`, rng)];
   };
   for (let i = 0; i < drafts.length - 40; i++) if (rng() < 0.015 && !drafts[i].attachments.length) toAudio(i);
@@ -448,7 +449,9 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
   }
   toAudio(pair);
   toAudio(pair + 1);
-  for (let i = n - 3; i >= n - 12; i--) {
+  // Mine sits above the boot unread backlog, which is all from others.
+  const backlog = conv.kind === "group" ? GROUP_UNREAD : DIRECT_UNREAD;
+  for (let i = n - 1 - backlog; i >= n - 10 - backlog; i--) {
     if (drafts[i].senderId === ME.id && !drafts[i].attachments.length) {
       toAudio(i);
       break;

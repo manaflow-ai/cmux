@@ -155,6 +155,7 @@ edit without `textRuns` clears the formatting.
   animate the whole message with a random text effect, half style one word.
 
 Audio messages: ~1.5% of history (its own seeded rng, so the rest of history
-is unchanged) plus, in each conversation's newest page, two consecutive
-recordings from one participant and one of mine. Bots send a recording 3% of
+is unchanged) plus, near each conversation's newest message, two consecutive
+recordings from one participant and one of mine just above the boot unread
+backlog (which is all from others). Bots send a recording 3% of
 the time. Every recording has a spoken transcript.
