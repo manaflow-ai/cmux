@@ -15,11 +15,12 @@ import WebKit
 /// `appStore`, `onboarding`, ...);
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
-/// `width`, `height` (pixels), `kind`, `window_number` and `method`
-/// (`composited` or `appkit`). `webviews: false` skips painting WebKit
-/// pages over the window (the window server's image alone: a Chromium
-/// page's own child window is not in it, but native UI over it is, such as
-/// the prompt bar).
+/// `width`, `height` (pixels), `kind`, `window_number`, `method`
+/// (`composited` or `appkit`) and `child_windows` (how many visible child
+/// windows the image includes). Child windows are composited by the window
+/// server over the window: a Chromium page draws into its own child window,
+/// and overlay panels sit above content. `webviews: false` skips painting
+/// WebKit pages over the window (the window server's image alone).
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -31,6 +32,7 @@ enum DebugWindowSnapshot {
             return .object([
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
+                "child_windows": JSONValue(method == .composited ? window.visibleChildWindows.count : 0),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
@@ -69,7 +71,11 @@ enum DebugWindowSnapshot {
                     failed += 1
                 }
             }
-            let output = composite(base: base.image, window: window, webViews: images) ?? base.image
+            // The AppKit-drawn base has no child windows (Chromium pages,
+            // overlay panels): the window server's image of them goes on top.
+            let children = base.method == .appkit ? window.childWindowsSnapshot() : nil
+            let childCount = base.method == .composited || children != nil ? window.visibleChildWindows.count : 0
+            let output = composite(base: base.image, window: window, webViews: images, children: children) ?? base.image
             let rep = NSBitmapImageRep(cgImage: output)
             guard let data = rep.representation(using: .png, properties: [:]) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -79,7 +85,7 @@ enum DebugWindowSnapshot {
                 "path": .string(path), "width": JSONValue(rep.pixelsWide), "height": JSONValue(rep.pixelsHigh),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(images.count),
-                "webviews_failed": JSONValue(failed),
+                "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
@@ -141,7 +147,8 @@ enum DebugWindowSnapshot {
         return result
     }
 
-    private static func composite(base: CGImage, window: NSWindow, webViews: [(WKWebView, CGImage)]) -> CGImage? {
+    private static func composite(base: CGImage, window: NSWindow, webViews: [(WKWebView, CGImage)], children: CGImage?) -> CGImage? {
+        if webViews.isEmpty && children == nil { return nil }
         guard let frameView = window.contentView?.superview ?? window.contentView,
               frameView.bounds.width > 0, frameView.bounds.height > 0 else { return nil }
         let width = base.width
@@ -161,6 +168,9 @@ enum DebugWindowSnapshot {
             context.interpolationQuality = .high
             context.draw(image, in: rect)
         }
+        // Child windows are above the window's own views, so last; the
+        // image covers the whole window frame.
+        if let children { context.draw(children, in: CGRect(x: 0, y: 0, width: width, height: height)) }
         return context.makeImage()
     }
 
