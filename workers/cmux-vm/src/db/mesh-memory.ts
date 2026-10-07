@@ -4,6 +4,7 @@
  * which runs the real handlers without a database.
  */
 import { Effect, Layer, Option } from "effect";
+import { TenantId } from "../lib/ids.ts";
 import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
@@ -43,6 +44,13 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => Option.fromNullable(devices.find((row) => row.tenantId === tenantId && row.tunnelId === tunnelId && row.deletedAt === null))),
     listDevices: (tenantId, meshId) =>
       Effect.sync(() => devices.filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.deletedAt === null)),
+    findDeviceForSignedRequest: (deviceId) =>
+      Effect.sync(() =>
+        Option.map(Option.fromNullable(devices.find((row) => row.deviceId === deviceId && row.deletedAt === null)), (row) => ({
+          ...row,
+          tenantId: TenantId.make(row.tenantId),
+        })),
+      ),
     markDeviceDeleted: (tenantId, deviceId, at) =>
       Effect.sync(() => {
         for (const row of devices) if (row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null) row.deletedAt = at;
@@ -83,6 +91,21 @@ export function makeMemoryMeshStore() {
     recordEnrollmentCodeDevice: (codeSha256, deviceId) =>
       Effect.sync(() => {
         for (const row of codes) if (row.codeSha256 === codeSha256) row.deviceId = deviceId;
+      }),
+    burnEnrollmentCode: (codeSha256, now) =>
+      Effect.sync(() => {
+        for (const row of codes) {
+          if (row.codeSha256 !== codeSha256 || row.deviceId !== null) continue;
+          row.usedAt = row.usedAt ?? now;
+          const floor = new Date(Math.max(now.getTime(), row.createdAt.getTime() + 1));
+          if (floor < row.expiresAt) row.expiresAt = floor;
+        }
+      }),
+    restoreEnrollmentCode: (codeSha256, usedAt) =>
+      Effect.sync(() => {
+        for (const row of codes) {
+          if (row.codeSha256 === codeSha256 && row.deviceId === null && row.usedAt !== null && row.usedAt.getTime() === usedAt.getTime()) row.usedAt = null;
+        }
       }),
     attachMember: (tenantId, member) =>
       Effect.sync(() => {
