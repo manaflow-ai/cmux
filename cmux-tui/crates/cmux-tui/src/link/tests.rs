@@ -416,7 +416,10 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                 &pairings(),
                 &session_socket,
                 Some(&config),
-                Some(receiver),
+                Some(super::inbound::Revocations {
+                    view: receiver,
+                    open: std::sync::Arc::default(),
+                }),
             )
             .await
         })
@@ -431,17 +434,19 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
     assert_eq!(echoed, "hello\n", "the owner session is open");
     // Revoke: the new view no longer pairs inst_b.
     sender.send_replace(std::sync::Arc::new(Pairings::default()));
-    let served = tokio::time::timeout(std::time::Duration::from_secs(1), task)
-        .await
-        .expect("the session did not close")
-        .unwrap();
-    assert_eq!(served, Err(InboundRefused::Owner(OwnerRefused::NotOwner)));
     let mut tail = String::new();
     let eof = tokio::time::timeout(std::time::Duration::from_secs(1), peer.read_line(&mut tail))
         .await
-        .unwrap()
+        .expect("the session did not close")
         .unwrap();
     assert_eq!(eof, 0, "the peer's stream is closed");
+    // The dialing side closes too, which the server waits for.
+    drop(peer);
+    let served = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+        .await
+        .expect("the server did not end the session")
+        .unwrap();
+    assert_eq!(served, Err(InboundRefused::Owner(OwnerRefused::NotOwner)));
     brain.abort();
     // A redial with the revoked key reaches nothing.
     let (mut again, link_side) = tokio::io::duplex(1024);

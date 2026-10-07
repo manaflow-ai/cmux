@@ -6,9 +6,10 @@ import Testing
 @Suite struct ProfileBarTests {
     private let a = ProfileKey("default"), b = ProfileKey("prof_b"), c = ProfileKey("prof_c")
 
-    @Test func dotsStayCenteredAndThePlusTrailsThem() {
-        #expect(ProfileBarLogic.slotXs(count: 2, slot: 10, width: 100) == [40, 50, 60])
-        #expect(ProfileBarLogic.slotXs(count: 3, slot: 10, width: 100) == [35, 45, 55, 65])
+    @Test func dotsAreAnchoredLeadingAndThePlusTrailsThem() {
+        // Anchored leading (amendment 2): a new space never moves the others.
+        #expect(ProfileBarLogic.slotXs(count: 2, slot: 10, leading: 8) == [8, 18, 28])
+        #expect(ProfileBarLogic.slotXs(count: 3, slot: 10, leading: 8) == [8, 18, 28, 38])
     }
 
     @Test func hiddenWithOneRoom() {
