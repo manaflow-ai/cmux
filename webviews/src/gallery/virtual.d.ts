@@ -9,3 +9,8 @@ declare module "virtual:cmux-gallery/web-theme" {
   export default script;
 }
 declare module "virtual:cmux-gallery/agent-pane.css";
+declare module "virtual:cmux-gallery/fixtures" {
+  /** Every shared fixture JSON (schemas/gallery/fixtures.json roots), by repo-relative path. */
+  const fixtures: Record<string, unknown>;
+  export default fixtures;
+}

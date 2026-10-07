@@ -1,0 +1,209 @@
+{
+  "comment": "Gallery control vectors: webviews/src/gallery/env.ts readEnv and CmuxNextGallery GalleryEnvironment(query:) must both map each query to its env. Regenerate with the TS reader after an intended change; both tests replay this file.",
+  "vectors": [
+    {
+      "query": {},
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "locale": "ja",
+        "scheme": "light",
+        "light": "Catppuccin Latte"
+      },
+      "env": {
+        "locale": "ja",
+        "scheme": "light",
+        "dark": "Apple System Colors",
+        "light": "Catppuccin Latte",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "locale": "xx",
+        "scheme": "purple"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "locale": "ar-XB",
+        "width": "narrow",
+        "scale": "1.25"
+      },
+      "env": {
+        "locale": "ar-XB",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1.25,
+        "width": "narrow",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "width": "1000",
+        "height": "300",
+        "size": "16",
+        "font": "Georgia, serif"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "Georgia, serif",
+        "size": 16,
+        "density": "comfortable",
+        "scale": 1,
+        "width": 1000,
+        "height": 300,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "width": "10",
+        "scale": "9",
+        "size": "-3"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 3,
+        "width": 240,
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "width": "huge",
+        "density": "compact",
+        "reducedMotion": "1",
+        "highContrast": "true"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "compact",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": true,
+        "highContrast": true,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    },
+    {
+      "query": {
+        "dynamicSize": "xlarge",
+        "windowKey": "inactive",
+        "dark": "Dracula"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Dracula",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "xlarge",
+        "windowKey": "inactive"
+      }
+    },
+    {
+      "query": {
+        "dynamicSize": "tiny",
+        "windowKey": "maybe",
+        "reducedMotion": "yes"
+      },
+      "env": {
+        "locale": "en",
+        "scheme": "dark",
+        "dark": "Apple System Colors",
+        "light": "Apple System Colors Light",
+        "font": "",
+        "size": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key"
+      }
+    }
+  ]
+}

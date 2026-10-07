@@ -8,6 +8,8 @@
 //                                          document start in every cmux web view (WebTheme.swift)
 //   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet, the files and the
 //                                          order scripts/cmux-next/build-agent-pane-web.sh inlines
+//   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
+//                                          roots, the Swift packages' Fixtures folders) by repo path
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +24,8 @@ const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pan
 const SESSION = path.join(webviewsRoot, "src/agent-session");
 const galleryDir = path.join(webviewsRoot, "src/gallery");
 
+const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
+const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
 const THEMES_ID = "virtual:cmux-gallery/themes";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
@@ -36,6 +40,28 @@ export function readShippedThemes(dir = THEMES_DIR): GhosttyTheme[] {
     .sort((a, b) => a.localeCompare(b, "en"))
     .map((name) => parseGhosttyTheme(name, fs.readFileSync(path.join(dir, name), "utf8")))
     .filter((theme): theme is GhosttyTheme => theme !== null);
+}
+
+/** The shared fixture roots (repo-relative), from schemas/gallery/fixtures.json. */
+export function fixtureRoots(index = FIXTURE_INDEX): string[] {
+  const roots = (JSON.parse(fs.readFileSync(index, "utf8")) as { roots?: unknown }).roots;
+  if (!Array.isArray(roots) || !roots.every((root) => typeof root === "string"))
+    throw new Error(`gallery: ${index} must list "roots" as strings`);
+  return roots;
+}
+
+/** Every fixture JSON under the shared roots, by repo-relative path. */
+export function readSharedFixtures(): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".json")) out[path.relative(repoRoot, full)] = JSON.parse(fs.readFileSync(full, "utf8"));
+    }
+  };
+  for (const root of fixtureRoots()) walk(path.join(repoRoot, root));
+  return out;
 }
 
 /** WebTheme.bootstrapScript's JavaScript: the Swift multi-line literal, without its indentation. */
@@ -81,12 +107,13 @@ export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
     resolveId(source) {
-      if (source === THEMES_ID || source === WEB_THEME_ID) return `\0${source}`;
+      if (source === THEMES_ID || source === WEB_THEME_ID || source === FIXTURES_ID) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },
     load(id) {
       if (id === `\0${THEMES_ID}`) return `export default ${JSON.stringify(readShippedThemes())};`;
+      if (id === `\0${FIXTURES_ID}`) return `export default ${JSON.stringify(readSharedFixtures())};`;
       if (id === `\0${WEB_THEME_ID}`) return `export default ${JSON.stringify(readWebThemeBootstrap())};`;
       if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
       return null;
@@ -94,9 +121,13 @@ export function galleryModules(): Plugin {
     configureServer(server) {
       // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
       // where Vite does not watch: watch them, and reload the module built from a changed one.
-      server.watcher.add([THEMES_DIR, WEB_THEME_SWIFT, PANE_BUILD_SCRIPT]);
+      const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
+      server.watcher.add([THEMES_DIR, WEB_THEME_SWIFT, PANE_BUILD_SCRIPT, FIXTURE_INDEX, ...roots]);
       server.watcher.on("all", (_event, file) => {
-        const id = file.startsWith(`${THEMES_DIR}/`)
+        const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
+        const id = fixture
+          ? `\0${FIXTURES_ID}`
+          : file.startsWith(`${THEMES_DIR}/`)
           ? `\0${THEMES_ID}`
           : file === WEB_THEME_SWIFT
             ? `\0${WEB_THEME_ID}`

@@ -3,7 +3,7 @@
 // ops from the state's data. The config carries the look the app sends: the Ghostty theme pair
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost } from "../../../test/latency/mock-host";
-import { DEFAULT_DIFF_VIEWER_LABELS } from "../../labels";
+import { diffViewerLabelsFor, diffViewerLanguage } from "../../labels";
 import type { DiffFixtureFile, DiffPageVariant, MarkdownPageVariant } from "../format";
 import { addPseudoLocales, isPseudo, pseudoText } from "../pseudo";
 import type { StageContext } from "./context";
@@ -135,16 +135,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       return Promise.resolve(new Response(patch, { headers: { "Content-Type": "text/x-diff" } }));
     return realFetch(input, init);
   }) as typeof fetch;
-  // The viewer ships English and Japanese labels (labels.ts); a pseudo-locale goes in the payload's
-  // `labels`, which a host may set.
+  // The app's host sends no labels, so the shipped viewer falls back to its own English and
+  // Japanese tables (labels.ts); a dev build asserts every label instead. The gallery sends that
+  // same fallback (pseudo-transformed for a pseudo-locale) in the payload's `labels`.
+  const fallback = diffViewerLabelsFor(diffViewerLanguage([context.env.locale]));
   const labels = isPseudo(context.env.locale)
     ? Object.fromEntries(
-        Object.entries(DEFAULT_DIFF_VIEWER_LABELS).map(([key, text]) => [
-          key,
-          pseudoText(text, context.env.locale as "en-XA"),
-        ]),
+        Object.entries(fallback).map(([key, text]) => [key, pseudoText(text, context.env.locale as "en-XA")]),
       )
-    : undefined;
+    : fallback;
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   const host = installMockHost(
@@ -160,7 +159,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           layout: state.layout ?? "split",
           layoutSource: "default",
           appearance: context.appearance,
-          ...(labels && { labels }),
+          labels,
         },
         ops: ["cmux.diff.comments"],
       }),

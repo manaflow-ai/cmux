@@ -16,6 +16,8 @@ import PackageDescription
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextGallery -> system frameworks only (the native gallery's entry format and registry; feature
+//     packages register entries, the App's DEBUG gallery hosts them; webviews/src/gallery is the web host)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
@@ -629,6 +631,15 @@ let package = Package(
         .target(
             name: "CmuxNextWakeups",
             swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextGallery",
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextGalleryTests",
+            dependencies: ["CmuxNextGallery"],
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",

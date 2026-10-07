@@ -70,7 +70,9 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 560,
   covers: [
+    "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/App.tsx#AcpmuxApp",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",

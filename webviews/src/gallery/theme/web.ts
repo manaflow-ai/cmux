@@ -124,7 +124,8 @@ export function diffAppearance(
     backgroundOpacity: 1,
     fontFamily: font.family,
     fontSize: font.size,
-    theme: { dark: pair.dark.name, light: pair.light.name },
+    // `theme` names the registered syntax themes (cmux-ghostty-dark/-light, from `themes`); the
+    // Ghostty names travel as each theme's `ghosttyName`.
     themes: { dark: diffTheme(pair.dark, "dark"), light: diffTheme(pair.light, "light") },
   };
 }
