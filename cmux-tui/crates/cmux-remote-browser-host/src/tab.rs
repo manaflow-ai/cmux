@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens};
 use cmux_remote_browser::proto::{
-    Control, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect, RefuseReason, SessionState,
+    Control, Dialog, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect, RefuseReason, SessionState,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -23,6 +23,8 @@ pub trait Presentation {
     fn context_menu_result(&mut self, fork_token: i64, command: Option<i64>) -> bool;
     /// `None` cancels.
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool;
+    /// Answers the JS dialog with the fork's token (`text` for a prompt).
+    fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool;
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -335,6 +337,21 @@ impl HostTab {
             pixel_height: (f64::from(applied.css_height) * applied.scale).ceil() as u32,
             scale: applied.scale,
         })
+    }
+
+    /// Chromium opened a JS dialog (stub).
+    pub fn dialog_opened(
+        &mut self,
+        _fork_token: i64,
+        _dialog: Dialog,
+        _p: &mut dyn Presentation,
+    ) -> Vec<Control> {
+        Vec::new()
+    }
+
+    /// Chromium dropped its dialogs (stub).
+    pub fn dialog_reset(&mut self) -> Vec<Control> {
+        Vec::new()
     }
 
     pub fn state(&self) -> SessionState {

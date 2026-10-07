@@ -259,6 +259,10 @@ impl Presentation for ShimPresentation {
         unsafe { rb_shim_context_menu_result(fork_token, id) == 1 }
     }
 
+    fn dialog_result(&mut self, _fork_token: i64, _accept: bool, _text: Option<&str>) -> bool {
+        false
+    }
+
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {
         match indices {
             // SAFETY: a null array with a negative count cancels.
