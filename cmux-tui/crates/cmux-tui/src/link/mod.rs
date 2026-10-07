@@ -211,11 +211,9 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "port": config.port,
         "running": live.is_some(),
         "socket": live.map(|registration| registration.socket),
-        "peers_file": RED_PEERS_FILE,
+        "peers_file": state.peers_path(),
     }))
 }
-
-const RED_PEERS_FILE: Option<&str> = None;
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else {
