@@ -35,7 +35,8 @@ import Testing
     }
 
     private func start() async throws -> Fixture {
-        let daemon = try TopologyDaemon()
+        // New Agent Chat sends new-conversation-tab, which needs conversation-tabs.
+        let daemon = try TopologyDaemon(extraCapabilities: [DaemonCapabilities.shared.conversationTabs])
         let services = ActionBindingCoverageTests.boundServices()
         let box = Fixture.Box()
         services.agentTabs.localHost = AgentTabFixture.host
@@ -72,7 +73,8 @@ import Testing
         }
         let sent = commands.names.withLock { $0 }
         let created = try #require(sent.firstIndex(of: "create-workspace"), "no workspace was created: \(sent)")
-        #expect(created < sent.firstIndex(of: "new-conversation-tab")!)
+        let chat = try #require(sent.firstIndex(of: "new-conversation-tab"), "no chat was created: \(sent)")
+        #expect(created < chat)
         #expect(!sent.contains("create-terminal"), "the chat's workspace needs no terminal")
         #expect(fixture.paneCreations.panes.isEmpty, "the focused pane must not get a chat tab")
         try await Self.waitUntil("the window shows the new workspace") {
