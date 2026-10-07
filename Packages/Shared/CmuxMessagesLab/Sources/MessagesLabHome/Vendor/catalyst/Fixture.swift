@@ -111,7 +111,9 @@ enum Fixture {
         while i < s.count - 1, s[i].0 < px { i += 1 }
         let a = s[i - 1], b = s[i]
         let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
-        let ca = a.1.usingColorSpace(.displayP3) ?? a.1, cb = b.1.usingColorSpace(.displayP3) ?? b.1
+        // cmux: a colour that cannot convert (pattern, catalog) falls back to the measured blue, never
+        // the unconverted colour (its redComponent throws).
+        let ca = a.1.usingColorSpace(.displayP3) ?? Fixture.p3(2, 132, 254), cb = b.1.usingColorSpace(.displayP3) ?? Fixture.p3(2, 132, 254)
         return UIColor(displayP3Red: ca.redComponent + (cb.redComponent - ca.redComponent) * f,
                        green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
                        blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)

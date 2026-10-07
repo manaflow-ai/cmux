@@ -21,6 +21,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_task.h"
 #include "include/views/cef_browser_view.h"
@@ -134,6 +135,31 @@ std::map<int64_t, CefRefPtr<CefRunContextMenuCallback>>& MenuCallbacks() {
 }
 int64_t g_next_menu_token = 0;
 
+// JS dialog callbacks by token, with the browser that asked.
+struct PendingDialog {
+  int browser_id;
+  CefRefPtr<CefJSDialogCallback> callback;
+};
+std::map<int64_t, PendingDialog>& DialogCallbacks() {
+  static std::map<int64_t, PendingDialog> callbacks;
+  return callbacks;
+}
+int64_t g_next_dialog_token = 0;
+
+void ShowDialog(CefRefPtr<CefBrowser> browser,
+                const char* kind,
+                const std::string& origin,
+                const std::string& message,
+                const char* default_text,
+                bool is_reload,
+                CefRefPtr<CefJSDialogCallback> callback) {
+  const int64_t token = ++g_next_dialog_token;
+  DialogCallbacks()[token] = {browser->GetIdentifier(), callback};
+  g_cb.on_dialog(g_cb.context, browser->GetIdentifier(), token, kind,
+                 origin.c_str(), message.c_str(), default_text,
+                 is_reload ? 1 : 0);
+}
+
 CefRefPtr<CefListValue> MenuItems(CefRefPtr<CefMenuModel> model) {
   CefRefPtr<CefListValue> list = CefListValue::Create();
   for (size_t i = 0; i < model->GetCount(); ++i) {
@@ -172,6 +198,7 @@ CefRefPtr<CefListValue> MenuItems(CefRefPtr<CefMenuModel> model) {
 class Client : public CefClient,
                public CefContextMenuHandler,
                public CefDisplayHandler,
+               public CefJSDialogHandler,
                public CefKeyboardHandler,
                public CefLifeSpanHandler {
  public:
@@ -181,6 +208,7 @@ class Client : public CefClient,
     return this;
   }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+  CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
 
@@ -202,6 +230,62 @@ class Client : public CefClient,
                          params->GetXCoord(), params->GetYCoord(),
                          json.c_str());
     return true;
+  }
+
+  // JS dialogs show as native sheets on the viewer (rb.dialog.show); the
+  // callback waits for rb_shim_dialog_result.
+  bool OnJSDialog(CefRefPtr<CefBrowser> browser,
+                  const CefString& origin_url,
+                  JSDialogType dialog_type,
+                  const CefString& message_text,
+                  const CefString& default_prompt_text,
+                  CefRefPtr<CefJSDialogCallback> callback,
+                  bool& suppress_message) override {
+    if (!g_cb.on_dialog) {
+      return false;
+    }
+    suppress_message = false;
+    const char* kind = dialog_type == JSDIALOGTYPE_CONFIRM  ? "confirm"
+                       : dialog_type == JSDIALOGTYPE_PROMPT ? "prompt"
+                                                            : "alert";
+    const std::string default_text = default_prompt_text.ToString();
+    ShowDialog(browser, kind, origin_url.ToString(), message_text.ToString(),
+               dialog_type == JSDIALOGTYPE_PROMPT ? default_text.c_str()
+                                                  : nullptr,
+               false, callback);
+    return true;
+  }
+
+  bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
+                            const CefString& message_text,
+                            bool is_reload,
+                            CefRefPtr<CefJSDialogCallback> callback) override {
+    if (!g_cb.on_dialog) {
+      return false;
+    }
+    CefRefPtr<CefFrame> main = browser->GetMainFrame();
+    const std::string origin = main ? main->GetURL().ToString() : "";
+    ShowDialog(browser, "beforeunload", origin, message_text.ToString(),
+               nullptr, is_reload, callback);
+    return true;
+  }
+
+  // Navigation (or close) drops the page's dialogs: forget their callbacks
+  // and let the host cancel them on the viewers (rb.dialog.cancel).
+  void OnResetDialogState(CefRefPtr<CefBrowser> browser) override {
+    const int id = browser->GetIdentifier();
+    bool dropped = false;
+    for (auto it = DialogCallbacks().begin(); it != DialogCallbacks().end();) {
+      if (it->second.browser_id == id) {
+        it = DialogCallbacks().erase(it);
+        dropped = true;
+      } else {
+        ++it;
+      }
+    }
+    if (dropped && g_cb.on_dialog_reset) {
+      g_cb.on_dialog_reset(g_cb.context, id);
+    }
   }
 
   void OnTitleChange(CefRefPtr<CefBrowser> browser,
@@ -624,6 +708,17 @@ int rb_shim_ime_cancel(int browser_id) {
     return 0;
   }
   browser->GetHost()->ImeCancelComposition();
+  return 1;
+}
+
+int rb_shim_dialog_result(int64_t token, int accept, const char* text_utf8) {
+  auto it = DialogCallbacks().find(token);
+  if (it == DialogCallbacks().end()) {
+    return 0;
+  }
+  CefRefPtr<CefJSDialogCallback> callback = it->second.callback;
+  DialogCallbacks().erase(it);
+  callback->Continue(accept != 0, CefString(text_utf8 ? text_utf8 : ""));
   return 1;
 }
 
