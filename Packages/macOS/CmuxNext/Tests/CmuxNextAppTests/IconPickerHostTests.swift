@@ -107,28 +107,29 @@ struct IconPickerHostTests {
     }
 
     /// Opaque pixels of a PNG: whether each has a hue (not gray) and whether it is red.
-    static func pixels(_ png: Data) -> [(colored: Bool, red: Bool)] {
+    static func pixels(_ png: Data) -> [(colored: Bool, red: Bool, light: Bool)] {
         guard let bitmap = NSBitmapImageRep(data: png) else { return [] }
-        var out: [(colored: Bool, red: Bool)] = []
+        var out: [(colored: Bool, red: Bool, light: Bool)] = []
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.5 else { continue }
                 let (r, g, b) = (color.redComponent, color.greenComponent, color.blueComponent)
-                out.append((max(r, g, b) - min(r, g, b) > 0.15, r > 0.6 && g < 0.45 && b < 0.45))
+                out.append((max(r, g, b) - min(r, g, b) > 0.15, r > 0.6 && g < 0.45 && b < 0.45, max(r, g, b) > 0.2))
             }
         }
         return out
     }
 
-    /// Monochrome is a black template; multicolor has the symbol's own colors (the yellow sun of
-    /// cloud.sun.fill); hierarchical is drawn in the accent color.
+    /// Monochrome and hierarchical are black templates the page tints with its theme's foreground
+    /// (Ghostty colors, never the system accent); multicolor has the symbol's own colors (the
+    /// yellow sun of cloud.sun.fill).
     @Test func renderingModesDrawColorWhereTheModeHasIt() throws {
         let mono = Self.pixels(try #require(IconPickerSymbols.png("cloud.sun.fill")))
         let multi = Self.pixels(try #require(IconPickerSymbols.png("cloud.sun.fill", mode: .multicolor)))
-        let accent = Self.pixels(try #require(IconPickerSymbols.png("star.fill", mode: .hierarchical, accent: .systemRed)))
+        let hierarchical = Self.pixels(try #require(IconPickerSymbols.png("cloud.sun.fill", mode: .hierarchical)))
         #expect(!mono.isEmpty && !mono.contains { $0.colored })
         #expect(multi.contains { $0.colored })
-        #expect(accent.contains { $0.red })
+        #expect(!hierarchical.isEmpty && !hierarchical.contains { $0.colored || $0.light })
     }
 
     /// The colored images' cache key goes with every session and changes with the accent.

@@ -184,7 +184,7 @@ test("the category bar names each group and jumps the grid to its header", async
   expect(doc().querySelector('[role="toolbar"]')).toBeNull();
 });
 
-test("hierarchical and multicolor symbols show as host images; monochrome stays a tinted mask", async () => {
+test("monochrome and hierarchical symbols are masks in the theme color; multicolor is a host image", async () => {
   await act(async () => host.open({ id: "s2", tab: "symbol", symbolStyle: "ff0000-dark" }));
   await type("terminal");
   const cell = () => doc().querySelector<HTMLElement>(".icon-cell[data-active] .icon-symbol")!;
@@ -196,8 +196,9 @@ test("hierarchical and multicolor symbols show as host images; monochrome stays 
   )!;
   await act(() => hierarchical.click());
   expect((host.prefs as { symbolMode: string }).symbolMode).toBe("hierarchical");
-  expect(cell().style.maskImage).toBe("");
-  expect(cell().style.backgroundImage).toContain("__symbol/hierarchical/terminal.png?style=ff0000-dark");
+  // Hierarchical is a template too: the page tints its layers with the theme foreground.
+  expect(cell().style.maskImage).toContain("__symbol/hierarchical/terminal.png");
+  expect(cell().style.backgroundImage).toBe("");
   // The mock catalog has no multicolor category: multicolor mode leaves these symbols monochrome.
   await act(async () => picker.store.setSymbolMode("multicolor"));
   expect(cell().style.maskImage).toContain("__symbol/terminal.png");
