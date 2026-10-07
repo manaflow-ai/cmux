@@ -118,6 +118,20 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(path, push_paths)
 
+    def test_the_app_ffi_pin_is_checked_on_linux_on_every_run(self):
+        # swift test (macOS) carried this check. A newer push replaces a waiting
+        # swift test and a busy mini refuses its runner, so of 30 tip runs
+        # (2026-10-07 00:20Z to 01:05Z) none reached the step. The checks job
+        # runs on Linux for every push and pull request.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("ubuntu", document["jobs"][JOB]["runs-on"])
+        _, checks, _ = self.split()
+        pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
+        self.assertEqual(len(pin), 1, [step["name"] for step in checks])
+        self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
+        script_tests = next(step for step in checks if step.get("id") == "script-tests")
+        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
         godfile_runs = [step["run"] for step in checks if "check-no-godfiles.sh" in step["run"]]
