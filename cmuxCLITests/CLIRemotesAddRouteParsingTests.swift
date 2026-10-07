@@ -60,7 +60,22 @@ struct CLIRemotesAddRouteParsingTests {
         #expect(
             run.result.stderr.contains("unknown flag"),
             Comment(rawValue: run.result.stderr + run.result.stdout))
-        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
+    }
+
+    @Test func unknownEqualsOptionDoesNotExposeItsValue() throws {
+        let secret = "review-secret-value"
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "100.64.1.2:51001",
+                "--token=\(secret)",
+            ])
+
+        #expect(run.result.status != 0)
+        #expect(run.result.stderr.contains("--token"))
+        #expect(!run.result.stderr.contains(secret))
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
     }
 
     @Test func missingRouteValueIsRefusedClearly() throws {
@@ -70,7 +85,48 @@ struct CLIRemotesAddRouteParsingTests {
         #expect(
             run.result.stderr.contains("--route requires a value"),
             Comment(rawValue: run.result.stderr + run.result.stdout))
-        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
+    }
+
+    @Test func bareTagIsRefusedBeforeTheMutationRPC() throws {
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "100.64.1.2:51001",
+                "--tag",
+            ])
+
+        #expect(run.result.status != 0)
+        #expect(
+            run.result.stderr.contains("--tag requires a value"),
+            Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
+    }
+
+    @Test func optionIsNotConsumedAsSplitTagValue() throws {
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "100.64.1.2:51001",
+                "--tag", "--rouet=100.64.1.3:51001",
+            ])
+
+        #expect(run.result.status != 0)
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
+    }
+
+    @Test func terminatorIsNotConsumedAsSplitRouteValue() throws {
+        let run = try runRemotesAdd(
+            arguments: [
+                "remotes", "add", "fixture",
+                "--route", "--", "-staging",
+            ])
+
+        #expect(run.result.status != 0)
+        #expect(
+            run.result.stderr.contains("--route requires a value"),
+            Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
     }
 
     @Test func equalsOnlyRouteSatisfiesTheAtLeastOneRouteRequirement() throws {
@@ -126,14 +182,14 @@ struct CLIRemotesAddRouteParsingTests {
         #expect(
             run.result.stderr.contains("--tag requires a value"),
             Comment(rawValue: run.result.stderr + run.result.stdout))
-        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
     }
 
     @Test func emptyEqualsRouteIsRefusedBeforeTheMutationRPC() throws {
         let run = try runRemotesAdd(arguments: ["remotes", "add", "fixture", "--route="])
 
         #expect(run.result.status != 0)
-        #expect(try Self.remotesAddParams(run) == nil, "no mutation request may be sent")
+        #expect(!Self.hasRemotesAddRequest(run), "no mutation request may be sent")
     }
 
     // MARK: - Harness
@@ -141,6 +197,10 @@ struct CLIRemotesAddRouteParsingTests {
     private struct Run {
         let result: CLIHookProcessRunner.Result
         let requests: [[String: Any]]
+    }
+
+    private static func hasRemotesAddRequest(_ run: Run) -> Bool {
+        run.requests.contains { $0["method"] as? String == "remotes.add" }
     }
 
     private static func remotesAddParams(_ run: Run) throws -> [String: Any]? {
