@@ -1,9 +1,9 @@
 /*
  * Settings layout and looks (SETTINGS-PAGE-FIRST-PRINCIPLES P1-P5), after styles.css.
  * P1: the categories stay at the window's left; the content is one centered column of at most
- * 720 px, in slightly smaller type and rows than before. Two looks for the chief to pick from:
- *   quiet (default): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
- *   dense (:root[data-settings-look="dense"]): no cards, hairline rows, tighter type.
+ * 720 px, in slightly smaller type and rows than before. Two looks; mount.tsx SHIPPED_LOOK picks:
+ *   quiet (shipped): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
+ *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
  * The render rule holds: containers stay transparent; only controls and interaction states fill,
  * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
  */
