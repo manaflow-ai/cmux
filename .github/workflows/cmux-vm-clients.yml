@@ -1,0 +1,141 @@
+# CI for the clients generated from the cmux VM OpenAPI document
+# (workers/cmux-vm/openapi.json): the Rust `cmux-vm` CLI and its
+# `cmux-vm-client` crate (workers/cmux-vm/cli), and the TypeScript SDK
+# `@cmux/vm` (workers/cmux-vm/sdk).
+#
+# Each job regenerates its client from the document and fails when the
+# checked-in output differs, so a contract change always lands together with
+# the regenerated clients.
+
+name: cmux VM clients
+
+on:
+  pull_request:
+    paths:
+      - workers/cmux-vm/openapi.json
+      - workers/cmux-vm/cli/**
+      - workers/cmux-vm/sdk/**
+      - cmux-tui/rust-toolchain.toml
+      - .github/actions/setup-cmux-tui-rust/**
+      - .github/workflows/cmux-vm-clients.yml
+  push:
+    branches: [main]
+    paths:
+      - workers/cmux-vm/openapi.json
+      - workers/cmux-vm/cli/**
+      - workers/cmux-vm/sdk/**
+      - cmux-tui/rust-toolchain.toml
+      - .github/actions/setup-cmux-tui-rust/**
+      - .github/workflows/cmux-vm-clients.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: workers/cmux-vm/cli
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # workers/cmux-vm/cli/rust-toolchain.toml is a regular-file copy of
+      # cmux-tui/rust-toolchain.toml (the fleet build fingerprint rejects a
+      # symlinked dependency file); this step fails when the two drift.
+      - name: The cli toolchain pin matches cmux-tui
+        working-directory: .
+        run: diff <(grep -v '^#' workers/cmux-vm/cli/rust-toolchain.toml) cmux-tui/rust-toolchain.toml
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: workers/cmux-vm/cli -> target
+
+      - name: cargo fmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --workspace
+
+      - name: Generated client matches openapi.json
+        id: regenerate
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          ./scripts/regenerate.sh
+          if [[ -n "$(git status --porcelain -- .)" ]]; then
+            git --no-pager diff --stat -- .
+            echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
+            exit 1
+          fi
+
+      - name: Upload regenerated client
+        if: ${{ failure() && steps.regenerate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-client-generated
+          path: workers/cmux-vm/cli/crates/cmux-vm-client/src/generated*.rs
+          retention-days: 7
+
+      - name: No upstream provider name in the clients
+        if: ${{ !cancelled() }}
+        working-directory: workers/cmux-vm
+        run: |
+          if grep -rIil freestyle cli sdk --exclude-dir=target --exclude-dir=node_modules; then
+            echo "::error::the cmux VM clients must not name the upstream provider"
+            exit 1
+          fi
+
+  sdk:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: workers/cmux-vm/sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - id: install
+        run: bun install --frozen-lockfile
+
+      - name: Generated schema matches openapi.json
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          bun run generate
+          if [[ -n "$(git status --porcelain -- .)" ]]; then
+            git --no-pager diff --stat -- .
+            echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+            exit 1
+          fi
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+
+      - name: Tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test
