@@ -11,6 +11,8 @@ const row = (key: string) => `[data-row-key="${key}"]`;
 const customized: Record<string, unknown> = {
   "tabs.newTabKind": "browser",
   "terminal.fontFamily": "Menlo",
+  // A custom number shows its field; the default hides it.
+  "browser.hibernation": 45,
   "browser.hibernationExclusions": ["docs.example.test", "*.research.example.test"],
   "picker.pinned": ["~/Projects/Atlas", "~/Projects/Research"],
   "sidebar.workspaceRow.secondLineOrder": ["branch", "directory"],

@@ -1,5 +1,5 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useDeferredValue, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
@@ -26,7 +26,11 @@ export function SettingsApp() {
   const location = parseLocation(href);
   const [query, setQuery] = useState("");
   const [changedOnly, setChangedOnly] = useState(false);
-  const searching = query.trim() !== "" || changedOnly;
+  // The field answers each keystroke at once; the results (many rows with editors) render at a
+  // lower priority that React can interrupt, so typing never waits on them.
+  const shownQuery = useDeferredValue(query);
+  const shownChangedOnly = useDeferredValue(changedOnly);
+  const searching = shownQuery.trim() !== "" || shownChangedOnly;
   const isChanged = (key: string) => state.rows.get(key)?.customized ?? false;
   const changedCount = [...state.rows.values()].filter((row) => row.customized && homes.has(row.key)).length;
 
@@ -92,9 +96,9 @@ export function SettingsApp() {
           ) : state.loaded && !state.readable ? (
             <ReadOnlyBanner reason="loadFailed" />
           ) : null}
-          {changedOnly && <h1 className="section-title">{t("settingsPage.changedTitle")}</h1>}
+          {shownChangedOnly && <h1 className="section-title">{t("settingsPage.changedTitle")}</h1>}
           {searching ? (
-            <SearchResults query={query} changedOnly={changedOnly} />
+            <SearchResults query={shownQuery} changedOnly={shownChangedOnly} />
           ) : (
             <SectionView key={location.section} section={location.section} focus={location.focus} />
           )}

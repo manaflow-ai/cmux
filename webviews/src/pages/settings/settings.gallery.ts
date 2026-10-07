@@ -364,7 +364,6 @@ const RESET_SAMPLES: Record<string, string> = {
   segmented: "navigation.historyScope",
   number: "layout.defaultColumnWidth",
   url: "browser.newTabPage",
-  "choice-or-number": "browser.hibernation",
   color: "layout.paneBorderColor",
   sound: "notifications.sound",
   "time-range": "notifications.quietHours",
