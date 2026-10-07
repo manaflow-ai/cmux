@@ -49,10 +49,13 @@ class AuthorizationLaunchTests(unittest.TestCase):
         bodies = '\n'.join(declaration(store, name) for name in names)
         if 'private func publishAuthorizationState(' in store:
             bodies += '\n' + declaration(store, 'private func publishAuthorizationState(')
+        if 'private func completeAuthorizationRefresh(' in store:
+            bodies += '\n' + declaration(store, 'private func completeAuthorizationRefresh(')
         gate_start = store.index('    private var isWindowSetupComplete') if '    private var isWindowSetupComplete' in store else -1
         gate = store[gate_start:store.index('    private var hasRequestedAutomaticAuthorization', gate_start)] if gate_start >= 0 else ''
         if 'private lazy var authorizationRefreshCoordinator' in store:
-            gate = declaration(store, 'private lazy var authorizationRefreshCoordinator')
+            start = store.index('    private lazy var authorizationRefreshCoordinator')
+            gate = store[start:store.index('    private var hasRequestedAutomaticAuthorization', start)]
         if gate_start >= 0: gate += '\n var readyForTesting: Bool { isWindowSetupComplete }\n'
         window = (ROOT / 'Sources/App/CmuxMainWindow.swift').read_text()
         if 'func whenInitialDisplayCompletes(' in window:
@@ -91,6 +94,8 @@ class AuthorizationLaunchTests(unittest.TestCase):
     def test_early_native_status_does_not_publish(self): self.run_case('status')
     def test_early_grant_does_not_publish(self): self.run_case('grant')
     def test_early_failure_does_not_publish(self): self.run_case('failure')
+    def test_early_denial_callback_does_not_publish(self): self.run_case('request-denied')
+    def test_early_error_callback_does_not_publish(self): self.run_case('request-error')
     def test_post_setup_and_noop_publication(self): self.run_case('post')
 
 

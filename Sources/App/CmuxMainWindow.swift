@@ -358,6 +358,49 @@ final class CmuxMainWindow: NSWindow {
         return behavior
     }
 
+    private var initialDisplayCompletion: (() -> Void)?
+    private var isCompletingInitialDisplay = false
+    private var didCompleteInitialDisplay = false
+
+    /// Arms readiness after the caller has finished configuring this window.
+    func whenInitialDisplayCompletes(_ completion: @escaping () -> Void) {
+        guard !didCompleteInitialDisplay else { return }
+        initialDisplayCompletion = completion
+    }
+
+    override func displayIfNeeded() {
+        guard initialDisplayCompletion != nil, !isCompletingInitialDisplay else {
+            super.displayIfNeeded()
+            return
+        }
+        isCompletingInitialDisplay = true
+        layoutIfNeeded()
+        super.displayIfNeeded()
+        isCompletingInitialDisplay = false
+        completeInitialDisplayIfNeeded()
+    }
+
+    override func display() {
+        guard initialDisplayCompletion != nil, !isCompletingInitialDisplay else {
+            super.display()
+            return
+        }
+        isCompletingInitialDisplay = true
+        layoutIfNeeded()
+        super.display()
+        isCompletingInitialDisplay = false
+        completeInitialDisplayIfNeeded()
+    }
+
+    /// Signals once, after this visible window returns from layout and display.
+    private func completeInitialDisplayIfNeeded() {
+        guard isVisible, contentView != nil, !didCompleteInitialDisplay else { return }
+        didCompleteInitialDisplay = true
+        let completion = initialDisplayCompletion
+        initialDisplayCompletion = nil
+        completion?()
+    }
+
     private var isSoftHiddenForVisibilityController = false
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {

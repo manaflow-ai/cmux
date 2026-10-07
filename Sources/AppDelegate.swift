@@ -1384,7 +1384,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
-    private var didScheduleNotificationWindowSetupSignal = false
     var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
@@ -5566,7 +5565,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
         presentCloudWelcomeIfNeeded(over: window)
-        markNotificationWindowSetupCompleteAfterLayout()
     }
 
     /// Once per Mac, after the first main window is up. Tests never see it.
@@ -5577,26 +5575,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.async { [weak self, weak window] in
             self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
         }
-    }
-
-    /// Opens the notification store's authorization gate after the run-loop pass that
-    /// lays out and displays the first registered main window. AppKit runs its display
-    /// cycle in a before-waiting observer; this one-shot observer is ordered after it,
-    /// so authorization publication cannot land inside launch constraint setup (#2757).
-    private func markNotificationWindowSetupCompleteAfterLayout() {
-        guard !didScheduleNotificationWindowSetupSignal else { return }
-        didScheduleNotificationWindowSetupSignal = true
-        let observer = CFRunLoopObserverCreateWithHandler(
-            kCFAllocatorDefault,
-            CFRunLoopActivity.beforeWaiting.rawValue,
-            false,
-            CFIndex.max
-        ) { _, _ in
-            MainActor.assumeIsolated {
-                _ = TerminalNotificationStore.shared.markWindowSetupComplete()
-            }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
 #if DEBUG
@@ -10749,6 +10727,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // when unset. See DevWindowDisplayDefault.
         DevWindowDisplayDefault.applyToNewWindow(window)
 #endif
+        window.whenInitialDisplayCompletes {
+            // Deliver the completed display event after the AppKit call stack unwinds.
+            Task { @MainActor in
+                _ = TerminalNotificationStore.shared.markWindowSetupComplete()
+            }
+        }
         return windowId
     }
 

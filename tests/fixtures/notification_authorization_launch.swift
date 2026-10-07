@@ -5,7 +5,7 @@ func pumpRunLoop() { CFRunLoopRunInMode(.defaultMode, 0.01, false) }
 
 // TYPES
 
-enum UserNotificationCenterFailure: Error { case timedOut }
+public enum UserNotificationCenterFailure: Error { case timedOut }
 struct Options: OptionSet, Sendable {
     let rawValue: Int
     static let alert = Options(rawValue: 1)
@@ -64,7 +64,9 @@ struct Options: OptionSet, Sendable {
         }
         let store = TerminalNotificationStore()
         if mode == "post" { await store.markWindowSetupComplete()?.value }
-        if mode == "grant" { store.userNotificationCenter.status = .success(.notDetermined) }
+        if mode == "grant" || mode.hasPrefix("request-") { store.userNotificationCenter.status = .success(.notDetermined) }
+        if mode == "request-denied" { store.userNotificationCenter.grant = .success(false) }
+        if mode == "request-error" { store.userNotificationCenter.grant = .failure(.timedOut) }
         if mode == "failure" { store.userNotificationCenter.status = .failure(.timedOut) }
         if mode == "status" { store.userNotificationCenter.status = .success(.provisional) }
         let decision = Decision()
@@ -82,6 +84,8 @@ struct Options: OptionSet, Sendable {
         precondition(store.changes == 0 && store.posts == 0, "early publication")
         if mode == "status" { precondition(decision.allowed && decision.state == .provisional, "delivery used gated stale state") }
         if mode == "grant" { precondition(decision.allowed && decision.state == .authorized) }
+        if mode == "request-denied" { precondition(!decision.allowed && decision.state == .denied) }
+        if mode == "request-error" { precondition(!decision.allowed && decision.state == .unknown) }
         await store.markWindowSetupComplete()?.value
         let changes = store.changes
         precondition(store.markWindowSetupComplete() == nil)
