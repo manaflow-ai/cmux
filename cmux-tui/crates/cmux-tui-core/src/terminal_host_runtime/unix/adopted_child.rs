@@ -24,7 +24,7 @@ pub(super) struct AdoptedChild {
 }
 
 /// Whether `pid` is alive (not a zombie) and still leads `session`.
-fn leads_session(pid: libc::pid_t, session: libc::pid_t) -> bool {
+pub(super) fn leads_session(pid: libc::pid_t, session: libc::pid_t) -> bool {
     // SAFETY: getsid has no memory preconditions.
     pid > 0 && unsafe { libc::getsid(pid) } == session && !is_zombie(pid)
 }
