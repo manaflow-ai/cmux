@@ -23,7 +23,9 @@ extension WebRTCPeer {
         Task { [weak self] in
             for await _ in wakes {
                 guard let self else { return }
-                while self.sendOne() {}
+                // One drain can move hundreds of MiB without suspending; each
+                // send drains the autorelease pool its libwebrtc calls fill.
+                while autoreleasepool(invoking: { self.sendOne() }) {}
             }
         }
     }
