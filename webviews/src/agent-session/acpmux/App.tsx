@@ -1871,7 +1871,7 @@ function AcpmuxPane() {
           <SessionRowsContext.Provider value={snapshot.rows}>
             <VirtualTranscript
               rows={transcriptRows}
-              sessionId={snapshot.sessionId}
+              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
               canLoadOlder={snapshot.canLoadOlder}
               expanded={expanded}
               registry={registry}
