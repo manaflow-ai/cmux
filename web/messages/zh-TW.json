@@ -5343,7 +5343,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",
     "title": "歡迎加入 cmux Pro",
-    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。",
     "done": "前往控制面板",
     "steps": {
       "iosApp": {
