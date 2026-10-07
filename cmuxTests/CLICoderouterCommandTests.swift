@@ -814,6 +814,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ("empty-env", ["cr", "accounts"], ["CODEROUTER_TEAM_ID": ""], "\n"),
             ("flag", ["cr", "accounts", "--team", "team-from-flag"], [:], "<unset>\n"),
             ("flag-equals", ["cr", "add", "codex", "--team=team-from-flag"], [:], "<unset>\n"),
+            // Commands that manage the saved default are never pinned.
+            ("org-switch", ["cr", "org", "switch", "team-x"], [:], "<unset>\n"),
+            ("login", ["cr", "login"], [:], "<unset>\n"),
         ]
         for testCase in cases {
             let fake = try makeTeamRecordingCoderouter()
@@ -881,11 +884,42 @@ struct CoderouterTeamEnvironmentTests {
         // So does an explicit option, in either spelling.
         #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts", "--team", "t"], appTeamID: "team-a") == base)
         #expect(CoderouterTeamEnvironment.environment(base, arguments: ["add", "codex", "--team=t"], appTeamID: "team-a") == base)
-        // A `--team` after `--` belongs to the wrapped program.
+        // Mirrors coderouter's extract_team_flag: after a pass-through command
+        // (codex, opencode, pi, naked, direct, claude-david) every argument,
+        // `--team` included, belongs to the wrapped program, and `--` has no
+        // special meaning.
+        for command in ["codex", "opencode", "pi", "naked", "direct", "claude-david"] {
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: [command, "exec", "--team", "x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a", "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: [command, "--team=x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a", "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: ["--team", "x", command], appTeamID: "team-a") == base, "\(command)")
+            #expect(CoderouterTeamEnvironment.environment(base, arguments: ["--team=x", command, "exec"], appTeamID: "team-a") == base, "\(command)")
+        }
         #expect(CoderouterTeamEnvironment.environment(base, arguments: ["codex", "--", "--team", "x"], appTeamID: "team-a")["CODEROUTER_TEAM_ID"] == "team-a")
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["accounts", "--", "--team", "x"], appTeamID: "team-a") == base)
+        // Only the first command word starts pass-through.
+        #expect(CoderouterTeamEnvironment.environment(base, arguments: ["add", "codex", "--team", "x"], appTeamID: "team-a") == base)
         // No app team: unchanged.
         #expect(CoderouterTeamEnvironment.environment(base, arguments: [], appTeamID: nil) == base)
         #expect(CoderouterTeamEnvironment.environment(base, arguments: [], appTeamID: "  ") == base)
+    }
+
+    @Test("Commands that manage the saved default organization or sign-in are never pinned", arguments: [
+        ["org", "switch", "x"], ["org"], ["organization", "list"], ["team", "use", "x"],
+        ["login"], ["login", "--api-key", "k"], ["logout"], ["auth"], ["transfer", "a", "--to", "t"],
+        ["--team", "x", "org", "current"],
+    ])
+    func persistedScopeCommandsAreNotPinned(arguments: [String]) {
+        #expect(!CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: [:]))
+        #expect(CoderouterTeamEnvironment.environment(["PATH": "/usr/bin"], arguments: arguments, appTeamID: "team-a") == ["PATH": "/usr/bin"])
+    }
+
+    @Test("Other commands follow the app's team", arguments: [
+        [], ["accounts"], ["--json"], ["add", "codex"], ["remove", "a", "--yes"], ["codex", "exec"],
+        ["doctor"], ["codex", "org", "switch"],
+    ])
+    func otherCommandsArePinned(arguments: [String]) {
+        #expect(CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: [:]))
+        #expect(!CoderouterTeamEnvironment.wantsAppTeam(arguments: arguments, environment: ["CODEROUTER_TEAM_ID": "mine"]))
     }
 
     @Test("auth.status yields a team only for a signed-in app with a team")

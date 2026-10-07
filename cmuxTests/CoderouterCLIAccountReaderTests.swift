@@ -717,10 +717,12 @@ struct CoderouterSidebarSectionTests {
         }
     }
 
-    @Test("With team-override, New Account runs the pinned CLI under CODEROUTER_TEAM_ID")
+    @Test("With team-override, New Account passes the team as CODEROUTER_TEAM_ID and --team")
     func teamOverrideAddUsesEnvironment() async throws {
-        #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add codex")
-        #expect(CoderouterProvider.opencodeGo.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add opencode")
+        // An older CLI that ignores the variable still honours --team, or
+        // fails loudly; it never adds to its saved default organization.
+        #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add codex --team 'team-a'")
+        #expect(CoderouterProvider.opencodeGo.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add opencode --team 'team-a'")
 
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-team-override-add-\(UUID().uuidString)")
@@ -737,7 +739,7 @@ struct CoderouterSidebarSectionTests {
                 // A team inherited from the shell does not leak into the add.
                 environment: ["PATH": "/usr/bin:/bin", "HOME": root.path, "CODEROUTER_TEAM_ID": "other-team"]
             )
-            #expect(String(decoding: result.stdout, as: UTF8.self) == "team's-id\ncr\nadd\n\(provider.id)\n")
+            #expect(String(decoding: result.stdout, as: UTF8.self) == "team's-id\ncr\nadd\n\(provider.id)\n--team\nteam's-id\n")
         }
     }
 
