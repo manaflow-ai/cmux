@@ -65,7 +65,7 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = ""): Minima
       open = {
         index,
         id: row.id,
-        key: `${row.id}#${hash(row.text ?? "")}`,
+        key: `${sessionId}#${row.id}#${hash(row.text ?? "")}`,
         prompt: (row.text ?? "").replace(/\s+/g, " ").trim(),
         reply: [],
       };
