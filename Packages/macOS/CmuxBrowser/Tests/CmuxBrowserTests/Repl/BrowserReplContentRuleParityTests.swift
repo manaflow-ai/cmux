@@ -69,4 +69,25 @@ struct BrowserReplContentRuleParityTests {
             expectParity(try policy(allowed: ["*"], prohibited: [pattern]), Self.urls())
         }
     }
+
+    /// r26 native#3: a universal host (`*`) became the content-rule host
+    /// expression `[^/@:]+`, which no bracketed IPv6 host matches, so a page
+    /// could load an `https://[v6]/` subresource that `prohibitedDomains:
+    /// ["https://*"]` refuses natively, and `allowedDomains: ["*"]` blocked
+    /// one the native policy allows.
+    @Test("A universal host pattern matches bracketed IPv6 hosts in the content rules too")
+    func universalHostMatchesIPv6() throws {
+        let urls = ["2001:db8::1", "::1", "::ffff:192.0.2.1", "fe80::1"].flatMap { host in
+            ["http", "https", "ws", "wss"].flatMap { scheme in
+                ["", ":443", ":8443"].map { "\(scheme)://[\(host)]\($0)/a.js" }
+            }
+        } + Self.urls()
+        for prohibited in ["https://*", "*", "*://*", "*:8443", "http*://*:443"] {
+            expectParity(try policy(prohibited: [prohibited]), urls)
+            expectParity(try policy(allowed: ["*"], prohibited: [prohibited]), urls)
+        }
+        for allowed in ["*", "https://*", "*://*:8443"] {
+            expectParity(try policy(allowed: [allowed]), urls)
+        }
+    }
 }
