@@ -14,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+# Every helper run reads this WINDOW (no FREEZE line) instead of the coordinator's mailbox.
+_NO_FREEZE = tempfile.NamedTemporaryFile("w", suffix="-WINDOW", delete=False)
+_NO_FREEZE.write("[CORE] cmux-tui-core\nowner: none\nLOCK (Cargo.lock writer): free\n")
+_NO_FREEZE.close()
+os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = _NO_FREEZE.name
 HEAD = "a" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
@@ -895,6 +900,77 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
         self.assertFalse(marker_exists)
         self.assertIn("diverged", stderr)
         self.assertIn("REPAIR.md#merging", stderr)
+
+
+class FreezeRegression(unittest.TestCase):
+    """A feat-cmux-next merge refuses a PR touching a path the WINDOW freezes."""
+
+    WINDOW = (
+        "[CORE] cmux-tui-core, spec/\nowner: none\n"
+        "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
+        "FREEZE: webviews/src/agent-session/ token=0badc0ffee00\n"
+    )
+
+    def run_with_window(self, directory, window, changed_files, extra_args=()):
+        path = Path(directory) / "WINDOW"
+        if window is not None:
+            path.write_text(window)
+        previous = os.environ["GH_MERGE_GREEN_WINDOW_FILE"]
+        os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = str(path)
+        try:
+            marker = Path(directory) / "merged"
+            result = InstalledHelperRegression.run_helper(
+                self, directory, marker, changed_files=changed_files, extra_args=extra_args)
+        finally:
+            os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = previous
+        return result, marker
+
+    def test_a_frozen_file_refuses_the_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("docs/README.md", "Packages/macOS/CmuxNext/Package.swift"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("frozen", result.stderr)
+            self.assertIn("Packages/macOS/CmuxNext/Package.swift", result.stderr)
+
+    def test_a_file_under_a_frozen_directory_refuses_the_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("webviews/src/agent-session/acpmux/ModelPicker.tsx",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("webviews/src/agent-session/", result.stderr)
+
+    def test_a_sibling_of_a_frozen_prefix_still_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("webviews/src/agent-session-web/main.ts", "Packages/macOS/CmuxNext/Package.swift.md"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_the_freeze_token_holder_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("Packages/macOS/CmuxNext/Package.swift",),
+                extra_args=("--freeze-token", "69600a4e4c73"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_override_does_not_lift_a_freeze(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("Packages/macOS/CmuxNext/Package.swift",),
+                extra_args=("--override", "the red check is a known base failure on this exact head"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_an_unreadable_window_refuses_and_names_the_coordinator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(directory, None, ("docs/README.md",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("coordinator", result.stderr)
 
 
 if __name__ == "__main__":
