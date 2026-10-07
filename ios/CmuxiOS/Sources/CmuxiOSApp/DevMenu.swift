@@ -31,6 +31,10 @@ enum DevMenu {
             let terminal = UINavigationController(rootViewController: DevTerminal.make())
             presenter?.present(terminal, animated: true)
         })
+        // DEBUG-only: the renderer benchmark (fixture replay with frame timing).
+        sheet.addAction(UIAlertAction(title: "Terminal renderer benchmark", style: .default) { [weak presenter] _ in
+            presenter?.present(UINavigationController(rootViewController: DevTerminal.makeBench()), animated: true)
+        })
         // DEBUG-only: the text confirmation settings against the mock owner.
         sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
             presenter?.present(DevTextConfirm.make(), animated: true)

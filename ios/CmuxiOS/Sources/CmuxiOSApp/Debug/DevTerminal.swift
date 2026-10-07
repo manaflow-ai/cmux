@@ -1,5 +1,6 @@
 #if DEBUG
 import CmuxiOSTerminal
+import CmuxTerminalRenderCore
 import Foundation
 import UIKit
 
@@ -33,11 +34,24 @@ enum DevTerminal {
     }
 
     private static func write(_ controller: TerminalViewController, to name: String) {
+        write(controller.diagnostics, to: name)
+    }
+
+    private static func write(_ object: [String: String], to name: String) {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("cmux-gallery/" + name)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = try? JSONSerialization.data(withJSONObject: controller.diagnostics, options: [.sortedKeys])
+        let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         try? data?.write(to: url)
+    }
+
+    /// The renderer benchmark (`CMUX_IOS_TERMINAL_BENCH=<workload id>`:
+    /// `flood`, `htop`, `vim` or `corpus:<case>`). Each finished run writes
+    /// `terminal-bench.json` next to the gallery (simulator and fleet checks).
+    static func makeBench(_ id: String? = nil) -> TerminalBenchViewController {
+        let bench = TerminalBenchViewController(workload: id.flatMap(TerminalWorkload.init(id:)) ?? .flood(bytes: 8 * 1024 * 1024))
+        bench.onReport = { report in write(report, to: "terminal-bench.json") }
+        return bench
     }
 }
 #endif
