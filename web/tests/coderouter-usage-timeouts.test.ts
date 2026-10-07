@@ -65,6 +65,7 @@ type Reported = {
 /** One loader whose usage reads follow `outcomes` in order, sharing one streak tracker. */
 function poller(outcomes: Array<"timeout" | "ok">) {
   const reported: Reported[] = [];
+  const observed: number[] = [];
   const load = createAccountsUsageLoader({
     listAccounts: async () => [account],
     listEncryptedCredentials: async () => [envelope],
@@ -80,31 +81,33 @@ function poller(outcomes: Array<"timeout" | "ok">) {
     report: (failure, _error, context = {}, options = {}) => {
       reported.push({ failure, context, options });
     },
+    observeTimeout: (observation) => {
+      observed.push(observation.consecutive);
+    },
     timeoutStreaks: createUsageTimeoutStreaks(),
   });
-  return { load, reported };
+  return { load, reported, observed };
 }
 
 describe("coderouter usage read timeouts", () => {
-  test("a single usage-read timeout is an upstream warning, not an operator error", async () => {
+  test("a single usage-read timeout is observed but never reported to Sentry", async () => {
     const run = poller(["timeout"]);
     const result = await run.load("team-1");
     expect(result.accounts[0]).toMatchObject({ usageError: "timeout" });
+    expect(run.reported).toEqual([]);
+    expect(run.observed).toEqual([1]);
+  });
+
+  test("only an account that times out on consecutive polls reports, as an error", async () => {
+    const run = poller(Array.from({ length: USAGE_TIMEOUT_ERROR_STREAK }, () => "timeout" as const));
+    for (let poll = 0; poll < USAGE_TIMEOUT_ERROR_STREAK; poll++) await run.load("team-1");
+    expect(run.observed).toEqual(Array.from({ length: USAGE_TIMEOUT_ERROR_STREAK }, (_, index) => index + 1));
     expect(run.reported).toHaveLength(1);
     expect(run.reported[0]).toMatchObject({
       failure: "provider_usage",
-      context: { provider: "codex", timeout: true, consecutive: 1 },
-      options: { fault: "upstream" },
+      context: { provider: "codex", timeout: true, consecutive: USAGE_TIMEOUT_ERROR_STREAK },
     });
-  });
-
-  test("an account that times out on consecutive polls escalates to an error", async () => {
-    const run = poller(Array.from({ length: USAGE_TIMEOUT_ERROR_STREAK }, () => "timeout" as const));
-    for (let poll = 0; poll < USAGE_TIMEOUT_ERROR_STREAK; poll++) await run.load("team-1");
-    const last = run.reported.at(-1);
-    expect(last?.context.consecutive).toBe(USAGE_TIMEOUT_ERROR_STREAK);
-    expect(last?.options.fault).toBeUndefined();
-    expect(run.reported.slice(0, -1).every((report) => report.options.fault === "upstream")).toBe(true);
+    expect(run.reported[0]?.options.fault).toBeUndefined();
   });
 
   test("a successful read resets the streak", async () => {
@@ -114,9 +117,8 @@ describe("coderouter usage read timeouts", () => {
     const polls = outcomes.length;
     const run = poller(outcomes);
     for (let poll = 0; poll < polls; poll++) await run.load("team-1");
-    const last = run.reported.at(-1);
-    expect(last?.context.consecutive).toBe(1);
-    expect(last?.options.fault).toBe("upstream");
+    expect(run.observed.at(-1)).toBe(1);
+    expect(run.reported).toEqual([]);
   });
 
   test("upstream faults are warnings in Sentry and PostHog", () => {
