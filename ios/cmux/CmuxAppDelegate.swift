@@ -17,6 +17,12 @@ final class CmuxAppDelegate: UIResponder, UIApplicationDelegate {
         CmuxiOSApplication.didRegisterForRemoteNotifications(deviceToken: deviceToken)
     }
 
+    /// Background pushes from the feed owner (dismiss answered banners, badge).
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        await CmuxiOSApplication.didReceiveRemoteNotification(userInfo) ? .newData : .noData
+    }
+
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,

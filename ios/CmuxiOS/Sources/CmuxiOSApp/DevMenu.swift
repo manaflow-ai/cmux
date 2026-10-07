@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxFeedPushCore
 import CmuxHomeUI
 import CmuxiOSDesign
 import CmuxiOSPlatform
@@ -66,6 +67,14 @@ enum DevMenu {
         // DEBUG-only: Keep Mac Awake rows over the mock Macs (C16 stub).
         sheet.addAction(UIAlertAction(title: "Keep Mac Awake (mock)", style: .default) { [weak presenter] _ in
             presenter?.present(PlatformComposition.keepAwakePreview(container: container), animated: true)
+        })
+        // DEBUG-only: a Live Activity for a sample agent (C7); the feed owner
+        // updates it once its token registers.
+        sheet.addAction(UIAlertAction(title: "Start sample Live Activity", style: .default) { _ in
+            let started = container.activities.start(
+                subject: AgentActivitySubject(host: "h_dev", task: "task_dev"), agent: "Claude Code", place: "cmux",
+                title: String(localized: "activity.dev.title", defaultValue: "Sample agent task", bundle: .module))
+            container.toasts.show(Toast(started == nil ? .warning : .success, started ?? "Live Activities are off"))
         })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in

@@ -1,3 +1,4 @@
+public import CmuxFeedPushCore
 public import CmuxiOSFeatureKit
 
 /// Seam for lane C7: delivers this device's notification preferences to the
