@@ -194,7 +194,18 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
             workspaceID: workspace.id, title: workspace.title, machineName: host.hostName,
             unreadCount: workspace.unreadCount, isReachable: host.isReachable, capabilities: host.capabilities)
         let actions = feature.actions
-        return UIMenu(children: [
+        var desktop: [UIMenuElement] = []
+        if let hook = feature.remoteDesktop {
+            let hostID = hostID
+            desktop.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: hook.title, image: UIImage(systemName: "display"),
+                         attributes: host.isReachable ? [] : .disabled) { [weak self] _ in
+                    guard let self else { return }
+                    hook.open(hostID, host.hostName, self)
+                },
+            ]))
+        }
+        return UIMenu(children: desktop + [
             UIAction(title: WorkspacesText.markRead, image: UIImage(systemName: "envelope.open"),
                      attributes: actions.canMarkRead(target) ? [] : .disabled) { [weak self] _ in
                 if let self { actions.markRead(target, from: self) }

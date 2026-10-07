@@ -18,6 +18,20 @@ public final class WorkspacesFeature {
     /// The list re-renders when the machines sheet changes preferences.
     var onPreferencesChange: (() -> Void)?
     private weak var navigation: UINavigationController?
+    /// Lane C3: "Remote Desktop" in a workspace's menu opens the Mac's
+    /// screen. Set by the composition root with its localized title.
+    public var remoteDesktop: RemoteDesktopHook?
+
+    /// How the workspace detail offers remote desktop for its Mac.
+    public struct RemoteDesktopHook {
+        public var title: String
+        public var open: @MainActor (HostID, String, UIViewController) -> Void
+
+        public init(title: String, open: @escaping @MainActor (HostID, String, UIViewController) -> Void) {
+            self.title = title
+            self.open = open
+        }
+    }
 
     public init(source: any WorkspaceSource, terminalSources: any WorkspaceTerminalSourceFactory,
                 preferences: WorkspaceViewPreferencesStore = WorkspaceViewPreferencesStore(), isMock: Bool = false) {

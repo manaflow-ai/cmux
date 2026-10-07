@@ -15,6 +15,9 @@ public final class SSHFeature {
     /// The device's terminal settings (lane C11); nil keeps renderer defaults.
     let appearance: (any TerminalAppearanceProviding)?
     private weak var navigation: UINavigationController?
+    /// Opens a paired Mac's row (lane C3: the remote desktop entry). Set by
+    /// the composition root; nil leaves paired Macs informational.
+    public var openPairedMac: (@MainActor (HostRecord, UIViewController, UIView?) -> Void)?
     private(set) lazy var prompter = SSHTrustAlertPrompter { [weak self] in
         self?.navigation?.topmostPresented
     }

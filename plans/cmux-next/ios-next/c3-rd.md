@@ -97,15 +97,15 @@ view crop), so input never depends on which frame the phone is showing.
 | Phone gesture (trackpad mode, default) | rd events |
 | --- | --- |
 | one-finger drag | moves a local cursor by the finger delta times an acceleration curve; `pointer` once per display frame |
-| tap | `button 0 down/up` at the cursor |
-| two-finger tap | `button 1 down/up` (secondary click) |
-| tap then drag (double-tap-hold) | `button 0 down`, moves, `button 0 up` on lift (drag and select) |
-| two-finger pan | `scroll` precise, in hundredths of a point, natural direction |
-| pinch | local zoom; at gesture end `desktop.view` for the visible rect so the Mac re-encodes it sharp |
+| tap | `button 1 down/up` at the cursor (rd buttons use X numbering: 1 primary, 2 middle, 3 secondary) |
+| two-finger tap | `button 3 down/up` (secondary click) |
+| hold, then drag | `button 1 down`, moves, `button 1 up` on lift (drag and select) |
+| two-finger pan | `scroll` precise, in hundredths of a point, positive down, natural direction |
+| pinch | local zoom around the fingers; at gesture end `desktop.view` for the visible rect so the Mac re-encodes it sharp |
 | three-finger tap or toolbar | show or hide the keyboard |
 
 Direct mode (toolbar switch): the cursor jumps to the finger (`pointer` at the touch point, then
-`button 0`), drags move it, long press is a secondary click. iPad pointer and hardware keyboard work in
+`button 1`), drags move it, long press is a secondary click. iPad pointer and hardware keyboard work in
 both modes (pointer `move`, `UIPress` HID usages with modifiers).
 
 Keyboard: software keyboard text as `text` events (committed IME text included; marked text stays on
@@ -125,8 +125,9 @@ window) or to X11 keysyms (VNC, `HidKeysymMap`).
   (`SCStreamConfiguration.sourceRect` for displays and windows, a framebuffer crop for VNC), answers
   `desktop.view_applied`, and the next keyframe is that rect at full sharpness. Until then the phone
   keeps scaling the previous frame, mapped through the view it was encoded for.
-- Pan while zoomed moves the local lens; at pan end the same `desktop.view` goes out. In trackpad mode
-  the lens follows the cursor when it reaches the edge.
+- While zoomed the lens follows the trackpad cursor when it nears an edge, and pinching moves it around
+  the fingers; when the gesture ends the same `desktop.view` goes out. (Two fingers scroll the remote
+  content, so there is no separate lens pan.)
 - One pure type, `RemoteDesktopViewport` (phone, CmuxiOSRemoteDesktopCore), owns the math: view rect in
   target pixels, zoom, lens offset, screen point to target point, target rect for a frame encoded for
   another view. Tested without UIKit.

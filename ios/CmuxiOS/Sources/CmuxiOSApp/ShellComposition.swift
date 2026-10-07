@@ -1,6 +1,8 @@
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
+import CmuxiOSRemoteDesktop
+import CmuxiOSRemoteDesktopCore
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
@@ -49,6 +51,17 @@ enum ShellComposition {
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             isMock: !workspacesAreReal)
+        // Lane C3: remote desktop from a paired Mac's Hosts row and from the
+        // workspace detail menu, over the same link sessions as C1's terminals.
+        let remoteDesktop = RemoteDesktopEntry(connector: LinkRemoteDesktopConnector { [weak container] host in
+            container?.linkDirectory.client(for: host)
+        })
+        ssh.openPairedMac = { record, presenter, source in
+            remoteDesktop.present(host: record.id, hostName: record.name, from: presenter, sourceView: source)
+        }
+        workspaces.remoteDesktop = WorkspacesFeature.RemoteDesktopHook(title: RemoteDesktopEntry.actionTitle) { host, name, presenter in
+            remoteDesktop.present(host: host, hostName: name, from: presenter)
+        }
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
             .workspaces: { workspaces.makeWorkspacesScreen() },

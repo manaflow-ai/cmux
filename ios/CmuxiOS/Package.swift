@@ -32,6 +32,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxLink"),
         .package(path: "../../Packages/Shared/CmuxMobileLink"),
+        .package(path: "../../Packages/Shared/CmuxBrowserStream"),
+        .package(path: "../../Packages/Shared/CmuxRemoteDesktop"),
         .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxPairing"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -74,6 +76,8 @@ let package = Package(
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSTerminalLink",
+                "CmuxiOSRemoteDesktop",
+                "CmuxiOSRemoteDesktopCore",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
@@ -397,6 +401,42 @@ let package = Package(
                 .product(name: "CmuxTerminalLink", package: "CmuxTerminalLink"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C3 (plans/cmux-next/ios-next/c3-rd.md): remote desktop. The
+        // core (viewport, trackpad, gestures, modifier latch, the link
+        // connector) has no UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSRemoteDesktopCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSRemoteDesktopCoreTests",
+            dependencies: [
+                "CmuxiOSRemoteDesktopCore",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The remote desktop screen: H.264 decode and display, gestures,
+        // toolbar, keyboard and the entry sheet.
+        .target(
+            name: "CmuxiOSRemoteDesktop",
+            dependencies: [
+                "CmuxiOSRemoteDesktopCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
