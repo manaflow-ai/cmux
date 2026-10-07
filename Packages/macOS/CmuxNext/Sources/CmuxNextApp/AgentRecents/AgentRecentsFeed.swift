@@ -35,18 +35,10 @@ final class AgentRecentsFeed {
         directoryWatch?.cancel()
     }
 
-    /// Every chat, newest activity first (Search Chats).
-    var allChats: [AcpmuxRecentChat] { recents.newest(.max) }
-
     /// Calls `changed` after each change while `owner` lives; the first
     /// observer starts the watch.
     func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
-        start()
-    }
-
-    /// Starts the watch unless it runs or waits for the socket.
-    func start() {
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 

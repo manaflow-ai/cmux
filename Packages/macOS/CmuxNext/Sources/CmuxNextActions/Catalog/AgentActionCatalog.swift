@@ -54,15 +54,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
-                id: "agentChats.search",
-                title: String(localized: "action.agentChats.search", defaultValue: "Search Chats…", bundle: .module),
-                // The sidebar's Search Chats: every agent chat, from any window, no agent pane needed.
-                keywords: ["agent", "chat", "chats", "search", "find", "recents", "sessions", "acpmux"],
-                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .menu],
-                arguments: [CatalogArgument.queryString], mainMenu: .file,
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .focusMove)
-            ),
-            ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
