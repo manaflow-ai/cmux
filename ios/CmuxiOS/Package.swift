@@ -81,6 +81,8 @@ let package = Package(
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSSearch",
+                "CmuxiOSSearchCore",
                 "CmuxiOSTerminalLink",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
@@ -522,6 +524,28 @@ let package = Package(
                 "CmuxiOSTerminal",
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
             ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C15 (plans/cmux-next/ios-next/c15-search.md): universal
+        // search over the C5/C6/C9 mirrors (read-only providers), ranking,
+        // recents and the debounced session. No UIKit, so its tests also run
+        // on macOS.
+        .target(
+            name: "CmuxiOSSearchCore",
+            dependencies: ["CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSearchCoreTests",
+            dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The search screen (tab root and Cmd-K sheet).
+        .target(
+            name: "CmuxiOSSearch",
+            dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
