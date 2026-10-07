@@ -39,30 +39,37 @@ public nonisolated struct AcpmuxRecentChats: Sendable, Equatable {
     /// Replaces every chat with the sessions of `result`.
     public mutating func reset(_ result: [String: Any]) {
         chats = [:]
+        if let indexed = result["chats"] as? [[String: Any]] {
+            for value in indexed {
+                guard let chat = AcpmuxChat(json: value) else { continue }
+                chats[chat.id] = AcpmuxRecentChat(id: chat.id, title: chat.title, harness: chat.harness,
+                                                  cwd: chat.cwd ?? "", updatedAt: chat.updatedAt.timeIntervalSince1970 * 1000)
+            }
+            return
+        }
         for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) { upsert(summary) }
     }
 
     /// Applies one `_acpmux/session_changed`; a `purged` session leaves.
     public mutating func apply(changed params: [String: Any]) {
-        guard let id = params["sessionId"] as? String else { return }
+        if let key = params["key"] as? String, params["kind"] as? String == "removed" {
+            chats[key] = nil
+            return
+        }
+        guard let id = (params["sessionId"] as? String) ?? (params["key"] as? String) else { return }
         if params["kind"] as? String == "purged" {
             chats[id] = nil
+        } else if let summary = (params["session"] as? [String: Any]) ?? (params["chat"] as? [String: Any]), let chat = AcpmuxChat(json: summary) {
+            chats[chat.id] = AcpmuxRecentChat(id: chat.id, title: chat.title, harness: chat.harness,
+                                               cwd: chat.cwd ?? "", updatedAt: chat.updatedAt.timeIntervalSince1970 * 1000)
         } else if let summary = params["session"] as? [String: Any] {
             upsert(summary)
         }
     }
 
-    /// At most `limit` chats, newest activity first; with `project`, only the
-    /// chats in that folder (the filter applies before the limit).
-    public func newest(_ limit: Int, in project: String? = nil) -> [AcpmuxRecentChat] {
-        let shown = project.map { cwd in chats.values.filter { $0.cwd == cwd } } ?? Array(chats.values)
-        return Array(shown.sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }.prefix(limit))
-    }
-
-    /// The chats' folders, newest activity first; a chat with no folder names none.
-    public var projects: [String] {
-        var seen = Set<String>()
-        return newest(chats.count).map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted }
+    /// At most `limit` chats, newest activity first.
+    public func newest(_ limit: Int) -> [AcpmuxRecentChat] {
+        Array(chats.values.sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }.prefix(limit))
     }
 
     private mutating func upsert(_ summary: [String: Any]) {

@@ -73,6 +73,11 @@ pub struct RbCallbacks {
         ),
     >,
     pub on_dialog_reset: Option<unsafe extern "C" fn(*mut c_void, c_int)>,
+    /// browser, surface, kind, visible, x, y, width, height (page DIP).
+    pub on_surface: Option<
+        unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int, c_int, c_int, c_int, c_int),
+    >,
+    pub on_surface_frame: Option<unsafe extern "C" fn(*mut c_void, c_int, *const RbFrame)>,
 }
 
 unsafe extern "C" {
@@ -146,6 +151,18 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn rb_shim_ime_finish(browser: c_int, keep_selection: c_int) -> c_int;
     pub fn rb_shim_ime_cancel(browser: c_int) -> c_int;
+    pub fn rb_shim_set_active(browser: c_int, active: c_int) -> c_int;
+    pub fn rb_shim_surface_capture(surface: c_int) -> c_int;
+    pub fn rb_shim_surface_send_mouse(
+        surface: c_int,
+        kind: c_int,
+        x: f64,
+        y: f64,
+        button: c_int,
+        click_count: c_int,
+        modifiers: c_int,
+    ) -> c_int;
+    pub fn rb_shim_surface_close(surface: c_int) -> c_int;
     pub fn rb_shim_context_menu_result(token: i64, command_id: c_int) -> c_int;
     pub fn rb_shim_popup_menu_result(token: i64, indices: *const c_int, count: c_int) -> c_int;
     pub fn rb_shim_dialog_result(token: i64, accept: c_int, text: *const c_char) -> c_int;
@@ -222,8 +239,20 @@ impl Presentation for ShimPresentation {
             RpCall::PageMouse { kind, x, y, button, click_count, modifiers } => unsafe {
                 rb_shim_send_mouse(browser, *kind, *x, *y, *button, *click_count, *modifiers)
             },
-            // Popup surfaces (RP7) are not in the shim ABI yet.
-            RpCall::SurfaceMouse { .. } => 0,
+            RpCall::SurfaceMouse { surface, kind, x, y, button, click_count, modifiers } => {
+                let surface = c_int::try_from(*surface).unwrap_or(c_int::MAX);
+                unsafe {
+                    rb_shim_surface_send_mouse(
+                        surface,
+                        *kind,
+                        *x,
+                        *y,
+                        *button,
+                        *click_count,
+                        *modifiers,
+                    )
+                }
+            }
             RpCall::SendWheel { x, y, dx, dy, precise, phase, momentum_phase, modifiers } => unsafe {
                 rb_shim_send_wheel(
                     browser,
@@ -280,6 +309,24 @@ impl Presentation for ShimPresentation {
         let ptr = text.as_ref().map_or(std::ptr::null(), |t| t.as_ptr());
         // SAFETY: `text` outlives the call; the shim copies it.
         unsafe { rb_shim_dialog_result(fork_token, c_int::from(accept), ptr) == 1 }
+    }
+
+    fn set_active(&mut self, browser: i32, active: bool) -> bool {
+        // SAFETY: plain values; UI thread.
+        unsafe { rb_shim_set_active(browser, c_int::from(active)) == 1 }
+    }
+
+    fn surface_capture(&mut self, surface: u32) -> bool {
+        let Ok(surface) = c_int::try_from(surface) else { return false };
+        // SAFETY: plain value; UI thread.
+        unsafe { rb_shim_surface_capture(surface) == 1 }
+    }
+
+    fn surface_close(&mut self, surface: u32) {
+        if let Ok(surface) = c_int::try_from(surface) {
+            // SAFETY: plain value; UI thread.
+            unsafe { rb_shim_surface_close(surface) };
+        }
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {
