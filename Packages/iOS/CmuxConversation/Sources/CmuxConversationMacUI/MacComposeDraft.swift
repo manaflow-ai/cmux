@@ -411,7 +411,9 @@ final class MacComposeDraftController: NSViewController, NSTableViewDataSource, 
     func setDraft(_ message: ConversationComposeMessage) {
         composer.text = message.text
         for image in message.images {
-            if let nsImage = NSImage(data: image.data) { composer.addImage(nsImage) }
+            if let nsImage = NSImage(data: image.data) {
+                composer.addAttachment(MacComposerAttachment(image: nsImage, data: image.data, mimeType: image.mimeType))
+            }
         }
         focusRecipients()
     }

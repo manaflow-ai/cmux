@@ -330,6 +330,9 @@ extension ConversationComposeViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapPlus(_ composer: ConversationComposerView) {}
+
+    /// The New Message sheet has no Send with Effect (it sends the first message plain).
+    func composerDidLongPressSend(_ composer: ConversationComposerView) {}
 }
 
 extension ConversationComposeViewController: UITableViewDataSource, UITableViewDelegate {

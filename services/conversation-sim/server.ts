@@ -703,6 +703,7 @@ function wireConversation(c: Conversation) {
     deleted: c.deleted,
   };
   if (c.pinned && c.pinOrder !== undefined) out.pinOrder = c.pinOrder;
+  if (c.service) out.service = c.service;
   return out;
 }
 
@@ -1363,7 +1364,14 @@ async function handleCreateConversation(p: any) {
   const key = people.map((x) => x.id).sort().join(",");
   for (const s of stores.values()) {
     const others = s.conv.participants.filter((x) => !x.isMe).map((x) => x.id).sort().join(",");
-    if (others === key) return { conversation: s.conv, created: false };
+    if (others === key) {
+      // Messages brings a deleted conversation back when you write to the same people.
+      if (s.conv.deleted) {
+        s.conv.deleted = false;
+        s.broadcastConversation();
+      }
+      return { conversation: wireConversation(s.conv), created: false };
+    }
   }
   const service: Service = people.some((x) => x.service === "SMS") ? "SMS" : "iMessage";
   const participants: Participant[] = [ME, ...people.map(({ service: _s, ...rest }) => rest)];
@@ -1373,12 +1381,17 @@ async function handleCreateConversation(p: any) {
     kind: people.length === 1 ? "direct" : "group",
     participants,
     service,
+    // New conversations start with the default list state.
+    pinned: false,
+    muted: false,
+    markedUnread: false,
+    deleted: false,
   };
   const store = new Store(conv);
   stores.set(conv.id, store);
   void botLoop(store);
   log(`createConversation id=${conv.id} kind=${conv.kind} participants=${key} service=${service}`);
-  return { conversation: conv, created: true };
+  return { conversation: wireConversation(conv), created: true };
 }
 
 // ---------------------------------------------------------------- bots
