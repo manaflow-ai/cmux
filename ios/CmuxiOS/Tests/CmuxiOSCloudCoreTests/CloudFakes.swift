@@ -54,6 +54,7 @@ actor FakeCloudAPI: CloudAPIClient {
 
     var machines: [JSONValue] = []
     var planValue: JSONValue = CloudJSON.plan()
+    var connectInfoValue: JSONValue?
     var listRevision = 1
     /// Replies for mutations, in order; empty = committed with no machine.
     var replies: [CloudOpReply] = []
@@ -67,6 +68,8 @@ actor FakeCloudAPI: CloudAPIClient {
         self.machines = machines
         listRevision = revision
     }
+
+    func setConnectInfo(_ value: JSONValue) { connectInfoValue = value }
 
     func set(replies: [CloudOpReply]) { self.replies = replies }
 
@@ -92,6 +95,9 @@ actor FakeCloudAPI: CloudAPIClient {
             return .object(["machines": .array(machines), "next_cursor": .null, "revision": .string(String(listRevision))])
         case "cloud.plan.get":
             return planValue
+        case "cloud.machine.connect_info":
+            guard let connectInfoValue else { throw CloudAPIError.refused(code: "cloud.machine.not_bound") }
+            return connectInfoValue
         default:
             throw CloudAPIError.refused(code: "validation.invalid")
         }

@@ -46,6 +46,50 @@ public struct CloudWireDecoder: Sendable {
         )
     }
 
+    /// Decodes the non-secret peer description used to prepare a VM attach.
+    /// The dial token is intentionally absent: it is minted only for the
+    /// subsequent one-shot hello and is never part of this model.
+    public func connectInfo(_ value: JSONValue) throws -> CloudConnectInfo {
+        let wire = try value.decode(as: WireCloudConnectInfo.self)
+        guard let state = CloudMachineStatus(rawValue: wire.state) else {
+            throw CloudWireDecodeError.unknownStatus(wire.state)
+        }
+        let services = try wire.services.map { raw -> CloudConnectInfo.Service in
+            guard let service = CloudConnectInfo.Service(rawValue: raw) else {
+                throw CloudWireDecodeError.unknownService(raw)
+            }
+            return service
+        }
+        guard !services.isEmpty, services.count <= 2, Set(services).count == services.count else {
+            throw CloudWireDecodeError.invalidServices
+        }
+        return CloudConnectInfo(
+            machineID: wire.machine,
+            hostID: HostID(wire.host),
+            epoch: wire.epoch,
+            state: state,
+            peer: CloudConnectInfo.Peer(
+                wireGuardPublicKey: wire.peer.wg_public_key,
+                overlayAddress: wire.peer.overlay_address,
+                vpcEndpoint: wire.peer.vpc_endpoint,
+                publicIPv6: wire.peer.public_ipv6
+            ),
+            gateway: wire.gateway.map {
+                CloudConnectInfo.Gateway(
+                    tunnelID: $0.tunnel_id,
+                    endpoint: $0.endpoint,
+                    serverPublicKey: $0.server_public_key,
+                    clientAddress: $0.client_address,
+                    allowedIPs: $0.allowed_ips
+                )
+            },
+            services: services,
+            daemonVersion: wire.daemon.version,
+            daemonCapabilities: wire.daemon.capabilities,
+            revision: Self.revision(wire.revision)
+        )
+    }
+
     /// `cmux.wire/1` revisions are decimal strings; anything else is 0.
     public static func revision(_ raw: String?) -> UInt64 { raw.flatMap(UInt64.init) ?? 0 }
 
