@@ -92,5 +92,10 @@ import Testing
         #expect(cell.time.lineBreakMode == NSLineBreakMode.byClipping)
         #expect(cell.time.contentCompressionResistancePriority(for: .horizontal) == .required)
         #expect(cell.title.contentCompressionResistancePriority(for: .horizontal) < .required)
+
+        cell.frame.size.width = 180
+        cell.layoutSubtreeIfNeeded()
+        #expect(cell.time.frame.width + 0.5 >= cell.time.intrinsicContentSize.width)
+        #expect(cell.title.frame.maxX <= cell.time.frame.minX)
     }
 }
