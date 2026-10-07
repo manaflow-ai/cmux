@@ -60,9 +60,7 @@ export function schemaKeys(schemaFile) {
 export const PAGES = {
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
-    catalogs: [
-      { file: "Resources/Localizable.xcstrings", keys: (all) => all.filter((key) => key.startsWith("gallery.")) },
-    ],
+    catalogs: [{ file: "webviews/src/gallery/Localizable.xcstrings" }],
   },
   diff: {
     splitLocales: true,
