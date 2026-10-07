@@ -31,7 +31,7 @@ final class LocalNetworkProbe {
         let clock = clock
         let observer = Self.returnedFromPrompt { continuation.yield(.granted) }
         let timeout = Task {
-            try? await clock.sleep(for: Self.wait)
+            do { try await clock.sleep(for: Self.wait) } catch { return }
             continuation.yield(.granted)
         }
         var answer = PermissionStatus.granted

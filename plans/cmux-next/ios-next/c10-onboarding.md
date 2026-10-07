@@ -16,6 +16,11 @@ pairing (same-account discovery first, QR fallback), connect, resume at the rema
 Settings, bypass for automation. Dropped: Tailscale and auto-connect migration sheets (no iroh), the
 keep-awake card (Keep Mac Awake has no lane yet, C16; the celebrate step leaves room for it).
 
+HIG references: Onboarding (https://developer.apple.com/design/human-interface-guidelines/onboarding:
+teach by doing, keep it brief, let people skip), Privacy / Requesting permission
+(https://developer.apple.com/design/human-interface-guidelines/privacy: ask in context, explain the
+benefit before the system alert), Playing haptics, Motion (Reduce Motion alternatives), Accessibility.
+
 ## 2. Storyboard
 
 Two phases. The progress bar counts only the steps that apply on this device right now (a step whose
@@ -146,6 +151,10 @@ into the same protocol.
   controller across signed-out and signed-in, forwards auth changes, and installs the shell on finish.
   Settings gets a Replay Welcome Tour row through a closure (Shell never imports onboarding).
 - `SignInScreen.makeEmbedded` exposes the kept sign-in without its standalone chrome.
+
+Already-signed-in installs with no stored progress (an update from the earlier app) are treated as
+onboarded and never interrupted, like the shipping app's paired-user exclusion. A user who chose Not
+Now on the notifications primer is not prompted by push registration at the next launch.
 
 Mocked until other lanes land: pairing (B6; `MockDeviceRegistry` trusts the discovered MacBook Pro),
 the QR scanner (B6 owns the camera scanner; the onboarding scanner sheet is a viewfinder placeholder
