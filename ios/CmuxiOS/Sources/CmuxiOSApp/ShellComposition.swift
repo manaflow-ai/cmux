@@ -1,6 +1,8 @@
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
+import CmuxiOSSearch
+import CmuxiOSSearchCore
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
@@ -13,8 +15,8 @@ import UIKit
 enum ShellComposition {
     static func makeShell(
         container: AppContainer, account: SignedInAccount, home: UIViewController,
-        replayTour: @escaping @MainActor () -> Void
-    ) -> ShellRootController {
+        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void
+    ) -> (shell: ShellRootController, features: ShellFeatures) {
         let sources = container.featureSources(for: account)
         // Lane C4: built with the seams so background transfer handling runs
         // for the whole signed-in session.
@@ -52,7 +54,11 @@ enum ShellComposition {
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             isMock: !workspacesAreReal)
+        // Lane C15: universal search over the same seams.
+        let search = SearchComposition.makeFeature(
+            sources: sources, visibleTabs: container.flags.visibleTabs, opener: searchOpener)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
+            .search: { search.makeSearchScreen() },
             .hosts: { ssh.makeHostsScreen() },
             .workspaces: { workspaces.makeWorkspacesScreen() },
             .feed: {
@@ -62,11 +68,12 @@ enum ShellComposition {
                 return navigation
             },
         ])
-        return ShellRootController(
+        let shell = ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),
             content: { content.controller(for: $0) }
         )
+        return (shell, ShellFeatures(workspaces: workspaces, ssh: ssh, settings: settings, search: search))
     }
 
     /// Live link badges per device: the real owner once B5/D1 register it;

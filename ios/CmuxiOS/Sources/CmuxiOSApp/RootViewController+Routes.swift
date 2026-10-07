@@ -11,8 +11,11 @@ extension RootViewController {
         case .feed(let item):
             select(.feed)
             if let item { container.feedNavigator.open(item) }
-        // C5 pushes the workspace and surface once its screen lands.
-        case .workspaces, .workspace: select(.workspaces)
+        case .workspaces: select(.workspaces)
+        case .workspace(let host, let workspace, _):
+            // C5 has no surface push yet: the workspace detail opens.
+            select(.workspaces)
+            shellFeatures?.workspaces.open(hostID: host, workspaceID: workspace)
         // C8 pre-fills host and workspace once its screen lands.
         case .compose: select(.compose)
         case .hosts: select(.hosts)
@@ -21,6 +24,8 @@ extension RootViewController {
             presentOnTop(PlatformComposition.diagnosticsScreen(container: container))
         case .whatsNew:
             presentOnTop(PlatformComposition.whatsNewScreen())
+        case .search(let query):
+            openSearch(query: query)
         case .pairing(let url):
             // B6 owns the pair/attach grammar (RootViewController+Pairing.swift).
             handlePairingLink(url)

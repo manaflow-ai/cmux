@@ -77,6 +77,8 @@ let package = Package(
                 "CmuxiOSSSHCore",
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSSearch",
+                "CmuxiOSSearchCore",
                 "CmuxiOSTerminalLink",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
@@ -466,6 +468,13 @@ let package = Package(
         .testTarget(
             name: "CmuxiOSSearchCoreTests",
             dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The search screen (tab root and Cmd-K sheet).
+        .target(
+            name: "CmuxiOSSearch",
+            dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
