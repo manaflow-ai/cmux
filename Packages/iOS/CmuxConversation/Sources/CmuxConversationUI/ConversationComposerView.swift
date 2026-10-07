@@ -83,6 +83,13 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentInset: CGFloat = 6
     private let attachmentGap: CGFloat = 6
     private var attachmentBand: CGFloat { attachmentInset + attachmentHeight + 7 }
+    /// How far the keyboard has risen (0 hidden, 1 fully shown). Messages
+    /// widens the composer as the keyboard rises: both side insets shrink by
+    /// 12 pt, in step with the keyboard (measured on iOS 26 Messages).
+    var keyboardProgress: CGFloat = 0 {
+        didSet { if oldValue != keyboardProgress { setNeedsLayout() } }
+    }
+    static let keyboardSideInsetReduction: CGFloat = 12
     private let verticalPadding: CGFloat = 9
     private let fieldTextInset: CGFloat = 14.5
     private let sendSize = CGSize(width: 37, height: 28)
@@ -184,6 +191,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         super.layoutSubviews()
         let t = ConversationTheme.self
         let plusSize = t.plusButtonSize
+        // The Photos drawer's inset, less Messages' widening as the keyboard rises.
+        let sideInset = self.sideInset - Self.keyboardSideInsetReduction * keyboardProgress
         plusGlass.frame = CGRect(x: sideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
         plusButton.frame = plusGlass.bounds
         let fieldX = plusGlass.frame.maxX + t.composerFieldGap
@@ -283,6 +292,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     private func textDidChange() {
+        updateEmojiScale()
         mentionController.textDidChange()
         updatePlaceholder()
         updateSendButton(animated: true)
@@ -309,12 +319,42 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
     }
 
+    /// Point size of an emoji-only draft, or nil for body text. Messages
+    /// shows a lone emoji in the field at 72 pt and two or three at 48 pt
+    /// (measured on iOS 26: glyph boxes 64 and 43 pt, a 105 pt field for one).
+    private(set) var emojiPointSize: CGFloat?
+
+    static func emojiPointSize(for text: String) -> CGFloat? {
+        guard text == text.trimmingCharacters(in: .whitespacesAndNewlines),
+              ConversationRowBuilder.isEmojiOnly(text) else { return nil }
+        return text.count == 1 ? 72 : 48
+    }
+
+    private func updateEmojiScale() {
+        guard textView.markedTextRange == nil else { return }
+        let size = attachments.isEmpty ? Self.emojiPointSize(for: textView.text ?? "") : nil
+        guard size != emojiPointSize else { return }
+        emojiPointSize = size
+        let attributes: [NSAttributedString.Key: Any] = size.map {
+            [.font: UIFont.systemFont(ofSize: $0), .foregroundColor: UIColor.label]
+        } ?? [
+            .font: ConversationTheme.bodyFont,
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: ConversationTheme.bodyParagraph,
+        ]
+        let selection = textView.selectedRange
+        textView.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage.length))
+        textView.typingAttributes = attributes
+        textView.selectedRange = selection
+    }
+
     /// Grows by whole lines in the same frame as the edit, with no animation.
     func updateHeight() {
         let width = max(1, (fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120) - fieldTextInset - sendSize.width - 10)
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
+        if emojiPointSize != nil { natural = max(ConversationTheme.composerMinHeight, ceil(textSize.height)) }
         if !attachments.isEmpty { natural += attachmentBand }
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
@@ -377,6 +417,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
         attachmentStrip.isHidden = attachments.isEmpty
         attachmentSeparator.isHidden = attachments.isEmpty
+        updateEmojiScale()
         updatePlaceholder()
         updateSendButton(animated: true)
         setNeedsLayout()
@@ -413,6 +454,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         mentionController.reset()
         textView.resetFormatting()
         hideTextEffects()
+        updateEmojiScale()
         updatePlaceholder()
         // Messages swaps send for the mic in the send frame; the flying
         // bubble starts translucent over the cleared field.
@@ -426,10 +468,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             delegate?.composerDidChangeText(self)
             return
         }
-        // Collapse with a slight spring undershoot, settling by ~0.38 s.
-        // Measured against Messages' 40-line send: ~1.8% undershoot of the
-        // drop (434 -> 35 pt min) rather than bounce 0.28's ~4% (26 pt).
-        UIView.animate(springDuration: 0.31, bounce: 0.2, options: [.beginFromCurrentState]) {
+        // Collapse on Messages' spring: fitted to iOS 26 Messages' field top
+        // after an 8-line and a capped 40-line send (duration 0.40-0.41,
+        // bounce 0.15-0.18; ~1.2% overshoot, settled by ~0.35 s).
+        UIView.animate(springDuration: 0.4, bounce: 0.17, options: [.beginFromCurrentState]) {
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }
