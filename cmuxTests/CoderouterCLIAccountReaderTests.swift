@@ -165,7 +165,7 @@ struct CoderouterCLIAccountReaderTests {
         let task = Task {
             try await CoderouterCLIAccountReader.runProcess(
                 executable: "/bin/sh",
-                arguments: ["-c", "touch \"$CMUX_TEST_READY\"; while true; do printf x; done"],
+                arguments: ["-c", "touch \"$CMUX_TEST_READY\"; exec sleep 1000"],
                 environment: [
                     "PATH": "/usr/bin:/bin",
                     "CMUX_TEST_READY": readyURL.path,
