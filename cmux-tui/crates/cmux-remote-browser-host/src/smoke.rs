@@ -21,7 +21,7 @@ use crate::ffi::{
 };
 
 /// A static page; each keydown toggles a 16x16 CSS px box at (100, 100).
-const PAGE: &str = "data:text/html,<html><body style='margin:0;background:%231f7a3a'>\
+pub const PAGE: &str = "data:text/html,<html><body style='margin:0;background:%231f7a3a'>\
 <div id=b style='position:absolute;left:100px;top:100px;width:16px;height:16px;\
 background:red'></div><script>let n=0;addEventListener('keydown',()=>{n++;\
 document.getElementById('b').style.background=n%252?'blue':'red';});\
@@ -353,6 +353,8 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
         on_context_menu: None,
         on_popup_menu: None,
         on_needs_begin_frames: None,
+        on_dialog: None,
+        on_dialog_reset: None,
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

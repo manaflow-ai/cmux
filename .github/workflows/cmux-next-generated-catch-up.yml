@@ -147,7 +147,7 @@ jobs:
           fi
           git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
             -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh): $RUN_URL"
-          git show --stat --oneline HEAD | head -40 >> "$GITHUB_STEP_SUMMARY"
+          git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mint the catch-up token
         id: app-token

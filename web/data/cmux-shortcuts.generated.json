@@ -98,6 +98,42 @@
           "aliases": []
         },
         {
+          "id": "newIncognitoWindow",
+          "title": {
+            "en": "New Incognito Window",
+            "ar": "نافذة جديدة للتصفح المتخفي",
+            "bs": "Novi anonimni prozor",
+            "da": "Nyt inkognitovindue",
+            "de": "Neues Inkognitofenster",
+            "es": "Nueva ventana de incógnito",
+            "fr": "Nouvelle fenêtre de navigation privée",
+            "it": "Nuova finestra in incognito",
+            "ja": "新しいシークレット ウィンドウ",
+            "km": "បង្អួចអនាមិកថ្មី",
+            "ko": "새 시크릿 창",
+            "no": "Nytt inkognitovindu",
+            "pl": "Nowe okno incognito",
+            "pt-BR": "Nova janela anônima",
+            "ru": "Новое окно в режиме инкогнито",
+            "th": "หน้าต่างที่ไม่ระบุตัวตนใหม่",
+            "tr": "Yeni Gizli Pencere",
+            "uk": "Нове вікно в режимі анонімного перегляду",
+            "vi": "Cửa sổ ẩn danh mới",
+            "zh-CN": "新建无痕式窗口",
+            "zh-TW": "新增無痕式視窗"
+          },
+          "shortcut": {
+            "key": "n",
+            "modifiers": [
+              "opt",
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "closeWindow",
           "title": {
             "en": "Close Window",
@@ -3592,11 +3628,9 @@
             "zh-TW": "新增終端機標籤頁"
           },
           "shortcut": {
-            "key": "t",
+            "key": "`",
             "modifiers": [
-              "ctrl",
-              "shift",
-              "cmd"
+              "ctrl"
             ]
           },
           "chord": null,

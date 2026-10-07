@@ -30,6 +30,7 @@ INPUTS = [
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-pages-web.sh",
     "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/cmux-next/web-bundle-key.py",
     ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
@@ -43,6 +44,7 @@ OUTPUTS = [
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app",
+    "Native/OptChat/optchat-chief/inspector/index.html",
 ]
 
 IGNORED_NAMES = {".DS_Store"}

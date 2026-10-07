@@ -1,11 +1,8 @@
-//! The hub owns every session, its child agent, its event log, and the
-//! fan-out channel that attached clients subscribe to.
-//!
-//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle`
-//! (spawn, resume, fork), `permissions` (agent requests and policy), `turns`
-//! (prompt, cancel, config), `transfer` (export, import), `views` (summaries),
-//! `handoff` (a reviewed first message to a new session on another harness),
-//! `adoption` (resuming a harness's own session on `session/new`).
+//! The hub owns every session, its child agent, its event log, and the clients' fan-out channel.
+//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle` (spawn, resume,
+//! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
+//! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
+//! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
 mod catalog_reload;
@@ -21,6 +18,7 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_hint;
+mod models_view;
 mod paging;
 mod pool;
 mod resolve;
@@ -227,6 +225,8 @@ pub struct Session {
     pub(super) web_control_ended: AtomicBool,
     /// The remote floor's per-session marks (`remote_floor.rs`).
     pub(super) floor: remote_floor::FloorState,
+    /// The subagents the agent reported, for attributing their updates.
+    pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
 }
 
 impl Session {
@@ -321,6 +321,7 @@ pub struct Hub {
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    pub catalog: Arc<crate::catalog::CatalogService>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -396,6 +397,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
+            catalog: Arc::new(crate::catalog::CatalogService::new()),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -589,6 +591,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
+            subagents: StdMutex::new(Default::default()),
         })
     }
 

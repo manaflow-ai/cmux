@@ -3,6 +3,7 @@ import Foundation
 public struct DeletePersonalGroupRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "delete-personal-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var group: WorkspaceGroupID
     public init(group: WorkspaceGroupID) { self.group = group }
 }
@@ -10,6 +11,7 @@ public struct DeletePersonalGroupRequest: DaemonRequest {
 public struct MovePersonalGroupRequest: DaemonRequest {
     public typealias Response = PersonalGroupResult
     public static let command = "move-personal-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var group: WorkspaceGroupID
     public var index: Int
     public init(group: WorkspaceGroupID, index: Int) {
@@ -23,6 +25,7 @@ public struct MovePersonalGroupRequest: DaemonRequest {
 public struct SetPersonalWorkspaceRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-personal-workspace"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
     public var index: Int?

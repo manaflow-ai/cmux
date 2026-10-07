@@ -1,8 +1,7 @@
 #!/bin/sh
 # Rebuilds the generated files that are still committed and stages them, after
 # merging feat-cmux-next (or main) into a branch: the strings tables
-# (webviews/src/**/generated/strings.json, from the xcstrings catalogs) and the
-# Chief memory inspector page.
+# (webviews/src/**/generated/strings.json, from the xcstrings catalogs).
 #
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output since cx-vn5 and gitignored; every build path runs
@@ -20,7 +19,6 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
-INSPECTOR="Native/OptChat/optchat-chief/inspector"
 PAGE_STRINGS="webviews/src/**/generated/strings.json"
 # The build outputs that were committed before cx-vn5. Only their placeholders
 # (GENERATED.md) stay in the index.
@@ -44,6 +42,5 @@ cd "$ROOT/webviews"
 bun install --frozen-lockfile
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
-"$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh"
-git add -A -- "$INSPECTOR" ":(glob)$PAGE_STRINGS"
-git status --short -- "$INSPECTOR" ":(glob)$PAGE_STRINGS"
+git add -A -- ":(glob)$PAGE_STRINGS"
+git status --short -- ":(glob)$PAGE_STRINGS"

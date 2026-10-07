@@ -36,6 +36,11 @@ import Testing
         let bitwarden = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
             + ",,login,c,,,0,https://c.example/x,u,\(Self.marker),\n"
         #expect(try read(bitwarden).logins.map(\.username) == ["u"])
+        // 1Password 8 (File > Export, CSV): capitalized headers, items without a URL are not sign-ins.
+        let onePassword = "Title,Url,Username,Password,OTPAuth,Favorite,Archived,Tags,Notes\n"
+            + "Site,https://d.example/,u,\(Self.marker),,false,false,,\nNote,,,,,false,false,,secure note\n"
+        let parsed = try read(onePassword)
+        #expect(parsed.logins.map(\.signonRealm) == ["https://d.example/"])
     }
 
     /// Username before email, per row: Proton Pass has both columns, email

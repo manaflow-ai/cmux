@@ -28,6 +28,7 @@ Usage: crash_ratchet.py [--repo ROOT] [--update-baseline]
 Exit 1 when a module or crate gained a hit.
 """
 import argparse
+import subprocess
 import json
 import os
 import re
@@ -66,56 +67,71 @@ def allowed(lines, index):
     return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
 
 
+def tracked_files(repo, root):
+    """Files under ROOT that git tracks (absolute paths, sorted). Ignored and untracked
+    files never count: build or sync output in a per-job tree made the ratchet red while
+    every tracked file equalled the tip (2026-10-07). Outside a git checkout every file
+    under ROOT is scanned, with a warning."""
+    rel = os.path.relpath(root, repo)
+    try:
+        out = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", rel],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+        return sorted(os.path.join(repo, p) for p in out.split("\0") if p)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"crash-ratchet: WARNING: {repo} is not a git checkout ({error}); scanning every file under {rel}, "
+              "ignored build output included", file=sys.stderr)
+        return sorted(os.path.join(d, n) for d, _, names in os.walk(root) for n in names)
+
+
 def scan_swift(repo, counts):
     sources = os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
-    for dirpath, _, files in os.walk(sources):
-        for name in sorted(files):
-            if not name.endswith(".swift"):
+    for path in tracked_files(repo, sources):
+        name = os.path.basename(path)
+        if not name.endswith(".swift") or not os.path.isfile(path):
+            continue
+        rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
+        lines = open(path, encoding="utf-8").read().split("\n")
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("//") or allowed(lines, index):
                 continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
-            lines = open(path, encoding="utf-8").read().split("\n")
-            for index, line in enumerate(lines):
-                if line.lstrip().startswith("//") or allowed(lines, index):
-                    continue
-                code = swift_code(line)
-                for kind, pattern in SWIFT.items():
-                    hits = len(pattern.findall(code))
-                    if kind == "fatal_error" and hits:
-                        context = " ".join(lines[max(0, index - 2):index + 1])
-                        if UNREACHABLE_INIT.search(context):
-                            continue
-                    if hits:
-                        counts.setdefault(kind, {}).setdefault(rel, 0)
-                        counts[kind][rel] += hits
+            code = swift_code(line)
+            for kind, pattern in SWIFT.items():
+                hits = len(pattern.findall(code))
+                if kind == "fatal_error" and hits:
+                    context = " ".join(lines[max(0, index - 2):index + 1])
+                    if UNREACHABLE_INIT.search(context):
+                        continue
+                if hits:
+                    counts.setdefault(kind, {}).setdefault(rel, 0)
+                    counts[kind][rel] += hits
 
 
 def scan_rust(repo, counts):
     crates = os.path.join(repo, "cmux-tui/crates")
-    for dirpath, dirs, files in os.walk(crates):
-        dirs[:] = [d for d in dirs if d not in ("target", "tests", "benches", "examples", "node_modules", "fixtures")]
-        if os.sep + "src" not in dirpath:
+    skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
+    for path in tracked_files(repo, crates):
+        dirpath, name = os.path.split(path)
+        parts = os.path.relpath(dirpath, crates).split(os.sep)
+        if skipped_dirs.intersection(parts) or os.sep + "src" not in dirpath or not os.path.isfile(path):
             continue
-        for name in sorted(files):
-            if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+        if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+            continue
+        rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
+        text = open(path, encoding="utf-8", errors="replace").read()
+        # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
+        # `#[cfg(test)] mod x;` declaration is not code.
+        inline = INLINE_TESTS.search(text)
+        lines = (text if not inline else text[:inline.start()]).split("\n")
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("//") or allowed(lines, index):
                 continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
-            text = open(path, encoding="utf-8", errors="replace").read()
-            # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
-            # `#[cfg(test)] mod x;` declaration is not code.
-            inline = INLINE_TESTS.search(text)
-            lines = (text if not inline else text[:inline.start()]).split("\n")
-            for index, line in enumerate(lines):
-                stripped = line.lstrip()
-                if stripped.startswith("//") or allowed(lines, index):
-                    continue
-                code = line.split("//", 1)[0] if '"' not in line else line
-                for kind, pattern in RUST.items():
-                    hits = len(pattern.findall(code))
-                    if hits:
-                        counts.setdefault(kind, {}).setdefault(rel, 0)
-                        counts[kind][rel] += hits
+            code = line.split("//", 1)[0] if '"' not in line else line
+            for kind, pattern in RUST.items():
+                hits = len(pattern.findall(code))
+                if hits:
+                    counts.setdefault(kind, {}).setdefault(rel, 0)
+                    counts[kind][rel] += hits
 
 
 def main():

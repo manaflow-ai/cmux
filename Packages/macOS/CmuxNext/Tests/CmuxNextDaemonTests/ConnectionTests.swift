@@ -173,10 +173,13 @@ import Testing
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
         _ = try await connection.moveTabToNewWorkspace(3, transaction: "tx")
-        await #expect(throws: DaemonError.missingCapabilities(["move-tab-to-split"])) {
+        await #expect(throws: DaemonError.missingCapabilities([DaemonCapabilities.shared.tabDrag])) {
             try await connection.moveTabToSplit(3, pane: 4, edge: .right)
         }
-        #expect(seen.withLock { $0 }.suffix(3) == ["move-tab-to-new-workspace", "move-tab-to-workspace", "move-tab-to-split"])
+        // Without tab-drag-v1 neither drag command reaches the daemon.
+        #expect(seen.withLock { $0 }.last == "move-tab-to-workspace")
+        #expect(!seen.withLock { $0 }.contains("move-tab-to-new-workspace"))
+        #expect(!seen.withLock { $0 }.contains("move-tab-to-split"))
         await connection.close()
     }
 }

@@ -71,6 +71,9 @@ final class AppControl {
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.page_host_pool") { [weak services] call in
+                .value(DebugPageHostPool.handle(call.params, services: services))
+            },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -237,6 +240,10 @@ final class AppControl {
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
+            },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
             },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }

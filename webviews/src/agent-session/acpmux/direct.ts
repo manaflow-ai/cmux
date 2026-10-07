@@ -18,6 +18,7 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
+import { SubagentFold } from "./subagents/subagentFold";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -447,6 +448,8 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
+  private subagents = new SubagentFold();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
@@ -630,6 +633,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
     this.commands = [];
@@ -1036,6 +1040,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) {
@@ -1117,6 +1122,7 @@ export class AcpmuxDirectClient {
           this.optimisticPromptTexts.delete(fallbackPromptId);
           this.promptAccepts.get(fallbackPromptId)?.();
         }
+        this.subagents.closeBatch();
         this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
@@ -1171,6 +1177,17 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    if (this.subagents.reduce(event, update)) {
+      for (const row of this.subagents.takeRows()) {
+        // A new group ends the text and tool calls before it, like a tool call does.
+        if (!this.rows.has(row.id)) {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+        }
+        this.rows.set(row.id, row);
+      }
+      return;
+    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -1180,6 +1197,8 @@ export class AcpmuxDirectClient {
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       acpmuxPerf.markAgent("firstToken");
+      // Subagents spawned after the session's own text form a new group.
+      this.subagents.closeBatch();
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -1373,11 +1392,14 @@ export class AcpmuxDirectClient {
   /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
+  /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
+    ticket?: string,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1414,7 +1436,7 @@ export class AcpmuxDirectClient {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId } },
+        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
       });
       accept();
     } catch (error) {
@@ -1675,7 +1697,11 @@ export class AcpmuxDirectClient {
   /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
   async setMode(modeId: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
-      await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId, ...gestureMeta(ticket) });
+      await this.request("session/set_mode", {
+        sessionId: this.selectedSessionId,
+        modeId,
+        ...gestureMeta(ticket),
+      });
   }
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
@@ -1754,17 +1780,39 @@ export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unkn
   return undefined;
 }
 
+/// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.
+export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["models"][number] {
+  const entry: AcpmuxSnapshot["catalog"][number]["models"][number] = {
+    id: String(model?.id ?? model?.modelId),
+    name: typeof model?.name === "string" ? model.name : undefined,
+  };
+  if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
+  for (const key of ["shortName", "family", "defaultEffort"] as const)
+    if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
+  if (Array.isArray(model?.efforts))
+    entry.efforts = model.efforts.filter((value: unknown) => typeof value === "string");
+  if (typeof model?.fast === "boolean") entry.fast = model.fast;
+  if (Number.isInteger(model?.contextWindow) && model.contextWindow > 0) entry.contextWindow = model.contextWindow;
+  return entry;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   return (
     Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
   ).map((harness: any) => ({
     id: String(harness.id ?? harness.name),
-    name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)),
-    models: (harness.models ?? []).map((model: any) => ({
-      id: String(model.id ?? model.modelId),
-      name: model.name,
-    })),
+    name: agentName(
+      String(harness.id ?? harness.name),
+      typeof harness.displayName === "string" && harness.displayName
+        ? harness.displayName
+        : harness.name == null
+          ? undefined
+          : String(harness.name),
+    ),
+    models: (harness.models ?? []).map((model: any) => catalogModel(model)),
+    ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
+    ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),

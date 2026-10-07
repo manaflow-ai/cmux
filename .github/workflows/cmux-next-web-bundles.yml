@@ -52,9 +52,6 @@ jobs:
       - name: Verify webviews source checks
         run: ./scripts/build-webviews-app.sh --check
 
-      - name: Verify generated Chief memory inspector
-        run: ./scripts/cmux-next/build-optchat-inspector-web.sh --check
-
       # The app build path (cx-vn5): every build entry runs build-web-bundles.sh
       # before it compiles. The bundles must build, the strings tables (still
       # committed) must be current, and the build must be deterministic: a second
@@ -72,7 +69,8 @@ jobs:
             Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages \
             Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity \
             Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js \
-            Resources/markdown-viewer/webviews-app; do
+            Resources/markdown-viewer/webviews-app \
+            Native/OptChat/optchat-chief/inspector; do
             diff -r -x GENERATED.md "$path" "$out/$path" >/dev/null || { echo "::error::$path differs between two builds"; diff -rq -x GENERATED.md "$path" "$out/$path" || true; status=1; }
           done
           exit "$status"

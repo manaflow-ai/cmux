@@ -266,17 +266,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         "pinned": pinned,
     });
     if kind == "terminal" {
-        let cwd = connection
-            .query_row(
-                "SELECT json_extract(h.launch_spec_json, '$.cwd')
-                 FROM resource_terminals AS t JOIN terminal_hosts AS h ON h.terminal_id = t.terminal_id
-                 WHERE t.public_id = ?1",
-                [&content_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?
-            .flatten();
-        record["cwd"] = json!(cwd);
+        // The closed tab keeps its own copy of the relaunch record, so reopen
+        // works after the terminal's row is gone.
+        let relaunch =
+            crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
+        record["cwd"] = relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone());
+        record["relaunch"] = relaunch.unwrap_or(Value::Null);
         record["terminal_id"] = json!(content_id);
     } else {
         let url = connection
