@@ -23,32 +23,37 @@ public struct TrustStoreKeyLookup: TrustedKeyLookup {
         for device in state.devices.values.sorted(by: { $0.install < $1.install }) where device.host == host {
             if let cert = device.certs.direct, valid(cert, key: device.publicKey, user: user, install: device.install, purpose: .direct, at: at),
                let raw = cert.keyBytes {
+                let wg = device.certs.wg.flatMap { valid($0, key: device.publicKey, user: user, install: device.install, purpose: .wg, at: at) ? $0.keyBytes : nil }
                 return TrustedHostKey(host: host, install: device.install, name: device.name, ownerUser: user, directKey: raw,
-                                      certificate: cert, isOwnAccount: true)
+                                      certificate: cert, isOwnAccount: true, installKey: device.publicKey, wireGuardKey: wg)
             }
         }
         for entry in state.remote.values.sorted(by: { $0.install < $1.install }) where entry.host == host {
             if valid(entry.cert, key: entry.publicKey, user: entry.ownerUser, install: entry.hostInstall, purpose: .direct, at: at),
                let raw = entry.cert.keyBytes {
                 return TrustedHostKey(host: host, install: entry.hostInstall, name: entry.name, ownerUser: entry.ownerUser,
-                                      directKey: raw, certificate: entry.cert, isOwnAccount: false)
+                                      directKey: raw, certificate: entry.cert, isOwnAccount: false, installKey: entry.publicKey)
             }
         }
         return nil
     }
 
     public func isTrustedDevice(directKey: Data, onHost host: String?) async -> Bool {
-        guard let state = await mirror.state, directKey.count == 32 else { return false }
+        await trustedInstall(linkKey: directKey, purpose: .direct, onHost: host) != nil
+    }
+
+    public func trustedInstall(linkKey: Data, purpose: LinkPurpose, onHost host: String?) async -> String? {
+        guard let state = await mirror.state, linkKey.count == 32, purpose != .dtls else { return nil }
         let at = millis()
-        let encoded = directKey.base64URLEncodedString()
-        if state.devices.values.contains(where: { d in
-            d.certs.direct.map { $0.key == encoded && valid($0, key: d.publicKey, user: user, install: d.install, purpose: .direct, at: at) } ?? false
-        }) { return true }
-        guard let host else { return false }
-        return state.guests.values.contains { g in
+        let encoded = linkKey.base64URLEncodedString()
+        if let device = state.devices.values.sorted(by: { $0.install < $1.install }).first(where: { d in
+            d.certs[purpose].map { $0.key == encoded && valid($0, key: d.publicKey, user: user, install: d.install, purpose: purpose, at: at) } ?? false
+        }) { return device.install }
+        guard let host, purpose == .direct else { return nil }
+        return state.guests.values.sorted(by: { $0.device.install < $1.device.install }).first { g in
             g.host == host && g.device.cert.key == encoded
                 && valid(g.device.cert, key: g.device.publicKey, user: g.device.user, install: g.device.install, purpose: .direct, at: at)
-        }
+        }?.device.install
     }
 
     public func verifyFingerprint(_ certificate: LinkCertificate, from install: String) async -> Bool {

@@ -1,6 +1,6 @@
 public import CmuxTerminalRenderCore
 import CmuxTerminalStream
-public import Foundation
+import Foundation
 
 /// Binds one `TerminalByteSource` to one `GhosttyTerminalView`. Screens of
 /// any lane (the terminal screen, an SSH session, the benchmark) own one
@@ -28,6 +28,7 @@ public final class TerminalSession {
     /// Deadlines (READY, throttle retry) sleep on this clock (injected).
     private let clock: any Clock<Duration>
     private var events: Task<Void, Never>?
+    private var chromeTasks: [Task<Void, Never>] = []
     private var retry: Task<Void, Never>?
     private var readyDeadline: Task<Void, Never>?
     private var pipeline: TerminalStreamPipeline?
@@ -83,6 +84,7 @@ public final class TerminalSession {
         let source = self.source
         let grid = view.fittingGrid
         let viewport = view.viewport ?? TerminalViewport(cols: grid.cols, rows: grid.rows, visible: view.isPresented)
+        followChrome()
         let closing = self.closing
         events = Task { [weak self] in
             await closing?.value
@@ -98,6 +100,8 @@ public final class TerminalSession {
     public func stop() {
         events?.cancel()
         events = nil
+        for task in chromeTasks { task.cancel() }
+        chromeTasks.removeAll()
         retry?.cancel()
         retry = nil
         readyDeadline?.cancel()
@@ -108,6 +112,34 @@ public final class TerminalSession {
         closing = Task {
             await previous?.value
             await source.close()
+        }
+    }
+
+    /// Asks the source for the page of scrollback before the oldest it
+    /// holds (sources that load history on demand; others ignore it).
+    public func loadOlderHistory() {
+        guard let loader = source as? any TerminalHistoryLoading else { return }
+        Task { await loader.loadOlderHistory() }
+    }
+
+    /// Whether the source can load older scrollback at all.
+    public var loadsHistory: Bool { source is any TerminalHistoryLoading }
+
+    /// Connection and history states of sources that report them.
+    private func followChrome() {
+        if let reporter = source as? any TerminalConnectionReporting {
+            chromeTasks.append(Task { [weak self] in
+                for await state in await reporter.connectionStates() {
+                    self?.status.connection = state
+                }
+            })
+        }
+        if let loader = source as? any TerminalHistoryLoading {
+            chromeTasks.append(Task { [weak self] in
+                for await state in await loader.historyStates() {
+                    self?.status.history = state
+                }
+            })
         }
     }
 
@@ -124,8 +156,10 @@ public final class TerminalSession {
     private func apply(_ event: TerminalSourceEvent) {
         switch event {
         case .frame(let frame):
+            if !status.hasContent { status.hasContent = true }
             pipeline?.receive(frame: frame)
         case .bytes(let bytes):
+            if !status.hasContent { status.hasContent = true }
             pipeline?.feed(bytes)
         case .grid(let cols, let rows, let generation):
             pipeline?.grid(cols: cols, rows: rows, generation: generation)

@@ -59,6 +59,7 @@ enum ShellComposition {
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.
             surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
+            appearance: container.terminalPreferences,
             isMock: !workspacesAreReal)
         // Lane C8: the Compose tab and the floating compose button over Feed
         // and Workspaces. The picker and "open workspace" are C5's, passed as
