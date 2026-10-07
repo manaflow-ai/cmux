@@ -64,7 +64,8 @@ impl Peers {
             .collect();
         self.changes.send_replace(fresh.clone());
         if !removed.is_empty() {
-            let _ = tokio::time::timeout(REVOKE_CLOSE_BUDGET, self.open_owner.closed(&removed)).await;
+            let _ =
+                tokio::time::timeout(REVOKE_CLOSE_BUDGET, self.open_owner.closed(&removed)).await;
         }
         overlay.sync_peers(&fresh).await?;
         *self.current.write().unwrap() = fresh;

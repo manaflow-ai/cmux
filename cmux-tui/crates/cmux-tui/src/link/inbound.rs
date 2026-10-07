@@ -55,7 +55,12 @@ pub(super) struct OpenOwnerSessions {
 
 impl OpenOwnerSessions {
     fn enter(self: &std::sync::Arc<Self>, key: [u8; 32]) -> OpenOwnerSession {
-        *self.keys.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).entry(key).or_default() += 1;
+        *self
+            .keys
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(key)
+            .or_default() += 1;
         OpenOwnerSession { register: self.clone(), key }
     }
 
@@ -234,7 +239,9 @@ where
     let _ = stream.shutdown().await;
     let _ = tokio::time::timeout(REVOKED_CLOSE_ACK, async {
         let mut sink = [0u8; 1024];
-        while matches!(tokio::io::AsyncReadExt::read(&mut stream, &mut sink).await, Ok(n) if n > 0) {}
+        while matches!(tokio::io::AsyncReadExt::read(&mut stream, &mut sink).await, Ok(n) if n > 0)
+        {
+        }
     })
     .await;
     Err(InboundRefused::Owner(OwnerRefused::NotOwner))

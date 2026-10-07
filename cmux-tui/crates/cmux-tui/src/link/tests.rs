@@ -416,7 +416,10 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                 &pairings(),
                 &session_socket,
                 Some(&config),
-                Some(super::inbound::Revocations { view: receiver, open: std::sync::Arc::default() }),
+                Some(super::inbound::Revocations {
+                    view: receiver,
+                    open: std::sync::Arc::default(),
+                }),
             )
             .await
         })
