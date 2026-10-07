@@ -3181,6 +3181,10 @@
       "de": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
     }
   },
+  "settings.sidebar.liquidGlass": {
+    "source": "Liquid Glass",
+    "class": "brand"
+  },
   "simulator.appearance.liquidGlass": {
     "source": "Liquid Glass",
     "class": "brand"

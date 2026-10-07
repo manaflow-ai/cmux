@@ -20,7 +20,7 @@ extension SidebarSection {
         SettingsCardRow(
             configurationReview: .json("sidebarAppearance.glassBlurRadius"),
             String(localized: "settings.sidebar.blurOpacity", defaultValue: "Blur Opacity"),
-            subtitle: String(localized: "settings.sidebar.blurOpacity.subtitle", defaultValue: "How much the glass blurs what is behind the window. 0% is the lightest blur; higher is frostier."),
+            subtitle: String(localized: "settings.sidebar.blurOpacity.subtitle", defaultValue: "How much the glass blurs what is behind the window. Lower is lighter; higher is frostier."),
             controlWidth: 250
         ) {
             HStack(spacing: 8) {
@@ -95,7 +95,7 @@ extension SidebarSection {
         SettingsCardRow(
             configurationReview: .json("sidebarAppearance.tintOpacity"),
             String(localized: "settings.sidebar.tintOpacity", defaultValue: "Tint Opacity"),
-            subtitle: String(localized: "settings.sidebar.tintOpacity.subtitle", defaultValue: "How strongly the tint color covers the glass. 0% is clear glass; 100% is a solid panel."),
+            subtitle: String(localized: "settings.sidebar.tintOpacity.subtitle", defaultValue: "How strongly the tint color covers the glass, from clear glass to a solid panel."),
             controlWidth: 250
         ) {
             HStack(spacing: 8) {
