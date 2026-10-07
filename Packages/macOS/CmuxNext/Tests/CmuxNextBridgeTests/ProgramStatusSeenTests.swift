@@ -19,13 +19,15 @@ struct ProgramStatusSeenTests {
         var seen = ProgramStatusSeen()
         let records = [Self.done, Self.error, Self.working, Self.blocked]
         #expect(seen.visible(records, terminal: "t1") == records)
-        #expect(seen.markSeen(records, terminal: "t1"))
+        let changed = seen.markSeen(records, terminal: "t1")
+        #expect(changed)
         // Working and blocked are live states, never hidden by a look.
         #expect(seen.visible(records, terminal: "t1") == [Self.working, Self.blocked])
         // Another terminal's records with the same ids are not seen.
         #expect(seen.visible(records, terminal: "t2") == records)
         // Nothing new: marking again changes nothing.
-        #expect(!seen.markSeen(records, terminal: "t1"))
+        let changedAgain = seen.markSeen(records, terminal: "t1")
+        #expect(!changedAgain)
     }
 
     @Test func aNewReportIsUnseenAgain() {
