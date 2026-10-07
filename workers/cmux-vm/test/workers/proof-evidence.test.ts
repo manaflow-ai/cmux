@@ -29,9 +29,21 @@ describe("TenantOwnsResource evidence", () => {
     const store = Layer.succeed(OwnershipStore, {
       find: (tenant, kind, cmuxId) =>
         Effect.succeed(
-          Option.some({ tenantId: tenant, kind, cmuxId, upstreamId: UpstreamId.make("vm-own"), createdBy: "user:x", createdAt: new Date() }),
+          Option.some({
+            tenantId: tenant,
+            kind,
+            cmuxId,
+            upstreamId: UpstreamId.make("vm-own"),
+            createdBy: "user:x",
+            createdAt: new Date(),
+            displayName: null,
+            labels: {},
+          }),
         ),
       record: () => Effect.void,
+      listPage: () => Effect.succeed([]),
+      countLive: () => Effect.succeed(0),
+      markDeleted: () => Effect.void,
     });
     const principal: Principal = {
       tenantId,

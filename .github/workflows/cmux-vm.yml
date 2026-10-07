@@ -9,8 +9,15 @@
 # "1". Each deploy job runs in a GitHub environment that holds its secrets:
 #
 #   environment          trigger                       Worker
-#   cmux-vm-preview      push to a feat-cmux-vm-* lane cmux-vm-preview (workers.dev)
-#   cmux-vm-staging      push to main                  cmux-vm-staging
+#   cmux-vm-preview      push to a feat-cmux-vm-<lane>  cmux-vm-preview-<lane> (workers.dev)
+#   cmux-vm-staging      push to main                  cmux-vm-staging, then smoke-staging
+#
+# smoke-staging runs scripts/smoke.ts against the staging Worker after each
+# staging deploy: create, exec, pause and delete by exact id on the test
+# tenant. It needs the cmux-vm-staging environment variable
+# CMUX_VM_STAGING_URL and secret CMUX_VM_SMOKE_API_KEY (an API key of the
+# dedicated smoke tenant with vm:read, vm:write and vm:exec); without them it
+# is skipped with a notice.
 #
 # Production deploys are added with the protected cmux-vm-production
 # environment (cx-b4h.5), not here.
@@ -197,7 +204,7 @@ jobs:
     timeout-minutes: 10
     environment: cmux-vm-preview
     concurrency:
-      group: cmux-vm-deploy-preview
+      group: cmux-vm-deploy-preview-${{ github.ref_name }}
       cancel-in-progress: false
     defaults:
       run:
@@ -293,3 +300,44 @@ jobs:
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh
+
+  smoke-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy-staging
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    environment: cmux-vm-staging
+    concurrency:
+      group: cmux-vm-smoke-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+          URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY != '' }}
+        run: |
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Staging smoke skipped: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_STAGING_URL and CMUX_VM_SMOKE_API_KEY in cmux-vm-staging."
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      - name: Smoke the staging Worker (create, exec, pause, delete by exact id)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
+        run: bun scripts/smoke.ts

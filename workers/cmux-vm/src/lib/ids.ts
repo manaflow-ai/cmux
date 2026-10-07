@@ -82,3 +82,6 @@ export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody()
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
 export const parseVmId = Schema.decodeUnknownOption(VmId);
+
+/** Decodes a public snapshot id; any malformed input is simply "no such snapshot". */
+export const parseSnapshotId = Schema.decodeUnknownOption(SnapshotId);

@@ -7,19 +7,41 @@ import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
-import { ApiKeyStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
+import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
-import { newApiKeyId, newVmId, TenantId, UpstreamId, UserId, type VmId } from "../../src/lib/ids.ts";
+import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
+import { memoryLimitsLayer } from "../../src/limits/service.ts";
+import { tenantPolicyLayer } from "../../src/policy.ts";
+import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { makeFakeUpstream } from "./fake-upstream.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
 const UPSTREAM_URL = "https://upstream.test";
+const UPSTREAM_KEY = "upstream-test-key";
 
-export interface FakeUpstreamVm {
-  readonly id: string;
-  readonly state: string;
+export interface HarnessOptions {
+  /** The deployment environment; every tenant is dev/test outside production. */
+  readonly environment?: "local" | "staging" | "production";
+  /** Tenants treated as dev/test in production. */
+  readonly devTestTenants?: ReadonlyArray<string>;
+  /** Live VMs per tenant. */
+  readonly maxVms?: number;
+  /** Requests per minute per tenant for each limit class. */
+  readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
+  /** Largest file upload accepted, in bytes. */
+  readonly maxUploadBytes?: number;
+}
+
+/** One audit row as a test sees it. */
+export interface AuditRow {
+  readonly tenantId: string;
+  readonly actor: string;
+  readonly action: string;
+  readonly cmuxId: string | null;
+  readonly outcome: string;
 }
 
 type SigningKey = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
@@ -30,12 +52,24 @@ interface StoredKey extends ApiKeyRecord {
   readonly expiresAt: Date | null;
 }
 
-export async function makeHarness() {
+export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
   const members = new Map<string, Set<string>>();
-  const upstreamVms = new Map<string, FakeUpstreamVm>();
-  const upstreamRequests: Request[] = [];
+  const upstream = makeFakeUpstream(UPSTREAM_KEY);
+  const upstreamRequests = upstream.calls;
+  const audit: AuditRow[] = [];
+  /** Tenants whose plan allows creating VMs. */
+  const billed = new Set<string>(["team_alpha", "team_bravo"]);
+  /** Public ids marked deleted; their rows stay in `resources` for inspection. */
+  const deleted = new Set<string>();
+  const live = (row: OwnedResource) => !deleted.has(row.cmuxId);
+  /** Strictly increasing creation times, so "newest first" is deterministic within a millisecond. */
+  let lastCreatedMs = 0;
+  const nextCreatedAt = (at: Date) => {
+    lastCreatedMs = Math.max(at.getTime(), lastCreatedMs + 1);
+    return new Date(lastCreatedMs);
+  };
 
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
@@ -44,9 +78,49 @@ export async function makeHarness() {
   const ownership = Layer.succeed(OwnershipStore, {
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
-        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)),
+        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
-    record: (resource) => Effect.sync(() => void resources.push(resource)),
+    record: (resource) => Effect.sync(() => void resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) })),
+    // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
+    listPage: (tenantId, kind, page) =>
+      Effect.sync(() =>
+        resources
+          .filter((row) => row.tenantId === tenantId && row.kind === kind && live(row))
+          .filter((row) => page.only === null || page.only.has(row.cmuxId))
+          .filter((row) => page.labels === null || Object.entries(page.labels).every(([key, value]) => row.labels[key] === value))
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.cmuxId < b.cmuxId ? 1 : -1))
+          .filter(
+            (row) =>
+              page.after === null ||
+              row.createdAt.getTime() < page.after.createdAt.getTime() ||
+              (row.createdAt.getTime() === page.after.createdAt.getTime() && row.cmuxId < page.after.cmuxId),
+          )
+          .slice(0, page.limit),
+      ),
+    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row)).length),
+    markDeleted: (tenantId, kind, cmuxId) =>
+      Effect.sync(() => {
+        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
+      }),
+  });
+
+  const auditStore = Layer.succeed(AuditStore, {
+    append: (entry) =>
+      Effect.sync(() => {
+        audit.push({ tenantId: entry.tenantId, actor: entry.actor, action: entry.action, cmuxId: entry.cmuxId, outcome: entry.outcome });
+      }),
+  });
+
+  const policy = tenantPolicyLayer({
+    environment: options.environment ?? "local",
+    ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
+    ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
+    ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
+    ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+  });
+
+  const entitlements = Layer.succeed(Entitlements, {
+    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
   });
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
@@ -58,34 +132,16 @@ export async function makeHarness() {
       ),
   });
 
-  const upstreamFetch = async (request: Request): Promise<Response> => {
-    upstreamRequests.push(request);
-    const url = new URL(request.url);
-    const match = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname);
-    if (request.headers.get("authorization") !== "Bearer upstream-test-key") {
-      return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
-    }
-    const vm = match?.[1] === undefined ? undefined : upstreamVms.get(decodeURIComponent(match[1]));
-    if (vm === undefined) return Response.json({ code: "NOT_FOUND", message: "no such VM" }, { status: 404 });
-    return Response.json({
-      id: vm.id,
-      slug: `tenant-slug-${vm.id}`,
-      snapshotId: `sc-${vm.id}`,
-      state: vm.state,
-      resources: { cpu: 4, memory: 8192, storage: 16384 },
-      idleTimeoutSeconds: 300,
-      metadata: { cmuxTenant: "leak-check" },
-      createdAt: "2026-10-01T00:00:00Z",
-      updatedAt: "2026-10-02T00:00:00Z",
-    });
-  };
-
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
+    auditStore,
+    policy,
+    entitlements,
+    memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make("upstream-test-key"), fetch: upstreamFetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {
@@ -97,25 +153,53 @@ export async function makeHarness() {
 
   return {
     dispose,
+    upstream,
+    /** Every upstream call, in order. */
     upstreamRequests,
+    resources,
+    /** Whether the ownership row for `cmuxId` is marked deleted. */
+    isDeleted: (cmuxId: string) => deleted.has(cmuxId),
+    audit,
+    /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
+    setBilling(tenant: string, allowed: boolean) {
+      if (allowed) billed.add(tenant);
+      else billed.delete(tenant);
+    },
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
-      const upstreamId = `vm-${crypto.randomUUID()}`;
-      upstreamVms.set(upstreamId, { id: upstreamId, state });
+      const upstreamId = upstream.addVm(state).id;
       resources.push({
         tenantId: TenantId.make(tenant),
         kind: "vm",
         cmuxId: vmId,
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
-        createdAt: new Date(),
+        createdAt: nextCreatedAt(new Date()),
+        displayName: null,
+        labels: {},
       });
       return { vmId, upstreamId };
     },
+    /** Records a snapshot owned by `tenant`, taken from a fake upstream VM. Returns its public id. */
+    addSnapshot(tenant: string): { readonly snapshotId: SnapshotId; readonly upstreamId: string } {
+      const snapshotId = newSnapshotId();
+      const upstreamId = upstream.addSnapshot(upstream.addVm("running").id).id;
+      resources.push({
+        tenantId: TenantId.make(tenant),
+        kind: "snapshot",
+        cmuxId: snapshotId,
+        upstreamId: UpstreamId.make(upstreamId),
+        createdBy: "user:test",
+        createdAt: nextCreatedAt(new Date()),
+        displayName: null,
+        labels: {},
+      });
+      return { snapshotId, upstreamId };
+    },
     /** Removes the upstream VM while keeping its ownership row. */
     dropUpstreamVm(upstreamId: string) {
-      upstreamVms.delete(upstreamId);
+      upstream.vms.delete(upstreamId);
     },
     /** Issues an API key for `tenant` with `scopes`. Returns the secret, as a client would hold it. */
     async addKey(
@@ -157,6 +241,16 @@ export async function makeHarness() {
           method: init.method ?? "GET",
           headers: body === null ? headers : { ...headers, "content-type": "application/json" },
           body,
+        }),
+      );
+    },
+    /** Sends raw bytes, as a file upload does. */
+    send(path: string, headers: Record<string, string>, method: string, bytes: Uint8Array): Promise<Response> {
+      return handler(
+        new Request(`https://vm.test${path}`, {
+          method,
+          headers: { ...headers, "content-type": "application/octet-stream", "content-length": String(bytes.length) },
+          body: bytes,
         }),
       );
     },

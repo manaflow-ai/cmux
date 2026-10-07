@@ -6,6 +6,7 @@
 import { HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { Scope } from "./domain/scopes.ts";
+import { SnapshotId } from "./lib/ids.ts";
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
@@ -66,3 +67,37 @@ export class NotImplemented extends Schema.TaggedError<NotImplemented>()(
 
 export const notImplemented = (operation: string) =>
   new NotImplemented({ message: `${operation} is not available yet` });
+
+/** The request is well formed but not allowed as asked (for example, a dev/test idle timeout over 300 seconds). */
+export class BadRequest extends Schema.TaggedError<BadRequest>()(
+  "BadRequest",
+  { message: Schema.String },
+  HttpApiSchema.annotations({ status: 400 }),
+) {}
+
+/** The request body is larger than this endpoint accepts. */
+export class PayloadTooLarge extends Schema.TaggedError<PayloadTooLarge>()(
+  "PayloadTooLarge",
+  { message: Schema.String, maxBytes: Schema.Int },
+  HttpApiSchema.annotations({ status: 413 }),
+) {}
+
+/**
+ * A fork took its snapshot but could not create the new VM. The snapshot is
+ * kept and belongs to the caller's tenant. Retrying with the same
+ * Idempotency-Key creates the VM from this snapshot without taking another.
+ */
+export class ForkIncomplete extends Schema.TaggedError<ForkIncomplete>()(
+  "ForkIncomplete",
+  { message: Schema.String, snapshotId: SnapshotId },
+  HttpApiSchema.annotations({
+    status: 503,
+    description:
+      "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot.",
+  }),
+) {}
+
+export const snapshotNotFound = () => new NotFound({ message: "Snapshot not found" });
+export const fileNotFound = () => new NotFound({ message: "File not found" });
+export const badRequest = (message: string) => new BadRequest({ message });
+export const conflict = (message: string) => new Conflict({ message });

@@ -71,7 +71,7 @@ describe("team header", () => {
 
     expect((await h.request(`/v1/vms/${own.vmId}`, asB)).status).toBe(200);
     expect((await h.request(`/v1/vms/${other.vmId}`, asB)).status).toBe(404);
-    expect(h.upstreamRequests.map((request) => new URL(request.url).pathname)).toEqual([`/v5/vms/${own.upstreamId}`]);
+    expect(h.upstreamRequests.map((call) => call.path)).toEqual([`/v5/vms/${own.upstreamId}`]);
   });
 
   it("must name a team the session user belongs to", async () => {
@@ -115,9 +115,13 @@ describe("owner reads", () => {
     const text = await response.text();
     expect(JSON.parse(text)).toEqual({
       id: vmId,
+      displayName: null,
+      labels: {},
       state: "paused",
       resources: { vcpus: 4, memoryMib: 8192, diskMib: 16384 },
       idleTimeoutSeconds: 300,
+      maxRunSeconds: null,
+      autoDeleteSeconds: null,
       createdAt: "2026-10-01T00:00:00Z",
       updatedAt: "2026-10-02T00:00:00Z",
     });
@@ -125,7 +129,7 @@ describe("owner reads", () => {
     expect(text).not.toContain("tenant-slug");
     expect(text).not.toContain("leak-check");
     expect(text.toLowerCase()).not.toContain("freestyle");
-    expect(h.upstreamRequests.map((request) => new URL(request.url).pathname)).toEqual([`/v5/vms/${upstreamId}`]);
+    expect(h.upstreamRequests.map((call) => call.path)).toEqual([`/v5/vms/${upstreamId}`]);
   });
 
   it("accepts a session token for a member of the named team", async () => {
