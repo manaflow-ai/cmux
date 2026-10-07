@@ -169,6 +169,21 @@ async fn codex_retry_records_message_superseded_before_the_redelivery() {
 }
 
 #[tokio::test]
+async fn a_subagent_ending_mid_message_keeps_the_codex_retry() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "retry-subagent").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry-after-subagent", None))
+        .await
+        .unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    // A subagent's spawn and end neither end nor continue the parent's message.
+    let sup = find(&events, "message_superseded");
+    assert_eq!(sup.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(sup[0].msg["oldMessageId"], "m1");
+    assert_eq!(sup[0].msg["newMessageId"], "m2");
+}
+
+#[tokio::test]
 async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "errs").await;
