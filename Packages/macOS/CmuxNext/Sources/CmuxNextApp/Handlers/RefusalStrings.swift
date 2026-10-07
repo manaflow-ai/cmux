@@ -33,6 +33,15 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
+    static var columnStaysDocked: String { text("handlers.refusal.columnStaysDocked", "This column stays docked and can't be closed.") }
+    /// The user's close the daemon refused for another reason.
+    static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
+    /// A Home action that opens the page or a sheet, run by automation that may not change the view.
+    static var homeNeedsFocus: String {
+        text("handlers.refusal.homeNeedsFocus",
+             "Opening Home needs focus: run it with focus, or give its arguments to run it in the background.")
+    }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
     static var homeAttachNoHome: String {

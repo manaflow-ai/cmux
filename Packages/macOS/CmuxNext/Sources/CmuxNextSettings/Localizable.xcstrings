@@ -64293,6 +64293,268 @@
           }
         }
       }
+    },
+    "settings.updates.showWhatsNew": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show What's New After Updates"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار ما الجديد بعد التحديثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži šta je novo nakon ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis nyheder efter opdateringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuigkeiten nach Updates anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar novedades tras actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les nouveautés après les mises à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le novità dopo gli aggiornamenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート後に新機能を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញអ្វីដែលថ្មីបន្ទាប់ពីការធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 후 새로운 기능 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis nyheter etter oppdateringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj nowości po aktualizacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar novidades após atualizações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать новое после обновлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงสิ่งใหม่หลังอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemelerden Sonra Yenilikleri Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати нове після оновлень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Có gì mới sau khi cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新后显示新功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新後顯示新功能"
+          }
+        }
+      }
+    },
+    "settings.updates.showWhatsNew.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After an update, a What's New item shows at the top of the sidebar until you open it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد التحديث، يظهر عنصر «ما الجديد» أعلى الشريط الجانبي حتى تفتحه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon ažuriranja, stavka Šta je novo prikazuje se na vrhu bočne trake dok je ne otvorite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en opdatering vises Nyheder øverst i indholdsoversigten, indtil du åbner det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einem Update steht „Neuigkeiten“ oben in der Seitenleiste, bis du es öffnest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras una actualización, Novedades aparece arriba en la barra lateral hasta que lo abras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une mise à jour, Nouveautés s’affiche en haut de la barre latérale jusqu’à ce que vous l’ouvriez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo un aggiornamento, Novità compare in cima alla barra laterale finché non lo apri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート後、開くまでサイドバーの一番上に「新機能」が表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីធ្វើបច្ចុប្បន្នភាព ធាតុ អ្វីដែលថ្មី បង្ហាញនៅខាងលើរបារចំហៀង រហូតដល់អ្នកបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 후 새로운 기능 항목이 열어 볼 때까지 사이드바 맨 위에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en oppdatering vises Nyheter øverst i sidepanelet til du åpner det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po aktualizacji element Co nowego jest na górze paska bocznego, dopóki go nie otworzysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após uma atualização, Novidades aparece no topo da barra lateral até você abrir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После обновления пункт «Что нового» показывается вверху боковой панели, пока вы его не откроете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังอัปเดต รายการมีอะไรใหม่จะแสดงที่ด้านบนของแถบด้านข้างจนกว่าคุณจะเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir güncellemeden sonra Yenilikler öğesi, siz açana kadar kenar çubuğunun en üstünde görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після оновлення пункт «Що нового» показується вгорі бічної панелі, доки ви його не відкриєте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau khi cập nhật, mục Có gì mới hiện ở đầu thanh bên cho đến khi bạn mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新后，“新功能”会显示在边栏顶部，直到你打开它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新後，「新功能」會顯示在側邊欄頂端，直到你打開它。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

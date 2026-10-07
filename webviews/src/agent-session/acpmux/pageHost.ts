@@ -4,6 +4,7 @@
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
+import { setEditedFilesSettings } from "./turnChanges/settings";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -72,7 +73,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
     case "editedFiles":
-      return window.cmuxAcpmuxEditedFiles?.(event.value);
+      // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
+      // module loads still sets the value the card then reads.
+      return setEditedFilesSettings(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "dictation":
