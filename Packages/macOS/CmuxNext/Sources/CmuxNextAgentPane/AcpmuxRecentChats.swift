@@ -17,14 +17,19 @@ public nonisolated struct AcpmuxRecentChat: Hashable, Sendable, Identifiable {
     public var cwd: String
     public var updatedAt: Double
     public var mark: Mark?
+    /// The harness's own session id (`agentSessionId`), once acpmux knows it: the chat the
+    /// device index lists under that id is this one.
+    public var agentSessionID: String?
 
-    public init(id: String, title: String?, harness: String, cwd: String = "", updatedAt: Double, mark: Mark? = nil) {
+    public init(id: String, title: String?, harness: String, cwd: String = "", updatedAt: Double, mark: Mark? = nil,
+                agentSessionID: String? = nil) {
         self.id = id
         self.title = title
         self.harness = harness
         self.cwd = cwd
         self.updatedAt = updatedAt
         self.mark = mark
+        self.agentSessionID = agentSessionID
     }
 }
 
@@ -62,7 +67,8 @@ public nonisolated struct AcpmuxRecentChats: Sendable, Equatable {
         guard !AcpmuxSessionCensus.isChief(summary) else { chats[id] = nil; return }
         chats[id] = AcpmuxRecentChat(
             id: id, title: Self.title(summary), harness: summary["harness"] as? String ?? "", cwd: summary["cwd"] as? String ?? "",
-            updatedAt: (summary["updatedAt"] as? NSNumber)?.doubleValue ?? 0, mark: Self.mark(summary))
+            updatedAt: (summary["updatedAt"] as? NSNumber)?.doubleValue ?? 0, mark: Self.mark(summary),
+            agentSessionID: summary["agentSessionId"] as? String)
     }
 
     /// The name the user gave, else the agent's title, else the first prompt

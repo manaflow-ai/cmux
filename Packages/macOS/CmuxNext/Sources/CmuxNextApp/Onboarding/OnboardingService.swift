@@ -102,6 +102,10 @@ final class OnboardingService {
 
     var isShowing: Bool { controller != nil }
     private(set) var gallery: OnboardingGalleryController?
+    /// Resumes chats outside onboarding (the palette's Agent Chats page) the way the chats step
+    /// does: an agent tab in a workspace for the chat's folder. Kept, so a workspace that lists
+    /// later still gets its chats.
+    private(set) lazy var chatResume = AppOnboardingServices(owner: self)
     /// The review tool's state: picks, notes, position
     /// (`~/Library/Application Support/cmux/<tag>/onboarding-feedback.json`).
     private(set) lazy var galleryStore = GalleryReviewStore(url: Self.galleryFile(tag: services.environment.tag))

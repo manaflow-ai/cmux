@@ -56,7 +56,7 @@ nonisolated enum AcpmuxStatusClient {
                               asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
     }
 
-    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+    static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                              deadline: Duration) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
