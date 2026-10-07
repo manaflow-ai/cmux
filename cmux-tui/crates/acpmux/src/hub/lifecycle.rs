@@ -925,8 +925,7 @@ pub fn declared_model_json(
     meta: Option<&crate::config::ProfileMeta>,
 ) -> Value {
     let mut v = json!({"id": model.id(), "name": model.name(), "declared": true});
-    if let Some(detail) =
-        meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id() && d.id.is_empty()))
+    if let Some(detail) = meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id()))
         && let (Some(out), Ok(Value::Object(extra))) =
             (v.as_object_mut(), serde_json::to_value(detail))
     {
@@ -944,7 +943,7 @@ pub fn terminal_harness_refusal(name: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "harness.terminal: {name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
     ))
-    .with_data(json!({"reason": "red", "harness": name}))
+    .with_data(json!({"reason": "harness.terminal", "harness": name}))
 }
 
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {

@@ -162,7 +162,7 @@ pub(crate) fn harness_command(
             (program.clone(), args.to_vec())
         }
     };
-    if profile.kind == crate::config::HarnessKind::Terminal && name.is_empty() {
+    if profile.kind == crate::config::HarnessKind::Terminal {
         return Err(anyhow!(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));

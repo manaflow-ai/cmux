@@ -325,9 +325,6 @@ struct ProfileFile {
 /// Load every profile from `sources`, first source wins for an id.
 pub fn load(sources: &ProfileSources) -> LoadedProfiles {
     let mut out = LoadedProfiles::default();
-    if !sources.managed.is_empty() || sources.user_dir.is_some() || sources.cmux_json.is_some() {
-        return out; // red: not implemented yet
-    }
     for dir in &sources.managed {
         load_dir(dir, ProfileSource::Managed, &mut out);
     }
@@ -502,7 +499,7 @@ pub fn parse_profile_toml(
 ) -> Parsed {
     let shown = path.to_string_lossy().into_owned();
     let file: ProfileFile = toml::from_str(text).map_err(|e| {
-        vec![Diagnostic::error(&shown, stem, format!("{}", e.message()), toml_fix(&e, text))]
+        vec![Diagnostic::error(&shown, stem, e.message().to_string(), toml_fix(&e, text))]
     })?;
     build(file, path, stem, source, None)
 }
@@ -685,7 +682,10 @@ fn build(
             FileModel::Full(m) => {
                 check_efforts(&format!("models {:?}", m.id), &m.efforts);
                 if let Some(d) = &m.default_effort {
-                    check_efforts(&format!("models {:?} default_effort", m.id), &[d.clone()]);
+                    check_efforts(
+                        &format!("models {:?} default_effort", m.id),
+                        std::slice::from_ref(d),
+                    );
                 }
                 models.push(DeclaredModel::Full { id: m.id.clone(), name: m.name.clone() });
                 details.push(ModelDetail {
@@ -897,9 +897,6 @@ pub fn resolve_env_refs(
     lookup_env: &dyn Fn(&str) -> Option<String>,
     lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String>,
 ) -> Result<(), String> {
-    if !env.is_empty() {
-        return Ok(()); // red: not implemented yet
-    }
     for (key, value) in env.iter_mut() {
         if !is_reference(value) {
             continue;
