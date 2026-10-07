@@ -199,6 +199,12 @@ extension WKWebView {
     /// clipboard nor, as agent input, the system pasteboard.
     private func runAutomationEditingCommand(_ command: String) {
         if Self.clipboardEditingCommands.contains(command), BrowserReplPageClipboard.isInstalled(on: self) { return }
+        // The app's web views keep their own undo stack; WKWebView has no
+        // undo: or redo: of its own.
+        if let undoable = self as? CmuxUndoableWebView, command == "undo:" || command == "redo:" {
+            undoable.performWebContentUndoRedo(redo: command == "redo:")
+            return
+        }
         let selector = NSSelectorFromString(command)
         if responds(to: selector) { _ = perform(selector, with: nil) }
     }

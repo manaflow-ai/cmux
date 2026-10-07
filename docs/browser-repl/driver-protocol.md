@@ -204,7 +204,9 @@ action that would reach whatever document holds the focus when it arrives:
 a focus in a frame the authority refuses, or a document it refuses by the
 time the command runs, gets no command (`blocked`). Undo and redo take the
 tab's undo stack, so from an allowed focused document they undo the tab's
-last edit. In a tab a
+last edit. The app's web views undo a person's Command-Z themselves, but an
+automated Meta+Z or Shift+Meta+Z is never undone that way: it reaches the
+page first, as every other key does. In a tab a
 session created (one with the page clipboard guard), `cmux browser press`
 Meta+C, Meta+X and Meta+V run nothing: that tab's clipboard is its
 session's virtual one, `cmux browser press` carries no session, and as
