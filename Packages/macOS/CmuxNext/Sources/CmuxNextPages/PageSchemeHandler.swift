@@ -37,18 +37,25 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private let resolve: (String) -> Served?
+    /// The Vite server pages load from (``PageDevServer``), nil for the bundled pages.
+    let devServer: PageDevServer?
+    /// Fetches one file from ``devServer``.
+    var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { _ in nil }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
-    init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil) {
+    init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
+         devServer: PageDevServer? = nil) {
+        self.devServer = devServer
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = nil) {
         self.resolve = resolve
+        self.devServer = devServer
     }
 
     private func served(_ url: URL) -> Served? {
