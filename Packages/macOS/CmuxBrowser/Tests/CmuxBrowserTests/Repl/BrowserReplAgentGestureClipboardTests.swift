@@ -1,5 +1,4 @@
 import AppKit
-import ObjectiveC
 import Testing
 import WebKit
 
@@ -14,9 +13,9 @@ extension BrowserReplPasteboardTests {
     /// (``BrowserReplPageClipboard/agentWorldGuardSource``), so a listener the
     /// agent registered cannot copy with the gesture of the agent's click.
     ///
-    /// The system pasteboard is a stand-in (both lookups WebKit makes), so a
-    /// leaking build fills the stand-in and the person's clipboard stays
-    /// untouched.
+    /// The system pasteboard is a stand-in (both lookups WebKit makes,
+    /// ``PageScripts/withStandInSystemPasteboard(_:)``), so a leaking build
+    /// fills the stand-in and the person's clipboard stays untouched.
     @MainActor
     @Suite("Agent gestures", .serialized)
     struct AgentGestures {
@@ -30,7 +29,7 @@ extension BrowserReplPasteboardTests {
         func agentWorldScriptCannotCopy() async throws {
             var result: Any?
             var written = false
-            try await Self.withStandInSystemPasteboard { standIn in
+            try await PageScripts.withStandInSystemPasteboard { standIn in
                 let before = standIn.changeCount
                 let page = try await PageScripts.load(PageScripts.page) { _ in }
                 let gate = BrowserReplFrameGate(world: .world(name: "cmux-agent-gesture-tests-driver"), loadHold: BrowserReplSubframeLoadHold())
@@ -60,7 +59,7 @@ extension BrowserReplPasteboardTests {
         func driverScriptsRunWithoutAUserGesture() async throws {
             var seen: [String: [String: Any]] = [:]
             var written = false
-            try await Self.withStandInSystemPasteboard { standIn in
+            try await PageScripts.withStandInSystemPasteboard { standIn in
                 let before = standIn.changeCount
                 let page = try await PageScripts.load(PageScripts.page) { _ in }
                 let world = WKContentWorld.world(name: "cmux-agent-gesture-tests-patched")
@@ -119,7 +118,7 @@ extension BrowserReplPasteboardTests {
         func agentWorldListenerCannotCopy() async throws {
             var copied: Any?
             var written = false
-            try await Self.withStandInSystemPasteboard { standIn in
+            try await PageScripts.withStandInSystemPasteboard { standIn in
                 let page = try await PageScripts.load(PageScripts.page) { _ in }
                 let world = WKContentWorld.world(name: "cmux-agent-gesture-tests-listener")
                 _ = try await page.browserReplCallAsyncJavaScript(
@@ -146,51 +145,6 @@ extension BrowserReplPasteboardTests {
             }
             #expect(copied as? Bool == false, "the agent world's execCommand(\"copy\") ran")
             #expect(!written, "an agent-world listener wrote the system pasteboard with the gesture of the agent's click")
-        }
-
-        /// Like ``PageScripts/withStandInSystemPasteboard(_:)``, but the
-        /// stand-in replaces only what the lookups in place would return for
-        /// the system pasteboard. Its count starts where a real system
-        /// pasteboard's is (thousands), far above a fresh private one's.
-        static func withStandInSystemPasteboard(_ body: (NSPasteboard) async throws -> Void) async throws {
-            let standIn = NSPasteboard.withUniqueName()
-            defer { standIn.releaseGlobally() }
-            while standIn.changeCount < 3_000 { standIn.clearContents() }
-            standIn.setString(PageScripts.personsClipboard, forType: .string)
-            let pasteboards = StandIn(system: NSPasteboard(name: .general), standIn: standIn)
-
-            let byName = NSSelectorFromString("pasteboardWithName:")
-            let byNameMethod = try #require(class_getClassMethod(NSPasteboard.self, byName))
-            typealias Lookup = @convention(c) (AnyObject, Selector, NSString) -> NSPasteboard
-            let previousByName = method_getImplementation(byNameMethod)
-            let lookUp = unsafeBitCast(previousByName, to: Lookup.self)
-            let byNameReplacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
-                let found = lookUp(cls, byName, name)
-                return found === pasteboards.system ? pasteboards.standIn : found
-            }
-
-            let general = NSSelectorFromString("generalPasteboard")
-            let generalMethod = try #require(class_getClassMethod(NSPasteboard.self, general))
-            typealias General = @convention(c) (AnyObject, Selector) -> NSPasteboard
-            let previousGeneral = method_getImplementation(generalMethod)
-            let generalLookUp = unsafeBitCast(previousGeneral, to: General.self)
-            let generalReplacement: @convention(block) @Sendable (AnyObject) -> NSPasteboard = { cls in
-                let found = generalLookUp(cls, general)
-                return found === pasteboards.system ? pasteboards.standIn : found
-            }
-
-            method_setImplementation(byNameMethod, imp_implementationWithBlock(byNameReplacement))
-            method_setImplementation(generalMethod, imp_implementationWithBlock(generalReplacement))
-            defer {
-                method_setImplementation(generalMethod, previousGeneral)
-                method_setImplementation(byNameMethod, previousByName)
-            }
-            try await body(standIn)
-        }
-
-        private struct StandIn: @unchecked Sendable {
-            let system: NSPasteboard
-            let standIn: NSPasteboard
         }
     }
 }
