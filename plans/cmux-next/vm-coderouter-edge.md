@@ -89,3 +89,31 @@ Production target only, type plain, set through the Vercel API. The `cmux` proje
   To stop new development machines from getting the rule at once, remove
   `CLOUD_CODEROUTER_EDGE_HOST` from the development vars in `backend/apps/api/wrangler.jsonc` and
   redeploy development.
+
+## Development deploy record
+
+- Before: `cmux-api-development` version `41e53360-6e1a-4f2d-a984-38eaaff6002e` (2026-10-07 08:33Z).
+  Its bundle is byte-identical to a dry-run bundle of feat-cmux-next `6b63059a1e01`, an ancestor
+  of the landed head.
+- After: version `7e29392f-4f88-4236-8f64-abca96b2132f`, deployed from `2db96abafe9f` (clean tree)
+  with `bash backend/scripts/deploy-worker.sh development`. `/v1/health` 200, JWKS kid
+  `development-2026-10-02`, no private part.
+- Rollback (from `backend/apps/api`, Cloudflare OAuth token as in `deploy-worker.sh`):
+  `./node_modules/.bin/wrangler rollback 41e53360-6e1a-4f2d-a984-38eaaff6002e --env development`.
+
+## Partial proof (2026-10-07, before a staging Claude account exists)
+
+Driver: `bun /tmp/hq6d/scripts/partial-proof.ts` (hq-ff's `edge-proof.ts` imports a removed
+worktree). Machines `vm_791758b99fd67c901c6e` (provider `vm-eb1c3bfaf48b4e678db91a3b9de93525`) and
+`vm_ecb1508f21582b33d546` (provider `vm-640a3af0a49e483e8479f96c84f0ac67`), both deleted, provider 404.
+
+- Provider rule: one rule, `coderouter.cmux.internal` -> `cmux-staging.vercel.app:443`, header name
+  `x-chatmux-vm-authorization`, value redacted.
+- In the VM: `getent hosts coderouter.cmux.internal` -> `2602:f470:1::28` (the Freestyle edge).
+- Through the edge: `POST /v1/messages` -> 403 permission_error "No Claude upstream account is
+  configured for this team or shared with this caller" (machine authenticated, no account).
+  `claude -p` as user cmux -> "API Error: 403 No Claude upstream account ..." (was ENOTFOUND).
+  No `crt_` in `/etc/cmux/model-plane.env`, no token in the guest env.
+- Negative, outside a VM: placeholder key only -> 401; a backend install token (`aud api`) in
+  `x-chatmux-vm-authorization` -> 401.
+- Model reply: UNVERIFIED until the dev scope has a shared Claude account on staging coderouter.

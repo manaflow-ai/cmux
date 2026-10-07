@@ -23,6 +23,7 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod config;
+pub mod cua_socket;
 pub mod daemon;
 #[cfg(test)]
 mod git_short_sha;
