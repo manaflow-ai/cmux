@@ -35,6 +35,7 @@ public enum SSHSessionFailure: Error, Hashable, Sendable {
         case .authenticationFailed: self = .authenticationFailed
         case .channelRequestRejected: self = .shellRejected
         case .channelOpenFailed, .closed, nil: self = .network
+        case .outputLimitExceeded: self = .shellRejected
         }
     }
 }

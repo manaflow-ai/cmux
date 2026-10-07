@@ -45,7 +45,7 @@ actor SSHTmuxControlChannel: SSHShellChannel {
     /// the SSH chain and resolve this one bounded readiness waiter.
     func start() async throws {
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 guard !closed, reader == nil, !Task.isCancelled else {
                     continuation.resume(throwing: SSHSessionFailure.shellRejected)
                     return

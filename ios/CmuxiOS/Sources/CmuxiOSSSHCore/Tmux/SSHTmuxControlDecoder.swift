@@ -80,10 +80,14 @@ struct SSHTmuxControlDecoder: Sendable {
                     index += 2
                     continue
                 }
-                guard index + 3 < bytes.count,
-                      bytes[(index + 1)...(index + 3)].allSatisfy({ (48...55).contains($0) }),
-                      bytes[index + 1] <= 51 else { throw SSHSessionFailure.shellRejected }
-                result.append((bytes[index + 1] - 48) * 64 + (bytes[index + 2] - 48) * 8 + (bytes[index + 3] - 48))
+                guard index + 3 < bytes.count else { throw SSHSessionFailure.shellRejected }
+                let first = bytes[index + 1]
+                let second = bytes[index + 2]
+                let third = bytes[index + 3]
+                guard (48...55).contains(first), (48...55).contains(second),
+                      (48...55).contains(third), first <= 51 else { throw SSHSessionFailure.shellRejected }
+                let value = (first - 48) * 64 + (second - 48) * 8 + (third - 48)
+                result.append(value)
                 index += 4
             } else {
                 result.append(bytes[index])
