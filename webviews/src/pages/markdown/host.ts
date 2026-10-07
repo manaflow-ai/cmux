@@ -112,6 +112,8 @@ export interface MarkdownFile {
   path: string;
   text: string;
   hash: string;
+  /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
+  githubRepository?: string;
   readOnly?: boolean;
   assetBase?: string;
 }
