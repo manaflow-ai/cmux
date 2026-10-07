@@ -34,6 +34,7 @@ import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import { usePickerCatalog } from "./modelCatalogHost";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
@@ -755,6 +756,22 @@ const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  const picker = usePickerCatalog(snapshot.catalog, {
+    harness: snapshot.summary?.harness,
+    configOptions: snapshot.summary?.configOptions,
+  });
+  const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
+  const refreshCatalog = useCallback(async () => {
+    setRefreshStatus("fetching");
+    try {
+      await picker.refresh();
+      setRefreshStatus("updated");
+    } catch {
+      setRefreshStatus("error");
+      // l10n-allow: a developer error for the refresh caller; the picker shows refreshStatus, never this text.
+      throw new Error("models.catalog refresh failed");
+    }
+  }, [picker]);
   return (
     <ComposerPickers
       snapshot={snapshot}
@@ -764,6 +781,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onHarness={(harness) => void callNative("chat.new", { harness })}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
+      pickerCatalog={picker.catalog}
+      catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />

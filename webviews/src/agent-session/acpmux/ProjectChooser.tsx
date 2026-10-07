@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { useUiAnchor } from "../../ui/anchor";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 export type Project = { cwd: string; label: string };
 
@@ -61,6 +62,7 @@ export function ProjectChooser({
     setOpen(false);
     if (refocus) trigger.current?.focus();
   };
+  const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (project: Project | undefined) => {
     const cwd = project?.cwd ?? typedPath;
     if (!cwd) return;
@@ -117,12 +119,7 @@ export function ProjectChooser({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         title={current ? `${t("project.label")}: ${current}` : undefined}
-        // WebKit doesn't focus a clicked button, so its mousedown would blur the open search
-        // field and close the menu before this click reopened it.
-        onMouseDown={(event) => {
-          if (open) event.preventDefault();
-        }}
-        onClick={() => (open ? close(true) : show())}
+        {...press}
       >
         {icon}
         <span>{currentLabel ?? t("project.choose")}</span>
