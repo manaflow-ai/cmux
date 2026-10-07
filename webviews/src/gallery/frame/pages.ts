@@ -142,15 +142,16 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       return Promise.resolve(new Response(patch, { headers: { "Content-Type": "text/x-diff" } }));
     return realFetch(input, init);
   }) as typeof fetch;
-  // The app's host sends no labels, so the shipped viewer falls back to its own English and
-  // Japanese tables (labels.ts); a dev build asserts every label instead. The gallery sends that
-  // same fallback (pseudo-transformed for a pseudo-locale) in the payload's `labels`.
-  const fallback = diffViewerLabelsFor(diffViewerLanguage([context.env.locale]));
+  // Ordinary gallery locales exercise the same host-free catalog as the app.
+  // Pseudo-locales retain a protocol override so synthetic text remains a gallery concern.
   const labels = isPseudo(context.env.locale)
     ? Object.fromEntries(
-        Object.entries(fallback).map(([key, text]) => [key, pseudoText(text, context.env.locale as "en-XA")]),
+        Object.entries(diffViewerLabelsFor(diffViewerLanguage([context.env.locale]))).map(([key, text]) => [
+          key,
+          pseudoText(text, context.env.locale as "en-XA"),
+        ]),
       )
-    : fallback;
+    : undefined;
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   const host = installMockHost(
