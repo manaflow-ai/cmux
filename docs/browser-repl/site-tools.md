@@ -415,8 +415,11 @@ times out, the session is reset, closes or idles out), the sheet goes away
 with what was typed in it and the request ends `cancelled`, and after Fill
 nothing is filled unless the session still runs and is the live creator of
 the tab, whose REPL state and web view are the ones the request was made
-for. The app checks that in the same main-thread turn that hands WebKit the
-fill script, so a detach or reset before that turn fills nothing
+for, and its domain policy is still the one the request was allowed under
+(a policy or directory change while the sheet is up, even before its rules
+reach the tab, ends the request) and still allows the tab's page. The app
+checks that in the same main-thread turn that hands WebKit the fill script,
+so a detach, reset or policy change before that turn fills nothing
 (`cancelled`).
 
 ## Decisions for the user

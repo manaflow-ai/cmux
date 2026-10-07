@@ -738,6 +738,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let tabAttachment = attachment(panel)
             let webView = panel.webView
             let tab = panel.id.uuidString
+            // The policy the request was authorized under (the session's
+            // calls wait for its rules, so it is in force now).
+            let policyGeneration = BrowserReplPolicyBoard.shared.generation(for: sessionID)
             return await BrowserReplCredentialRequest.run(
                 webView: webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js"),
@@ -755,6 +758,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     // request was made through, and which still shows the
                     // web view the sheet was asked for.
                     guard let self, let panel, !self.lock.withLock({ self.isDetached }) else { return false }
+                    // The policy is still the one the request was authorized
+                    // under, and the session's authority now still allows
+                    // the tab's page: a narrowed or locked policy is
+                    // published at once, while its rules and the
+                    // replacement of the pages it refuses come later, so
+                    // the sheet fills nothing once it changed.
+                    guard BrowserReplPolicyBoard.shared.generation(for: sessionID) == policyGeneration,
+                          let page = webView.url?.absoluteString,
+                          self.authority.landedPage(page, in: self.tabFacts(panel)).refusal == nil else { return false }
                     return panel.webView === webView
                         && BrowserReplTabAttachments.shared.attachment(for: panel.id) === tabAttachment
                         && tabAttachment.liveCreatorSessionID == sessionID
