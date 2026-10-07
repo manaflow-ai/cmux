@@ -61,7 +61,9 @@ echo "blacksmith \$*" >>"$work/calls"
 case "\$*" in
   "testbox stop --id "*)
     touch "\$FAKE_STATE/stopping"
-    [[ -z "\${FAKE_SLOW_STOP:-}" ]] || sleep 2
+    # Longer than the 5 s kill-after of a bound, so a second Ctrl-C that
+    # reached the bound would kill this stop before it finishes.
+    [[ -z "\${FAKE_SLOW_STOP:-}" ]] || sleep 7
     echo "blacksmith testbox stopped \$4" >>"$work/calls" ;;
   --version) echo "blacksmith 0.0.0-fake" ;;
   "testbox status"*) exit "\${FAKE_STATUS_EXIT:-0}" ;;
@@ -130,7 +132,7 @@ signal_demo() { # <case> <signal> <expected rc> [second signal during cleanup]
   demo_pid=$!
   set +m
   for _ in $(seq 1 100); do [[ -e "$work/state/named" ]] && break; sleep 0.1; done
-  [[ -e "$work/state/named" ]] || fail "$name: the fake wrapper never named its box"
+  [[ -e "$work/state/named" ]] || { kill -KILL -- "-$demo_pid" 2>/dev/null || true; fail "$name: the fake wrapper never named its box"; }
   target="-$demo_pid"
   [[ "$sig" == TERM ]] && target="$demo_pid"
   started=$SECONDS
@@ -154,6 +156,17 @@ signal_demo() { # <case> <signal> <expected rc> [second signal during cleanup]
 signal_demo 1d-ctrl-c INT 130
 signal_demo 1e-term TERM 143
 signal_demo 1f-double-ctrl-c INT 130 INT
+# The same through the python fallback of the bound: a PATH with the tools
+# the demo needs and no GNU timeout.
+nognu="$work/nognu"
+mkdir -p "$nognu"
+for tool in bash env git python3 sed head cat rm mktemp seq sleep touch grep awk; do
+  ln -sf "$(command -v "$tool")" "$nognu/$tool"
+done
+saved_path="$PATH"
+PATH="$nognu"
+signal_demo 1f-double-ctrl-c-python INT 130 INT
+PATH="$saved_path"
 
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok
