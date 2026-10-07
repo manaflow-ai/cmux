@@ -107,13 +107,13 @@ struct CloudBrowserProxyIntegrationTests {
         await model.retire()
     }
 
-    @Test("Managed SSH loopback navigation preserves a POST through its remote browser proxy")
-    func managedSSHLoopbackPOSTUsesRemoteProxy() async throws {
-        let server = try CloudBrowserProxyTestServer(
-            address: "127.0.0.1", marker: "ssh-loopback", servicePort: 3000
-        )
-        try await server.start()
-        defer { server.stop() }
+    @Test("Managed SSH loopback navigation uses its forward and never reaches a client-local service")
+    func managedSSHLoopbackPOSTUsesRemoteForward() async throws {
+        let clientService = try CloudLoopbackOriginTestServer(marker: "client-local")
+        let remoteService = try CloudLoopbackOriginTestServer(marker: "haven-remote")
+        try await clientService.start()
+        try await remoteService.start()
+        defer { clientService.stop(); remoteService.stop() }
 
         let panel = BrowserPanel(
             workspaceId: UUID(), initialURL: URL(string: "about:blank"),
@@ -121,78 +121,125 @@ struct CloudBrowserProxyIntegrationTests {
         )
         defer { panel.close() }
 
+        let stoppedTarget = CloudLinkFirstValue<CloudPortForwardTarget>()
         let model = CloudPortAccessModel(
-            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: Int(clientService.port)),
             coordinator: nil, wake: {},
-            startForward: { _ in
-                Issue.record("Managed SSH browser navigation must not create a local port forward")
-                return 1
+            startForward: { target in
+                #expect(target.host == "127.0.0.1")
+                #expect(target.port == Int(clientService.port))
+                return remoteService.port
             },
-            stopForward: {}, startBrowserProxy: { server.endpoint }, allowsLoopback: true
+            stopForward: {}, route: .loopback,
+            stopForwardForTarget: { stoppedTarget.resolve($0) }, allowsLoopback: true
         )
         defer { Task { await model.retire() } }
 
-        let url = try #require(URL(string: "http://127.0.0.1:3000/echo"))
+        let url = try #require(URL(string: "http://127.0.0.1:\(clientService.port)/echo"))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("from-managed-ssh".utf8)
         let resourceID = SurfaceResourceID(machine: .ssh("ssh-loopback-test"), kind: .browser, key: "port:3000")
-        panel.prepareCloudBrowserStore(machineID: resourceID.machine.rawValue)
-        panel.showCloudAddress(url)
-        panel.pendingCloudNavigationRequest = request
-        panel.cloudAccess.configure(model: model, url: url, resourceID: resourceID)
-        #expect(panel.navigate(to: url) == nil, "The request must wait while its SSH proxy starts")
-        model.connect()
+        panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID, request: request)
         let readyDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !model.isReady && ContinuousClock.now < readyDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(model.isReady, "The managed SSH proxy must become ready before replaying the request")
-        #expect(panel.navigate(to: url) != nil)
+        #expect(model.isReady, "The managed SSH loopback forward must become ready")
         #expect(panel.webView.window != nil)
-        #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
+        #expect(panel.websiteDataStore.proxyConfigurations.isEmpty,
+                "WebKit must connect directly to the local forward instead of trying to proxy loopback")
 
         let requestDeadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < requestDeadline {
+        while !remoteService.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < requestDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        let proxiedRequest = try #require(server.requests.first { $0.method == "POST" })
-        #expect(server.authorizedTargets.contains("127.0.0.1:3000"))
-        #expect(proxiedRequest.target == "/echo")
-        #expect(proxiedRequest.host == "127.0.0.1:3000")
-        #expect(proxiedRequest.body == "from-managed-ssh")
+        let forwardedRequest = try #require(remoteService.requests.first { $0.method == "POST" })
+        #expect(forwardedRequest.target == "/echo")
+        #expect(forwardedRequest.body == "from-managed-ssh")
+        #expect(clientService.requests.isEmpty,
+                "A client service listening at the original loopback port must never receive the remote navigation")
 
         let pageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !panel.cloudAccess.showsPage && ContinuousClock.now < pageDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(panel.cloudAccess.showsPage, "The proxied SSH page must finish loading")
+        #expect(panel.cloudAccess.showsPage, "The forwarded SSH page must finish loading")
         #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).body") as? String == "from-managed-ssh")
-        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).host") as? String == "127.0.0.1:3000")
-        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).machine") as? String == "ssh-loopback")
-
-        await model.retire()
-        let ipv6URL = try #require(URL(string: "http://[::1]:3000/echo"))
-        let ipv6Model = CloudPortAccessModel(
-            target: CloudPortForwardTarget(host: "::1", port: 3000),
-            coordinator: nil, wake: {}, startForward: { _ in 1 }, stopForward: {},
-            startBrowserProxy: { server.endpoint }, allowsLoopback: true
-        )
-        defer { Task { await ipv6Model.retire() } }
-        panel.configureCloudBrowser(
-            model: ipv6Model, url: ipv6URL,
-            resourceID: resourceID, request: URLRequest(url: ipv6URL)
-        )
-
-        let ipv6Deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !server.requests.contains(where: { $0.method == "GET" && $0.host.contains("::1") }),
-              ContinuousClock.now < ipv6Deadline {
+        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).machine") as? String == "haven-remote")
+        let oldWebView = panel.webView
+        let currentForwardedURL = try #require(oldWebView.url)
+        let requestsBeforeReplacement = remoteService.requests.count
+        #expect(panel.replaceWebViewPreservingState(
+            from: oldWebView, websiteDataStore: panel.websiteDataStore,
+            reason: "ssh_loopback_protection_test", overrideRestoreURL: currentForwardedURL
+        ))
+        #expect(panel.webView !== oldWebView)
+        let replacementDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while (remoteService.requests.count <= requestsBeforeReplacement
+            || panel.webView.url != currentForwardedURL
+            || panel.webView.isLoading) && ContinuousClock.now < replacementDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(server.authorizedTargets.contains(where: { $0.contains("::1") }),
-                "Changing the loopback alias must update host matching on the same authenticated proxy")
-        #expect(server.requests.contains(where: { $0.method == "GET" && $0.host.contains("::1") }))
+        #expect(remoteService.requests.count > requestsBeforeReplacement,
+                "A replacement WebView must restore the managed SSH page through the retained listener")
+        #expect(panel.webView.url == currentForwardedURL && !panel.webView.isLoading,
+                "The replacement page must finish loading before exercising its scripts")
+        #expect(clientService.requests.isEmpty,
+                "A replacement WebView must retain loopback protections before restoring the page")
+        _ = try await panel.webView.callAsyncJavaScript("""
+        const response = await fetch("http://127.0.0.1:\(clientService.port)/echo?from=fetch", {
+          method: "POST", body: "loopback-fetch", signal: AbortSignal.timeout(5000)
+        });
+        return await response.text();
+        """, arguments: [:], in: nil, contentWorld: .page)
+        let fetchDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !remoteService.requests.contains(where: { $0.target.contains("from=fetch") }),
+              ContinuousClock.now < fetchDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(remoteService.requests.contains(where: { $0.target.contains("from=fetch") }),
+                "Absolute loopback fetches must be rewritten to the owned SSH endpoint")
+        let unrelatedLoopbackURLs = try await panel.webView.evaluateJavaScript("""
+        [
+          window.__cmuxRewriteRemoteLoopbackURL('http://127.0.0.1:\(Int(clientService.port) + 1)/other'),
+          window.__cmuxRewriteRemoteLoopbackURL('http://[::1]:\(clientService.port)/other')
+        ]
+        """) as? [String]
+        #expect(unrelatedLoopbackURLs == [
+            "http://127.0.0.1:\(Int(clientService.port) + 1)/other",
+            "http://[::1]:\(clientService.port)/other"
+        ], "Other ports and explicit IPv6 loopback must keep their selected destinations")
+        let blockedImageResults = try await panel.webView.callAsyncJavaScript("""
+        return await Promise.all([
+          'http://localhost:\(clientService.port)/echo?from=image',
+          'http://localhost.:\(clientService.port)/echo?from=trailing-dot',
+          'http://0.0.0.0:\(clientService.port)/echo?from=unspecified',
+          'http://[::ffff:127.0.0.1]:\(clientService.port)/echo?from=mapped-ipv6'
+        ].map(url => new Promise(resolve => {
+          const image = new Image();
+          image.onload = () => resolve('loaded');
+          image.onerror = () => resolve('blocked');
+          image.src = url;
+          document.body.append(image);
+        })))
+        """, arguments: [:], in: nil, contentWorld: .page) as? [String]
+        #expect(blockedImageResults == ["blocked", "blocked", "blocked", "blocked"])
+        #expect(clientService.requests.isEmpty,
+                "Unrewritten parser-style localhost resources must be blocked instead of reaching a local service")
+        let secondURL = try #require(URL(string: "http://127.0.0.1:\(clientService.port)/next"))
+        #expect(panel.navigate(to: secondURL) != nil)
+        let nextDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !remoteService.requests.contains(where: { $0.method == "GET" && $0.target == "/next" }),
+              ContinuousClock.now < nextDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(remoteService.requests.contains(where: { $0.method == "GET" && $0.target == "/next" }),
+                "Subsequent address-bar navigation must use the same SSH forward")
+        #expect(clientService.requests.isEmpty)
+        await model.retire()
+        #expect(await stoppedTarget.result == CloudPortForwardTarget(host: "127.0.0.1", port: Int(clientService.port)))
     }
 
     @Test("Cloud websites keep the pane background while styles load, then restore normal page rendering",

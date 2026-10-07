@@ -210,6 +210,12 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
+        if let script = cloudLoopbackRuntimeBridgeScript {
+            replacement.configuration.userContentController.addUserScript(script)
+        }
+        if cloudAccess.model?.route == .loopback, let ruleList = cloudLoopbackContentRuleList {
+            replacement.configuration.userContentController.add(ruleList)
+        }
         if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
             replacement.configuration.userContentController.addUserScript(WKUserScript(
                 source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),

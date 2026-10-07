@@ -1634,7 +1634,7 @@ OPTIONS:
         forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
-  --host HOST  --listen ADDR  --scheme http|https
+  --host HOST  --listen ADDR  --listen-fd FD  --scheme http|https
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
   `cmux remote connect` are also accepted.
 "#,
@@ -2357,7 +2357,7 @@ ID とセッション:
         forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:
-  --host ホスト  --listen アドレス  --scheme http|https
+  --host ホスト  --listen アドレス  --listen-fd FD  --scheme http|https
   `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,

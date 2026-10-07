@@ -23,7 +23,7 @@ public struct CloudPortRoutePolicy: Sendable {
               let host = IPNetworkPrefix.routeHost(Self.route(for: address)),
               !["0.0.0.0", "::"].contains(host)
         else { return nil }
-        if ["127.0.0.1", "::1"].contains(host) {
+        if ["127.0.0.1", "localhost", "::1"].contains(host.lowercased()) {
             guard allowLoopback else { return nil }
         } else {
             guard Self.isPrivateNetworkHost(host) else { return nil }

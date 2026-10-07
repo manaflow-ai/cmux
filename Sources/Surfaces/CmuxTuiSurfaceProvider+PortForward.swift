@@ -114,13 +114,22 @@ extension CmuxTuiSurfaceProvider {
         }
         // SSH loopback aliases are distinct destinations: preserve an explicit
         // IPv6 loopback URL instead of rewriting it to the advertised IPv4 alias.
-        let routeAddress = machine.isSSH && url.host?.lowercased() == "::1" ? "::1" : address
+        let requestedHost = url.host?.lowercased()
+        let routeAddress = machine.isSSH && ["127.0.0.1", "localhost", "::1"].contains(requestedHost ?? "")
+            ? requestedHost! : address
         guard let privateURL = CloudPortRoutePolicy().privateURL(
             url.absoluteString,
             address: routeAddress,
             allowLoopback: machine.isSSH
         ) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
+            return false
+        }
+        if machine.isSSH, privateURL.scheme?.lowercased() == "https" {
+            browser.cloudAccess.showUnavailable(String(
+                localized: "cloud.portAccess.sshLoopbackHTTPSUnavailable",
+                defaultValue: "HTTPS previews for SSH loopback services are not supported yet."
+            ))
             return false
         }
         // Check the VM origin before rewriting it to localhost. Otherwise the
@@ -200,7 +209,60 @@ extension CmuxTuiSurfaceProvider {
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
-        return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
+        let isSSH = machine.isSSH
+        let route: CloudPortAccessRoute = isSSH ? .loopback : .browserProxy
+        let stopForwardForTarget: (@MainActor (CloudPortForwardTarget) async -> Void)?
+        if isSSH {
+            stopForwardForTarget = { [weak self] target in
+                guard let self else { return }
+                await self.links.closeLoopbackForward(machineID: self.machineID, target: target)
+            }
+        } else {
+            stopForwardForTarget = nil
+        }
+        let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
+        if isSSH {
+            startBrowserProxy = nil
+        } else {
+            startBrowserProxy = { [weak self] in
+                guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                let generation = self.currentLifecycleGeneration
+#if DEBUG
+                let desktopStartedAt = Date()
+                cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
+                let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                // Repair only a desktop the probe saw answer with an error. A probe
+                // that timed out (a busy carrier) used to start this repair, a guest
+                // exec of about 12s, on a healthy desktop: display 1 then showed
+                // "Loading Cloud page" for 20s or more.
+                if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                   try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
+                    try Task.checkCancellation()
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
+                    _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                }
+#if DEBUG
+                cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                return endpoint
+            }
+        }
+        return portAccessStore.model(
+            machineID: machineID, target: target, scheme: scheme,
+            loopbackHost: isSSH ? address : nil
+        ) {
             CloudPortAccessModel(
                 target: target,
                 coordinator: portAccessStore.coordinator,
@@ -216,7 +278,11 @@ extension CmuxTuiSurfaceProvider {
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
                 startForward: { [weak self] target in
-                    guard let self, let portForwards = self.portForwards, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                    if self.machine.isSSH {
+                        return try await self.links.loopbackForward(machineID: self.machineID, target: target)
+                    }
+                    guard let portForwards = self.portForwards else { throw ProviderError.hubUnavailable }
                     var target = target
                     target.fallbackHosts = await self.links.privateAddresses(for: self.machineID)
                     let forward = try await portForwards.forward(machineID: self.machineID, to: target)
@@ -232,41 +298,10 @@ extension CmuxTuiSurfaceProvider {
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
                 },
-                startBrowserProxy: { [weak self] in
-                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
-                    let generation = self.currentLifecycleGeneration
-#if DEBUG
-                    let desktopStartedAt = Date()
-                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
-#endif
-                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    // Repair only a desktop the probe saw answer with an error. A probe
-                    // that timed out (a busy carrier) used to start this repair, a guest
-                    // exec of about 12s, on a healthy desktop: display 1 then showed
-                    // "Loading Cloud page" for 20s or more.
-                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
-                       try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
-                        try Task.checkCancellation()
-                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
-#endif
-                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
-#if DEBUG
-                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    }
-#if DEBUG
-                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
-#endif
-                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
-                    return endpoint
-                },
-                allowsLoopback: self.machine.isSSH
+                route: route,
+                startBrowserProxy: startBrowserProxy,
+                stopForwardForTarget: stopForwardForTarget,
+                allowsLoopback: isSSH
             )
         }
     }

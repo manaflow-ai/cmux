@@ -399,6 +399,12 @@ final class CloudBrowserAccessState {
         if model?.usesBrowserProxy == true {
             remoteURL = url
             navigationURL = url
+        } else if model?.route == .loopback, var remote = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let host = model?.target.host.lowercased()
+            remote.host = host == "::1" ? "[::1]" : host
+            remote.port = model?.target.port
+            remoteURL = remote.url
+            navigationURL = url
         }
         hasCommittedNavigation = true
         trace("navigation_committed")
@@ -459,6 +465,9 @@ final class CloudBrowserAccessState {
 
     func owns(_ url: URL) -> Bool {
         guard let remoteURL else { return false }
+        if model?.route == .loopback {
+            return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
+        }
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }
@@ -469,6 +478,11 @@ final class CloudBrowserAccessState {
             return true
         }
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
+    }
+
+    func forwardedURL(for url: URL) -> URL? {
+        guard model?.route == .loopback, owns(url) else { return nil }
+        return model?.url(for: url)
     }
 
     /// An SSH loopback alias change must be rebound to the owning provider
