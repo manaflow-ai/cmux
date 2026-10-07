@@ -26,6 +26,8 @@ import Testing
         #expect(await iterator.next() == TerminalPreferences().appearance)
         store.update { $0.cursorStyle = .underline }
         #expect(await iterator.next()?.cursorStyle == .underline)
+        store.update { $0.composerEnabled = true }
+        #expect(await iterator.next()?.showsComposer == true)
     }
 
     @Test func updateNormalizesBeforeStoring() {

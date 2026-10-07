@@ -17,5 +17,11 @@ enum TerminalCommandText {
         String(localized: "terminal.history.unavailable", defaultValue: "Not available from this Mac", bundle: .module)
     }
     static var close: String { String(localized: "terminal.command.close", defaultValue: "Close Terminal", bundle: .module) }
+    static var showComposer: String {
+        String(localized: "terminal.command.showComposer", defaultValue: "Show Composer", bundle: .module)
+    }
+    static var hideComposer: String {
+        String(localized: "terminal.command.hideComposer", defaultValue: "Hide Composer", bundle: .module)
+    }
     static var more: String { String(localized: "terminal.command.more", defaultValue: "More", bundle: .module) }
 }

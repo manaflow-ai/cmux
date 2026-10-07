@@ -17,11 +17,13 @@ public struct TerminalPreferences: Hashable, Sendable, Codable {
     public var cursorBlink: Bool
     /// Keys shown on the key bar, in order. Never empty after `normalized()`.
     public var keyBarKeys: [KeyBarKeyID]
+    /// The composer bar above the key bar (e4-compose.md 3).
+    public var composerEnabled: Bool
 
     public init(theme: TerminalThemeChoice = .matchMac, font: TerminalFontChoice = .standard,
                 fontSize: Double = Self.defaultFontSize, followsDynamicType: Bool = true,
                 cursorStyle: TerminalCursorStyle = .block, cursorBlink: Bool = false,
-                keyBarKeys: [KeyBarKeyID] = KeyBarKeyID.defaultOrder) {
+                keyBarKeys: [KeyBarKeyID] = KeyBarKeyID.defaultOrder, composerEnabled: Bool = false) {
         self.theme = theme
         self.font = font
         self.fontSize = fontSize
@@ -29,6 +31,7 @@ public struct TerminalPreferences: Hashable, Sendable, Codable {
         self.cursorStyle = cursorStyle
         self.cursorBlink = cursorBlink
         self.keyBarKeys = keyBarKeys
+        self.composerEnabled = composerEnabled
     }
 
     /// Font size clamped and rounded to whole points; key bar without
@@ -53,12 +56,13 @@ public struct TerminalPreferences: Hashable, Sendable, Codable {
             followsDynamicType: value.followsDynamicType,
             cursorStyle: value.cursorStyle,
             cursorBlink: value.cursorBlink,
-            keyBarKeyIDs: value.keyBarKeys.map(\.rawValue)
+            keyBarKeyIDs: value.keyBarKeys.map(\.rawValue),
+            showsComposer: value.composerEnabled
         )
     }
 
     private enum CodingKeys: String, CodingKey {
-        case theme, font, fontSize, followsDynamicType, cursorStyle, cursorBlink, keyBarKeys
+        case theme, font, fontSize, followsDynamicType, cursorStyle, cursorBlink, keyBarKeys, composerEnabled
     }
 
     public init(from decoder: any Decoder) throws {
@@ -74,6 +78,7 @@ public struct TerminalPreferences: Hashable, Sendable, Codable {
         cursorBlink = (try? container.decodeIfPresent(Bool.self, forKey: .cursorBlink)) ?? defaults.cursorBlink
         let ids = (try? container.decodeIfPresent([String].self, forKey: .keyBarKeys)) ?? nil
         keyBarKeys = ids.map { $0.compactMap(KeyBarKeyID.init(rawValue:)) } ?? defaults.keyBarKeys
+        composerEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .composerEnabled)) ?? defaults.composerEnabled
         self = normalized()
     }
 
@@ -86,5 +91,6 @@ public struct TerminalPreferences: Hashable, Sendable, Codable {
         try container.encode(cursorStyle.rawValue, forKey: .cursorStyle)
         try container.encode(cursorBlink, forKey: .cursorBlink)
         try container.encode(keyBarKeys.map(\.rawValue), forKey: .keyBarKeys)
+        try container.encode(composerEnabled, forKey: .composerEnabled)
     }
 }

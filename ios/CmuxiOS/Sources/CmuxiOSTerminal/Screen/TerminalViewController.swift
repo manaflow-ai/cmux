@@ -23,6 +23,17 @@ public final class TerminalViewController: UIViewController {
     /// The theme the terminal was opened with; Settings' "Match Mac" keeps it.
     private let openedTheme: ThemeInput?
     private var appearanceTask: Task<Void, Never>?
+    /// The composer bar's maker (E4); nil offers no composer.
+    public var composerProvider: (any TerminalComposerProviding)? {
+        didSet { if isViewLoaded { setComposerVisible(showsComposer) } }
+    }
+    /// The More menu toggled the bar: the owner writes the setting.
+    public var onComposerToggle: ((Bool) -> Void)?
+    /// Whether composed input is accepted changed (the bar's Send state).
+    public var onComposedInputAvailabilityChange: ((Bool) -> Void)?
+    /// The setting's value (or the menu's), applied once the view loads.
+    var showsComposer = false
+    var composerController: UIViewController?
 
     /// A terminal of a cmux session host through the transport seam.
     public convenience init(source: any TerminalSessionSource, terminal: TerminalRef,
@@ -90,6 +101,7 @@ public final class TerminalViewController: UIViewController {
         terminalView.onTap = { [weak self] in self?.focusInput() }
         terminalView.onDraw = { [weak self] in self?.panToCursor() }
         session.onStatus = { [weak self] status in self?.show(status) }
+        setComposerVisible(showsComposer)
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -128,6 +140,7 @@ public final class TerminalViewController: UIViewController {
         if sizing != terminalView.fontSizing { terminalView.fontSizing = sizing }
         terminalView.keyBarKeys = TerminalKeyBarKey.keys(fromSetting: appearance.keyBarKeyIDs)
         if isViewLoaded { view.backgroundColor = terminalView.backgroundColor }
+        if appearance.showsComposer != showsComposer { setComposerVisible(appearance.showsComposer) }
     }
 
     public override var keyCommands: [UIKeyCommand]? { terminalKeyCommands() }
@@ -153,7 +166,8 @@ public final class TerminalViewController: UIViewController {
         // The resting top (center and bounds ignore the transform).
         let restingTop = terminalView.center.y - terminalView.bounds.height / 2
         let cursorBottom = restingTop + cursor.maxY + Self.cursorMargin
-        let shift = max(0, cursorBottom - keyboardTop.frame.maxY)
+        let coverTop = min(keyboardTop.frame.maxY, bottomObstructionTop ?? .greatestFiniteMagnitude)
+        let shift = max(0, cursorBottom - coverTop)
         let transform = CGAffineTransform(translationX: 0, y: -shift)
         if terminalView.transform != transform { terminalView.transform = transform }
     }
@@ -175,6 +189,7 @@ public final class TerminalViewController: UIViewController {
         badge.sizeToFit()
         banner.show(chrome.banner)
         refreshMenu()
+        notifyComposerAvailability()
         if let title = status.title, !title.isEmpty { self.title = title }
     }
 }

@@ -88,6 +88,12 @@ extension SettingsText {
     static var cursorBar: String { String(localized: "shell.settings.cursor.bar", defaultValue: "Bar", bundle: .module) }
     static var cursorUnderline: String { String(localized: "shell.settings.cursor.underline", defaultValue: "Underline", bundle: .module) }
     static var cursorBlink: String { String(localized: "shell.settings.cursorBlink", defaultValue: "Blink", bundle: .module) }
+    static var composer: String { String(localized: "shell.settings.composer", defaultValue: "Composer", bundle: .module) }
+    static var composerFooter: String {
+        String(localized: "shell.settings.composer.footer",
+               defaultValue: "A text box above the key bar for writing prompts to agents. Send pastes it into the terminal and presses Return.",
+               bundle: .module)
+    }
     static var keyBar: String { String(localized: "shell.settings.keyBar", defaultValue: "Key Bar", bundle: .module) }
     static var keyCountFormat: String { String(localized: "shell.settings.keyCountFormat", defaultValue: "%lld keys", bundle: .module) }
     static var resetTerminal: String { String(localized: "shell.settings.resetTerminal", defaultValue: "Reset Terminal Settings", bundle: .module) }

@@ -63,6 +63,12 @@ struct TerminalSettingsView: View {
                 .accessibilityIdentifier("shell.settings.terminal.keyBar")
             }
             Section {
+                Toggle(SettingsText.composer, isOn: binding(\.composerEnabled))
+                    .accessibilityIdentifier("shell.settings.terminal.composer")
+            } footer: {
+                Text(SettingsText.composerFooter)
+            }
+            Section {
                 Button(SettingsText.resetTerminal, role: .destructive) { confirmingReset = true }
             }
         }
