@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 enum NextUITest {
     /// The shell tab raw values (`ShellTab`), in tab order.
-    static let tabs = ["home", "feed", "workspaces", "compose", "hosts", "search", "settings"]
+    static let tabs = ["home", "feed", "workspaces", "compose", "hosts", "search", "cloud", "settings"]
 
     /// The root element each tab's screen carries.
     static let tabRoots: [String: String] = [
@@ -19,13 +19,14 @@ enum NextUITest {
         "compose": "composer.screen",
         "hosts": "ssh.hosts.list",
         "search": "search.screen",
+        "cloud": "cloud.screen",
         "settings": "shell.settings",
     ]
 
     /// English tab titles (`ShellTab.title` defaults), for tab bar lookups.
     static let tabTitles: [String: String] = [
         "home": "Home", "feed": "Feed", "workspaces": "Workspaces", "compose": "Compose",
-        "hosts": "Hosts", "search": "Search", "settings": "Settings",
+        "hosts": "Hosts", "search": "Search", "cloud": "Cloud", "settings": "Settings",
     ]
 
     /// Launches the signed-in shell on the mock seams, optionally on `tab`.
@@ -39,6 +40,7 @@ enum NextUITest {
             "CMUX_IOS_FLAG_COMPOSE_TAB": "1",
             "CMUX_IOS_FLAG_HOSTS_TAB": "1",
             "CMUX_IOS_FLAG_SEARCH_TAB": "1",
+            "CMUX_IOS_FLAG_CLOUD_TAB": "1",
         ]
         if let tab { environment["CMUX_IOS_SHELL_TAB"] = tab }
         for (key, value) in extra { environment[key] = value }
