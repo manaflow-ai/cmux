@@ -879,6 +879,14 @@ public enum MacConversationLab {
         return split.sidebar.visibleIDs
     }
 
+    /// Opens New Message in the frontmost lab window, optionally prefilled
+    /// (Forward hands its draft here); the To: field takes focus.
+    public static func newMessage(prefill: ConversationComposeMessage? = nil) {
+        guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return }
+        split.newMessage(nil)
+        if let prefill { split.draft?.setDraft(prefill) }
+    }
+
     /// New Message from the lab: `compose` opens the draft, `c <command>`
     /// drives it (see MacComposeDraftController.labCommand), `composepng
     /// <path>` renders the window in-process. Nil for other lines.
