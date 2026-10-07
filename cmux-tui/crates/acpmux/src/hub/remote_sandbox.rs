@@ -72,6 +72,37 @@ const ASK_TOOLS: &[&str] = &[
     "SlashCommand",
 ];
 
+/// Env names that give Claude Code its credential without the keychain.
+const CREDENTIAL_ENV: &[&str] =
+    &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+
+/// The credential a remote chain's Claude Code gets by env, when it has
+/// none there yet (profile or login env): the OAuth access token from the
+/// keychain item Claude Code keeps ("Claude Code-credentials"), read by
+/// acpmux outside the sandbox. None: it already has one, or none is found
+/// (Claude then reports that it is not logged in).
+async fn claude_credential(profile: &HarnessProfile) -> Option<(&'static str, String)> {
+    if CREDENTIAL_ENV
+        .iter()
+        .any(|k| profile.env.contains_key(*k) || crate::chats::login_var(k).is_some())
+    {
+        return None;
+    }
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let out = tokio::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .ok()
+        .filter(|o| o.status.success())?;
+    let item: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let token = item.pointer("/claudeAiOauth/accessToken")?.as_str()?;
+    (!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned()))
+}
+
 /// Claude Code flags a profile's own argv may not carry for a remote chain:
 /// its settings, MCP servers, tools, folders and permission mode are
 /// acpmux's own, and nothing may skip the permission prompt.
@@ -414,6 +445,18 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
 }
 
 impl Hub {
+    /// Whether `session` is a remote chain's Claude Code session (remote
+    /// origin, a claude-stdio profile): one that runs in the sandbox. A
+    /// profile that cannot be read now counts as one (fail closed).
+    pub(super) fn remote_claude(&self, session: &Session) -> bool {
+        let m = session.meta();
+        m.remote_origin
+            && self.config.try_read().map_or(true, |cfg| {
+                super::resolve::session_profile(&cfg, &m.harness, &m.cwd, true)
+                    .map_or(true, |p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+            })
+    }
+
     /// The `sandbox-exec` remote chains spawn under (`SANDBOX_EXEC`). An
     /// embedder (tests) may point it elsewhere: the canary proves whatever
     /// it runs, so a stand-in that does not sandbox is refused.
@@ -425,18 +468,30 @@ impl Hub {
     /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
     /// runs inside the Seatbelt sandbox, canary-checked at this spawn; any
     /// other session's plan is unchanged.
-    pub(super) async fn remote_chain_plan(
+    ///
+    /// The profile it returns carries the remote chain's env: Claude's own
+    /// credential (the keychain is closed to the sandbox) and
+    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, so Claude's Bash and other
+    /// children never inherit that credential. Env, never argv: argv is
+    /// visible to every process of the user.
+    pub(super) async fn remote_chain_plan<'p>(
         &self,
         session: &Session,
-        profile: &HarnessProfile,
+        profile: &'p HarnessProfile,
         plan: crate::claude_stdio::SpawnPlan,
-    ) -> Result<crate::claude_stdio::SpawnPlan, RpcError> {
+    ) -> Result<(crate::claude_stdio::SpawnPlan, std::borrow::Cow<'p, HarnessProfile>), RpcError>
+    {
         if !session.meta().remote_origin {
-            return Ok(plan);
+            return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
-        Ok(crate::claude_stdio::SpawnPlan { program, args })
+        let mut profile = profile.clone();
+        profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+        if let Some((key, value)) = claude_credential(&profile).await {
+            profile.env.insert(key.into(), value);
+        }
+        Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 
     /// A remote chain's Claude spawn plan inside the sandbox, after the
@@ -637,6 +692,13 @@ mod tests {
         assert!(!bound().sandbox_args()[1].contains("31415"));
     }
 
+    #[tokio::test]
+    async fn a_profile_with_its_own_credential_never_reads_the_keychain() {
+        let mut p = profile(&["claude"]);
+        p.env.insert("ANTHROPIC_API_KEY".into(), "k".into());
+        assert_eq!(claude_credential(&p).await, None);
+    }
+
     #[test]
     fn claude_names_its_scratch_folder_like_this() {
         assert_eq!(
@@ -657,6 +719,7 @@ mod tests {
             "(deny file-link)",
             "(deny file-mount)",
             "(deny user-preference-write)",
+            "(global-name \"com.apple.SecurityServer\")",
             "(global-name \"com.apple.lsd.modifydb\")",
             "(deny file-write* (regex #\"/HEAD$\"))",
             ";; @API_PORT@",

@@ -110,8 +110,11 @@ impl Hub {
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
                         None => {
-                            *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) =
-                                v.as_str().map(str::to_owned);
+                            *session
+                                .floor
+                                .undeclared_mode
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     },
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
@@ -251,6 +254,15 @@ impl Hub {
                 "harness": meta.harness,
                 "family": crate::web_modes::family_of(meta),
             })));
+        }
+        // A remote chain's agent adopted with no record that it runs in the
+        // sandbox (it started before the sandbox existed).
+        if session.floor.unsandboxed.load(Ordering::SeqCst) {
+            return Err(RpcError::new(
+                -32000,
+                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
         }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.

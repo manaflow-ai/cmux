@@ -33,7 +33,10 @@ fn adopt(hub: &Arc<Hub>, s: &Session) {
 }
 
 fn reason(r: &Result<(), RpcError>) -> Option<String> {
-    r.as_ref().err().and_then(|e| e.data.as_ref()).and_then(|d| d["reason"].as_str().map(str::to_owned))
+    r.as_ref()
+        .err()
+        .and_then(|e| e.data.as_ref())
+        .and_then(|d| d["reason"].as_str().map(str::to_owned))
 }
 
 #[test]

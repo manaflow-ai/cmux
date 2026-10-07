@@ -18,19 +18,20 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
+mod model_hint;
 mod paging;
 mod pool;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
 use shutdown::ShutdownPlan;
+#[cfg(test)]
+mod remote_sandbox_adopt_tests;
 mod spawn;
 mod stream;
 mod tap;
 #[cfg(test)]
 mod tap_tests;
-#[cfg(test)]
-mod remote_sandbox_adopt_tests;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };

@@ -40,6 +40,9 @@ pub(super) struct OpenWork {
     floor_cancelled: Option<String>,
     last_control: Option<Control>,
     harness_grant: bool,
+    /// A remote chain's Claude Code session whose current host has no
+    /// passed sandbox canary just before it started (`remote_sandbox.rs`).
+    unsandboxed: bool,
 }
 
 impl Hub {
@@ -309,6 +312,9 @@ impl Hub {
                 .filter_map(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned))
                 .collect()
         };
+        // The canary passes, then the host starts: that host is sandboxed.
+        let remote_claude = self.remote_claude(session);
+        let mut canary_passed = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
@@ -316,6 +322,12 @@ impl Hub {
                     "host_started" => {
                         lasting.clear();
                         work.harness_grant = false;
+                        work.unsandboxed = remote_claude && !canary_passed;
+                        canary_passed = false;
+                    }
+                    "remote_sandbox" => {
+                        canary_passed =
+                            e.msg.get("canary").and_then(Value::as_str) == Some("passed");
                     }
                     "permission_request" => {
                         if let Some(pid) = text("permissionId") {
@@ -447,7 +459,11 @@ impl Hub {
     /// The remote floor's marks of an adopted host (`open_work`).
     pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
         session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
-        session.floor.last_turn_web.store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
+        session
+            .floor
+            .last_turn_web
+            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {

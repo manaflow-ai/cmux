@@ -170,14 +170,16 @@ async fn a_remote_chain_cannot_query_the_keychain() {
     let hub = hub(&d);
     // The control: a local session's agent may.
     let mut local = Client::new(&hub, Origin::Local);
-    let seen: Value =
-        serde_json::from_str(&local.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")))
-            .unwrap();
+    let seen: Value = serde_json::from_str(
+        &local.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
     assert_eq!(seen, json!({"keychain": "allowed"}));
     let mut web = Client::new(&hub, Origin::Web);
-    let seen: Value =
-        serde_json::from_str(&web.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")))
-            .unwrap();
+    let seen: Value = serde_json::from_str(
+        &web.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
     assert_eq!(seen, json!({"keychain": "denied"}));
     let _ = std::fs::remove_dir_all(&d);
 }
