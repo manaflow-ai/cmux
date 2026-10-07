@@ -2402,6 +2402,8 @@ fn run_server(
         );
     }
     mux.set_loopback_forward_policy(loopback_forward_policy);
+    #[cfg(unix)]
+    mux.set_acpmux_socket(acp::daemon_socket_path());
     mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
         crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
     }));
