@@ -93,8 +93,15 @@ public enum MockFixtures {
     }
 
     public static let agents: [ComposerAgent] = [
-        ComposerAgent(id: "claude", name: "Claude Code", models: ["opus", "sonnet"], efforts: ["low", "medium", "high"]),
-        ComposerAgent(id: "codex", name: "Codex", models: ["gpt-5.6"], efforts: ["low", "medium", "high", "xhigh"]),
+        ComposerAgent(id: "claude", name: "Claude Code", modelOptions: [
+            ComposerModel(id: "opus", label: "Claude Opus", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
+            ComposerModel(id: "sonnet", label: "Claude Sonnet", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
+        ], defaultModel: "opus"),
+        ComposerAgent(id: "codex", name: "Codex", modelOptions: [
+            ComposerModel(id: "gpt-5.6", label: "GPT-5.6", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high"),
+        ], defaultModel: "gpt-5.6"),
+        ComposerAgent(id: "opencode", name: "OpenCode", modelOptions: [ComposerModel(id: "default", label: "Default")],
+                      defaultModel: "default", unavailableReason: "Not installed"),
     ]
 
     public static func hosts() -> [HostRecord] {

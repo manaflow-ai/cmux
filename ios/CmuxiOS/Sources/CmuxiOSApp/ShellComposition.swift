@@ -1,4 +1,6 @@
 import CmuxiOSAuth
+import CmuxiOSBrowser
+import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSSettingsCore
@@ -44,6 +46,8 @@ enum ShellComposition {
         let feedIsMock = sources.resolved[.feed] != .real
         let feedNavigator = container.feedNavigator
         let deviceName = UIDevice.current.name
+        // Lane C2: Mac browser tabs open from workspace surfaces over the browser seam.
+        let browser = BrowserFeature(source: sources.browser, isMock: sources.resolved[.browser] != .real)
         // Lane C5: the Workspaces tab; real Macs' terminals open over C1's
         // link sources, mock workspaces over A2's mock host. `workspaces.makePicker` is the
         // picker the composer (C8) presents.
@@ -51,22 +55,47 @@ enum ShellComposition {
         let terminalSources = workspacesAreReal ? container.terminalSources : nil
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.
+            surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
             isMock: !workspacesAreReal)
+        // Lane C8: the Compose tab and the floating compose button over Feed
+        // and Workspaces. The picker and "open workspace" are C5's, passed as
+        // closures so the composer never imports the Workspaces feature.
+        let shellBox = WeakControllerBox()
+        let composer = ComposerFeature(
+            sink: sources.composer,
+            makePicker: { request, completion in workspaces.makePicker(request: request, completion: completion) },
+            openWorkspace: { hostID, workspaceID in
+                guard let shell = shellBox.controller as? ShellRootController, shell.select(.workspaces) else { return }
+                workspaces.open(hostID: hostID, workspaceID: workspaceID)
+            },
+            isMock: sources.resolved[.composer] != .real)
+        let floatingCompose = container.flags.isEnabled(.composeTab)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
-            .workspaces: { workspaces.makeWorkspacesScreen() },
+            .workspaces: {
+                let screen = workspaces.makeWorkspacesScreen()
+                if floatingCompose, let navigation = screen as? UINavigationController {
+                    composer.installFloatingButton(on: navigation)
+                }
+                return screen
+            },
+            .compose: { composer.makeComposeScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)
                 navigation.navigationBar.prefersLargeTitles = true
+                if floatingCompose { composer.installFloatingButton(on: navigation) }
                 return navigation
             },
-        ])
-        return ShellRootController(
+        ], surfaces: browser.surfaceFactories)
+        let shell = ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),
             content: { content.controller(for: $0) }
         )
+        shellBox.controller = shell
+        return shell
     }
 
     /// Live link badges per device: the real owner once B5/D1 register it;

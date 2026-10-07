@@ -1,7 +1,7 @@
 import Foundation
 
 /// A `BrowserStreamSource` over sample tabs on the sample Mac Studio.
-/// Sessions stream a placeholder track id; no video is produced.
+/// Sessions report a page and no video.
 public final class MockBrowserStreamSource: BrowserStreamSource {
     public init() {}
 

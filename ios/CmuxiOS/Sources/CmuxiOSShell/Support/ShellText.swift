@@ -84,6 +84,10 @@ enum ShellText {
         String(localized: "shell.summary.feed", defaultValue: "Agent requests to answer inline: permissions, questions, plans.", bundle: .module)
     }
 
+    static var browserTab: String {
+        String(localized: "shell.workspaces.browserTab", defaultValue: "Browser on the Mac", bundle: .module)
+    }
+
     static var workspacesSummary: String {
         String(localized: "shell.summary.workspaces", defaultValue: "Live workspaces on every Mac, with status.", bundle: .module)
     }

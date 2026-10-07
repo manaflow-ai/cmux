@@ -11,6 +11,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "CmuxMobileHost", targets: ["CmuxMobileHost"])],
     dependencies: [
+        .package(path: "../CmuxBrowserStream"),
         .package(path: "../CmuxControlPlane"),
         .package(path: "../CmuxLink"),
         .package(path: "../CmuxMobileLink"),
@@ -21,6 +22,7 @@ let package = Package(
         .target(
             name: "CmuxMobileHost",
             dependencies: [
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
@@ -32,6 +34,7 @@ let package = Package(
             name: "CmuxMobileHostTests",
             dependencies: [
                 "CmuxMobileHost",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),

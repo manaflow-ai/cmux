@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSComposerCore
 import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
@@ -161,6 +162,8 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
+        // Lane C2: nil until D1 provides the per-Mac MobileLinkClient (as for files).
+        factories.browser = BrowserComposition.realSource(clients: nil, directory: nil)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
@@ -259,7 +262,8 @@ final class AppContainer {
         return factories
     }
 
-    /// C5: workspaces of the account's paired Macs over the control plane.
+    /// C5: workspaces of the account's paired Macs over the control plane;
+    /// C8: the composer over the same Macs' `task:` streams.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
                                          identity: InstallIdentity?) -> RealFeatureFactories {
         var factories = factories
@@ -278,6 +282,17 @@ final class AppContainer {
         }
         factories.workspaces = { devices in
             ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
+        }
+        // C8: the composer's `task:<host>` streams ride the same host sockets'
+        // endpoint (one more subscription per Mac while a composer is open).
+        let taskChannels: any WorkspaceChannelFactory
+        if let controlPlane = channels as? ControlPlaneWorkspaceChannelFactory {
+            taskChannels = controlPlane.streaming("task")
+        } else {
+            taskChannels = channels
+        }
+        factories.composer = { workspaces in
+            ControlPlaneTaskComposerSink(workspaces: workspaces, channels: taskChannels)
         }
         return factories
     }

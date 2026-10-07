@@ -17,12 +17,16 @@ public final class FeaturePlaceholderViewController: UIViewController {
     private var rows: [String: PlaceholderRow] = [:]
     private var sectionTitles: [String: String] = [:]
     private var observation: Task<Void, Never>?
+    private let open: ((_ section: String, _ row: String) -> UIViewController?)?
 
-    public init(tab: ShellTab, lane: String, summary: String, stream: @escaping PlaceholderSnapshot.Factory) {
+    /// `open` builds the screen for a row marked `opens` (pushed on tap).
+    public init(tab: ShellTab, lane: String, summary: String, stream: @escaping PlaceholderSnapshot.Factory,
+                open: ((_ section: String, _ row: String) -> UIViewController?)? = nil) {
         shellTab = tab
         self.lane = lane
         self.summary = summary
         self.stream = stream
+        self.open = open
         super.init(nibName: nil, bundle: nil)
         title = tab.title
     }
@@ -39,6 +43,7 @@ public final class FeaturePlaceholderViewController: UIViewController {
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: configuration))
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.accessibilityIdentifier = "shell.placeholder." + shellTab.rawValue
+        collectionView.delegate = self
         view.addSubview(collectionView)
         configureDataSource()
         apply(PlaceholderSnapshot(connection: .connecting, isMock: true, sections: []), animated: false)
@@ -110,5 +115,19 @@ public final class FeaturePlaceholderViewController: UIViewController {
             PlaceholderRow(id: "lane", title: ShellText.placeholderTitle(lane: lane),
                            subtitle: summary + "\n" + state, symbolName: "hammer"),
         ])
+    }
+}
+
+extension FeaturePlaceholderViewController: UICollectionViewDelegate {
+    public func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
+        dataSource.itemIdentifier(for: indexPath).flatMap { rows[$0] }?.opens == true
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        guard let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id], row.opens,
+              let section = dataSource.snapshot().sectionIdentifier(containingItem: id),
+              let screen = open?(section, row.id) else { return }
+        navigationController?.pushViewController(screen, animated: true)
     }
 }

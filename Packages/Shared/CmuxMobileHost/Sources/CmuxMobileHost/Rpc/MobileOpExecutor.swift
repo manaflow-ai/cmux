@@ -10,19 +10,24 @@ public actor MobileOpExecutor {
     private let daemon: any MobileDaemon
     private let ledger: MobileOpLedger
     private let authorizer: any MobileDeviceAuthorizer
+    /// The task family (C8); nil leaves `task.*` refused by the workspace policy.
+    private let tasks: MobileTaskService?
     private var nextTx: UInt64 = 0
 
     public init(policy: MobileOpPolicy, owner: WorkspaceStreamOwner, daemon: any MobileDaemon,
-                authorizer: any MobileDeviceAuthorizer, ledger: MobileOpLedger = MobileOpLedger()) {
+                authorizer: any MobileDeviceAuthorizer, ledger: MobileOpLedger = MobileOpLedger(),
+                tasks: MobileTaskService? = nil) {
         self.policy = policy
         self.owner = owner
         self.daemon = daemon
         self.authorizer = authorizer
         self.ledger = ledger
+        self.tasks = tasks
     }
 
     public func execute(_ op: OpFrame, principal: MobileDevicePrincipal) async -> MobileOpReply {
-        let stream = owner.stream
+        let taskService = op.op.hasPrefix("task.") ? tasks : nil
+        let stream = taskService?.owner.stream ?? owner.stream
         guard Self.validKey(op.idempotencyKey) else {
             return MobileOpReply(idempotencyKey: op.idempotencyKey, stream: stream, outcome: .reject(
                 tx: "tx_invalid", MobileOpRejection(code: "validation.invalid",
@@ -49,6 +54,9 @@ public actor MobileOpExecutor {
             } catch {
                 return .reject(tx: tx, MobileOpRejection(code: "owner.unreachable", message: "the daemon is unreachable",
                                                          retryable: true))
+            }
+            if let taskService {
+                return await taskService.perform(op: op.op, params: op.params, workspaces: state, context: context, tx: tx)
             }
             let daemonOp: MobileDaemonOp
             switch policy.evaluate(op: op.op, params: op.params, state: state) {

@@ -9,14 +9,17 @@ public struct PlaceholderRow: Identifiable, Hashable, Sendable {
     public var status: PlaceholderStatus?
     /// Trailing count (unread items); nil shows nothing.
     public var badge: Int?
+    /// Tapping the row opens a screen (shows a disclosure indicator).
+    public var opens: Bool
 
     public init(id: String, title: String, subtitle: String? = nil, symbolName: String,
-                status: PlaceholderStatus? = nil, badge: Int? = nil) {
+                status: PlaceholderStatus? = nil, badge: Int? = nil, opens: Bool = false) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.symbolName = symbolName
         self.status = status
         self.badge = badge
+        self.opens = opens
     }
 }
