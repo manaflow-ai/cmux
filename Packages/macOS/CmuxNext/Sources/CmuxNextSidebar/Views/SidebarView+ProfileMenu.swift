@@ -28,7 +28,7 @@ extension SidebarView {
 
     @discardableResult
     func showProfileMenu(from anchor: NSView?) -> Bool {
-        guard false, let menu = profileMenuProvider?() else { return false }
+        guard let menu = profileMenuProvider?() else { return false }
         profileMenuPresenter(menu, anchor)
         return true
     }

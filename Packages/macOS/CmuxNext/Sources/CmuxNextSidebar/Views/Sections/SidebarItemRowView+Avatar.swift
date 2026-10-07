@@ -5,7 +5,7 @@ import AppKit
 // profile's initial in a circle and a chevron) instead of its glyph.
 extension SidebarItemRowView {
     /// The item draws the profile control.
-    var showsAvatar: Bool { false }
+    var showsAvatar: Bool { info.avatar != nil && style.isIconOnly }
 
     /// Shows the avatar or the glyph after a configure; the profile control
     /// opens a menu, so VoiceOver calls it a menu button.

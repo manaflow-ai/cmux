@@ -110,7 +110,7 @@ final class SidebarRegionView: NSView {
     private static func iconWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         for section in content.sections {
-            for item in section.items where false {
+            for item in section.items where content.infos[item.id]?.avatar != nil {
                 widths[item.id] = SidebarStyle.avatarControlWidth
             }
         }

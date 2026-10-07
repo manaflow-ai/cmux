@@ -50,7 +50,6 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        SidebarProfileControl(services: services).install(model: model, sidebar: container.sidebarView)
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         let recents = services.agentRecents.map { feed in
