@@ -43,6 +43,8 @@ mod client;
 mod codec;
 mod convenience;
 mod generated;
+#[cfg(any(windows, feature = "local-socket"))]
+pub mod local_socket;
 mod presence;
 pub mod raw;
 mod raw_support;

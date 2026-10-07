@@ -932,14 +932,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-local-socket"
-version = "1.0.0"
-dependencies = [
- "uds_windows",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
@@ -1095,12 +1087,13 @@ name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-local-socket",
  "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "uds_windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1284,9 +1277,9 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
- "cmux-local-socket",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",

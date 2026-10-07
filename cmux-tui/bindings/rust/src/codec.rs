@@ -15,11 +15,11 @@ use std::time::Duration;
 use std::time::Instant;
 
 /// The connected session socket: a Unix socket, or on Windows the AF_UNIX
-/// stream of the shared `cmux-local-socket` transport (the daemon's).
+/// stream of the shared `local_socket` transport (the daemon's).
 #[cfg(unix)]
 pub(crate) type UnixStream = std::os::unix::net::UnixStream;
 #[cfg(windows)]
-pub(crate) type UnixStream = cmux_local_socket::Stream;
+pub(crate) type UnixStream = crate::local_socket::Stream;
 
 #[cfg(all(test, unix))]
 thread_local! {
@@ -592,7 +592,7 @@ fn wait_for_connect_with_poll_checks(
 }
 
 /// Windows: the shared transport's deadline connect, which also refuses a
-/// socket file owned by another user (cmux-local-socket).
+/// socket file owned by another user (`local_socket`).
 #[cfg(windows)]
 fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
     connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
@@ -615,7 +615,7 @@ fn connect_unix_with_poll_checks(
     }
     let mut failed_check = None;
     let result =
-        cmux_local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
+        crate::local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
             check().map_err(|error| {
                 failed_check = Some(error);
                 std::io::Error::other("connect check failed")

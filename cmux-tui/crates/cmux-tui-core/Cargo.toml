@@ -52,6 +52,8 @@ rustls.workspace = true
 tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-cmux-local-socket.workspace = true
+# The local socket transport and its same-user checks (cmux::local_socket),
+# shared with the SDK's clients; the SDK's client code is not built.
+cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 uds_windows.workspace = true
 windows-sys.workspace = true

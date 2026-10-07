@@ -1,5 +1,5 @@
 //! Windows AF_UNIX (uds_windows) with the same-user rules of
-//! [`crate::policy`]. Experiments behind the choices: windows-daemon.md
+//! [`super::policy`]. Experiments behind the choices: windows-daemon.md
 //! ("Experiments").
 
 use std::io;
@@ -25,7 +25,7 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
-use crate::{PeerIdentity, owner_allowed, peer_allowed};
+use super::{PeerIdentity, owner_allowed, peer_allowed};
 
 /// A connected local socket. Not inheritable (uds_windows creates it so).
 pub type Stream = uds_windows::UnixStream;
@@ -374,7 +374,7 @@ pub fn listen_explicit(path: &Path) -> io::Result<Listener> {
 }
 
 impl Listener {
-    /// The next connection whose peer passes [`crate::peer_allowed`]; a
+    /// The next connection whose peer passes [`super::peer_allowed`]; a
     /// refused one is closed and reported as `PermissionDenied`.
     pub fn accept(&self) -> io::Result<Stream> {
         self.accept_with_peer().map(|(stream, _)| stream)

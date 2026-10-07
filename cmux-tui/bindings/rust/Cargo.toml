@@ -20,6 +20,13 @@ default = ["socket-path-hash"]
 # Derive hashed socket paths for over-long session names (pulls in sha2).
 # Embedders that always pass an explicit socket path can turn it off.
 socket-path-hash = ["dep:sha2"]
+# `cmux::local_socket` on every platform: the local socket transport with its
+# same-user checks (on Windows: AF_UNIX, owner-only socket directory, peer
+# user and sandbox refusals). The cmux daemon uses the SDK with only this
+# feature, so one copy of those checks serves daemon and clients. Adds no
+# dependency; on Windows the module is always built (the SDK connects
+# through it).
+local-socket = []
 
 [dependencies]
 base64 = { workspace = true }
@@ -32,13 +39,27 @@ sha2 = { workspace = true, optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
-# Windows: AF_UNIX through the transport the daemon uses, with its same-user
-# checks (plans/cmux-next/windows-daemon.md).
+# Windows: AF_UNIX (uds_windows, as the daemon listens) and the Win32 calls
+# of the same-user checks (src/local_socket; plans/cmux-next/windows-daemon.md).
 [target.'cfg(windows)'.dependencies]
-cmux-local-socket = { workspace = true }
+uds_windows = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
 
 [target.'cfg(windows)'.dev-dependencies]
-cmux-local-socket = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 # tests/catalog_manifest.rs hashes the generated sources in every feature set.

@@ -1031,11 +1031,11 @@ jobs:
           cargo test -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
-          # The shared local-socket transport and the clients over it
-          # (plans/cmux-next/windows-daemon.md): same-user, owner-only
-          # directory and sandbox refusals; the SDK's mock-daemon tests.
+          # The SDK's local_socket transport (shared with the daemon) and the
+          # clients over it (plans/cmux-next/windows-daemon.md): same-user,
+          # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
-            -p cmux-local-socket -p cmux-sdk -p cmux-daemon-client
+            -p cmux-sdk -p cmux-daemon-client
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})

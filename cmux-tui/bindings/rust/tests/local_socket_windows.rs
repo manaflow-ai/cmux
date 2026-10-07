@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_local_socket::{connect_same_user, listen, peer_pid, win};
+use cmux::local_socket::{connect_same_user, listen, peer_pid, win};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("cls-{name}-{}", std::process::id()));
@@ -133,8 +133,8 @@ fn low_integrity_peer_is_refused() {
 fn low_integrity_child() {
     let Ok(path) = std::env::var("CLS_LOW_CHILD_SOCKET") else { return };
     let identity = win::current_identity().unwrap();
-    assert!(identity.integrity_rid < cmux_local_socket::MEDIUM_INTEGRITY_RID, "{identity:?}");
-    let mut s = cmux_local_socket::connect(std::path::Path::new(&path)).expect("child connect");
+    assert!(identity.integrity_rid < cmux::local_socket::MEDIUM_INTEGRITY_RID, "{identity:?}");
+    let mut s = cmux::local_socket::connect(std::path::Path::new(&path)).expect("child connect");
     let _ = s.write_all(b"low");
 }
 
@@ -339,13 +339,13 @@ fn wait_child(process: HANDLE) -> u32 {
 #[test]
 fn private_directory_then_explicit_listen() {
     let dir = scratch("explicit");
-    cmux_local_socket::private_directory(&dir).unwrap();
-    cmux_local_socket::private_directory(&dir).unwrap();
+    cmux::local_socket::private_directory(&dir).unwrap();
+    cmux::local_socket::private_directory(&dir).unwrap();
     assert!(win::directory_is_owner_only(&dir, &me()).unwrap());
     let shared = scratch("shared");
     std::fs::create_dir_all(&shared).unwrap();
     let path = shared.join("s.sock");
-    let listener = cmux_local_socket::listen_explicit(&path).unwrap();
+    let listener = cmux::local_socket::listen_explicit(&path).unwrap();
     assert!(!win::directory_is_owner_only(&shared, &me()).unwrap(), "left as it was");
     assert_eq!(win::owner_of(&path).unwrap(), me());
     let _client = connect_same_user(&path).unwrap();

@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 // Windows: the SDK's own transport (AF_UNIX, owner-only directory).
 #[cfg(windows)]
-use cmux_local_socket::Stream as UnixStream;
+use cmux::local_socket::Stream as UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -41,7 +41,7 @@ pub fn mock(
         .join(format!("cmux-sdk-mock-{}", std::process::id()))
         .join(format!("{}.sock", NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)));
     #[cfg(windows)]
-    let listener = cmux_local_socket::listen(&path).unwrap();
+    let listener = cmux::local_socket::listen(&path).unwrap();
     let server = thread::spawn(move || {
         #[cfg(unix)]
         let (mut stream, _) = listener.accept().unwrap();

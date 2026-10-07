@@ -38,7 +38,7 @@ pub fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
 /// Connect and refuse a listener that runs as another user before the
 /// caller writes anything. Windows sockets report no listener credentials:
 /// there the socket file must be owned by our token user
-/// (cmux-local-socket).
+/// (cmux-sdk local_socket).
 pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
     imp::connect_same_user(path)
 }
@@ -126,7 +126,7 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    //! The shared local-socket transport (cmux-local-socket): every peer is
+    //! The shared local-socket transport (cmux-sdk local_socket): every peer is
     //! checked (our user, not sandboxed), the socket file is owned by our
     //! token user, and `connect_same_user` refuses a socket file another
     //! user owns. The runtime directory is made owner-only by
@@ -139,19 +139,19 @@ mod imp {
     use uds_windows::UnixStream;
 
     pub(super) struct Listener {
-        inner: cmux_local_socket::Listener,
+        inner: cmux::local_socket::Listener,
     }
 
     pub(super) fn listen(path: &Path) -> io::Result<Listener> {
-        cmux_local_socket::listen_explicit(path).map(|inner| Listener { inner })
+        cmux::local_socket::listen_explicit(path).map(|inner| Listener { inner })
     }
 
     pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
-        Ok(Box::new(cmux_local_socket::connect(path)?))
+        Ok(Box::new(cmux::local_socket::connect(path)?))
     }
 
     pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
-        Ok(Box::new(cmux_local_socket::connect_same_user(path)?))
+        Ok(Box::new(cmux::local_socket::connect_same_user(path)?))
     }
 
     impl Listener {

@@ -1,6 +1,6 @@
-//! The local socket transport of cmux, shared by the daemon (cmux-tui-core)
-//! and the clients (cmux-sdk, cmux-daemon-client), so the same-user rules
-//! exist once.
+//! The local socket transport of cmux, shared by the daemon (cmux-tui-core,
+//! which uses cmux-sdk with only the `local-socket` feature) and the clients
+//! (this SDK, cmux-daemon-client), so the same-user rules exist once.
 //!
 //! Unix: `std::os::unix::net::UnixStream`; the daemon and the SDK keep their
 //! own Unix connect and peer code for now (unchanged behavior).
@@ -33,7 +33,7 @@ pub use windows::{
 pub mod win {
     //! Windows token and security descriptor helpers (tests and the daemon's
     //! diagnostics).
-    pub use crate::windows::{
+    pub use super::windows::{
         current_identity, directory_is_owner_only, owner_of, process_identity,
     };
 }
