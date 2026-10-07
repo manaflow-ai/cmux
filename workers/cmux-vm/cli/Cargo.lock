@@ -220,6 +220,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "cmux-vm-client",
+ "futures",
  "serde",
  "serde_json",
  "tokio",
