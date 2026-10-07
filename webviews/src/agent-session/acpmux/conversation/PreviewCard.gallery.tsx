@@ -46,6 +46,12 @@ export default componentEntry<PreviewCardProps>({
       import("../chips/chips.css"),
       import("../previewCard/previewCard.css"),
     ]),
+  checks: {
+    longFrameFailMs: {
+      value: 60,
+      reason: "Opening the real Base UI menu positions its portal and browser rows in one frame.",
+    },
+  },
   widths: { narrow: 420, normal: 720, wide: 960 },
   variants: {
     "not-loaded": { chipHost, props: { url: docs } },
