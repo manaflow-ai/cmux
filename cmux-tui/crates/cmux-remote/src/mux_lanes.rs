@@ -221,6 +221,28 @@ mod tests {
     }
 
     #[test]
+    fn agent_session_attach_lines_use_the_bulk_lane_in_both_directions() {
+        for line in [
+            &br#"{"id":1,"cmd":"agent-session-attach","surface":3}"#[..],
+            br#"{"id":2,"cmd":"agent-session-events","surface":3,"after_seq":9}"#,
+            br#"{"id":3,"cmd":"agent-session-prompt","surface":3,"prompt_id":"p","text":"hi"}"#,
+            br#"{"id":4,"cmd":"agent-session-detach","surface":3}"#,
+        ] {
+            assert_eq!(classify_client_line(line), Lane::Bulk);
+        }
+        let tracker = MuxLaneTracker::default();
+        for line in [
+            &br#"{"event":"agent-session-record","surface":3,"record":{"seq":2}}"#[..],
+            br#"{"event":"agent-session-permission","surface":3,"request":{}}"#,
+            br#"{"event":"agent-session-closed","surface":3,"reason":"lagged"}"#,
+        ] {
+            assert_eq!(tracker.classify_server_line(line), Some(Lane::Bulk));
+        }
+        tracker.observe_request(br#"{"id":1,"cmd":"agent-session-attach"}"#, Lane::Bulk);
+        assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), Some(Lane::Bulk));
+    }
+
+    #[test]
     fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
         assert_eq!(
             classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
