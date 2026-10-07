@@ -9,8 +9,8 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
-  /// The bookmark key: the row id with a hash of the prompt, since every session numbers its
-  /// rows `user-<seq>` and a row's `at` is not stable across snapshots.
+  /// The bookmark key: session id, row id and a hash of the prompt, since every session numbers
+  /// its rows `user-<seq>` and a row's `at` is not stable across snapshots.
   key: string;
   /// The prompt on one line.
   prompt: string;
@@ -56,7 +56,7 @@ export function popoverOffset(center: number, popoverHeight: number, viewportHei
   return Math.max(EDGE_MARGIN, Math.min(top, max));
 }
 
-export function minimapTurns(rows: readonly AcpmuxRow[]): MinimapTurn[] {
+export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = ""): MinimapTurn[] {
   const turns: MinimapTurn[] = [];
   let open: MinimapTurn | undefined;
   for (let index = 0; index < rows.length; index += 1) {

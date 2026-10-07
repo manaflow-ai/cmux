@@ -37,6 +37,9 @@ describe("thread minimap turns", () => {
     // Another session's `user-1` is another turn; a later snapshot of this one is the same turn.
     expect(turns[0].key).not.toBe(minimapTurns([row("user-1", "user", "x")])[0].key);
     expect(turns[0].key).toBe(minimapTurns([row("user-1", "user", "  first\n prompt ", 9)])[0].key);
+    expect(minimapTurns([row("user-1", "user", "same")], "session-a")[0].key).not.toBe(
+      minimapTurns([row("user-1", "user", "same")], "session-b")[0].key,
+    );
   });
 
   test("reply preview keeps bold, drops code and link targets, marks list items", () => {

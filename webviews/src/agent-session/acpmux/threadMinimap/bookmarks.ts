@@ -1,6 +1,7 @@
 // Saved marks on turns, from the thread minimap's bookmark button. The pane keeps them in an
 // in-memory store, mirrored to the pane web view's localStorage under STORAGE_KEY, so a mark
-// survives a reload of the pane. Keys are a turn's `user-<seq>#<prompt hash>` (model.ts MinimapTurn.key).
+// survives a reload of the pane. Keys are a turn's `<session>#user-<seq>#<prompt hash>`
+// (model.ts MinimapTurn.key), so marks never leak between chats.
 // They do not reach acpmux or other panes yet.
 import { useSyncExternalStore } from "react";
 

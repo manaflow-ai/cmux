@@ -476,6 +476,7 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 export function VirtualTranscript({
   rows,
+  sessionId,
   onToggleActivity,
   onOpenDiff,
   expanded,
@@ -483,6 +484,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
 }: {
   rows: AcpmuxRow[];
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
@@ -716,6 +718,7 @@ export function VirtualTranscript({
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
       <ThreadMinimap
         rows={rows}
+        sessionId={sessionId}
         layout={layout}
         scroller={ref}
         scrollTop={scroll.top}
@@ -1868,6 +1871,7 @@ function AcpmuxPane() {
           <SessionRowsContext.Provider value={snapshot.rows}>
             <VirtualTranscript
               rows={transcriptRows}
+              sessionId={snapshot.sessionId}
               canLoadOlder={snapshot.canLoadOlder}
               expanded={expanded}
               registry={registry}

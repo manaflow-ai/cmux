@@ -30,6 +30,7 @@ const gutter = (width: number) => Math.max(18, (width - 760) / 2);
 
 export function ThreadMinimap({
   rows,
+  sessionId,
   layout,
   scroller,
   scrollTop,
@@ -37,6 +38,7 @@ export function ThreadMinimap({
   width,
 }: {
   rows: AcpmuxRow[];
+  sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
@@ -45,7 +47,7 @@ export function ThreadMinimap({
 }) {
   const t = useT();
   const bookmarks = useBookmarks();
-  const turns = useMemo(() => minimapTurns(rows), [rows]);
+  const turns = useMemo(() => minimapTurns(rows, sessionId), [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   const [shown, setShown] = useState(false);
