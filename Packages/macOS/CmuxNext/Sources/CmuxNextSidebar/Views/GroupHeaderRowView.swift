@@ -3,10 +3,12 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// Group header: quiet text. The name aligns with workspace titles in the
-/// secondary text color; a small dot follows it only when the user chose a
-/// color. The disclosure chevron and child count appear on hover (the
-/// chevron stays while collapsed). A collapsed group also surfaces its
+/// Group header: quiet text. The disclosure caret leads at the leading
+/// inset and the name follows it in the secondary text color (S1,
+/// DOGFOOD-CALL-2026-10-06: caret on the left, Dia-style hover fill on the
+/// whole row); a small dot follows the name only when the user chose a
+/// color. The caret always shows and reaches the secondary color on hover;
+/// the child count appears on hover. A collapsed group also surfaces its
 /// children's activity and unread total.
 final class GroupHeaderRowView: SidebarRowView {
     private let dot = CAShapeLayer()
@@ -94,14 +96,18 @@ final class GroupHeaderRowView: SidebarRowView {
             name.textColor = Palette.textSecondary
             count.textColor = Palette.textTertiary
             pin.contentTintColor = Palette.textTertiary
-            chevron.contentTintColor = Palette.textTertiary
+            chevron.contentTintColor = isHovered ? Palette.textSecondary : Palette.textTertiary
             let tint = SidebarStyle.color(color)
             // Group headers use the title and color dot as their affordance.
             // Keep the layer allocated for reuse, but never render a capsule.
             pill.backgroundColor = nil
-            // Fills only: a drop onto the group tints the row in its color.
+            // Fills only: a drop onto the group tints the row in its color; a
+            // selected group (or the collapsed group that holds the selected
+            // workspace) paints the selection fill.
             if isDropTarget {
                 paintFill(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
+            } else if isSelected {
+                paintFill(Palette.selectionFill)
             } else {
                 paintFill(isHovered ? Palette.hoverFill : nil)
             }
@@ -116,8 +122,9 @@ final class GroupHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The disclosure chevron: a click here toggles immediately.
-    var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space3, dy: -bounds.height) }
+    /// The disclosure caret and the inset before it: a click here toggles
+    /// immediately (a click on the name waits for a double click).
+    var disclosureFrame: NSRect { NSRect(x: 0, y: 0, width: chevronFrame.maxX + Metrics.space1 / 2, height: bounds.height) }
 
     override func layout() {
         super.layout()
@@ -140,11 +147,10 @@ final class GroupHeaderRowView: SidebarRowView {
         editButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
         trailing -= control + Metrics.space1
         addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
-        trailing -= control + Metrics.space1
-        chevronFrame = CGRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        trailing -= control + Metrics.space2
+        chevronFrame = CGRect(x: SidebarStyle.titleLeading, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
-        chevron.isHidden = !(isHovered || collapsed)
-        trailing = chevronFrame.minX - Metrics.space2
+        chevron.isHidden = false
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth
@@ -166,8 +172,8 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }
-        // The name starts where workspace titles start (FlatSidebarTests).
-        let nx = SidebarStyle.titleLeading
+        // The name follows the caret (FlatSidebarTests).
+        let nx = chevronFrame.maxX + Metrics.space1
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3

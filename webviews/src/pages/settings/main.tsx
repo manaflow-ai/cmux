@@ -3,6 +3,7 @@
 // `?mock`) the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";

@@ -16,26 +16,33 @@ public struct SSHHost: Hashable, Sendable {
     public let remoteBinary: String
     /// A non-default cmux-tui state directory on the machine.
     public let remoteStateDir: String?
+    /// An existing daemon socket on the machine to attach to instead of the
+    /// session's own (a paired server's Chief brain); cmux-tui never starts
+    /// a daemon there (`remote connect --remote-mux-socket`).
+    public let remoteMuxSocket: String?
 
     public struct Invalid: Error, Equatable, Sendable {
         public let field: String
     }
 
     public init(destination: SSHDestination, session: String = RemoteSessionName.defaultName,
-                remoteBinary: String = SSHHost.defaultRemoteBinary, remoteStateDir: String? = nil) throws(Invalid) {
+                remoteBinary: String = SSHHost.defaultRemoteBinary, remoteStateDir: String? = nil,
+                remoteMuxSocket: String? = nil) throws(Invalid) {
         guard let name = try? RemoteSessionName.validate(session) else { throw Invalid(field: "session") }
         guard RemotePath.isSafe(remoteBinary) else { throw Invalid(field: "remote_binary") }
         if let remoteStateDir, !RemotePath.isSafe(remoteStateDir) { throw Invalid(field: "remote_state_dir") }
+        if let remoteMuxSocket, !RemotePath.isSafe(remoteMuxSocket) { throw Invalid(field: "remote_mux_socket") }
         self.destination = destination
         self.session = name
         self.remoteBinary = remoteBinary
         self.remoteStateDir = remoteStateDir
+        self.remoteMuxSocket = remoteMuxSocket
     }
 
     /// Stable id of this machine in the app (`MachineRegistry`), distinct per
     /// route, session and state directory, never `local` or a Cloud `vm-…` id.
     public var machineID: String {
-        let key = [destination.route, session, remoteStateDir ?? ""].joined(separator: "\n")
+        let key = ([destination.route, session, remoteStateDir ?? ""] + (remoteMuxSocket.map { [$0] } ?? [])).joined(separator: "\n")
         let digest = SHA256.hash(data: Data(key.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         return "ssh-" + digest
     }
@@ -50,6 +57,7 @@ public struct SSHHost: Hashable, Sendable {
         var fields = ["kind": Self.transportKind, "destination": destination.description, "session": session,
                       "remote_binary": remoteBinary]
         if let remoteStateDir { fields["remote_state_dir"] = remoteStateDir }
+        if let remoteMuxSocket { fields["remote_mux_socket"] = remoteMuxSocket }
         return fields
     }
 
@@ -60,7 +68,7 @@ public struct SSHHost: Hashable, Sendable {
               let destination = try? SSHDestination(parsing: text),
               let host = try? SSHHost(destination: destination, session: fields["session"] ?? RemoteSessionName.defaultName,
                                       remoteBinary: fields["remote_binary"] ?? Self.defaultRemoteBinary,
-                                      remoteStateDir: fields["remote_state_dir"])
+                                      remoteStateDir: fields["remote_state_dir"], remoteMuxSocket: fields["remote_mux_socket"])
         else { return nil }
         self = host
     }

@@ -1,6 +1,28 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
   "properties" : {
+    "agentPane.images.remote" : {
+      "default" : "click",
+      "description" : "A web image loads from its site, which then sees that you read the reply.",
+      "enum" : [
+        "click",
+        "never",
+        "always"
+      ],
+      "title" : "Web Images in Replies",
+      "type" : "string"
+    },
+    "agentPane.links.outsideRoots" : {
+      "default" : "confirm",
+      "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
+      "enum" : [
+        "confirm",
+        "text",
+        "open"
+      ],
+      "title" : "Files Outside the Project",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -24,6 +46,12 @@
       "default" : true,
       "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
       "title" : "Download Announcements",
+      "type" : "boolean"
+    },
+    "app.globalHotKey" : {
+      "default" : false,
+      "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
+      "title" : "Global Hot Key",
       "type" : "boolean"
     },
     "app.quitBehavior" : {
@@ -1372,12 +1400,6 @@
       "title" : "Section Look",
       "type" : "string"
     },
-    "sidebar.showCounts" : {
-      "default" : false,
-      "description" : "sidebar.showCounts",
-      "title" : "Show Tab Counts",
-      "type" : "boolean"
-    },
     "sidebar.showProjects" : {
       "default" : true,
       "description" : "sidebar.showProjects",
@@ -1439,6 +1461,380 @@
       "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
+    },
+    "sidebar.workspaceRow.agent.agentStatus" : {
+      "description" : "sidebar.workspaceRow.agent.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.branch" : {
+      "description" : "sidebar.workspaceRow.agent.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.directory" : {
+      "description" : "sidebar.workspaceRow.agent.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.icon" : {
+      "description" : "sidebar.workspaceRow.agent.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.lastActivity" : {
+      "description" : "sidebar.workspaceRow.agent.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.ports" : {
+      "description" : "sidebar.workspaceRow.agent.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.process" : {
+      "description" : "sidebar.workspaceRow.agent.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.progress" : {
+      "description" : "sidebar.workspaceRow.agent.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.pullRequest" : {
+      "description" : "sidebar.workspaceRow.agent.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.agent.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.agent.tabCount" : {
+      "description" : "sidebar.workspaceRow.agent.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.working" : {
+      "description" : "sidebar.workspaceRow.agent.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agentStatus" : {
+      "default" : false,
+      "description" : "The status line agents and hooks report.",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.branch" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.agentStatus" : {
+      "description" : "sidebar.workspaceRow.browser.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.branch" : {
+      "description" : "sidebar.workspaceRow.browser.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.directory" : {
+      "description" : "sidebar.workspaceRow.browser.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.icon" : {
+      "description" : "sidebar.workspaceRow.browser.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.lastActivity" : {
+      "description" : "sidebar.workspaceRow.browser.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.ports" : {
+      "description" : "sidebar.workspaceRow.browser.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.process" : {
+      "description" : "sidebar.workspaceRow.browser.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.progress" : {
+      "description" : "sidebar.workspaceRow.browser.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.pullRequest" : {
+      "description" : "sidebar.workspaceRow.browser.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.browser.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.browser.tabCount" : {
+      "description" : "sidebar.workspaceRow.browser.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.working" : {
+      "description" : "sidebar.workspaceRow.browser.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.directory" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.icon" : {
+      "default" : true,
+      "description" : "The icon or emoji you chose for a workspace.",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.lastActivity" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.agentStatus" : {
+      "description" : "sidebar.workspaceRow.mixed.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.branch" : {
+      "description" : "sidebar.workspaceRow.mixed.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.directory" : {
+      "description" : "sidebar.workspaceRow.mixed.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.icon" : {
+      "description" : "sidebar.workspaceRow.mixed.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.lastActivity" : {
+      "description" : "sidebar.workspaceRow.mixed.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.ports" : {
+      "description" : "sidebar.workspaceRow.mixed.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.process" : {
+      "description" : "sidebar.workspaceRow.mixed.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.progress" : {
+      "description" : "sidebar.workspaceRow.mixed.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.pullRequest" : {
+      "description" : "sidebar.workspaceRow.mixed.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.mixed.tabCount" : {
+      "description" : "sidebar.workspaceRow.mixed.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.working" : {
+      "description" : "sidebar.workspaceRow.mixed.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.ports" : {
+      "default" : false,
+      "description" : "Set by a hook: cmux workspace status set ports <text>.",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.process" : {
+      "default" : false,
+      "description" : "The terminal's title, which the shell or program sets.",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.progress" : {
+      "default" : false,
+      "description" : "A progress bar under the row and the busy mark of running work.",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.pullRequest" : {
+      "default" : false,
+      "description" : "Set by a hook: cmux workspace status set pr <text>.",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.secondLineOrder" : {
+      "default" : [
+        "directory",
+        "branch",
+        "process",
+        "agentStatus",
+        "ports",
+        "lastActivity"
+      ],
+      "description" : "The order of the shown items under the workspace name.",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.tabCount" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.agentStatus" : {
+      "description" : "sidebar.workspaceRow.terminal.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.branch" : {
+      "description" : "sidebar.workspaceRow.terminal.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.directory" : {
+      "description" : "sidebar.workspaceRow.terminal.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.icon" : {
+      "description" : "sidebar.workspaceRow.terminal.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.lastActivity" : {
+      "description" : "sidebar.workspaceRow.terminal.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.ports" : {
+      "description" : "sidebar.workspaceRow.terminal.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.process" : {
+      "description" : "sidebar.workspaceRow.terminal.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.progress" : {
+      "description" : "sidebar.workspaceRow.terminal.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.pullRequest" : {
+      "description" : "sidebar.workspaceRow.terminal.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.terminal.tabCount" : {
+      "description" : "sidebar.workspaceRow.terminal.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.working" : {
+      "description" : "sidebar.workspaceRow.terminal.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.working" : {
+      "default" : true,
+      "description" : "A mark while an agent works in the workspace.",
+      "title" : "Agent Working",
+      "type" : "boolean"
     },
     "status.inferCommandBusy" : {
       "default" : true,

@@ -21,14 +21,21 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo without a new annual offer", () => {
-    expect(PRO_PRICING_USD.month).toEqual({
-      billedAmount: 50,
-      monthlyEquivalent: 50,
-      discountPercent: 0,
-      lookupKey: "cmux-pro-monthly-50",
+  test("prices Pro at $50/mo or $480/yr, the only yearly plan", () => {
+    expect(PRO_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 50,
+        monthlyEquivalent: 50,
+        discountPercent: 0,
+        lookupKey: "cmux-pro-monthly-50",
+      },
+      year: {
+        billedAmount: 480,
+        monthlyEquivalent: 40,
+        discountPercent: 20,
+        lookupKey: "cmux-pro-yearly-480",
+      },
     });
-    expect("year" in PRO_PRICING_USD).toBe(false);
   });
 
   test("prices Team at $60/user/mo without a new annual offer", () => {
@@ -57,6 +64,7 @@ describe("pricing plans", () => {
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
+      PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
     ];
@@ -68,7 +76,6 @@ describe("pricing plans", () => {
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",
-      "cmux-pro-yearly-480",
       "cmux-team-monthly",
       "cmux-team-yearly-336",
       "cmux-team-yearly-576",

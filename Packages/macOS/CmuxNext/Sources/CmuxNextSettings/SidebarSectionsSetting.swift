@@ -12,7 +12,6 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
-    public static let showCountsPath = ["sidebar", "showCounts"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showRecentsPath = ["sidebar", "showRecents"]
 
@@ -38,13 +37,6 @@ public nonisolated enum SidebarSectionsSetting {
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
                           keywords: ["sidebar", "workspace", "tabs"])
-    }
-
-    static func showCountsDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(showCountsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showCounts", "Show Tab Counts"),
-                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showCounts),
-                          keywords: ["sidebar", "workspace", "tabs", "count", "number"])
     }
 
     /// Projects and Recents, which their headers' menus hide (Leo 2026-10-06).
@@ -109,7 +101,7 @@ public nonisolated enum SidebarSectionsSetting {
             }
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
-        result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
+        result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         result.showRecents = flag(root, showRecentsPath, fallback: result.showRecents, &diagnostics)
         return result

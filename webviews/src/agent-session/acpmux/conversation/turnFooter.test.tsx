@@ -70,31 +70,30 @@ describe("edited-files card", () => {
       createElement(EditedFilesCard, { row: edited, onOpenDiff: (_row, path) => opened.push(path) }),
       { review: review(new Map(), []) },
     );
-    expect(container.querySelector(".acpmux-edited-title")!.textContent).toBe("Edited summarize_run.py+2-1");
+    // The target card: the title over a "View changes ↗" link, Undo, then an outlined View changes.
+    expect(container.querySelector(".acpmux-edited-title")!.textContent).toBe("Edited summarize_run.pyView changes");
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-review-changes")!.click());
-    expect(opened).toEqual(["/repo/summarize_run.py"]);
-    await unmount();
-  });
-
-  test("without the hunk review there is no Undo", async () => {
-    const { container, unmount } = await render(
-      createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }),
-      {},
-    );
-    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-link")!.click());
+    expect(opened).toEqual(["/repo/summarize_run.py", "/repo/summarize_run.py"]);
     await unmount();
   });
 });
 
 describe("edited-files card Undo", () => {
   test("never asks the agent to undo: the agent could run git checkout and lose later edits", async () => {
+    const { setUndoCall } = await import("../turnChanges/undoStore");
+    const hostCalls: boolean[] = [];
+    setUndoCall(async (_files, apply) => {
+      hostCalls.push(apply);
+      return { files: [] };
+    });
     const asked: { keys: string[]; prompt: string }[] = [];
     const { container, unmount } = await render(createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }), {
       review: review(new Map(), asked),
     });
-    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["View changes"]);
-    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-undo")!.click());
     expect(asked).toEqual([]);
+    expect(hostCalls).toEqual([false]);
     await unmount();
   });
 });
@@ -140,5 +139,47 @@ describe("a failed revert send", () => {
       ["rejected-before", "rejected"],
       ["accepted-since", "accepted"],
     ]);
+  });
+});
+
+describe("edited-files card rows", () => {
+  test("a long directory keeps its first segment and its end; the file name stays whole", async () => {
+    const row = {
+      ...edited,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t-long",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/net/backoff/policy/jitter/exponential.ts", oldText: "a\n", newText: "b\n" }],
+          },
+        },
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t-2",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/README.md", oldText: "a\n", newText: "b\n" }],
+          },
+        },
+      ],
+    } as AcpmuxRow;
+    const { container, unmount } = await render(createElement(EditedFilesCard, { row, onOpenDiff: () => {} }), {
+      review: review(new Map(), []),
+    });
+    const first = container.querySelector(".acpmux-edited-file")!;
+    expect(first.querySelector(".acpmux-edited-dir-head")?.textContent).toBe("src/");
+    expect(first.querySelector(".acpmux-edited-dir-tail")?.textContent).toBe("net/backoff/policy/jitter/");
+    expect(first.querySelector(".acpmux-edited-base")?.textContent).toBe("exponential.ts");
+    expect(first.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
+    expect(first.querySelector(".acpmux-diff-del")?.textContent).toBe("-1");
+    await unmount();
   });
 });

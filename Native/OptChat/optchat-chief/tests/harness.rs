@@ -332,7 +332,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     assert!(text.contains("`/h/optchat/bin/chief zoom ID N`"), "{text}");
     assert!(text.contains("`/h/optchat/bin/chief date ID`"), "{text}");
     assert!(
-        text.contains("`/h/optchat/bin/chief spawn \"task\""),
+        text.contains("`/h/optchat/bin/chief spawn [--cwd DIR] \"task\""),
         "{text}"
     );
     assert!(text.contains("/h/optchat/bin/chief tell ID"), "{text}");
