@@ -77,14 +77,14 @@ async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
       root.render(
         createElement(
           SharedUiProvider,
-          { container, dir: "ltr" },
+          { container: container.ownerDocument.body, dir: "ltr" },
           createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) }),
         ),
       ),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
-  const popover = () => container.querySelector<HTMLDialogElement>(".acpmux-summary-popover");
+  const popover = () => dom.window.document.querySelector<HTMLDialogElement>(".acpmux-summary-popover");
   return { container, button, popover, draw, unmount: () => act(async () => root.unmount()) };
 }
 const titles = (popover: HTMLElement) =>
@@ -134,7 +134,7 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
     root.render(
       createElement(
         SharedUiProvider,
-        { container, dir: "ltr" },
+        { container: container.ownerDocument.body, dir: "ltr" },
         createElement(SummaryButton, {
           rows,
           changes: { additions: 3, deletions: 1 },
@@ -148,14 +148,14 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
   );
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
   await act(async () => button.click());
-  const changes = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-summary-link")].find((row) =>
+  const changes = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-summary-link")].find((row) =>
     row.textContent?.includes("Changes"),
   );
   expect(changes?.textContent).toContain("+3");
   await act(async () => changes?.click());
   expect(opened).toEqual(["changes"]);
   expect(focused).toEqual(["Chat summary"]);
-  expect(container.querySelector(".acpmux-summary-popover")).toBeNull();
+  expect(dom.window.document.querySelector(".acpmux-summary-popover")).toBeNull();
   await act(async () => root.unmount());
 });
 
