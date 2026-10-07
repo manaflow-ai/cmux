@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextDesign
+public import CmuxNextTabs
 
 /// Turns the status facts the daemon publishes about a tab into
 /// `StatusReport`s, and merges them per tab and per workspace with
@@ -12,9 +13,12 @@ public struct StatusMapping {
 
     /// The local acpmux turn states (agent chat tabs).
     let turns: AgentTurnStateStore
+    /// This client's seen OSC 7501 `done` and `error` records.
+    let seen: ProgramStatusSeenStore
 
-    public init(turns: AgentTurnStateStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
         self.turns = turns
+        self.seen = seen
     }
 
     /// The reports one tab contributes.
@@ -24,7 +28,7 @@ public struct StatusMapping {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
-        if let record = ProgramStatusRecord.strongest(tab.programStatus), let state = state(record) {
+        if let record = ProgramStatusRecord.strongest(seen.visible(tab)), let state = state(record) {
             // The title only: `app` is a machine name, never the only label.
             reports.append(StatusReport(id: "program:\(tab.id)", source: .program, state: state, label: record.title))
         }
@@ -43,6 +47,17 @@ public struct StatusMapping {
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
         turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
+    }
+
+    /// An unseen OSC 7501 outcome for the tab's badge: `error` is a failure,
+    /// `done` a success, until the user looks at the terminal. Nil while a
+    /// stronger record (blocked, working) is live or nothing is unseen.
+    public func outcome(_ tab: TabModel) -> TabStatus? {
+        switch ProgramStatusRecord.strongest(seen.visible(tab))?.state {
+        case .error?: .failure
+        case .done?: .success
+        default: nil
+        }
     }
 
     /// One tab's merged status.
@@ -78,13 +93,15 @@ public struct StatusMapping {
         }
     }
 
-    /// An OSC 7501 record as an indicator state. Done and error wait for a
-    /// per-client "seen" set (contract: until seen) and show nothing yet.
+    /// An OSC 7501 record as an indicator state. `reports` passes only
+    /// records still to show, so a `done` or `error` here is unseen.
     func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
         switch record.state {
         case .working: .working(progress: record.progress.map { Double($0) / 100 })
         case .blocked: .waiting
-        case .done, .error, .idle: nil
+        case .error: .error
+        case .done: .success
+        case .idle: nil
         }
     }
 

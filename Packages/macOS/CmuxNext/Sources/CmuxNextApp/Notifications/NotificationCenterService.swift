@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -46,6 +47,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
@@ -59,6 +61,7 @@ final class NotificationCenterService {
                 for notification in fresh { self.arrived(notification) }
             }
         })
+        tasks.append(followViewedProgramStatus(store))
         tasks.append(Task { [weak self] in
             for await count in Observations({ Self.unreadCount(store) }) {
                 self?.updateDockBadge(count)
@@ -126,7 +129,11 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
+        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        // Any look at the tab sees its OSC 7501 done and error records
+        // (client view state; the daemon keeps the records).
+        ProgramStatusSeenStore.shared.markSeen(tab)
+        guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
         acknowledge(tab)
