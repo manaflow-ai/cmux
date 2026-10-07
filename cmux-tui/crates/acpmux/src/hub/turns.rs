@@ -165,9 +165,11 @@ impl Hub {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let harness = session.meta().harness;
-        if !live && self.config.read().await.profile(&harness).is_none() {
-            return Err(RpcError::invalid_params(format!("unknown harness {harness:?}")));
+        let m = session.meta();
+        if !live {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin)
+                .map_err(RpcError::invalid_params)?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
@@ -259,6 +261,7 @@ impl Hub {
             turn_seq: 0,
             control,
         });
+        session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         self.append(
             session,
@@ -289,6 +292,17 @@ impl Hub {
                 return Err(e);
             }
         };
+        // A Web steer while the agent started made this a Web turn.
+        let control = session.turn().map_or(control, |t| t.control);
+        // Starting the agent may have changed its mode (a spawn, a resume, a
+        // pool claim, a replayed config): checked again before the prompt.
+        if let Err(e) =
+            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+        {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -303,11 +317,27 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
             )
             .seq;
-        if let Some(t) = session.turn.lock().unwrap().as_mut() {
-            t.turn_seq = turn_seq;
+        let control = {
+            let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(t) = turn.as_mut() {
+                t.turn_seq = turn_seq;
+            }
+            turn.as_ref().map_or(control, |t| t.control)
+        };
+        // The remote floor fired before the prompt went out (a mode write
+        // in the gap): the prompt is not sent. After this point the floor's
+        // cancel reaches the agent after the prompt (`remote_floor.rs`).
+        if control == Control::Web
+            && let Some(reason) = self.remote_floor_breach(session)
+        {
+            let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
+                .with_data(json!({"reason": reason}));
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
         let mut result = child
@@ -335,8 +365,34 @@ impl Hub {
                 self.detach_child(session).await;
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
-                match self.child_for(session).await {
-                    Ok(child2) => {
+                let control = session.turn().map_or(control, |t| t.control);
+                let fallback = self.child_for(session).await;
+                let refusal = match &fallback {
+                    Ok(_) => self
+                        .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
+                        .await
+                        .err(),
+                    Err(_) => None,
+                };
+                match (fallback, refusal) {
+                    // A folder-trust refusal keeps its own reason; any other is the mode rule.
+                    (Ok(_), Some(e))
+                        if e.data
+                            .as_ref()
+                            .and_then(|d| d.get("reason"))
+                            .and_then(Value::as_str)
+                            .is_some_and(|r| r.starts_with("trust.")) =>
+                    {
+                        result = Err(e);
+                    }
+                    (Ok(_), Some(_)) => {
+                        result = Err(RpcError::new(
+                            -32000,
+                            "the fallback agent's mode does not ask; a remote device's turn does not run in it",
+                        )
+                        .with_data(json!({"reason": "remote.mode_not_asking"})));
+                    }
+                    (Ok(child2), None) => {
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(
@@ -346,7 +402,7 @@ impl Hub {
                                 .await;
                         }
                     }
-                    Err(e2) => result = Err(e2),
+                    (Err(e2), _) => result = Err(e2),
                 }
             }
         }
@@ -469,6 +525,21 @@ impl Hub {
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
+    /// A turn refused after it was accepted (the dispatch check again, or
+    /// the remote floor): failed as an unstarted turn, the agent kept.
+    fn refuse_started_turn(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        turn_id: &str,
+        e: &RpcError,
+    ) {
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e);
+        if session.status() == SessionStatus::Disconnected {
+            self.set_status(session, SessionStatus::Ready);
+        }
+    }
+
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -728,126 +799,6 @@ impl Hub {
             self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
         Ok(r)
-    }
-
-    pub async fn fork(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        name: Option<String>,
-        cwd: Option<PathBuf>,
-    ) -> Result<Arc<Session>, RpcError> {
-        let parent_meta = session.meta();
-        let is_claude = self
-            .config
-            .read()
-            .await
-            .profile(&parent_meta.harness)
-            .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
-            .unwrap_or(false);
-        let sid = parent_meta
-            .agent_session_id
-            .clone()
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
-        let (res, new_sid) = if is_claude {
-            // The fork happens when the new session's process starts with
-            // --resume <parent> --fork-session; no agent call now.
-            (json!({}), String::new())
-        } else {
-            let child = self.child_for(session).await?;
-            let res = child
-                .request(
-                    method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
-                )
-                .await?;
-            let new_sid = res
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RpcError::internal("session/fork returned no sessionId"))?
-                .to_owned();
-            (res, new_sid)
-        };
-        let fork_seq = session.seq.load(Ordering::SeqCst);
-        let id = uuid::Uuid::now_v7().to_string();
-        let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
-        let now = now_ms();
-        let meta = SessionMeta {
-            schema: META_SCHEMA.into(),
-            id: id.clone(),
-            name,
-            harness: parent_meta.harness.clone(),
-            harness_argv: parent_meta.harness_argv.clone(),
-            family: parent_meta.family.clone(),
-            preset: parent_meta.preset.clone(),
-            model_request: parent_meta.model_request.clone(),
-            cwd,
-            agent_session_id: if is_claude { None } else { Some(new_sid) },
-            status: SessionStatus::Idle,
-            created_at: now,
-            updated_at: now,
-            last_seq: 0,
-            parent_id: Some(session.id.clone()),
-            fork_seq: Some(fork_seq),
-            agent_info: parent_meta.agent_info.clone(),
-            agent_capabilities: parent_meta.agent_capabilities.clone(),
-            modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
-            config_options: res
-                .get("configOptions")
-                .cloned()
-                .filter(|v| !v.is_null())
-                .or(parent_meta.config_options.clone()),
-            models: parent_meta.models.clone(),
-            permission_policy: parent_meta.permission_policy.clone(),
-            title: None,
-            last_prompt: parent_meta.last_prompt.clone(),
-            preview: parent_meta.preview.clone(),
-            event_count: 0,
-            turn_count: parent_meta.turn_count,
-            usage: None,
-            permission_rules: None,
-            tags: Default::default(),
-            unread: false,
-            last_turn: None,
-            // A fork of a remote-origin session stays remote-origin.
-            remote_origin: parent_meta.remote_origin,
-        };
-        let new = self.make_session(meta);
-        if is_claude {
-            *new.fork_from.lock().unwrap() = Some(sid.clone());
-        }
-        self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
-        // Copy the transcript-relevant history so attach replays it.
-        if let Ok(history) = self.store.events(&session.id, 0, 500_000) {
-            for e in history {
-                if e.seq > fork_seq {
-                    break;
-                }
-                if matches!(
-                    e.kind.as_str(),
-                    "user_message"
-                        | "agent_message_chunk"
-                        | "agent_thought_chunk"
-                        | "tool_call"
-                        | "tool_call_update"
-                        | "plan"
-                        | "turn_end"
-                ) {
-                    self.append(&new, &e.dir, &e.kind, e.msg);
-                }
-            }
-        }
-        self.append(&new, "mux", "forked", json!({"parentId": session.id, "forkSeq": fork_seq}));
-        self.append(session, "mux", "fork_child", json!({"childId": id}));
-        // The forked agent session lives in the parent's process. Load it in
-        // its own process so one session keeps one child.
-        match self.child_for(&new).await {
-            Ok(_) => {}
-            Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
-        }
-        self.save_meta(&new);
-        Ok(new)
     }
 
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {

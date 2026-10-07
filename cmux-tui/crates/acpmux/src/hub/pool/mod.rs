@@ -259,7 +259,7 @@ impl Hub {
     ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, None, false)?
+            self.resolve_new(&cfg, harness, &preset, None, false, None)?
         };
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // A pooled agent starts before anyone asks for it: never in the home

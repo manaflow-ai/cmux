@@ -105,22 +105,32 @@ impl Hub {
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
-                    ModeWrite::CurrentMode(v) => {
-                        if let Some(modes) = m.modes.as_mut() {
-                            modes["currentModeId"] = v;
+                    ModeWrite::CurrentMode(v) => match m.modes.as_mut() {
+                        Some(modes) => modes["currentModeId"] = v,
+                        // A harness that declared no modes reports one: kept
+                        // apart (clients read `modes`), for the asking check.
+                        None => {
+                            *session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) =
+                                v.as_str().map(str::to_owned);
                         }
-                    }
+                    },
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
             }
-            (asked
-                && !table.session_asks(&m)
-                && !session.web_control_ended.swap(true, Ordering::SeqCst))
-            .then(|| crate::web_modes::mode_of(&m))
+            let asks = self.session_asks_now(session, &m);
+            let left = (asked && !asks && !session.web_control_ended.swap(true, Ordering::SeqCst))
+                .then(|| crate::web_modes::mode_of(&m));
+            (left, asks)
         };
+        let (left, asks) = left;
         if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
+        }
+        // The remote floor: a Web turn does not go on in a mode that does
+        // not ask, whatever the mode was before (`remote_floor.rs`).
+        if !asks && session.turn().is_some_and(|t| t.control == Control::Web) {
+            self.remote_floor_cancel(session, "remote.mode_not_asking");
         }
     }
 
@@ -151,10 +161,22 @@ impl Hub {
     /// makes that turn a Web turn (no chat allowance for what it adds).
     pub(super) fn check_steer(&self, session: &Session, control: Control) -> Result<(), RpcError> {
         self.web_control_check(session, control)?;
-        if control == Control::Web
-            && let Some(t) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
-        {
+        if control != Control::Web {
+            return Ok(());
+        }
+        let raised = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|t| {
             t.control = Control::Web;
+            t.turn_id.clone()
+        });
+        if let Some(turn_id) = raised {
+            session.last_turn_web.store(true, Ordering::SeqCst);
+            // Read back when a host is adopted (`hosts.rs`).
+            self.append(
+                session,
+                "mux",
+                "turn_control",
+                json!({"turnId": turn_id, "control": Control::Web.as_str()}),
+            );
         }
         Ok(())
     }
@@ -213,7 +235,7 @@ impl Hub {
             )
             .with_data(json!({"reason": "remote.mode_left_asking_table", "mode": mode})));
         }
-        if !self.web_modes().session_asks(meta) {
+        if !self.session_asks_now(session, meta) {
             return Err(RpcError::new(
                 -32000,
                 format!(
@@ -226,6 +248,15 @@ impl Hub {
                 "harness": meta.harness,
                 "family": crate::web_modes::family_of(meta),
             })));
+        }
+        // A grant this harness process holds ("allow always", given by a
+        // local client) runs its tool without a request in any later turn.
+        if session.harness_grant.load(Ordering::SeqCst) {
+            return Err(RpcError::new(
+                -32000,
+                "this session's agent holds a lasting grant (allow always) from the local user; a paired device cannot prompt it or answer its permissions until the agent restarts",
+            )
+            .with_data(json!({"reason": "remote.harness_grant", "harness": meta.harness})));
         }
         // The permission policy and rules must ask too: a session with no
         // mode relies on them, and `approve-all` approves under any mode.
@@ -296,6 +327,26 @@ pub(crate) enum ModeWrite {
     Modes(Value),
     CurrentMode(Value),
     ConfigOptions(Value),
+}
+
+impl Control {
+    /// The name `turn_started` records, read back when a host is adopted.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Control::Local => "local",
+            Control::Web => "web",
+            Control::Peer => "peer",
+        }
+    }
+
+    /// A recorded name; a missing or unknown one is Web (fail closed).
+    pub(crate) fn from_recorded(name: Option<&str>) -> Self {
+        match name {
+            Some("local") => Control::Local,
+            Some("peer") => Control::Peer,
+            _ => Control::Web,
+        }
+    }
 }
 
 /// The rules a request that controls a session runs under.
