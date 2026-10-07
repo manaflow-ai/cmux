@@ -50,7 +50,7 @@ fn the_value_never_goes_into_a_command_line() {
     // `security -i` reads one command line; quotes and backslashes are escaped
     // (checked against /usr/bin/security on a fleet Mac: it stores s3cr"et\x yz).
     assert_eq!(
-        mac.stdin,
+        mac.stdin.as_str(),
         "add-generic-password -U -s cmux-harness -a \"acme/ACME_API_KEY\" -l \"cmux harness acme ACME_API_KEY\" -w \"s3cr\\\"et\\\\x yz\"\n"
     );
     let linux = store_command("linux", "acme", "ACME_API_KEY", SECRET).unwrap();
@@ -67,7 +67,8 @@ fn the_value_never_goes_into_a_command_line() {
             "acme/ACME_API_KEY"
         ]
     );
-    assert_eq!(linux.stdin, SECRET);
+    assert_eq!(linux.stdin.as_str(), SECRET);
+    assert!(!format!("{linux:?}").contains("s3cr"), "Debug shows the value");
 }
 
 #[test]
