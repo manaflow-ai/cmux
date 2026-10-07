@@ -247,6 +247,12 @@ final class MacMessageRowView: MacFlippedView {
     var inkLayer: CAEmitterLayer?
     var inkRowID: String?
     var isInkRevealed = false
+    /// How the incoming bubble fills over a conversation background; set by
+    /// the transcript before `configure`.
+    var backdropStyle: MacBubbleBackdrop = .none
+    /// The incoming bubble's material over a background, masked to its shape.
+    private var bubbleMaterial: NSVisualEffectView?
+    private var materialPath: CGPath?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -307,6 +313,7 @@ final class MacMessageRowView: MacFlippedView {
             bubble.isHidden = false
             bubble.update(rect: frame, side: side, tail: model.showsTail && !layout.linkCardIsLast)
             bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
+            updateBubbleMaterial(incoming: !model.isOutgoing)
             bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
             textLabel.isHidden = layout.textFrame == nil
             textLabel.isOutgoing = model.isOutgoing
@@ -316,6 +323,7 @@ final class MacMessageRowView: MacFlippedView {
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
+            bubbleMaterial?.isHidden = true
         }
 
         if let frame = layout.linkCardFrame, let card = layout.linkCard, let preview = model.message.linkPreview {
@@ -596,12 +604,55 @@ final class MacMessageRowView: MacFlippedView {
     /// The bubble/content area, for hit testing and menus.
     var contentFrame: CGRect { rowLayout?.contentFrame ?? bounds }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // Resolved CGColors (bubble fills, strokes, badges) follow the new appearance now.
+    /// Re-applies the current model (a new appearance or backdrop style).
+    func refreshAppearance() {
         guard let model, let rowLayout else { return }
         configure(model, layout: rowLayout, text: textLabel.attributedText)
         textLabel.needsDisplay = true
+    }
+
+    /// Over a background, Messages fills the incoming balloon with a material
+    /// (ChatKit `forcesMaterialBackground`): a blur of the background masked
+    /// to the bubble, with a light tint of the gray so it still reads as one.
+    /// Reduce Transparency keeps the opaque gray.
+    private func updateBubbleMaterial(incoming: Bool) {
+        guard incoming, backdropStyle == .material, let path = bubble.path, !bubble.isHidden else {
+            bubbleMaterial?.isHidden = true
+            return
+        }
+        let material: NSVisualEffectView
+        if let existing = bubbleMaterial {
+            material = existing
+        } else {
+            material = NSVisualEffectView()
+            material.blendingMode = .withinWindow
+            material.material = .popover
+            material.state = .active
+            addSubview(material, positioned: .below, relativeTo: subviews.first)
+            bubbleMaterial = material
+        }
+        let box = path.boundingBoxOfPath.integral
+        material.isHidden = false
+        material.frame = box
+        if materialPath != path {
+            materialPath = path
+            material.maskImage = NSImage(size: box.size, flipped: true) { _ in
+                guard let context = NSGraphicsContext.current?.cgContext else { return false }
+                context.translateBy(x: -box.minX, y: -box.minY)
+                context.addPath(path)
+                context.setFillColor(NSColor.black.cgColor)
+                context.fillPath()
+                return true
+            }
+        }
+        // The shape layer keeps a faint tint of the gray above the blur.
+        bubble.fillColor = resolved(MacConversationTheme.incomingBubble, in: self).copy(alpha: 0.35)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Resolved CGColors (bubble fills, strokes, badges) follow the new appearance now.
+        refreshAppearance()
     }
 
     private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {

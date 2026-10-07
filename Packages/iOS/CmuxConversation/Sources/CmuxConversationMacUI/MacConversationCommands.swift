@@ -62,6 +62,12 @@ enum MacConversationCommands {
         action: #selector(MacConversationViewController.toggleShowTimes(_:)), key: "", modifiers: [],
         title: { String(localized: "conversation.command.showTimes", defaultValue: "Show Times", bundle: .module) }
     )
+    /// Edit Background (ChatKit EDIT_BACKGROUND); the same picker as the
+    /// transcript's context menu and the details panel.
+    static let editBackground = MacConversationCommand(
+        action: #selector(MacConversationViewController.editBackground(_:)), key: "", modifiers: [],
+        title: { String(localized: "conversation.command.editBackground", defaultValue: "Edit Background…", bundle: .module) }
+    )
 
     /// Commands the conversation window answers itself, ahead of any host
     /// app's menus or shortcut monitors.
@@ -199,6 +205,7 @@ extension MacConversationLab {
         ]))
         bar.addItem(submenu(l("conversation.menu.view"), [
             item(MacConversationCommands.showTimes),
+            item(MacConversationCommands.editBackground),
             .separator(),
             item(l("conversation.menu.enterFullScreen"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ]))

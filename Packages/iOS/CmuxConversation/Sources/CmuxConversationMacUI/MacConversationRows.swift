@@ -132,6 +132,11 @@ enum MacConversationRowBuilder {
                 rows.append(.notice(id: "unsent:\(message.rowID)", text: unsentNotice(message, meID: meID, info: info)))
                 continue
             }
+            if let event = message.systemEvent {
+                // "Leo changed the background.": a centered line, never a bubble.
+                rows.append(.notice(id: "system:\(message.rowID)", text: ConversationBackgroundStrings.notice(event, senderID: message.senderID, meID: meID, info: info).text))
+                continue
+            }
             let isOutgoing = message.senderID == meID
             let sender = info.participant(message.senderID)
             let quote = message.replyToID.flatMap(quoted).map {

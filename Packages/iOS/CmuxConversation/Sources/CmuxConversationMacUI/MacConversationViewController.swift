@@ -129,6 +129,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     /// Messages' "Go Up" button (see the catch-up extension below).
     private let catchUpButton = NSButton()
 
+    // Conversation background (see MacConversationBackground).
+    let backdropView = MacBackdropView()
+    var backgroundPhotoTask: Task<Void, Never>?
+    var backgroundPicker: MacBackgroundPickerViewController?
+    var backgroundPopover: NSPopover?
+
     public init(store: ConversationStore, serviceTitle: String = "iMessage") {
         self.store = store
         self.serviceTitle = serviceTitle
@@ -209,6 +215,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
         installCatchUp()
+        installBackdrop()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         installAudio()
         store.start()
@@ -416,6 +423,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if case .connection = change { return }
         if case .readState = change { updateCatchUp(); return }
         if case .listState = change { return }
+        if case .background = change { updateBackdrop(animated: true); return }
         defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
@@ -816,6 +824,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
             view.row.audioDelegate = self
+            view.row.backdropStyle = bubbleBackdrop
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampRevealDistance = timestampRevealDistance
             applyMessageSelection(to: view.row)
@@ -1270,7 +1279,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func contextMenu(for event: NSEvent, in table: NSTableView) -> NSMenu? {
-        guard let (index, _) = row(at: event, in: table), let model = messageModel(at: index), let rowView = rowView(at: index) else { return nil }
+        guard let (index, _) = row(at: event, in: table), let model = messageModel(at: index), let rowView = rowView(at: index) else {
+            // Off any message: Messages offers Edit Background.
+            return backgroundContextMenu()
+        }
         let message = model.message
         let menu = NSMenu()
         func item(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> NSMenuItem {
@@ -1349,6 +1361,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         guard let verb = parts.first else { return "error empty" }
         let argument = parts.count > 1 ? parts[1] : ""
         if let reply = catchUpLabCommand(verb) { return reply }
+        if let reply = backgroundLabCommand(verb, argument) { return reply }
         switch verb {
         case "type":
             view.window?.makeFirstResponder(composer.textView)
