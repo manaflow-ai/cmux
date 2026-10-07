@@ -82,6 +82,7 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSSSHWorkspacesCore",
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
@@ -384,6 +385,33 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane E3 (plans/cmux-next/ios-next/e3-workspaces.md): an SSH host's
+        // tmux, screen and cmux-tui sessions as workspaces (discovery channel,
+        // host directory, catalog-checked attach). No UIKit.
+        .target(
+            name: "CmuxiOSSSHWorkspacesCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSSSHCore",
+                "CmuxiOSWorkspacesCore",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSSHWorkspacesCoreTests",
+            dependencies: [
+                "CmuxiOSSSHWorkspacesCore",
+                "CmuxiOSSSHCore",
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
