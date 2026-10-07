@@ -892,7 +892,7 @@ describe("acpmux composer context", () => {
 });
 
 describe("acpmux composer queue", () => {
-  test("queued prompts list above the bar in order, and the list goes away when empty", async () => {
+  test("queued prompts are numbered rows on the box's top edge, in order, and go away when empty", async () => {
     const root = createRoot(doc.getElementById("root")!);
     const render = async (queue: AcpmuxSnapshot["queue"]) => {
       await act(async () =>
@@ -914,11 +914,14 @@ describe("acpmux composer queue", () => {
       ]);
       const list = doc.querySelector("ol.acpmux-composer-queue")!;
       expect(list.getAttribute("aria-label")).toBe("Queued prompts");
+      // Attached to the box (laid over the transcript's foot), so it never moves the composer.
+      expect(list.parentElement!.classList.contains("acpmux-composer-box")).toBe(true);
+      expect(list.parentElement!.firstElementChild).toBe(list);
+      expect([...list.querySelectorAll(".acpmux-queued-mark")].map((node) => node.textContent)).toEqual(["1", "2"]);
       expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual([
         "first",
         "second\nline",
       ]);
-      expect(list.nextElementSibling!.classList.contains("acpmux-composer-context")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
       await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
@@ -930,15 +933,18 @@ describe("acpmux composer queue", () => {
     }
   });
 
-  test("with a session's place shown, the queue sits on the context tray and the tray on the box", async () => {
+  test("a queued prompt shows its full text as a tooltip only when its line is cut off", async () => {
     const root = createRoot(doc.getElementById("root")!);
     try {
       await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: {
-              ...snapshot({ cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", branch: "main" }, true),
-              queue: [{ id: "p1", prompt: "next" }],
+              ...snapshot({}, true),
+              queue: [
+                { id: "p1", prompt: "short" },
+                { id: "p2", prompt: "a prompt long enough to be cut off at the row's end" },
+              ],
             },
             chips: () => null,
             onSend: () => {},
@@ -946,10 +952,20 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
-      const queue = doc.querySelector("ol.acpmux-composer-queue")!;
-      const tray = queue.nextElementSibling!;
-      expect(tray.classList.contains("acpmux-composer-context")).toBe(true);
-      expect(tray.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      const [short, long] = [...doc.querySelectorAll<HTMLElement>(".acpmux-queued-text")];
+      for (const [node, scroll] of [
+        [short!, 40],
+        [long!, 400],
+      ] as const) {
+        Object.defineProperty(node, "scrollWidth", { configurable: true, value: scroll });
+        Object.defineProperty(node, "clientWidth", { configurable: true, value: 120 });
+      }
+      const PointerEvent = (doc.defaultView as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
+      await act(async () => {
+        for (const node of [short!, long!]) node.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+      });
+      expect(short!.hasAttribute("title")).toBe(false);
+      expect(long!.getAttribute("title")).toBe("a prompt long enough to be cut off at the row's end");
     } finally {
       await act(async () => root.unmount());
     }
