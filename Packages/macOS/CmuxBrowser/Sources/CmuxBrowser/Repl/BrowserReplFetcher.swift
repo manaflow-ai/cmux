@@ -205,6 +205,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         var requestBytes = urlString.utf8.count + (urlRequest.httpMethod?.utf8.count ?? 0)
         if let headers = request["headers"] as? [[String]] {
             for pair in headers where pair.count == 2 {
+                if let refusal = Self.requestHeaderRefusal(name: pair[0], value: pair[1]) {
+                    return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: \(refusal)")), 0)
+                }
                 requestBytes += pair[0].utf8.count + pair[1].utf8.count
             }
             guard requestBytes <= Self.maxRequestBytes else {
@@ -502,6 +505,36 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         if ["authorization", "proxy-authorization", "cookie", "cookie2"].contains(lowered) { return true }
         return ["auth", "token", "api-key", "apikey", "api_key", "secret", "session", "password", "passwd", "csrf", "xsrf", "credential", "signature"]
             .contains { lowered.contains($0) }
+    }
+
+    /// Headers that choose the request's authority or shape its transport,
+    /// which the URL (the one the domain policy judged) and URLSession
+    /// decide: a caller `Host` would let a request to an allowed URL reach a
+    /// blocked virtual host on the same server.
+    static let transportHeaderNames: Set<String> = [
+        "host", "connection", "keep-alive", "proxy-authorization", "proxy-authenticate",
+        "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade", "content-length", "expect",
+    ]
+
+    /// Why a caller-supplied request header may not be sent, or nil: its
+    /// name (trimmed, any case) is a transport or authority header
+    /// (``transportHeaderNames``) or an HTTP/2 pseudo-header (`:authority`),
+    /// or its name or value holds CR, LF or NUL. Applies to a REPL fetch,
+    /// whose redirect hops reuse the caller's headers, and to the headers
+    /// `session.configure({ extraHTTPHeaders })` adds to navigations.
+    public static func requestHeaderRefusal(name: String, value: String) -> String? {
+        let quoted = name.debugDescription
+        if (name + value).unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" }) {
+            return "header \(quoted) is not allowed: a header name or value may not contain CR, LF or NUL"
+        }
+        let normalized = name.trimmingCharacters(in: .whitespaces).lowercased()
+        if normalized.hasPrefix(":") {
+            return "header \(quoted) is not allowed: HTTP/2 pseudo-headers come from the URL and method"
+        }
+        if transportHeaderNames.contains(normalized) {
+            return "header \(quoted) is not allowed: the URL and the connection decide it (refused: Host, Connection, Keep-Alive, Proxy-Authorization, Proxy-Authenticate, Proxy-Connection, Transfer-Encoding, TE, Trailer, Upgrade, Content-Length, Expect and :pseudo-headers)"
+        }
+        return nil
     }
 
     /// The CORS-safelisted request headers (Fetch standard), which a

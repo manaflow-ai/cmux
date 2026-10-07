@@ -1153,6 +1153,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 guard let value = value as? String else {
                     throw Self.error("invalid", "extraHTTPHeaders: the value of \(name) must be a string")
                 }
+                if let refusal = BrowserReplFetcher.requestHeaderRefusal(name: name, value: value) {
+                    throw Self.error("invalid", "extraHTTPHeaders: \(refusal)")
+                }
                 headers[name] = value
             }
             options.extraHTTPHeaders = headers
