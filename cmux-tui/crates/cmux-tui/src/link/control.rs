@@ -45,7 +45,7 @@ impl Peers {
 
     /// Re-read the file and apply it to the overlay; the new view takes
     /// effect only after the overlay accepted it.
-    async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
+    pub(super) async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
         let fresh = Arc::new(Pairings::load(&self.path)?);
         overlay.sync_peers(&fresh).await?;
         *self.current.write().unwrap() = fresh.clone();
