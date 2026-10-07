@@ -40,6 +40,8 @@ let package = Package(
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSFeed",
+                "CmuxiOSFeedCloud",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -140,10 +142,39 @@ let package = Package(
             dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C6 (plans/cmux-next/ios-next/c6-feed.md): the Feed tab's
+        // model (mirror + intent log, filters, sections; Foundation only),
+        // the FeedDO wire source, and the UIKit screen.
+        .target(
+            name: "CmuxiOSFeedModel",
+            dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSFeedModelTests",
+            dependencies: ["CmuxiOSFeedModel", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSFeedCloud",
+            dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSFeedCloudTests",
+            dependencies: ["CmuxiOSFeedCloud", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSFeed",
+            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSFeedModel"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
         .target(
             name: "CmuxiOSShell",
-            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit"],
+            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSFeed"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

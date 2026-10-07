@@ -1,4 +1,5 @@
 public import CmuxiOSFeatureKit
+public import CmuxiOSFeed
 public import UIKit
 import SwiftUI
 
@@ -9,12 +10,19 @@ public struct ShellContent {
     private let sources: FeatureSources
     private let home: UIViewController
     private let settings: ShellSettingsModel
+    private let feedNavigator: FeedNavigator?
+    private let deviceName: String?
 
     /// `home` is the existing Home screen in its navigation controller.
-    public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel) {
+    /// `feedNavigator` opens feed items from push taps; `deviceName` is
+    /// stamped on answers sent from this device.
+    public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel,
+                feedNavigator: FeedNavigator? = nil, deviceName: String? = nil) {
         self.sources = sources
         self.home = home
         self.settings = settings
+        self.feedNavigator = feedNavigator
+        self.deviceName = deviceName
     }
 
     public func controller(for tab: ShellTab) -> UIViewController {
@@ -22,8 +30,11 @@ public struct ShellContent {
         case .home:
             return home
         case .feed:
-            return placeholder(tab, seam: .feed, summary: ShellText.feedSummary,
-                               FeedPlaceholder.stream(sources.feed, isMock: isMock(.feed)))
+            let feed = FeedViewController(source: sources.feed, navigator: feedNavigator,
+                                          isMock: isMock(.feed), device: deviceName)
+            let navigation = UINavigationController(rootViewController: feed)
+            navigation.navigationBar.prefersLargeTitles = true
+            return navigation
         case .workspaces:
             return placeholder(tab, seam: .workspaces, summary: ShellText.workspacesSummary,
                                WorkspacesPlaceholder.stream(sources.workspaces, isMock: isMock(.workspaces)))

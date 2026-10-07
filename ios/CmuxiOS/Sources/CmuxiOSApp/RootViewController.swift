@@ -33,10 +33,11 @@ final class RootViewController: UIViewController {
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         container.flags.onChange = { [weak self] in self?.applyFlags() }
         container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
-        container.feedResponder.openItem = { [weak self] _ in
-            // The Feed tab owns item navigation once lane C6 lands; for now
-            // a feed push opens the tab.
+        container.feedResponder.openItem = { [weak self] item in
+            // A feed push opens the Feed tab on that item (parked until the
+            // tab's screen exists and its mirror holds the item).
             self?.shell?.select(.feed)
+            self?.container.feedNavigator.open(item)
         }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {

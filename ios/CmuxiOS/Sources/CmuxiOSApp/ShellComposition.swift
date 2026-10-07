@@ -16,7 +16,8 @@ enum ShellComposition {
             developer: developerScreen(container: container),
             signOut: { [weak container] in await container?.auth.signOut() }
         )
-        let content = ShellContent(sources: sources, home: home, settings: settings)
+        let content = ShellContent(sources: sources, home: home, settings: settings,
+                                   feedNavigator: container.feedNavigator, deviceName: UIDevice.current.name)
         return ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),

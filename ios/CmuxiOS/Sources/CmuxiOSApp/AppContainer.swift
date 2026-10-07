@@ -3,6 +3,8 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
+import CmuxiOSFeed
+import CmuxiOSFeedCloud
 import CmuxiOSIdentity
 import CmuxiOSPush
 import CmuxiOSShell
@@ -23,7 +25,9 @@ final class AppContainer {
     let sourceModes: FeatureSourceModeStore
     /// Real seam implementations. Each feature lane sets its slot here when
     /// its carrier lands; an empty slot keeps that seam on its mock.
-    let realFactories = RealFeatureFactories()
+    let realFactories: RealFeatureFactories
+    /// Opens feed items from push taps (lane C6).
+    let feedNavigator = FeedNavigator()
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
@@ -65,6 +69,7 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
+        realFactories = Self.makeRealFactories(base: base, identity: madeIdentity)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -102,9 +107,26 @@ final class AppContainer {
             }
         }
         feedResponder.openItem = { item in
-            // The feed list is not on iPhone yet; Home stays in front.
+            // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+    }
+
+    /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
+    /// authenticated as this install. Without an API origin the slot stays
+    /// empty and the DEV screen shows the seam on its mock.
+    private static func makeRealFactories(base: URL?, identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = RealFeatureFactories()
+        if let base, let identity {
+            let device = UIDevice.current.name
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            factories.feed = {
+                CloudFeedSource(apiBaseURL: base, device: device, clientVersion: version) {
+                    try await identity.token(for: nil)
+                }
+            }
+        }
+        return factories
     }
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
