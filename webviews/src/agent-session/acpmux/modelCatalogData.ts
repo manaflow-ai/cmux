@@ -97,8 +97,13 @@ export type PickerHarness = {
   /** A host-served icon an acpmux profile declared (`_acpmux/harnesses` `icon` that is not a brand). */
   iconUrl?: string;
   acpmuxHarness: string | null;
-  /** acpmux has a harness of this family. A catalog harness that is not installed still lists. */
+  /** acpmux has a chat harness of this family. A catalog harness that is not installed still lists. */
   installed: boolean;
+  /** It can run as a chat. false for a "terminal" harness (a CLI/TUI without ACP) or a kind this
+   *  page does not know: the picker shows it disabled or leaves it out, never starts it. */
+  pickable: boolean;
+  /** acpmux's `kind` when it is not a chat kind ("terminal", or an unknown one). */
+  kind?: string;
   unavailable?: string;
   defaultModel?: string;
   models: PickerModel[];
@@ -215,7 +220,8 @@ export function buildPickerCatalog({ catalog, user, acpmux, session, provisional
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
-    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
+    // Only chat harnesses join a catalog entry; a terminal profile of the same family lists alone.
+    const members = acpmux.filter((entry) => isChatKind(entry) && harness.families.includes(familyOf(entry)));
     for (const member of members) covered.add(member.id);
     return catalogHarness(harness, members, join);
   });
@@ -275,6 +281,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
+    pickable: chosen !== undefined,
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
@@ -295,6 +302,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
     installed: true,
+    pickable: isChatKind(entry),
+    ...(isChatKind(entry) ? {} : { kind: entry.kind }),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
   };
@@ -372,6 +381,11 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
     ...(efforts && efforts.length > 0 ? { efforts } : {}),
     ...(fast ? { fast: true } : {}),
   };
+}
+
+/** A harness acpmux runs as a chat: no kind (an older daemon), "acp" or "claude-stdio". */
+function isChatKind(entry: AcpmuxHarness): boolean {
+  return entry.kind === undefined || entry.kind === "acp" || entry.kind === "claude-stdio";
 }
 
 function familyOf(entry: AcpmuxHarness): string {

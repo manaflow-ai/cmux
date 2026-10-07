@@ -57,6 +57,8 @@ const ACPMUX = normalizeCatalog({
     codex: { family: "codex", unavailable: "codex is not signed in", models: [] },
     opencode: { family: "opencode", models: [{ id: "anthropic/claude-sonnet-5" }, { id: "ollama/qwen3-coder", name: "qwen3-coder" }] },
     "corp-claude": { family: "claude", models: [] },
+    "claude-tui": { family: "claude", kind: "terminal", displayName: "Claude TUI" },
+    future: { family: "future", kind: "hologram", models: [{ id: "h1" }] },
     acme: {
       family: "acme",
       displayName: "Acme Agent",
@@ -71,7 +73,15 @@ describe("buildPickerCatalog", () => {
   const byId = (id: string) => picker.harnesses.find((harness) => harness.id === id)!;
 
   test("catalog harnesses come first in catalog order, then harnesses no catalog entry covers", () => {
-    expect(picker.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode", "vercel-ai-gateway", "acme"]);
+    expect(picker.harnesses.map((harness) => harness.id)).toEqual([
+      "claude",
+      "codex",
+      "opencode",
+      "vercel-ai-gateway",
+      "claude-tui",
+      "future",
+      "acme",
+    ]);
     expect(picker.provisional).toBe(false);
   });
 
@@ -111,6 +121,15 @@ describe("buildPickerCatalog", () => {
     ]);
   });
 
+  test("terminal and unknown harness kinds list as not pickable and never join a catalog entry", () => {
+    expect(byId("claude-tui")).toMatchObject({ name: "Claude TUI", pickable: false, kind: "terminal", installed: true, models: [] });
+    expect(byId("future")).toMatchObject({ pickable: false, kind: "hologram" });
+    expect(byId("claude")).toMatchObject({ acpmuxHarness: "claude-sr", pickable: true });
+    expect(byId("acme").pickable).toBe(true);
+    expect(byId("acme").kind).toBeUndefined();
+    expect(byId("vercel-ai-gateway").pickable).toBe(false);
+  });
+
   test("an uncatalogued profile takes its declared name, icon and model metadata", () => {
     expect(byId("acme")).toMatchObject({ name: "Acme Agent", brand: null, iconUrl: "/icons/acme.svg", acpmuxHarness: "acme" });
     expect(byId("acme").models[0]).toMatchObject({ id: "acme-1", name: "Acme One", shortName: "One", efforts: ["low", "high"], fast: true, contextWindow: 64000 });
@@ -142,7 +161,7 @@ describe("buildPickerCatalog", () => {
       },
     };
     const layered = buildPickerCatalog({ catalog: CATALOG, acpmux: ACPMUX, user });
-    expect(layered.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode"]);
+    expect(layered.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode", "claude-tui", "future"]);
     expect(layered.harnesses[0]).toMatchObject({ name: "Claude (work)" });
     expect(layered.harnesses[0]?.models.map((model) => [model.id, model.name, model.defaultEffort])).toEqual([["claude-opus-5-5", "Opus", "max"]]);
     expect(layered.harnesses[1]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-6-local"]);
