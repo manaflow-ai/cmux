@@ -245,19 +245,8 @@ impl TurnFolder {
             }
             (true, kind @ ("turn_end" | "turn_error")) => {
                 if let Some(turn) = self.current.take() {
-                    // JavaScript `String(msg.error ?? canonicalJson(msg))`; an
-                    // empty error is no error.
-                    let error = (kind == "turn_error")
-                        .then(|| {
-                            let text = match event.msg.get("error") {
-                                None | Some(Value::Null) => {
-                                    Value::Object(event.msg.clone()).to_string()
-                                }
-                                Some(error) => js_string(error),
-                            };
-                            utf16_prefix(&text, ERROR_CHARS)
-                        })
-                        .filter(|error| !error.is_empty());
+                    let error =
+                        (kind == "turn_error").then(|| turn_error_text(&event.msg)).flatten();
                     out.push(TurnOutput::Ended { turn, seq: event.seq, error });
                 }
             }
@@ -265,6 +254,18 @@ impl TurnFolder {
         }
         out
     }
+}
+
+/// The error text of a `turn_error` event's `msg`, as every Chief brain
+/// posts it (the shared behavior corpus): JavaScript
+/// `String(msg.error ?? canonicalJson(msg))`, cut at `ERROR_CHARS` UTF-16
+/// units; an empty error is no error.
+pub fn turn_error_text(msg: &Map<String, Value>) -> Option<String> {
+    let text = match msg.get("error") {
+        None | Some(Value::Null) => Value::Object(msg.clone()).to_string(),
+        Some(error) => js_string(error),
+    };
+    Some(utf16_prefix(&text, ERROR_CHARS)).filter(|error| !error.is_empty())
 }
 
 /// The text of the last turn that ended in an event list (a child's last reply).

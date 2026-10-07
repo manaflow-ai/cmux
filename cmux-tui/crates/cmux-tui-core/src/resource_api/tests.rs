@@ -262,6 +262,76 @@ fn cloud_cwd_live_osc7_clear_reaches_snapshot() {
     mux.shutdown();
 }
 
+/// OSC 7501 program status (decision OSC-7501-PROGRAM-STATUS): the shell
+/// example from the decision reaches the terminal resource as
+/// `extra.program_status` on the snapshot and the event feed, a later report
+/// replaces the record with base64-decoded text, and a clear removes it.
+#[cfg(unix)]
+#[test]
+fn program_status_osc7501_reaches_snapshot_and_event_feed() {
+    // A real PTY: the test runtime's placeholder surfaces never run their
+    // command, so no OSC 7501 would reach the parser.
+    let mux = Mux::new(
+        "program-status-osc7501",
+        SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                concat!(
+                    "printf '\\033]7501;state=working:progress=40\\033\\\\'; read value; ",
+                    "printf '\\033]7501;state=done:app=make:msg=SGk=\\033\\\\'; read value; ",
+                    "printf '\\033]7501;state=clear\\033\\\\'; read value",
+                )
+                .into(),
+            ]),
+            ..SurfaceOptions::default()
+        },
+    );
+    let surface = mux.new_workspace(Some("status".into()), None).unwrap();
+    let wait_for_status = |reached: &dyn Fn(&Value) -> bool, message: &str| -> Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            let terminal = public_session_snapshot(&mux).unwrap()["terminals"][0].clone();
+            if reached(&terminal["extra"]["program_status"]) {
+                return terminal;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "{message}: {terminal}");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+    };
+    let working = wait_for_status(
+        &|status| status[0]["state"] == "working",
+        "the working report never reached the public graph",
+    );
+    let record = &working["extra"]["program_status"][0];
+    assert_eq!(working["extra"]["program_status"].as_array().unwrap().len(), 1);
+    assert_eq!(record["id"], "");
+    assert_eq!(record["progress"], 40);
+    assert!(record["kind"].is_null() && record["msg"].is_null() && record["app"].is_null());
+    assert!(mux.resource_events_after(0).unwrap().batches.iter().any(|batch| {
+        batch.changes.as_array().unwrap().iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["value"]["extra"]["program_status"][0]["state"] == "working"
+        })
+    }));
+
+    surface.write_bytes(b"\n").unwrap();
+    let done = wait_for_status(
+        &|status| status[0]["state"] == "done",
+        "the done report never replaced the working record",
+    );
+    let record = &done["extra"]["program_status"][0];
+    assert_eq!(record["msg"], "Hi");
+    assert_eq!(record["app"], "make");
+    assert!(record["progress"].is_null(), "a report replaces the whole record");
+
+    surface.write_bytes(b"\n").unwrap();
+    wait_for_status(&|status| status.is_null(), "the clear report never removed the record");
+    mux.shutdown();
+}
+
 #[test]
 fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
     let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());

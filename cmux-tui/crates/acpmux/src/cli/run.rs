@@ -435,6 +435,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             )
             .await
         }
+        Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {

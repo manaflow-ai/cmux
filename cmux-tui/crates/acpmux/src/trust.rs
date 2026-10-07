@@ -51,7 +51,7 @@ impl Level {
 }
 
 /// Where the agents' files and acpmux's record live.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Paths {
     pub claude_json: PathBuf,
     pub codex_config: PathBuf,

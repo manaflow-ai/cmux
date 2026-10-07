@@ -202,6 +202,8 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordList
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
+        | Op::SidebarLayoutGet
+        | Op::SidebarLayoutUpdate
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow

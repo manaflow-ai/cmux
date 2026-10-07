@@ -208,6 +208,9 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
+    /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
+    #[command(subcommand)]
+    Chats(crate::cli::chats::ChatsCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -333,7 +336,11 @@ pub enum Command {
 pub enum HarnessCmd {
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
-    List,
+    List {
+        /// Also list the folder profiles in DIR/.cmux/harnesses with their state.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+    },
     /// Write a new profile file into ~/.config/cmux/harnesses and check it.
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
@@ -362,11 +369,52 @@ pub enum HarnessCmd {
         #[arg(long, default_value_t = 120)]
         timeout: u64,
     },
+    /// Allow a folder profile (DIR/.cmux/harnesses/ID.toml) in chats inside
+    /// DIR: shows the command and env, then asks. The folder must be trusted.
+    Enable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
+        /// Confirm without the prompt (needed without a terminal).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Withdraw a folder profile's confirmation.
+    Disable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
+    },
+    /// Run a protocol = "terminal" harness (a CLI/TUI without ACP) in this
+    /// terminal with its profile env; `--tab` (cmux) opens it in a new tab.
+    Run {
+        id: String,
+        /// The folder to run in (default: the current folder).
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// The model for `${model}` (default: the profile's).
+        #[arg(long)]
+        model: Option<String>,
+        /// Open a new tab in the current pane (cmux only).
+        #[arg(long)]
+        tab: bool,
+    },
+    /// Secrets for harness env keys, kept in the system secret store.
+    #[command(subcommand)]
+    Secret(SecretCmd),
     /// Tell the running daemon to read the profile files again.
     Reload,
     /// Print the guide an agent follows to integrate a harness (schema,
     /// doctor loop, examples, security rules).
     Guide,
+}
+
+#[derive(Subcommand)]
+pub enum SecretCmd {
+    /// Store a value for ID's env KEY (Keychain on macOS, secret-tool
+    /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
+    /// the profile file. Reads a hidden prompt, or stdin; never prints it.
+    Set { id: String, key: String },
 }
 
 #[derive(Subcommand)]

@@ -16,6 +16,7 @@ mod agent_exit_tests;
 pub mod agent_host;
 #[cfg(test)]
 mod agent_replay_tests;
+pub mod chats;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
@@ -35,6 +36,7 @@ mod question_answer_tests;
 pub mod rpc;
 pub mod schema;
 pub mod server;
+pub mod session_env;
 pub mod session_name;
 pub mod sha256;
 #[cfg(test)]

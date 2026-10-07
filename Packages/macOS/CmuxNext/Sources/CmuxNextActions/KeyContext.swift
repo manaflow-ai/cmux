@@ -76,6 +76,10 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let listFocus = "listFocus"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
+    /// The top page the window shows (`home`), which fills the content area
+    /// without a pane; absent while a workspace is shown. A top page's own
+    /// keys name it (`when: topPage == "home"`).
+    public static let topPage = "topPage"
     /// The command palette's state, for its keys (`KeyBindingDefaults.paletteKeys`):
     /// its Actions menu is open; the query is empty; the page walks a tree;
     /// the caret is at the end / start of the query; the selected row's

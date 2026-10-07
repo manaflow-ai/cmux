@@ -313,6 +313,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.globalHotKey.help",
+        "text" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.globalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "show",
+        "hide",
+        "windows",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "globalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.globalHotKey",
+        "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -11075,6 +11125,154 @@
     },
     {
       "accepts" : [
+        "confirm",
+        "text",
+        "open"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneConfirm",
+            "text" : "Ask First"
+          },
+          "value" : "confirm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneText",
+            "text" : "Show as Text"
+          },
+          "value" : "text"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneOpen",
+            "text" : "Open"
+          },
+          "value" : "open"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "confirm",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.outsideRoots.help",
+        "text" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.links.outsideRoots",
+      "keywords" : [
+        "agent",
+        "chat",
+        "link",
+        "path",
+        "file",
+        "outside",
+        "project"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "links",
+        "outsideRoots"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.outsideRoots",
+        "text" : "Files Outside the Project"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "click",
+        "never",
+        "always"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneClick",
+            "text" : "Load on Click"
+          },
+          "value" : "click"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "click",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.remoteImages.help",
+        "text" : "A web image loads from its site, which then sees that you read the reply."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.images.remote",
+      "keywords" : [
+        "agent",
+        "chat",
+        "image",
+        "remote",
+        "web",
+        "privacy",
+        "tracking"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "images",
+        "remote"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.remoteImages",
+        "text" : "Web Images in Replies"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -11849,7 +12047,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "db94b3dd550accd92de41a37ce49428f487119220ff9c47c9812f1af4ef7d6f0",
+  "schema_hash" : "da58b3318b258175e0b5e9ea0225d18643b00a39f5d73e4a8ad6c40dc830722c",
   "sections" : [
     {
       "id" : "general",

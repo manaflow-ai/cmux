@@ -804,17 +804,18 @@ impl Mux {
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_frontend_browser_tab_activating(pane, record, size, true)
+        self.new_frontend_browser_tab_placed(pane, record, size, FrontendTabPlacement::default())
     }
 
-    /// [`Mux::new_frontend_browser_tab`]; with `activate` false the tab does
-    /// not become its pane's active tab (`frontend-browser-activate-v1`).
-    pub fn new_frontend_browser_tab_activating(
+    /// [`Mux::new_frontend_browser_tab`] with a [`FrontendTabPlacement`]: a
+    /// background tab (`frontend-browser-activate-v1`) and a slot right
+    /// after another tab of the pane (`frontend-browser-insert-after-v1`).
+    pub(crate) fn new_frontend_browser_tab_placed(
         self: &Arc<Self>,
         pane: Option<PaneId>,
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
-        activate: bool,
+        placement: FrontendTabPlacement,
     ) -> anyhow::Result<Arc<Surface>> {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
@@ -823,7 +824,7 @@ impl Mux {
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
-        let fields = frontend_browser_fields(&browser_id, activate);
+        let fields = frontend_browser_fields(&browser_id, placement);
         match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()
