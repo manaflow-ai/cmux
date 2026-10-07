@@ -452,6 +452,7 @@
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
 		7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */; };
 		8478B0000000000000000002 /* BrowserFixtureSocketTestCase+PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */; };
+		3368BD0CC7C8EF18C407D005 /* BrowserGlassWindowBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37CB5F859904B727E303E4C7 /* BrowserGlassWindowBackgroundTests.swift */; };
 		173381D0BD5068A03B70F8C5 /* BrowserHiddenWebViewDiscardBlockerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5B362083A3A609ADB63D80 /* BrowserHiddenWebViewDiscardBlockerTests.swift */; };
 		5B8C549C031604DAE01ADBA6 /* BrowserHiddenWebViewDiscardSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD210E0F9E610E4124ADA8DD /* BrowserHiddenWebViewDiscardSettingsFileTests.swift */; };
 		AD3D4D3E24D4142DA5C6099D /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C048F37095B42BFAB9CB65C /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift */; };
@@ -3257,6 +3258,7 @@
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
 		20FFB0FB12343E17FE2624FF /* SidebarGlassSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1525C188F2BD8ED27D43C51C /* SidebarGlassSelection.swift */; };
+		550C0F088E89B0C35370402C /* SidebarGlassSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1FFF6470F3C414CBF16A79 /* SidebarGlassSelectionTests.swift */; };
 		F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */; };
 		B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */; };
 		B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */; };
@@ -5052,6 +5054,7 @@
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFixtureInteractionUITests.swift; sourceTree = "<group>"; };
 		8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserFixtureSocketTestCase+PendingRequest.swift"; sourceTree = "<group>"; };
+		37CB5F859904B727E303E4C7 /* BrowserGlassWindowBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserGlassWindowBackgroundTests.swift"; sourceTree = "<group>"; };
 		3D5B362083A3A609ADB63D80 /* BrowserHiddenWebViewDiscardBlockerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardBlockerTests.swift"; sourceTree = "<group>"; };
 		AD210E0F9E610E4124ADA8DD /* BrowserHiddenWebViewDiscardSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardSettingsFileTests.swift"; sourceTree = "<group>"; };
 		8C048F37095B42BFAB9CB65C /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift"; sourceTree = "<group>"; };
@@ -7695,6 +7698,7 @@
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
 		1525C188F2BD8ED27D43C51C /* SidebarGlassSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarGlassSelection.swift; sourceTree = "<group>"; };
+		3D1FFF6470F3C414CBF16A79 /* SidebarGlassSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarGlassSelectionTests.swift"; sourceTree = "<group>"; };
 		F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/Cells/SidebarGroupHeaderRowActions+NotificationState.swift"; sourceTree = "<group>"; };
 		B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowModel.swift; sourceTree = "<group>"; };
 		B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift; sourceTree = "<group>"; };
@@ -13548,6 +13552,8 @@
 				6124B3A20E384A384BF58063 /* SidebarPeekPanelWindowTests.swift */,
 				32C30979AEC1CA92678696D9 /* SidebarWorkspaceReorderLiftTests.swift */,
 				E400D59987274763C0558AD7 /* SidebarPresentedWhileHiddenSnapshotTests.swift */,
+				37CB5F859904B727E303E4C7 /* BrowserGlassWindowBackgroundTests.swift */,
+				3D1FFF6470F3C414CBF16A79 /* SidebarGlassSelectionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17504,6 +17510,7 @@
 				B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */,
 				129980000000000000000001 /* BrowserFailedNavigationReloadTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
+				3368BD0CC7C8EF18C407D005 /* BrowserGlassWindowBackgroundTests.swift in Sources */,
 				173381D0BD5068A03B70F8C5 /* BrowserHiddenWebViewDiscardBlockerTests.swift in Sources */,
 				5B8C549C031604DAE01ADBA6 /* BrowserHiddenWebViewDiscardSettingsFileTests.swift in Sources */,
 				AD3D4D3E24D4142DA5C6099D /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift in Sources */,
@@ -18366,6 +18373,7 @@
 				A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */,
 				B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */,
 				8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */,
+				550C0F088E89B0C35370402C /* SidebarGlassSelectionTests.swift in Sources */,
 				B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,

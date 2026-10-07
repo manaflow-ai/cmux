@@ -2417,9 +2417,9 @@ struct SidebarGroupHeaderSelectionEdgeTests {
     }
 
     @Test
-    func legacySelectionGroupHeadersDrawNoHairline() {
+    func glassSelectionGroupHeadersDrawTheHairlineOnlyWhenMultiSelected() {
         #expect(Self.edgeWidth(subtleSelection: false, isAnchorActive: true, isMultiSelected: false) == 0)
-        #expect(Self.edgeWidth(subtleSelection: false, isAnchorActive: false, isMultiSelected: true) == 0)
+        #expect(Self.edgeWidth(subtleSelection: false, isAnchorActive: false, isMultiSelected: true) == 1)
     }
 }
 
