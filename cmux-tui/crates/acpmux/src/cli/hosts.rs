@@ -114,8 +114,7 @@ fn capped(cmd: &str, limit: &str) -> String {
     format!("out=$({cmd}); rc=$?; printf '%s\\n' \"$out\" | {limit}; exit $rc")
 }
 
-/// Restart the daemon away from launchd: `daemon shutdown --keep-agents`
-/// (hosted agents keep running for the new daemon to adopt) returns once the
+/// Restart the daemon away from launchd: `daemon shutdown` returns once the
 /// old daemon released its lock, and `daemon start` returns once the new one
 /// accepts clients (its readiness pipe), so no step waits on a timer.
 fn restart_detached(json: bool) -> String {
@@ -124,7 +123,7 @@ fn restart_detached(json: bool) -> String {
     } else {
         capped("~/.local/bin/acpmux daemon start", "head -3")
     };
-    format!("~/.local/bin/acpmux daemon shutdown --keep-agents >/dev/null 2>&1; {start}")
+    format!("~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; {start}")
 }
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is

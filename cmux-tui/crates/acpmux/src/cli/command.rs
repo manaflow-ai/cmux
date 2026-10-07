@@ -280,11 +280,7 @@ pub enum Command {
     #[command(hide = true)]
     DaemonStart,
     #[command(hide = true, alias = "kill-server")]
-    Shutdown {
-        /// Leave hosted agents running for the next daemon to adopt.
-        #[arg(long)]
-        keep_agents: bool,
-    },
+    Shutdown,
     #[command(hide = true)]
     Config,
     #[command(subcommand, hide = true)]
@@ -430,15 +426,9 @@ pub enum DaemonCmd {
     Status,
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start,
-    /// Stop the daemon and every agent process, agent hosts included;
-    /// returns once it exited. `--keep-agents` leaves hosted agents running
-    /// for the next daemon to adopt (a restart).
+    /// Stop the daemon and every agent process; returns once it exited.
     #[command(alias = "kill-server")]
-    Shutdown {
-        /// Leave hosted agents running for the next daemon to adopt.
-        #[arg(long)]
-        keep_agents: bool,
-    },
+    Shutdown,
     /// Print the config path and contents.
     Config,
     /// Show configured harnesses with their family and defaults.
@@ -571,7 +561,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start => Command::DaemonStart,
-            DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
+            DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
