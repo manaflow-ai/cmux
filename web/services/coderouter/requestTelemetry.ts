@@ -236,6 +236,19 @@ export function recordCoderouterIdentity(
   }
 }
 
+/**
+ * Puts the refusal reason on the active route span, so a flood of 401s can be
+ * split by cause in Axiom (`cmux.coderouter.auth_failure_detail`).
+ */
+export function recordCoderouterAuthFailure(reason: string, detail: string | undefined): void {
+  const span = trace.getActiveSpan();
+  if (!span) return;
+  setSpanAttributes(span, {
+    "cmux.coderouter.auth_failure": reason,
+    "cmux.coderouter.auth_failure_detail": detail,
+  });
+}
+
 /** Marks the start of credential authentication on the active request. */
 export function recordCoderouterAuthStarted(): void {
   const context = storage.getStore();

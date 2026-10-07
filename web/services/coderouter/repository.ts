@@ -633,7 +633,7 @@ export async function authenticateRouteToken(
 ): Promise<RouteTokenPrincipal | null> {
   if (!ROUTE_TOKEN_PATTERN.test(token)) {
     const claims = await verifyVmAuthorization(token, now);
-    return claims ? await authenticateVmAuthorization(token, claims, now) : null;
+    return claims ? await authenticateVmAuthorization(token, claims) : null;
   }
   // Authentication is a read-only lookup. Every model request passes here,
   // and a per-request UPDATE made concurrent requests on one token queue on
@@ -649,7 +649,10 @@ export async function authenticateRouteToken(
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       isNotNull(coderouterRouteTokens.stackUserId),
-      gt(coderouterRouteTokens.expiresAt, now),
+      // A machine-bound token sits in an edge rule fixed at create and can
+      // never be replaced on a running machine; revocation and the live
+      // machine check below end it. An unbound CLI session still expires.
+      or(isNotNull(coderouterRouteTokens.vmId), gt(coderouterRouteTokens.expiresAt, now)),
       isNull(coderouterRouteTokens.revokedAt),
     ))
     .limit(1);
@@ -670,7 +673,6 @@ export async function authenticateRouteToken(
 async function authenticateVmAuthorization(
   token: string,
   claims: VmAuthorizationClaims,
-  now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
   if (!CLOUD_VM_ID_PATTERN.test(claims.vm_id)) return null;
   const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
@@ -682,7 +684,7 @@ async function authenticateVmAuthorization(
       eq(coderouterRouteTokens.teamId, claims.team_id),
       eq(coderouterRouteTokens.stackUserId, claims.owner_id),
       eq(coderouterRouteTokens.vmId, claims.vm_id),
-      gt(coderouterRouteTokens.expiresAt, now),
+      // No expiry check: see verificationInstant in vmAuthorization.ts.
       isNull(coderouterRouteTokens.revokedAt),
       eq(cloudVms.ownerTeamId, claims.team_id),
       sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`,
