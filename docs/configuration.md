@@ -526,6 +526,15 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## `mcp.enabled` and agent sessions
+
+Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
+and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+`"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
+To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
+daemon (or in one acpmux profile's `env`). A Claude profile that passes
+`--strict-mcp-config` opts out too and keeps only the MCP servers it names.
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
