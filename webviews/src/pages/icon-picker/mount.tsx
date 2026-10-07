@@ -11,6 +11,7 @@ import rawEmoji from "../../icon-picker/generated/emoji-data.json";
 import { encodeIcon, type IconValue } from "../../icon-picker/iconValue";
 import { IconPicker } from "../../icon-picker/IconPicker";
 import { PickerStore } from "../../icon-picker/store";
+import type { SymbolMode } from "../../icon-picker/symbols";
 import table from "./generated/strings.json";
 import { hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
 
@@ -31,6 +32,17 @@ export function sectionTitle(strings: Strings, id: string): string {
   const title = strings.t(key);
   if (title !== key || category === null) return title;
   return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+/**
+ * The host's image of a symbol: `__symbol/<name>.png` is the template (monochrome);
+ * `__symbol/<mode>/<name>.png` is drawn in that mode. `style` (the host's accent and appearance)
+ * is in the query so a changed accent never reuses a cached image.
+ */
+export function symbolImageURL(name: string, mode: SymbolMode, style = ""): string {
+  const file = `${encodeURIComponent(name)}.png`;
+  if (mode === "monochrome") return `./__symbol/${file}`;
+  return `./__symbol/${mode}/${file}?style=${encodeURIComponent(style)}`;
 }
 
 export function mountIconPicker(
@@ -68,7 +80,7 @@ export function mountIconPicker(
         onCancel={() => finish({ cancel: true })}
         onClear={session.canClear ? () => finish({ clear: true }) : undefined}
         assets={client && session.assets ? hostAssets(client) : undefined}
-        symbolImageURL={(name) => `./__symbol/${encodeURIComponent(name)}.png`}
+        symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
         error={failure}
       />,
     );

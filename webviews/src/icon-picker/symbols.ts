@@ -55,6 +55,10 @@ export type SymbolMode = "monochrome" | "hierarchical" | "multicolor";
 export const SYMBOL_MODES: readonly SymbolMode[] = ["monochrome", "hierarchical", "multicolor"];
 
 /** The mode a symbol is drawn in under `mode`: multicolor needs a symbol that has colors. */
-export function symbolRendering(_mode: SymbolMode, _multicolor: boolean): SymbolMode {
-  return "monochrome";
+export function symbolRendering(mode: SymbolMode, multicolor: boolean): SymbolMode {
+  return mode === "multicolor" && !multicolor ? "monochrome" : mode;
+}
+
+export function isSymbolMode(value: unknown): value is SymbolMode {
+  return typeof value === "string" && (SYMBOL_MODES as readonly string[]).includes(value);
 }

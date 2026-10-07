@@ -250,7 +250,12 @@ export class PickerStore {
     return this.jump(target.id);
   }
 
-  setSymbolMode(_mode: SymbolMode) {}
+  setSymbolMode(symbolMode: SymbolMode) {
+    if (symbolMode === this.snapshot.symbolMode) return;
+    this.prefs = { ...this.prefs, symbolMode };
+    this.options.prefs?.save(this.prefs);
+    this.update({});
+  }
 
   private update(change: Partial<Omit<PickerSnapshot, "layout" | "jumps" | "symbolMode">>) {
     this.snapshot = this.compute({ ...this.snapshot, ...change });
@@ -278,7 +283,7 @@ export class PickerStore {
       reveal: state.reveal,
       layout,
       jumps,
-      symbolMode: "monochrome",
+      symbolMode: this.prefs.symbolMode ?? "monochrome",
     };
   }
 

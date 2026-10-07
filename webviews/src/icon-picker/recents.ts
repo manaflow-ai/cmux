@@ -2,7 +2,7 @@
 // one small `PickerPrefs` record through `PickerPrefsStore`; the host decides where it lives
 // (the app's personal state, so every window shares it). Pure functions, unit tested.
 import type { SkinTone } from "./emojiData";
-import type { SymbolMode } from "./symbols";
+import { isSymbolMode, type SymbolMode } from "./symbols";
 
 export interface RecentEntry {
   /** iconKey() of the icon, base (untoned) form for emoji. */
@@ -64,7 +64,7 @@ export function searchBoost(
 
 export function decodePrefs(value: unknown): PickerPrefs {
   if (!value || typeof value !== "object") return EMPTY_PREFS;
-  const raw = value as { tone?: unknown; recents?: unknown };
+  const raw = value as { tone?: unknown; recents?: unknown; symbolMode?: unknown };
   const tone = typeof raw.tone === "number" && raw.tone >= 0 && raw.tone <= 5 ? (Math.floor(raw.tone) as SkinTone) : 0;
   const recents = Array.isArray(raw.recents)
     ? raw.recents
@@ -78,5 +78,5 @@ export function decodePrefs(value: unknown): PickerPrefs {
         )
         .slice(0, MAX_RECENTS)
     : [];
-  return { tone, recents };
+  return isSymbolMode(raw.symbolMode) ? { tone, recents, symbolMode: raw.symbolMode } : { tone, recents };
 }
