@@ -151,10 +151,12 @@ export function Stage({
     };
     scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   }
+  const frameWidth = frame.width;
+  const frameHeight = frame.height;
   useEffect(() => {
     if (display.query === query) return;
-    setPending({ query, frame, scale });
-  }, [display.query, frame.height, frame.width, query, scale]);
+    setPending({ query, frame: { width: frameWidth, height: frameHeight }, scale });
+  }, [display.query, frameHeight, frameWidth, query, scale]);
   const frameRef = useCallback(
     (iframe: HTMLIFrameElement | null) => {
       if (!iframe) return;
@@ -164,7 +166,7 @@ export function Stage({
         if (data?.type === "cmux-gallery-play") setReport(data.report);
         if (data?.type === "cmux-gallery-stage" && data.status === "ready") {
           requestAnimationFrame(() => {
-            setDisplay({ query, frame, scale });
+            setDisplay({ query, frame: { width: frameWidth, height: frameHeight }, scale });
             setPending(undefined);
           });
         }
@@ -172,7 +174,7 @@ export function Stage({
       addEventListener("message", receive);
       return () => removeEventListener("message", receive);
     },
-    [frame.height, frame.width, query, scale],
+    [frameHeight, frameWidth, query, scale],
   );
   const shown = display.frame.width === 0 ? { query, frame, scale } : display;
   const next = pending?.query === query ? pending : undefined;
