@@ -38,6 +38,7 @@ let package = Package(
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
+                "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
@@ -137,6 +138,18 @@ let package = Package(
         .testTarget(
             name: "CmuxiOSFeatureKitTests",
             dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Root navigation, placeholder screens, feature flags, DEV sources.
+        .target(
+            name: "CmuxiOSShell",
+            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSShellTests",
+            dependencies: ["CmuxiOSShell", "CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
