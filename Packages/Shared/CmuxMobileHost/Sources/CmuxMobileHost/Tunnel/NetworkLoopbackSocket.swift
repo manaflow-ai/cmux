@@ -21,25 +21,24 @@ final class NetworkLoopbackSocket: MobileLoopbackSocket, @unchecked Sendable {
         let outcome = ConnectOutcome()
         let deadline = Task {
             try? await clock.sleep(for: timeout)
-            outcome.finish(.failure(.timedOut))
+            await outcome.finish(.failure(.timedOut))
         }
         defer { deadline.cancel() }
-        let result = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                outcome.install(continuation)
-                connection.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready: outcome.finish(.success(()))
-                    // `.waiting` is Network.framework retrying (refused); a forward answers now.
-                    case .waiting(let error), .failed(let error): outcome.finish(.failure(Self.refusal(error)))
-                    case .cancelled: outcome.finish(.failure(.failed))
-                    default: break
-                    }
-                }
-                connection.start(queue: DispatchQueue(label: "dev.cmux.mobile.tunnel"))
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready: Task { await outcome.finish(.success(())) }
+            // `.waiting` is Network.framework retrying (refused); a forward answers now.
+            case .waiting(let error), .failed(let error): Task { await outcome.finish(.failure(Self.refusal(error))) }
+            case .cancelled: Task { await outcome.finish(.failure(.failed)) }
+            default: break
             }
+        }
+        // carve-out: Network.framework delivers callbacks on a queue it is given.
+        connection.start(queue: DispatchQueue(label: "dev.cmux.mobile.tunnel"))
+        let result = await withTaskCancellationHandler {
+            await outcome.wait()
         } onCancel: {
-            outcome.finish(.failure(.failed))
+            Task { await outcome.finish(.failure(.failed)) }
         }
         connection.stateUpdateHandler = nil
         switch result {

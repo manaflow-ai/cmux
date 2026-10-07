@@ -16,6 +16,4 @@ public struct MobileTunnelConfiguration: Hashable, Sendable {
         self.connectTimeout = connectTimeout
         self.chunkBytes = chunkBytes
     }
-
-    public static var standard: MobileTunnelConfiguration { MobileTunnelConfiguration() }
 }

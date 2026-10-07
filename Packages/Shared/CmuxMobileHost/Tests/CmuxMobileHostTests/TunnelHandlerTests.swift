@@ -7,7 +7,7 @@ import Testing
 
 @Suite("tcp.forward over the session")
 struct TunnelHandlerTests {
-    private func harness(_ ports: [TunnelPort], configuration: MobileTunnelConfiguration = .standard) async throws -> PhoneHarness {
+    private func harness(_ ports: [TunnelPort], configuration: MobileTunnelConfiguration = MobileTunnelConfiguration()) async throws -> PhoneHarness {
         let tunnels = MobileTunnels(configuration: configuration, ports: StaticTunnelPorts(ports))
         let h = try await PhoneHarness(handlers: tunnels.registering())
         try await h.hello()

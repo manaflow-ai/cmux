@@ -10,7 +10,7 @@ public struct MobileTunnels: Sendable {
     private let connector: any MobileLoopbackConnector
     private let limiter: TunnelStreamLimiter
 
-    public init(configuration: MobileTunnelConfiguration = .standard, ports: any MobileTunnelPortDirectory,
+    public init(configuration: MobileTunnelConfiguration = MobileTunnelConfiguration(), ports: any MobileTunnelPortDirectory,
                 connector: any MobileLoopbackConnector = NetworkLoopbackConnector()) {
         self.configuration = configuration
         self.ports = ports

@@ -32,10 +32,13 @@ struct SimulatorChannelTests {
         try await client.send(Self.touch(.move, 30, 40, buttons: 1))
         try await client.send(Self.touch(.move, 50, 60, buttons: 0))
         try await client.send(Self.touch(.up, 31, 41, buttons: 0))
+        try await client.send(Self.touch(.move, 70, 80, buttons: 0))
         try await client.send(.imeCommit(text: "hi", replacement: nil))
-        await host.device.waitForInputs(4)
+        await host.device.waitForInputs(5)
+        // A move after the touch ended (pointer hover) is not a touch.
         #expect(await host.device.touches == [SimulatorTouch(phase: .began, x: 10, y: 20),
                                               SimulatorTouch(phase: .moved, x: 30, y: 40),
+                                              SimulatorTouch(phase: .moved, x: 50, y: 60),
                                               SimulatorTouch(phase: .ended, x: 31, y: 41)])
         #expect(await host.device.texts == ["hi"])
     }

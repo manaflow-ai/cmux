@@ -14,17 +14,16 @@ struct ListenerStart {
         let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = accept
         let gate = StartGate()
-        let ready: Bool = await withCheckedContinuation { continuation in
-            gate.install(continuation)
-            listener.stateUpdateHandler = { state in
-                switch state {
-                case .ready: gate.finish(true)
-                case .failed, .waiting, .cancelled: gate.finish(false)
-                default: break
-                }
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready: Task { await gate.finish(true) }
+            case .failed, .waiting, .cancelled: Task { await gate.finish(false) }
+            default: break
             }
-            listener.start(queue: queue)
         }
+        // carve-out: Network.framework delivers callbacks on a queue it is given.
+        listener.start(queue: queue)
+        let ready = await gate.wait()
         guard ready else {
             listener.cancel()
             throw LoopbackProxyError.cannotListen

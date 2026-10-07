@@ -45,12 +45,12 @@ actor SimulatorPageAttachment: BrowserPageAttachment {
 
     func apply(_ input: RbInputEvent) async {
         switch input {
-        case .pointer(let kind, let x, let y, _, let buttons, _, _, _):
+        case .pointer(let kind, let x, let y, _, _, _, _, _):
             switch kind {
             case .down:
                 touching = true
                 await device.touch(SimulatorTouch(phase: .began, x: x, y: y))
-            case .move where touching && buttons != 0:
+            case .move where touching:
                 await device.touch(SimulatorTouch(phase: .moved, x: x, y: y))
             case .up where touching, .leave where touching:
                 touching = false
