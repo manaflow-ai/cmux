@@ -6,6 +6,7 @@ import { readChangeSet } from "./changes/model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
 import { turnView } from "./conversation/turns";
+import { renderCall } from "./conversation/renderCall";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -189,6 +190,34 @@ describe("mock transport", () => {
       "working",
       "assistant",
       "activity",
+    ]);
+    client.close();
+  });
+
+  test("a seeded render call draws as a render card above the reply", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-typing-latency");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-typing-latency" && snapshots.at(-1)!.rows.length > 0);
+    const view = turnView(snapshots.at(-1)!.rows, new Set());
+    const kinds = view.map((row) => row.kind);
+    expect(kinds.indexOf("render")).toBe(kinds.indexOf("assistant") - 1);
+    const tool = view.find((row) => row.kind === "render")!.items![0]!.tool!;
+    expect(renderCall(tool)?.title).toBe("Keystroke to paint, median ms");
+    client.close();
+  });
+
+  test("a seeded turn with two renders draws them as one row of options", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-markdown-lists");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-markdown-lists" && snapshots.at(-1)!.rows.length > 0);
+    const rows = turnView(snapshots.at(-1)!.rows, new Set()).filter((row) => row.kind === "render");
+    expect(rows).toHaveLength(1);
+    const calls = rows[0]!.items!.map((item) => renderCall(item.tool!));
+    expect(calls.map((call) => [call?.title, call?.recommended ?? false])).toEqual([
+      ["Nested 4 px", true],
+      ["Nested 8 px", false],
     ]);
     client.close();
   });

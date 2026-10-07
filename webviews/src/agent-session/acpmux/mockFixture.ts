@@ -36,6 +36,9 @@ export type MockSession = {
   permission?: { title: string; kind: string };
   /// The call a running session is in the middle of, after its last text.
   working?: { title: string; kind: string; command?: string };
+  /// Pages the agent rendered before its reply (`cmux mcp`'s render tool): one card, or options
+  /// side by side with one recommended.
+  renders?: { title: string; html: string; recommended?: boolean }[];
 };
 
 type Update = Record<string, unknown>;
@@ -189,6 +192,7 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply:
       "Median keystroke-to-paint is 7.8 ms in a single pane and 8.1 ms with four splits. No regression against main.",
+    renders: [{ title: "Keystroke to paint, median ms", html: latencyChart() }],
   },
   {
     sessionId: "mock-ci-cache",
@@ -239,7 +243,11 @@ export const mockSessions: MockSession[] = [
     ago: 1440,
     host: LOCAL_HOST,
     hostKind: "local",
-    reply: "Nested lists now sit 4 px under their item.",
+    reply: "Two spacings for nested lists. I'd take 4 px: the nesting still reads and long lists stay short.",
+    renders: [
+      { title: "Nested 4 px", html: listMock(4), recommended: true },
+      { title: "Nested 8 px", html: listMock(8) },
+    ],
   },
   {
     sessionId: "mock-restore-launch",
@@ -599,6 +607,46 @@ export const PERMISSION_OPTIONS = [
   { optionId: "reject_once", name: "Deny", kind: "reject_once" },
 ];
 
+/// A markdown list with nested items `gap` px under their parent, as an agent would mock it.
+function listMock(gap: number): string {
+  const item = (text: string) => `<li>${text}<ul><li>First detail</li><li>Second detail</li></ul></li>`;
+  return (
+    `<style>body{padding:12px 16px}ul{margin:0;padding-left:18px}li{line-height:20px}` +
+    `li ul{margin-top:${gap}px;color:var(--cmux-muted)}li+li{margin-top:6px}</style>` +
+    `<ul>${item("Install the app")}${item("Open a workspace")}${item("Start an agent")}</ul>`
+  );
+}
+
+/// A bar chart of median keystroke-to-paint per layout, as an agent would render it: plain SVG
+/// in the pane's theme variables, no library.
+function latencyChart(): string {
+  const bars: [string, number, number][] = [
+    ["1 pane", 7.8, 7.7],
+    ["2 splits", 7.9, 7.9],
+    ["4 splits", 8.1, 8.2],
+    ["8 splits", 8.6, 8.9],
+  ];
+  const scale = (ms: number) => Math.round(ms * 16);
+  const rows = bars
+    .map(([label, branch, main], index) => {
+      const y = 14 + index * 34;
+      return (
+        `<text x="0" y="${y + 13}" class="l">${label}</text>` +
+        `<rect x="76" y="${y}" width="${scale(branch)}" height="11" rx="2" class="b"/>` +
+        `<rect x="76" y="${y + 13}" width="${scale(main)}" height="7" rx="2" class="m"/>` +
+        `<text x="${82 + scale(branch)}" y="${y + 10}" class="v">${branch.toFixed(1)}</text>`
+      );
+    })
+    .join("");
+  return (
+    "<style>body{padding:14px 16px}svg{display:block;width:420px;max-width:100%;height:auto;font:12px var(--cmux-font)}" +
+    ".l{fill:var(--cmux-muted)}.v{fill:var(--cmux-text)}.b{fill:#3b82f6}.m{fill:var(--cmux-border)}" +
+    "p{margin:10px 0 0;color:var(--cmux-muted);font-size:12px}i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 5px 0 12px}</style>" +
+    `<svg viewBox="0 0 420 148" role="img" aria-label="Median keystroke-to-paint by layout">${rows}</svg>` +
+    '<p><i style="background:#3b82f6;margin-left:0"></i>This branch<i style="background:var(--cmux-border)"></i>main</p>'
+  );
+}
+
 /// A short exchange for every other session, so any row the reader opens has a transcript. A
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
@@ -606,8 +654,20 @@ export function sessionHistory(session: MockSession): SeedStep[] {
   const steps: SeedStep[] = [
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },
-    { ago: at + 30_000, update: text(session.reply ?? "Done.") },
   ];
+  for (const [index, render] of (session.renders ?? []).entries())
+    steps.push({
+      ago: at + 40_000 - index * 1_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: `${session.sessionId}-render-${index}`,
+        kind: "other",
+        title: "mcp__cmux__render",
+        status: "completed",
+        rawInput: render,
+      },
+    });
+  steps.push({ ago: at + 30_000, update: text(session.reply ?? "Done.") });
   if (session.permission) {
     const toolCallId = `${session.sessionId}-tool`;
     steps.push(
