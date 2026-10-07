@@ -380,6 +380,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_FAILED", CMUX_RD_ERR_FAILED),
         ("CMUX_RD_ERR_PANIC", CMUX_RD_ERR_PANIC),
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
+        ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -415,6 +416,9 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_PATH_VIA_CLOUD_REGION", CMUX_RD_PATH_VIA_CLOUD_REGION as usize),
         ("CMUX_RD_PATH_DO_RELAY", CMUX_RD_PATH_DO_RELAY as usize),
         ("CMUX_RD_UPSTREAM_MAX_QUEUED", CMUX_RD_UPSTREAM_MAX_QUEUED),
+        ("CMUX_RD_MEDIA_MIC", CMUX_RD_MEDIA_MIC as usize),
+        ("CMUX_RD_MEDIA_CAMERA", CMUX_RD_MEDIA_CAMERA as usize),
+        ("CMUX_RD_MEDIA_SCREEN", CMUX_RD_MEDIA_SCREEN as usize),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }
