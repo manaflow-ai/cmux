@@ -412,6 +412,11 @@ impl Hub {
         self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
+    /// Where adopt looks for harness sessions by default.
+    pub fn harness_homes(&self) -> crate::adopt::HarnessHomes {
+        self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
         *self.harness_homes.lock().unwrap() = homes;

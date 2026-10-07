@@ -9,6 +9,7 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+mod open;
 mod query;
 mod sources;
 mod watch;
@@ -24,6 +25,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::ChatQuery;
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
