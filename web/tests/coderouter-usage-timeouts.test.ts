@@ -121,6 +121,32 @@ describe("coderouter usage read timeouts", () => {
     expect(run.reported).toEqual([]);
   });
 
+  test("a credential refresh timeout keeps its report and does not count toward the streak", async () => {
+    const reported: Reported[] = [];
+    const observed: number[] = [];
+    const load = createAccountsUsageLoader({
+      listAccounts: async () => [account],
+      listEncryptedCredentials: async () => [envelope],
+      markCooldown: async () => {},
+      credential: async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+      fetchUsage: async () => Response.json({ plan_type: "pro" }),
+      report: (failure, _error, context = {}, options = {}) => {
+        reported.push({ failure, context, options });
+      },
+      observeTimeout: (observation) => {
+        observed.push(observation.consecutive);
+      },
+      timeoutStreaks: createUsageTimeoutStreaks(),
+    });
+    const result = await load("team-1");
+    expect(result.accounts[0]).toMatchObject({ usageError: "unavailable" });
+    expect(observed).toEqual([]);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.failure).toBe("provider_usage");
+  });
+
   test("upstream faults are warnings in Sentry and PostHog", () => {
     expect(coderouterFailureSeverity("provider_usage", { fault: "upstream" })).toEqual({
       sentry: "warning",

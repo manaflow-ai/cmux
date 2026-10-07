@@ -140,13 +140,13 @@ async function accountUsage(
       known,
     });
     if (credential.provider !== "codex") return account;
-    let response = await dependencies.fetchUsage(credential);
+    let response = await usageRead(() => dependencies.fetchUsage(credential));
     if (response.status === 401) {
       // Release the rejected response's connection before the retry.
       await response.body?.cancel().catch(() => undefined);
       const refreshed = await refreshRejectedCredential(dependencies, teamId, account, known);
       if (refreshed.provider !== "codex") return account;
-      response = await dependencies.fetchUsage(refreshed);
+      response = await usageRead(() => dependencies.fetchUsage(refreshed));
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
@@ -160,7 +160,7 @@ async function accountUsage(
       );
       return { ...account, usageError: `HTTP ${response.status}` };
     }
-    const usage: unknown = await response.json();
+    const usage: unknown = await usageRead(() => response.json());
     dependencies.timeoutStreaks.clear(account.id);
     const cooldownMs = usageCooldown(usage);
     if (cooldownMs !== null) {
@@ -177,7 +177,7 @@ async function accountUsage(
     if (error instanceof CodeRouterRefreshBusy) {
       return { ...account, usageError: "credential_refreshing" };
     }
-    if (isTimeout(error)) return reportUsageTimeout(dependencies, account, error);
+    if (error instanceof UsageReadTimeout) return reportUsageTimeout(dependencies, account, error.cause);
     dependencies.report("provider_usage", error, {
       provider: account.provider,
     });
@@ -218,8 +218,24 @@ function observeUsageTimeout(observation: UsageTimeoutObservation): void {
   });
 }
 
-function isTimeout(error: unknown): boolean {
-  return error instanceof Error && error.name === "TimeoutError";
+/**
+ * Marks a timeout from the usage read itself. Credential refresh timeouts
+ * keep their normal reporting and never count toward the streak.
+ */
+class UsageReadTimeout extends Error {
+  constructor(readonly cause: unknown) {
+    super("usage read timed out");
+    this.name = "TimeoutError";
+  }
+}
+
+async function usageRead<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") throw new UsageReadTimeout(error);
+    throw error;
+  }
 }
 
 /**
