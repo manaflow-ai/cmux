@@ -17,6 +17,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
+import "../../../markdown-task-checkbox.css";
 import { ImageViewerContext } from "./imageViewerContext";
 
 export type Align = "left" | "center" | "right" | null;
@@ -465,7 +466,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     const image = <img className="cv-img" src={src} alt={alt} />;
     if (!openImage) return image;
     return (
-      <button type="button" className="cv-img-open" title={alt || t("image.open")} onClick={() => openImage(src, alt)}>
+      <button type="button" className="cv-img-open" title={alt || t("image.view")} onClick={() => openImage(src, alt)}>
         {image}
       </button>
     );

@@ -80,10 +80,24 @@ import Testing
     }
 
     @Test func aServerThatIsThisMacUsesTheBrainSocketDirectly() {
-        let local = ServerReachPlan.LocalServer(hostName: "cmuxs-Mac-mini", brainSocket: "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock")
+        let local = ServerReachPlan.LocalServer(hostNames: ["cmuxs-Mac-mini"], brainSocket: "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock")
         let plan = ServerReachPlan.make(chiefs: [Self.chief("a", placedOn: Self.host)],
                                         hosts: [PairedServer(host: Self.host, name: "cmuxs-Mac-mini", kind: "server")], local: local)
         #expect(plan.desired.first?.route == .unix(local.brainSocket))
+    }
+
+    /// A Mac whose DHCP host name ("mac") differs from the LocalHostName the
+    /// server was paired under is still this Mac: any of its names matches.
+    @Test func thisMacMatchesUnderAnyOfItsNames() {
+        let socket = "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock"
+        let local = ServerReachPlan.LocalServer(hostNames: ["mac", "cmuxs-MacBook-Pro-2", "cmux’s MacBook Pro (2)"], brainSocket: socket)
+        let host = PairedServer(host: Self.host, name: "cmuxs-MacBook-Pro-2", kind: "server")
+        #expect(ServerReachPlan.route(for: host, local: local) == .unix(socket))
+        let other = PairedServer(host: Self.otherHost, name: "build-box", kind: "server")
+        guard case .ssh = ServerReachPlan.route(for: other, local: local) else {
+            Issue.record("a server with another name must not be this Mac")
+            return
+        }
     }
 
     @Test func diffKeepsShownServersAndRemovesRevokedOnes() throws {
