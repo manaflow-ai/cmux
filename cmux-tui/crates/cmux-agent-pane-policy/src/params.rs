@@ -42,7 +42,10 @@ pub fn breaks_params_rule(
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
-    if meta.keys().any(|k| k != "acpmux") {
+    // A prompt held for the folder trust answer redeems its ticket beside its
+    // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
+    let prompt = method == "session/prompt";
+    if meta.keys().any(|k| k != "acpmux" && !(prompt && *k == p.gesture_ticket_key)) {
         return true;
     }
     let Some(raw_acpmux) = meta.get("acpmux") else { return false };
@@ -109,7 +112,10 @@ pub fn take_gesture_ticket(object: &Map<String, Value>) -> TakenTicket {
     let Some(value) = meta.get(key) else { return none() };
     let mut meta = meta.clone();
     meta.remove(key);
-    let other_meta = !meta.is_empty();
+    // A prompt's acpmux (its promptId, which a held prompt's ticket is bound
+    // to) is not other meta (AcpmuxPaneMethods+GestureTicket.swift).
+    let prompt = object.get("method").and_then(Value::as_str) == Some("session/prompt");
+    let other_meta = meta.keys().any(|k| !(prompt && k == "acpmux"));
     let mut params = params.clone();
     if meta.is_empty() {
         params.remove("_meta");

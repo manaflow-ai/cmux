@@ -893,6 +893,56 @@
   }
  },
  {
+  "name": "a prompt held for the trust answer redeems its ticket bound to its promptId",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"cmuxGesture\":\"t4\",\"acpmux\":{\"promptId\":\"p1\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 21,
+    "method": "session/prompt",
+    "params": {
+     "sessionId": "s1",
+     "prompt": [],
+     "_meta": {
+      "acpmux": {
+       "promptId": "p1"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/prompt",
+    "page_id": "21",
+    "ticket": "t4",
+    "other_meta": false,
+    "pick": {
+     "method": "session/prompt",
+     "params": {
+      "promptId": "p1"
+     }
+    },
+    "session_id": "s1",
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "an unknown top-level key (result) is refused",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"_acpmux/harnesses\",\"params\":{},\"result\":1}",
   "state": {

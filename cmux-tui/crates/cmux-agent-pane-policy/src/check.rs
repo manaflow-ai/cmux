@@ -55,6 +55,16 @@ pub struct GesturePick {
 
 impl GesturePick {
     pub fn new(method: Option<&str>, params: &Map<String, Value>) -> Self {
+        // A session/prompt picks only its `_meta.acpmux.promptId` (its blocks
+        // are no pick).
+        if method == Some("session/prompt") {
+            let id =
+                params.get("_meta").and_then(|m| m.get("acpmux")).and_then(|a| a.get("promptId"));
+            let params = id
+                .and_then(Value::as_str)
+                .map(|id| BTreeMap::from([("promptId".to_owned(), Value::String(id.to_owned()))]));
+            return GesturePick { method: method.map(str::to_owned), params };
+        }
         let mut scalars = BTreeMap::new();
         for (key, value) in params {
             if key == "sessionId" || key == "_meta" {

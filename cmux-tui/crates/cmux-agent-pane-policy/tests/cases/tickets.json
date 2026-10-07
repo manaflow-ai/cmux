@@ -252,5 +252,77 @@
    "config_id": "c",
    "value": null
   }
+ },
+ {
+  "name": "a held prompt's ticket: its acpmux is not other meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "ticket": "t",
+  "other_meta": false,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "prompt_stripped": null,
+  "setting": null
+ },
+ {
+  "name": "a setting's ticket beside acpmux: other meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "ticket": "t",
+  "other_meta": true,
+  "without_ticket": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m",
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "prompt_stripped": null,
+  "setting": {
+   "session_id": "s",
+   "config_id": "mode",
+   "value": "m"
+  }
  }
 ]

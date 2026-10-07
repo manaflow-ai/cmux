@@ -269,7 +269,7 @@
   "breaks": false
  },
  {
-  "name": "ticket on a non-setting method",
+  "name": "a held prompt may carry its ticket (AcpmuxPaneMethods breaksParamsRule, 190a5c96c1e)",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -282,7 +282,7 @@
    }
   },
   "mode_fields": null,
-  "breaks": true
+  "breaks": false
  },
  {
   "name": "set_mode acpmux key",
@@ -738,5 +738,56 @@
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "a held prompt carries its ticket beside acpmux.promptId",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {
+      "promptId": "p1"
+     }
+    }
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "a prompt's ticket beside another meta key breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "cmuxGesture": "t",
+     "x": 1
+    }
+   }
+  },
+  "breaks": true
+ },
+ {
+  "name": "a ticket on session/new (neither setting nor prompt) breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/new",
+   "params": {
+    "cwd": "/x",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "breaks": true
  }
 ]
