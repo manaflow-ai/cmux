@@ -7,7 +7,7 @@ import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
 import { hyperdriveSqlLayer } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
-import { makeUpstreamClient, UpstreamClient } from "./upstream/client.ts";
+import { upstreamLayer } from "./upstream/live.ts";
 
 export interface Env {
   readonly HYPERDRIVE: Hyperdrive;
@@ -21,10 +21,7 @@ export interface Env {
 const liveServices = (env: Env) =>
   Layer.mergeAll(
     sqlStoresLayer.pipe(Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString))),
-    Layer.succeed(
-      UpstreamClient,
-      makeUpstreamClient({ baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY) }),
-    ),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
     stackLayers({
       apiUrl: env.STACK_API_URL,
       projectId: env.STACK_PROJECT_ID,

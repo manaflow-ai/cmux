@@ -10,7 +10,8 @@ import { generateApiKey, hashApiKey, makeStackSessionVerifier, SessionVerifier, 
 import { ApiKeyStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newVmId, TenantId, UpstreamId, UserId, type VmId } from "../../src/lib/ids.ts";
-import { makeUpstreamClient, UpstreamClient } from "../../src/upstream/client.ts";
+import { UpstreamClient } from "../../src/upstream/client.ts";
+import { makeUpstreamClient } from "../../src/upstream/live.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";

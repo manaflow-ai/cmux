@@ -11,7 +11,7 @@ import type { Principal } from "../../src/domain/principal.ts";
 import { newApiKeyId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
-import { makeUpstreamClient } from "../../src/upstream/client.ts";
+import { makeUpstreamClient } from "../../src/upstream/live.ts";
 
 describe("TenantOwnsResource evidence", () => {
   it("cannot be copied or re-pointed", async () => {
