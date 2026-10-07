@@ -57,7 +57,7 @@ extension SidebarView {
     func updateBands() {
         let width = bounds.width
         let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
-        let (above, trail, below) = model.layout.bandsAroundList(room: model.activeProfileID?.rawValue, hiding: .hiddenByHeaders())
+        let (above, trail, below) = model.layout.bandsAroundList(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)

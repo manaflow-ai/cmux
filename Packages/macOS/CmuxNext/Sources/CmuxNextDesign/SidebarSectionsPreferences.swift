@@ -35,9 +35,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
     public var showProjects = true
-    /// The Recents section shows; its header's menu hides it (`sidebar.showRecents`).
-    public var showRecents = true
-    /// Whether the device-wide Chats section is shown in the sidebar.
+    /// Whether the device-wide Chats section is shown in the sidebar; its
+    /// header's Hide Section turns it off.
     public var showChats = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.

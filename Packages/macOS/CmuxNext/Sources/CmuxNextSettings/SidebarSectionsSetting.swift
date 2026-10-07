@@ -13,7 +13,6 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
-    public static let showRecentsPath = ["sidebar", "showRecents"]
     public static let showChatsPath = ["sidebar", "showChats"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -40,17 +39,14 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
-    /// Projects and Recents, which their headers' menus hide (Leo 2026-10-06).
+    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
+    /// Show Chats (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
         [
             SettingDescriptor(showProjectsPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProjects),
                               keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]),
-            SettingDescriptor(showRecentsPath, section: .appearance, group: group,
-                              title: SettingsText.keyed("settings.sidebar.showRecents", "Show Recents"),
-                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showRecents),
-                              keywords: ["sidebar", "recents", "chats", "section", "hide", "show"]),
         ]
     }
 
@@ -112,7 +108,6 @@ public nonisolated enum SidebarSectionsSetting {
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
-        result.showRecents = flag(root, showRecentsPath, fallback: result.showRecents, &diagnostics)
         if let value = root.value(at: showChatsPath) {
             if let flag = value.boolValue {
                 result.showChats = flag
