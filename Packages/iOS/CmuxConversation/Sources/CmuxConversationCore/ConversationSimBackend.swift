@@ -324,7 +324,9 @@ enum WireDecoding {
                 name: p["name"] as? String ?? id,
                 initials: p["initials"] as? String ?? "",
                 colorHex: p["colorHex"] as? String ?? "#8E8E93",
-                isMe: p["isMe"] as? Bool ?? false
+                isMe: p["isMe"] as? Bool ?? false,
+                notificationsSilenced: p["notificationsSilenced"] as? Bool ?? false,
+                hasLeft: p["left"] as? Bool ?? false
             )
         }
         return ConversationInfo(
@@ -349,6 +351,9 @@ enum WireDecoding {
 
     static func message(_ raw: [String: Any], base: URL) -> ConversationMessage? {
         guard let id = raw["id"] as? String, let senderID = raw["senderId"] as? String else { return nil }
+        // A status row of a kind this client does not know is skipped, never
+        // shown as an empty bubble.
+        if let system = raw["system"] as? [String: Any], systemEvent(system) == nil { return nil }
         let sentAt = date(raw["sentAt"]) ?? Date()
         let reactions = (raw["reactions"] as? [[String: Any]] ?? []).compactMap { r -> ConversationReactionMark? in
             guard let participant = r["participantId"] as? String,
@@ -381,8 +386,17 @@ enum WireDecoding {
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
             textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
             linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) },
-            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:))
+            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
+            systemEvent: (raw["system"] as? [String: Any]).flatMap(systemEvent),
+            deliveredQuietly: raw["deliveredQuietly"] as? Bool ?? false,
+            notifiedAnyway: raw["notifiedAnyway"] as? Bool ?? false
         )
+    }
+
+    /// `{kind, targetId?, name?}`.
+    static func systemEvent(_ raw: [String: Any]) -> ConversationSystemEvent? {
+        guard let kind = (raw["kind"] as? String).flatMap(ConversationSystemEvent.Kind.init(rawValue:)) else { return nil }
+        return ConversationSystemEvent(kind: kind, targetID: raw["targetId"] as? String, name: raw["name"] as? String)
     }
 
     static func linkPreview(_ raw: [String: Any], base: URL) -> ConversationLinkPreview? {
@@ -515,5 +529,12 @@ extension ConversationSimBackend: ConversationAudioBackend {
 
     public func markAudioPlayed(messageID: String) async {
         _ = try? await core.request("audioPlayed", params: JSONBox(["messageId": messageID]), timeout: .seconds(5))
+    }
+}
+
+extension ConversationSimBackend: ConversationNotificationStateBackend {
+    public func notifyAnywayAbout(messageID: String) async throws -> ConversationMessage {
+        let result = try await core.request("notifyAnyway", params: JSONBox(["messageId": messageID]), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
 }

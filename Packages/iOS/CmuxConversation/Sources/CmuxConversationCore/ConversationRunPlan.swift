@@ -9,6 +9,8 @@ public struct ConversationRunPlan: Sendable, Equatable {
         case delivered
         case read(Date?)
         case notDelivered
+        /// "Delivered Quietly": the recipient's Focus silenced notifications.
+        case deliveredQuietly
     }
 
     public struct Entry: Sendable, Equatable {
@@ -29,14 +31,15 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
         var lastAckedOutgoing = messages.lastIndex { message in
-            guard message.senderID == meID, !message.isUnsent else { return false }
+            guard message.senderID == meID, !message.isUnsent, !message.isSystemEvent else { return false }
             switch message.delivery {
             case .delivered, .read: return true
             default: return false
             }
         }
-        // Once someone replies below it, the status has done its job.
-        if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID }) {
+        // Once someone replies below it, the status has done its job (a
+        // status row such as someone leaving is not a reply).
+        if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID && !$0.isSystemEvent }) {
             lastAckedOutgoing = nil
         }
         var entries: [Entry] = []
@@ -56,7 +59,7 @@ public struct ConversationRunPlan: Sendable, Equatable {
                 status = .notDelivered
             } else if message.senderID == meID, index == lastAckedOutgoing {
                 switch message.delivery {
-                case .delivered: status = .delivered
+                case .delivered: status = message.deliveredQuietly ? .deliveredQuietly : .delivered
                 case let .read(date): status = .read(date)
                 default: status = .none
                 }
@@ -71,8 +74,9 @@ public struct ConversationRunPlan: Sendable, Equatable {
     }
 
     static func sameRun(_ a: ConversationMessage, _ b: ConversationMessage) -> Bool {
-        // An unsent message renders as a centered notice, which ends the run
-        // above it (that bubble regains its tail) and starts a new one below.
-        !a.isUnsent && !b.isUnsent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
+        // An unsent message or a group status row renders as a centered
+        // notice, which ends the run above it (that bubble regains its tail)
+        // and starts a new one below (sender name and all).
+        !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
     }
 }

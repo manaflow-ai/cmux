@@ -107,3 +107,20 @@ public protocol ConversationAudioBackend: ConversationBackend {
 public extension ConversationBackend {
     func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
 }
+
+/// Focus and Notify Anyway. Optional: a backend without notification state
+/// never reports silenced participants, so the UI never offers the action.
+public protocol ConversationNotificationStateBackend: ConversationBackend {
+    /// Notify Anyway for one of my quietly delivered messages. The result
+    /// carries `notifiedAnyway`.
+    func notifyAnywayAbout(messageID: String) async throws -> ConversationMessage
+}
+
+extension ConversationBackend {
+    public func notifyAnyway(messageID: String) async throws -> ConversationMessage {
+        if let backend = self as? any ConversationNotificationStateBackend {
+            return try await backend.notifyAnywayAbout(messageID: messageID)
+        }
+        throw ConversationBackendError(code: -32601, message: "notify anyway unsupported")
+    }
+}

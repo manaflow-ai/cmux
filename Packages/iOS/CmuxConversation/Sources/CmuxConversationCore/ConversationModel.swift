@@ -8,13 +8,20 @@ public struct ConversationParticipant: Sendable, Hashable, Identifiable {
     /// `#RRGGBB`, used for the avatar fill.
     public var colorHex: String
     public var isMe: Bool
+    /// A Focus is on and shared: Messages delivers quietly and shows
+    /// "<Name> has notifications silenced".
+    public var notificationsSilenced: Bool
+    /// Left (or was removed from) the group. Their messages keep their name.
+    public var hasLeft: Bool
 
-    public init(id: String, name: String, initials: String, colorHex: String, isMe: Bool) {
+    public init(id: String, name: String, initials: String, colorHex: String, isMe: Bool, notificationsSilenced: Bool = false, hasLeft: Bool = false) {
         self.id = id
         self.name = name
         self.initials = initials
         self.colorHex = colorHex
         self.isMe = isMe
+        self.notificationsSilenced = notificationsSilenced
+        self.hasLeft = hasLeft
     }
 }
 
@@ -228,6 +235,13 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
     public var effect: ConversationMessageEffect?
+    /// A group change ("Lawrence named the conversation …") in a message's
+    /// place: a centered status row, never a bubble. `senderID` is the actor.
+    public var systemEvent: ConversationSystemEvent?
+    /// Mine, delivered while the recipient had notifications silenced.
+    public var deliveredQuietly: Bool
+    /// I tapped Notify Anyway for this quietly delivered message.
+    public var notifiedAnyway: Bool
 
     public init(
         id: String,
@@ -247,7 +261,10 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
         linkPreview: ConversationLinkPreview? = nil,
-        effect: ConversationMessageEffect? = nil
+        effect: ConversationMessageEffect? = nil,
+        systemEvent: ConversationSystemEvent? = nil,
+        deliveredQuietly: Bool = false,
+        notifiedAnyway: Bool = false
     ) {
         self.id = id
         self.seq = seq
@@ -267,6 +284,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.textRuns = textRuns
         self.linkPreview = linkPreview
         self.effect = effect
+        self.systemEvent = systemEvent
+        self.deliveredQuietly = deliveredQuietly
+        self.notifiedAnyway = notifiedAnyway
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -274,6 +294,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var rowID: String { clientMessageID.map { "c:\($0)" } ?? "s:\(id)" }
 
     public var isUnsent: Bool { unsentAt != nil }
+
+    /// A status row (group change), not something anyone said.
+    public var isSystemEvent: Bool { systemEvent != nil }
 }
 
 public struct ConversationHistoryPage: Sendable {
