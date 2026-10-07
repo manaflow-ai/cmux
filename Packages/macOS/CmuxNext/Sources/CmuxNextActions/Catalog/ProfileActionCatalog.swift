@@ -105,7 +105,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.setIcon",
                 title: String(localized: "action.space.setIcon", defaultValue: "Set Space Icon…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "icon", "emoji", "symbol"], category: .workspace, symbol: "face.smiling",
-                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString], targets: [.profile],
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.iconString.optional], targets: [.profile],
                 cliName: "space set-icon"
             ),
             ActionDescriptor(
