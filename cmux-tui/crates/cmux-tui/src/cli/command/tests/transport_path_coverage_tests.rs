@@ -11,7 +11,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 181);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 193);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 194);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -101,6 +101,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The verified app mints confirmations for its own
                         // page relay; the CLI is never that app.
                         | "origin.confirmation.issue"
+                        // Only the user sets where a workspace's agents run,
+                        // through the verified app (gate A2).
+                        | "workspace.agent_folder.set"
             )
         })
         .map(String::as_str)

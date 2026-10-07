@@ -98,6 +98,7 @@ extension WindowState {
         sidebarHidden = record.sidebarHidden
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
+        if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

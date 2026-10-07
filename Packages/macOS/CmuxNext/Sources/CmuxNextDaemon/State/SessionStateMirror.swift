@@ -41,6 +41,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var closed: [ClosedItem] = []
     public var workspaceStatus: [ResourceID: WorkspaceStatus] = [:]
     public var ephemeralWorkspaces: Set<ResourceID> = []
+    /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
+    public var agentFolders: [ResourceID: String] = [:]
     public var screens: [ResourceID: ScreenState] = [:]
     public var screenGroups: [String: StateScreenGroup] = [:]
     public var tabs: [ResourceID: TabRecord] = [:]
@@ -58,10 +60,12 @@ public struct SessionStateMirror: Sendable, Hashable {
 
     public mutating func apply(_ change: SessionStateChange) {
         switch change {
-        case .workspace(let id, let ephemeral):
+        case .workspace(let id, let ephemeral, let agentFolder):
             if ephemeral { ephemeralWorkspaces.insert(id) } else { ephemeralWorkspaces.remove(id) }
+            agentFolders[id] = agentFolder
         case .workspaceRemoved(let id):
             ephemeralWorkspaces.remove(id)
+            agentFolders[id] = nil
             workspaceStatus[id] = nil
         case .screen(let id, let state):
             screens[id] = state
