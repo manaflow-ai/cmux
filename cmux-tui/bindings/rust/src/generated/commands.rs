@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1f04590bd9fd11a15904188a13621ce1a75b0530087df0bcb710303b76428800.
+// cmux-tui mux protocol 12, IR 50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -554,6 +554,32 @@ pub struct CloudInboxUnsubscribeRequest {
 
 #[rustfmt::skip]
 pub type CloudInboxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxAckRequest {
+    pub conversation: String,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudMuxAckResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxSubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxUnsubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -3500,6 +3526,18 @@ impl CmuxClient {
 
     pub fn cloud_inbox_unsubscribe(&mut self, request: CloudInboxUnsubscribeRequest) -> Result<CloudInboxUnsubscribeResult> {
         self.execute(&CLOUD_INBOX_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_mux_ack(&mut self, request: CloudMuxAckRequest) -> Result<CloudMuxAckResult> {
+        self.execute(&CLOUD_MUX_ACK_METADATA, &request)
+    }
+
+    pub fn cloud_mux_subscribe(&mut self, request: CloudMuxSubscribeRequest) -> Result<CloudMuxSubscribeResult> {
+        self.execute(&CLOUD_MUX_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_mux_unsubscribe(&mut self, request: CloudMuxUnsubscribeRequest) -> Result<CloudMuxUnsubscribeResult> {
+        self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
     }
 
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
