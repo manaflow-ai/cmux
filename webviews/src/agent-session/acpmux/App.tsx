@@ -60,6 +60,7 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -92,6 +93,9 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { SUBAGENTS } from "./subagents/subagentFold";
+import { SUBAGENT_ROW, withSubagentRows } from "./subagents/subagentRows";
+import { SubagentGroupHeader, SubagentListRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -325,6 +329,23 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
+const SubagentGroupRow = memo(
+  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const SubagentRow = memo(
+  function SubagentRow({ row }: RowProps) {
+    return <SubagentListRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
@@ -350,6 +371,8 @@ const defaultRegistry: NativeRegistry = {
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
   [MOVE_ROW]: MoveRow,
+  [SUBAGENTS]: SubagentGroupRow,
+  [SUBAGENT_ROW]: SubagentRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -959,7 +982,10 @@ function AcpmuxPane() {
         )
       : snapshot.rows;
     return withMoveRows(
-      withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns),
+      withShellRows(
+        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        chatShellRuns,
+      ),
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
@@ -1397,6 +1423,10 @@ function AcpmuxPane() {
     const startedSessions = new Set<string>();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
+    /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
+    const heldPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -1536,6 +1566,9 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // The send's own gesture is kept for this prompt now, before the Trust click, whose
+              // gesture goes to the trust answer (heldPrompt.ts).
+              void heldPrompt.hold();
               if (!inComposer) restorePrompt(text, attachments);
               trustRefused.current?.(error, () => composerHandle.current?.send());
             }
@@ -1550,10 +1583,12 @@ function AcpmuxPane() {
               refused(error, (error as { handedBack?: unknown }).handedBack === true),
             );
           }
+          // A prompt acpmux held goes with the gesture its first send kept.
+          const kept = heldPrompt.take();
           const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, undefined, accepted)
+            .send(text, attachments, kept?.promptId, accepted, kept?.ticket)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
@@ -2011,10 +2046,19 @@ function AcpmuxPane() {
             if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
             return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
           };
+          // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+          // swaps it when the chat's session starts) puts the prompt in the one shown now.
+          const holder = composerHandle.current;
           const turn = send();
           turn.then(() => promptLanded.current(), cancelOpenInWindow);
           // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-          return Promise.race([taken, turn.then(() => true as const)]);
+          const held = Promise.race([taken, turn.then(() => true as const)]);
+          held.catch(() => {
+            if (composerHandle.current === holder) return;
+            if (composerHandle.current) composerHandle.current.restore(text, attachments);
+            else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          });
+          return held;
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}

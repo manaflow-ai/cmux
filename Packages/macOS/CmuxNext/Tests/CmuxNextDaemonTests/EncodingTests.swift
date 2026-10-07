@@ -125,6 +125,18 @@ import Testing
         #expect(unpin["sticky"] == nil)
     }
 
+    /// `dock-column-role-v1`: an agent chat dock read from the daemon is sent
+    /// back with its role; a dock without one sends none.
+    @Test func dockRequestsCarryTheDockRole() throws {
+        let chat = try JSONDecoder().decode(DockSnapshot.self, from: Data(#"{"edge":"left","mode":"docked","role":"agent_chat"}"#.utf8))
+        #expect(try object(SetColumnDockRequest(pane: 4, dock: chat))["role"] == .string("agent_chat"))
+        let move = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), dock: chat))
+        #expect(move["dock"]?["role"] == .string("agent_chat"))
+        let plain = DockSnapshot(edge: .left, mode: .docked)
+        #expect(try object(SetColumnDockRequest(pane: 4, dock: plain))["role"] == nil)
+        #expect(try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), dock: plain))["dock"]?["role"] == nil)
+    }
+
     @Test func tabDragCommandsCarryTransaction() throws {
         let split = try object(MoveTabToSplitRequest(surface: 3, pane: 4, edge: .left, transaction: "tx"))
         #expect(split["cmd"] == .string("move-tab-to-split"))

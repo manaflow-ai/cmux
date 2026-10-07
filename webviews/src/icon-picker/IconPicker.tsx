@@ -25,9 +25,20 @@ export interface IconPickerProps {
   assets?: IconAssetSink;
   /** The host's URL for a rendered SF Symbol (template image; the page tints it). */
   symbolImageURL?: (name: string) => string;
+  /** Why the last pick did not apply (the host refused it); shown until the next session. */
+  error?: string;
 }
 
-export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, symbolImageURL }: IconPickerProps) {
+export function IconPicker({
+  store,
+  strings,
+  onPick,
+  onCancel,
+  onClear,
+  assets,
+  symbolImageURL,
+  error,
+}: IconPickerProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [viewport] = useState(() => {
     const view = new GridViewport(CELL_SIZE);
@@ -105,6 +116,11 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
           </button>
         )}
       </div>
+      {error && (
+        <p className="icon-picker-error" role="alert">
+          {error}
+        </p>
+      )}
       {gridTab ? (
         <>
           <div className="icon-picker-search-row">

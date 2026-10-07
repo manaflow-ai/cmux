@@ -162,6 +162,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
+    /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
+    /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
     /// what it carries, start sends it, discard closes the target). From a session in the pane's
@@ -236,28 +240,6 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// The frame's gesture ticket, the frame without it (the daemon never sees it), and whether
-    /// its `_meta` held anything besides the ticket (R1: a redeeming frame may carry nothing else).
-    static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
-        let (stripped, ticket, otherMeta) = takeGestureTicket(object)
-        guard ticket != nil, let data = try? JSONSerialization.data(withJSONObject: stripped, options: [.withoutEscapingSlashes]) else {
-            return (text, ticket, otherMeta)
-        }
-        return (String(decoding: data, as: UTF8.self), ticket, otherMeta)
-    }
-
-    /// The same on the parsed frame (the relay's one parse; an escaped key was decoded by it).
-    static func takeGestureTicket(_ object: [String: Any]) -> (object: [String: Any], ticket: String?, otherMeta: Bool) {
-        guard var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
-              let value = meta.removeValue(forKey: gestureTicketKey) else { return (object, nil, false) }
-        let otherMeta = !meta.isEmpty
-        if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
-        var object = object
-        object["params"] = params
-        return (object, value as? String ?? "", otherMeta)
-    }
-
     /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
     /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
     /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
@@ -328,8 +310,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd"], []),
-        "acp.trust.set": (["cwd", "level"], []),
+        "acp.trust.get": (["cwd", "sessionId"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
         "session/set_mode": (["sessionId", "modeId", "_meta"], []),
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
@@ -353,7 +335,8 @@ nonisolated enum AcpmuxPaneMethods {
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
-        if meta.keys.contains(where: { $0 != "acpmux" }) { return true }
+        // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
+        if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }
         guard let acpmux = rawAcpmux as? [String: Any] else { return true }
         return acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) })

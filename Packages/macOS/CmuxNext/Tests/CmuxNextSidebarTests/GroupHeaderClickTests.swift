@@ -2,8 +2,9 @@ import AppKit
 import Testing
 @testable import CmuxNextSidebar
 
-/// Double-clicking a group header renames it without collapsing and
-/// re-expanding the group first (the flicker).
+/// A click on a group header toggles it at once (cx-qno.17: no double-click
+/// wait); renaming is Return on the focused header or the menu, so a double
+/// click is one toggle, never a collapse and re-expand flicker.
 @MainActor @Suite struct GroupHeaderClickTests {
     final class Harness {
         let window: NSWindow
@@ -48,26 +49,20 @@ import Testing
         }
     }
 
-    @Test func doubleClickOnGroupNameRenamesWithoutToggling() {
+    @Test func singleClickOnGroupNameTogglesAtOnce() {
+        let h = Harness()
+        h.click(h.namePoint(g1), count: 1)
+        #expect(h.toggles == 1, "no double-click wait (cx-qno.17)")
+        #expect(h.list.model.group(g1)?.isCollapsed == true)
+    }
+
+    @Test func doubleClickOnGroupNameTogglesOnceAndDoesNotRename() {
         let h = Harness()
         let point = h.namePoint(g1)
         h.click(point, count: 1)
         h.click(point, count: 2)
-        #expect(h.toggles == 0)
-        #expect(h.list.inlineRename.session?.key == .group(g1))
-        h.list.inlineRename.end(commit: false)
-    }
-
-    @Test func singleClickOnGroupNameTogglesOnceAfterTheDoubleClickInterval() async {
-        let h = Harness()
-        h.list.groupToggleDelay = .zero
-        h.click(h.namePoint(g1), count: 1)
-        #expect(h.toggles == 0)
-        let pending = h.list.pendingGroupToggle?.task
-        #expect(pending != nil)
-        await pending?.value
-        #expect(h.toggles == 1)
-        #expect(h.list.model.group(g1)?.isCollapsed == true)
+        #expect(h.toggles == 1, "the second click of a double click is not a second toggle")
+        #expect(h.list.inlineRename.session == nil, "rename is Return or the menu")
     }
 
     @Test func clickOnChevronTogglesImmediately() {
@@ -77,6 +72,5 @@ import Testing
         let point = h.list.convert(h.list.convert(local, from: view), to: nil)
         h.click(point, count: 1)
         #expect(h.toggles == 1)
-        #expect(h.list.pendingGroupToggle == nil)
     }
 }

@@ -1,0 +1,546 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "sidebar.list": {
+      "comment": "Accessibility label of the conversation list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット"
+          }
+        }
+      }
+    },
+    "sidebar.menu.delete": {
+      "comment": "Context-menu item: delete the conversation (asks for confirmation, hence the ellipsis).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Conversation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを削除…"
+          }
+        }
+      }
+    },
+    "sidebar.menu.hideAlerts": {
+      "comment": "Context-menu item: mute notifications for the conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を非表示"
+          }
+        }
+      }
+    },
+    "sidebar.menu.markRead": {
+      "comment": "Context-menu item: mark the conversation's messages as read.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開封済みにする"
+          }
+        }
+      }
+    },
+    "sidebar.menu.markUnread": {
+      "comment": "Context-menu item: mark the conversation as unread.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未開封にする"
+          }
+        }
+      }
+    },
+    "sidebar.menu.pin": {
+      "comment": "Context-menu item: pin the conversation to the grid at the top of the list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピンで固定"
+          }
+        }
+      }
+    },
+    "sidebar.menu.showAlerts": {
+      "comment": "Context-menu item: unmute notifications for the conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を表示"
+          }
+        }
+      }
+    },
+    "sidebar.menu.unpin": {
+      "comment": "Context-menu item: remove the conversation from the pinned grid.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピンを外す"
+          }
+        }
+      }
+    },
+    "sidebar.muted": {
+      "comment": "Accessibility: notifications are muted for this conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerts hidden"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知オフ"
+          }
+        }
+      }
+    },
+    "sidebar.noResults": {
+      "comment": "Shown in the list when a search finds nothing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果なし"
+          }
+        }
+      }
+    },
+    "sidebar.pinned": {
+      "comment": "Accessibility: the conversation is pinned.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン固定"
+          }
+        }
+      }
+    },
+    "sidebar.preview.image": {
+      "comment": "Row preview when the newest message is a photo or image.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.dislike.me": {
+      "comment": "Row preview: I reacted to a message (disliked). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disliked %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“よくないね”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.dislike.other": {
+      "comment": "Row preview: a person reacted to a message (disliked). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ disliked %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“よくないね”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.emoji.me": {
+      "comment": "Row preview: I reacted with an emoji. %1$@ is the emoji, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reacted %1$@ to %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@に%1$@で反応しました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.emoji.other": {
+      "comment": "Row preview: a person reacted with an emoji. %1$@ is the person's name, %2$@ is the emoji, %3$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reacted %2$@ to %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%3$@に%2$@で反応しました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.emphasize.me": {
+      "comment": "Row preview: I reacted to a message (emphasized). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emphasized %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“!!”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.emphasize.other": {
+      "comment": "Row preview: a person reacted to a message (emphasized). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ emphasized %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“!!”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.laugh.me": {
+      "comment": "Row preview: I reacted to a message (laughed at). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laughed at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“笑”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.laugh.other": {
+      "comment": "Row preview: a person reacted to a message (laughed at). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ laughed at %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“笑”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.like.me": {
+      "comment": "Row preview: I reacted to a message (liked). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liked %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“いいね”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.like.other": {
+      "comment": "Row preview: a person reacted to a message (liked). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ liked %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“いいね”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.love.me": {
+      "comment": "Row preview: I reacted to a message (loved). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loved %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“ハート”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.love.other": {
+      "comment": "Row preview: a person reacted to a message (loved). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ loved %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“ハート”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.question.me": {
+      "comment": "Row preview: I reacted to a message (questioned). %@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questioned %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に“?”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.reaction.question.other": {
+      "comment": "Row preview: a person reacted to a message (questioned). %1$@ is the person's name, %2$@ is the quoted message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ questioned %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@に“?”を付けました"
+          }
+        }
+      }
+    },
+    "sidebar.search": {
+      "comment": "Placeholder of the search field above the conversation list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        }
+      }
+    },
+    "sidebar.typing": {
+      "comment": "Accessibility: the other person is typing in this conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力中"
+          }
+        }
+      }
+    },
+    "sidebar.unread": {
+      "comment": "Accessibility: number of unread messages. %d is the count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読 %d 件"
+          }
+        }
+      }
+    },
+    "sidebar.yesterday": {
+      "comment": "Time label of a conversation whose newest message is from yesterday.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨日"
+          }
+        }
+      }
+    }
+  }
+}

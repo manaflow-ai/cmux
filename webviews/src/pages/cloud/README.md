@@ -67,8 +67,9 @@ network, tunnel, firewall, domain and publication ops, `snapshot.fork`, `machine
   (D-ROUTE). That route stays off until the app-host generator guard lands; the page has no flag of
   its own and changes nothing when it turns on.
 - `browser.tab.open` is served by the app (`RemoteLocalhost/BrowserTabOpen.swift`) for this page
-  only. Open in browser calls it with `{url, machineStore: {machine, machineName, proxy}, engine:
-  "cef"}` from `cloud.browser.open`. The app opens a CEF tab whose store sends every request,
+  only. Open in browser calls it with
+  `{url, machineStore: {machine, machineName, proxy}, engine: "cef"}` from `cloud.browser.open`.
+  The app opens a CEF tab whose store sends every request,
   loopback included, to the HTTP proxy on 127.0.0.1; any other engine, proxy or URL is a typed
   refusal (`cmux.browser.*`), never an unproxied tab.
 - File push sends `{machine, path: <current folder>}`; the host's file panel adds `localPath` and the

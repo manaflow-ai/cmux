@@ -240,8 +240,10 @@
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.acpmux-project-menu{width:300px;max-width:calc(100vw - 32px);font-size:13px}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
+.acpmux-project-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:10px;font-weight:650;letter-spacing:.02em;line-height:1}
+.acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
