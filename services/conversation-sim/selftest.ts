@@ -473,6 +473,8 @@ async function main() {
   gb.close();
   da.close();
   console.log("polls");
+  // Deterministic votes; the failure knob is exercised explicitly below.
+  await post("/admin/knobs", { pollVoteFailRate: 0 });
   const pollSend = await l.call("send", { clientMessageId: `poll-${crypto.randomUUID()}`, text: "", poll: { question: " Lunch? ", options: ["Tacos", " ", "Ramen"] } });
   const pm = pollSend.message;
   check(pm.text === "Lunch?" && pm.poll?.question === "Lunch?" && pm.poll.options.map((o: any) => o.id).join() === "o1,o2", "send with poll creates a poll message (blank choices dropped)");
