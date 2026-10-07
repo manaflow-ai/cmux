@@ -16,7 +16,7 @@ final class MobileBrowserDirtyMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         let body = message.body as? [String: Any]
         let editableFocused = body?["editable_focused"] as? Bool
-        MainActor.assumeIsolated {
+        Task { @MainActor in
             receive(editableFocused)
         }
     }

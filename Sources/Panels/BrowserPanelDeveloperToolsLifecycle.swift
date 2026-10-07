@@ -60,11 +60,10 @@ extension BrowserPanel {
         ) { [weak self] notification in
             guard let self,
                   let window = notification.object as? NSWindow else { return }
-            guard Thread.isMainThread else { return }
-            let handledDetachedInspector = MainActor.assumeIsolated {
-                return self.handleDetachedDeveloperToolsWindowWillClose(window)
+            Task { @MainActor [weak self, weak window] in
+                guard let self, let window else { return }
+                _ = self.handleDetachedDeveloperToolsWindowWillClose(window)
             }
-            _ = handledDetachedInspector
         }
     }
 

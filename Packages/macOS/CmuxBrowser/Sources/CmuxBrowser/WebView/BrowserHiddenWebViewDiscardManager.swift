@@ -174,7 +174,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + remaining)
         timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard !self.isSystemSleeping else { return }
                 guard self.scheduleGeneration == generation else { return }
@@ -255,26 +255,19 @@ public final class BrowserHiddenWebViewDiscardManager {
         guard systemSleepObservers.isEmpty else { return }
         systemSleepObserverCenter = center
         systemSleepObservers = [
-            // Synchronous main-actor delivery (no Task hop): a countdown with
-            // milliseconds of mach time left must see isSystemSleeping before
-            // its timer can fire.
             center.addObserver(
                 forName: NSWorkspace.willSleepNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemWillSleep()
-                }
+                Task { @MainActor [weak self] in self?.noteSystemWillSleep() }
             },
             center.addObserver(
                 forName: NSWorkspace.didWakeNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemDidWake()
-                }
+                Task { @MainActor [weak self] in self?.noteSystemDidWake() }
             }
         ]
     }

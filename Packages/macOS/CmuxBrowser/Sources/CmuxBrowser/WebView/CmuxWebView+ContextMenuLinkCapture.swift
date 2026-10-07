@@ -313,13 +313,11 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         // script already drops synthetic (isTrusted == false) events, so
         // every message is a real right-click report.
         //
-        // WebKit delivers script messages on the main thread (same pattern as
-        // BrowserMediaPlaybackMessageHandler). Apply the capture synchronously
-        // instead of hopping through a `Task` so it stays ordered with the
-        // AppKit click lifecycle: a deferred report from the previous click
-        // must not run after `rightMouseDown` clears the capture and repopulate
-        // it for the menu the new click opens.
-        MainActor.assumeIsolated {
+        // WebKit delivers script messages on the main thread, but the callback
+        // is not guaranteed to carry Swift's MainActor executor token. Queue
+        // the capture with the actor and let the click lifecycle discard stale
+        // state when the web view is detached.
+        Task { @MainActor in
             webView.noteContextMenuCapturedLink(url)
         }
     }

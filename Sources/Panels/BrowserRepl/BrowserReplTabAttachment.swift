@@ -43,6 +43,7 @@ final class BrowserReplTabAttachments {
         let attachment = attachments[panel.id] ?? BrowserReplTabAttachment(panel: panel)
         attachments[panel.id] = attachment
         attachment.addSink(sessionID: sessionID, sink: sink)
+        panel.downloadDelegate?.refreshScriptedDownloadRouting()
         return attachment
     }
 
@@ -64,6 +65,7 @@ final class BrowserReplTabAttachments {
         typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
             attachment.removeSink(sessionID: sessionID)
+            attachment.panel?.downloadDelegate?.refreshScriptedDownloadRouting()
             if !attachment.isAttached {
                 attachments.removeValue(forKey: panelID)
             }
@@ -76,6 +78,7 @@ final class BrowserReplTabAttachments {
         guard let attachment = attachments.removeValue(forKey: panelID) else { return }
         attachment.emit("tab.closed", [:])
         attachment.detachAll()
+        attachment.panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// Live attachments `sessionID` is attached to.
@@ -413,7 +416,7 @@ final class BrowserReplTabAttachment {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.releaseRenderHost() }
+                Task { @MainActor [weak self] in self?.releaseRenderHost() }
             }
             pageDidChange()
         }
@@ -448,7 +451,7 @@ final class BrowserReplTabAttachment {
         mirrorCaptureInFlight = true
         mirrorNeedsCapture = false
         webView.takeSnapshot(with: nil) { [weak self, weak host] image, _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self, weak host] in
                 guard let self else { return }
                 self.mirrorCaptureInFlight = false
                 if let image, let host, host === self.renderHost { host.updateMirror(image) }

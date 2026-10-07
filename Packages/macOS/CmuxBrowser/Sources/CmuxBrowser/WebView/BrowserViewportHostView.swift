@@ -7,7 +7,12 @@ public import WebKit
 /// layout size while preserving the pane's displayed size and AppKit coordinate conversion.
 /// Native browsers stay directly attached to their portal container so this extra AppKit layer
 /// exists only while an automation viewport is active.
-@MainActor
+// AppKit and WebKit may enter NSView overrides synchronously from their own
+// main-thread stacks (notably RemoteLayerTreeHost while committing a layer
+// tree). A main-thread callback does not establish Swift's MainActor executor,
+// so this framework-facing view must not be actor-isolated. Callers that own
+// its lifecycle remain main-actor-bound; the override itself stays available to
+// AppKit without an executor check on the layer-tree path.
 public final class BrowserViewportHostView: NSView {
     public private(set) weak var webView: WKWebView?
     public private(set) var appliedLayout: BrowserViewportLayout?

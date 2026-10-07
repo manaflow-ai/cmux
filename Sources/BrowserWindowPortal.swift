@@ -2106,7 +2106,7 @@ final class WindowBrowserPortal: NSObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.scheduleExternalGeometrySynchronize()
             }
         })
@@ -2115,7 +2115,7 @@ final class WindowBrowserPortal: NSObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.scheduleExternalGeometrySynchronize()
             }
         })
@@ -2124,7 +2124,7 @@ final class WindowBrowserPortal: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window else { return }
@@ -2140,7 +2140,7 @@ final class WindowBrowserPortal: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window,
@@ -4135,7 +4135,7 @@ enum BrowserWindowPortalRegistry {
             object: window,
             queue: .main
         ) { notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 if let window = notification.object as? NSWindow {
                     removePortal(for: window)
                 } else {

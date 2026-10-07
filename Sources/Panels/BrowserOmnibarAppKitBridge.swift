@@ -9,7 +9,10 @@ private final class WeakOmnibarNativeTextField {
     }
 }
 
-@MainActor
+// AppKit calls the interaction view from hit-testing and responder routing.
+// Keep the registry main-thread confined by ownership, but do not mark it
+// MainActor-isolated: those framework callbacks do not carry Swift's actor
+// executor token even when they arrive on the main thread.
 final class BrowserOmnibarNativeFieldRegistry {
     static let shared = BrowserOmnibarNativeFieldRegistry()
 
@@ -96,7 +99,9 @@ final class BrowserOmnibarNativeFieldRegistry {
     }
 }
 
-@MainActor
+// SwiftUI/AppKit can invoke hitTest while reconnecting a hosted view. The view
+// is main-thread-owned by its representable, but the override itself must stay
+// available to AppKit without a MainActor executor check.
 final class BrowserOmnibarInteractionView: NSView {
     var panelId: UUID?
     private var trackingArea: NSTrackingArea?

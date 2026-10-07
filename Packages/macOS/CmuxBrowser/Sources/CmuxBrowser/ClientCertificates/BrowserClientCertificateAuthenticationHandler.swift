@@ -70,9 +70,7 @@ public import Foundation
         }
         if let cancelLookup {
             registerCancelPrompt {
-                MainActor.assumeIsolated {
-                    cancelLookup()
-                }
+                Task { @MainActor in cancelLookup() }
             }
         }
         return true

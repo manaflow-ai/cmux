@@ -7,7 +7,6 @@ public import AppKit
 /// web view underneath, which is already loading the restored page. The page
 /// snapshot is deliberately silent; a transient restore badge obscures the
 /// content and makes a routine background memory operation feel like an alert.
-@MainActor
 public final class BrowserPageSnapshotOverlayView: NSView {
     private let imageView = NSImageView()
 

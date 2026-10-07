@@ -40,16 +40,16 @@ final class PortalSplitDividerCacheInvalidator {
         notificationObservers = geometryViews.flatMap { view in
             return [
                 NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
-                    MainActor.assumeIsolated { onChange() }
+                    Task { @MainActor in onChange() }
                 },
                 NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: view, queue: nil) { _ in
-                    MainActor.assumeIsolated { onChange() }
+                    Task { @MainActor in onChange() }
                 },
             ]
         }
         observations = geometryViews.map { view in
             view.observe(\.isHidden, options: [.new]) { _, _ in
-                MainActor.assumeIsolated { onChange() }
+                Task { @MainActor in onChange() }
             }
         }
         // Nested splits can be inserted under known layout containers after cache
@@ -57,7 +57,7 @@ final class PortalSplitDividerCacheInvalidator {
         // arbitrary descendants such as WebKit or terminal internals.
         observations.append(contentsOf: subviewObservedViews.map { view in
             view.observe(\.subviews, options: [.new]) { _, _ in
-                MainActor.assumeIsolated { onChange() }
+                Task { @MainActor in onChange() }
             }
         })
     }
