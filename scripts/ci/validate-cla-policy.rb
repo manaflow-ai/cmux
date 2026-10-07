@@ -2119,6 +2119,23 @@ def run_runner_regression_matrix!
   assert_hosted_runner_guard_step(hosted_guard, "regression CLA job")
   assert_hosted_runner_guard_step(ephemeral_guard, "regression CLA job")
   checks += 3
+  # The names the guard condition admits on a self-hosted runner: current
+  # and pre-October 2026 Blacksmith VMs, never an owned glaeda host.
+  {
+    "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d" => true,
+    "cmuxs-mac-mini-5-glaeda-1" => false,
+    "blacksmith-4vcpu-ubuntu-2404-glaeda" => false,
+    "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => false,
+    "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc" => false,
+    "blacksmith-4vcpu-ubuntu-2404" => false
+  }.each do |runner_name, expected|
+    admitted = CLA_EPHEMERAL_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
+      !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
+    fail!("ephemeral runner name regression failed for #{runner_name}") unless admitted == expected
+    checks += 1
+  end
   rejected_guards = {
     "runner guard condition" => hosted_guard.merge("if" => "runner.environment == 'github-hosted'"),
     "runner guard shell" => hosted_guard.merge("run" => "exit 0"),
