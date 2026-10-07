@@ -4,7 +4,10 @@
 use std::io::{Cursor, Read};
 use std::net::{SocketAddr, TcpListener};
 
-use cmux_remote_browser_host::launch::{LISTENING_KEY, listening_line, watch_lifeline};
+use cmux_rd_proto::control::Control as RdControl;
+use cmux_remote_browser_host::launch::{
+    LISTENING_KEY, authorize, listening_line, loopback_only, read_secret, watch_lifeline,
+};
 
 #[test]
 fn listening_line_names_the_port_the_os_bound() {
@@ -47,9 +50,6 @@ fn lifeline_fires_on_a_read_error() {
     watch_lifeline(Failing, || fired = true);
     assert!(fired);
 }
-
-use cmux_remote_browser_host::launch::{authorize, loopback_only, read_secret};
-use cmux_rd_proto::control::Control as RdControl;
 
 fn hello(token: Option<&str>) -> RdControl {
     serde_json::from_value(serde_json::json!({

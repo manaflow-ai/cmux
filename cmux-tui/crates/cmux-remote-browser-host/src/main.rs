@@ -3,7 +3,8 @@
 //! Modes (browser process; CEF helpers carry `--type=`):
 //! - `--serve [--listen 127.0.0.1:4103] [--url URL | --ui-page | --picker-page] [--once] [--lifeline]`:
 //!   one tab over cmux.rd/1 (service rb/1, stream carrier). macOS. Port 0 binds a free port;
-//!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` quits at stdin end of file.
+//!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` reads the per-launch secret from the
+//!   first stdin line (a viewer's hello token must equal it) and quits at stdin end of file. Loopback only.
 //! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`: the loopback viewer
 //!   that measures a serving host (any platform).
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
@@ -61,9 +62,20 @@ fn main() -> std::process::ExitCode {
     if !helper && all.iter().any(|a| a == "--serve") {
         let flag = |f: &str| all.iter().position(|a| a == f).and_then(|i| all.get(i + 1)).cloned();
         let listen = flag("--listen").unwrap_or_else(|| "127.0.0.1:4103".into());
-        let Ok(listen) = listen.parse() else {
-            eprintln!("--listen: expected ADDR:PORT");
+        let Some(listen) = listen
+            .parse()
+            .ok()
+            .and_then(|a| cmux_remote_browser_host::launch::loopback_only(a).ok())
+        else {
+            eprintln!("--listen: expected a loopback ADDR:PORT (127.0.0.1 or ::1)");
             return std::process::ExitCode::from(2);
+        };
+        let lifeline = all.iter().any(|a| a == "--lifeline");
+        // The app writes the per-launch secret as the lifeline's first line.
+        let secret = if lifeline {
+            cmux_remote_browser_host::launch::read_secret(&mut std::io::stdin().lock())
+        } else {
+            None
         };
         let opts = cmux_remote_browser_host::serve::Options {
             listen,
@@ -77,7 +89,8 @@ fn main() -> std::process::ExitCode {
                 }
             }),
             once: all.iter().any(|a| a == "--once"),
-            lifeline: all.iter().any(|a| a == "--lifeline"),
+            lifeline,
+            secret,
         };
         let code = cmux_remote_browser_host::serve::run(&mut argv, opts);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));

@@ -36,21 +36,35 @@ pub fn watch_lifeline<R: Read>(mut input: R, on_eof: impl FnOnce()) {
 /// Reads the per-launch secret: the first line the app writes to the
 /// lifeline (stdin), never the command line or the environment. `None` when
 /// stdin ends first or the line is empty.
-pub fn read_secret<R: std::io::BufRead>(_input: &mut R) -> Option<String> {
-    None
+pub fn read_secret<R: std::io::BufRead>(input: &mut R) -> Option<String> {
+    let mut line = String::new();
+    input.read_line(&mut line).ok()?;
+    let secret = line.trim_end_matches(['\n', '\r']);
+    (!secret.is_empty()).then(|| secret.to_string())
 }
 
 /// Whether a viewer may join: with a secret, its rd `hello` must carry it as
 /// the per-launch session token. Checked before the welcome, so a refused
 /// viewer never opens the tab or sends input.
 pub fn authorize(
-    _secret: Option<&str>,
-    _hello: &cmux_rd_proto::control::Control,
+    secret: Option<&str>,
+    hello: &cmux_rd_proto::control::Control,
 ) -> Result<(), &'static str> {
-    Ok(())
+    let Some(secret) = secret else { return Ok(()) };
+    let cmux_rd_proto::control::Control::Hello { token: Some(token), .. } = hello else {
+        return Err("the viewer's hello carries no session token");
+    };
+    let key = &token.0;
+    // Constant time over the secret's length, so timing does not leak it.
+    let (a, b) = (secret.as_bytes(), key.as_bytes());
+    let mut diff = u8::from(a.len() != b.len());
+    for (i, x) in a.iter().enumerate() {
+        diff |= x ^ b.get(i).copied().unwrap_or(0);
+    }
+    if diff == 0 { Ok(()) } else { Err("the viewer's key is not the host's secret") }
 }
 
 /// `--listen` must be a loopback address: a host never serves other machines.
 pub fn loopback_only(addr: SocketAddr) -> Result<SocketAddr, &'static str> {
-    Ok(addr)
+    if addr.ip().is_loopback() { Ok(addr) } else { Err("--listen must be a loopback address") }
 }

@@ -55,6 +55,9 @@ pub struct Options {
     /// Quit when stdin reaches end of file (`--lifeline`, the app's launch
     /// contract in `launch.rs`).
     pub lifeline: bool,
+    /// The per-launch secret a viewer's rd hello must carry as its token (the first
+    /// lifeline line); `None` serves any local viewer (a host run by hand).
+    pub secret: Option<String>,
 }
 
 /// One capture lease; dropping it gives the frame back to Viz (UI thread).
@@ -731,9 +734,17 @@ fn session(mut stream: TcpStream) -> std::io::Result<String> {
         }
         deframer.extend(&buf[..n]);
     };
+    // With a secret, the hello must carry it as its session token, before the
+    // welcome: a refused viewer never opens the tab or sends input.
+    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
+    if let Err(reason) = crate::launch::authorize(secret.as_deref(), &hello) {
+        write_rd(&mut stream, &RdControl::Refused { reason: "unauthorized".into() })?;
+        return Ok(format!("refused: {reason}"));
+    }
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };
+
     let negotiated = match crate::handshake::negotiate_hello(&service, &caps) {
         Ok(n) => n,
         Err(refusal) => {
