@@ -5,6 +5,29 @@ import UIKit
 
 @MainActor
 @Suite struct AgentFeedInlineTextTests {
+    @Test func sizingProposalsDoNotChangeDisplayedText() throws {
+        let view = makeView(String(repeating: "**Feed** keeps [links](https://example.com) readable. ", count: 8))
+        let size = view.measure(width: 360)
+        view.frame = CGRect(origin: .zero, size: size)
+        view.layoutIfNeeded()
+        let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
+        let displayed = NSAttributedString(attributedString: text.attributedText)
+
+        // SwiftUI probes widths before choosing the row's actual frame.
+        // A proposal must not replace the already displayed text or its layout.
+        for width: CGFloat in [80, 600, 120, 360, 80, 600] {
+            _ = view.measure(width: width)
+            #expect(text.attributedText.isEqual(to: displayed))
+        }
+
+        let narrowSize = view.measure(width: 120)
+        view.frame = CGRect(origin: .zero, size: narrowSize)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        #expect(!text.attributedText.isEqual(to: displayed))
+        #expect(text.attributedText.string.hasSuffix("… See more"))
+    }
+
     @Test func markdownExpansionUsesRenderedOffsets() throws {
         let view = makeView("**Bold** and [linked text](https://example.com/long-destination)", hasMore: true)
         _ = view.measure(width: 600)
