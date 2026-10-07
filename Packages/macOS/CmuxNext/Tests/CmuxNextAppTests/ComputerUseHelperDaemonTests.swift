@@ -38,7 +38,8 @@ import Testing
     static func daemon(signed: Set<URL>, launcher: FakeLauncher, exported: @escaping (String, String?) -> Void)
         -> (ComputerUseHelperDaemon, String) {
         let id = UUID().uuidString.prefix(8)
-        let socket = "/tmp/cu-d-\(id)/cua.sock"
+        // The real layout: /tmp/<private dir>/<scope>/cua.sock.
+        let socket = "/tmp/cu-d-\(id)/s/cua.sock"
         let state = FileManager.default.temporaryDirectory.appending(path: "cu-state-\(id)")
         let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { signed.contains($0) },
                                              candidates: { [adHoc, nightly] }, launcher: launcher,
@@ -50,7 +51,7 @@ import Testing
         let launcher = FakeLauncher()
         var exported: [String: String] = [:]
         let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { key, value in exported[key] = value }
-        defer { daemon.stop(); try? FileManager.default.removeItem(atPath: (socket as NSString).deletingLastPathComponent) }
+        defer { daemon.stop(); try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
 
         await daemon.apply(enabled: true)
 
@@ -137,7 +138,7 @@ import Testing
     @Test func eachStartMintsNewTokens() async throws {
         let launcher = FakeLauncher()
         let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { _, _ in }
-        defer { daemon.stop(); try? FileManager.default.removeItem(atPath: (socket as NSString).deletingLastPathComponent) }
+        defer { daemon.stop(); try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
         await daemon.apply(enabled: true)
         await daemon.apply(enabled: false)
         await daemon.apply(enabled: true)
@@ -149,7 +150,7 @@ import Testing
         let launcher = FakeLauncher()
         var exported: [String: String] = [:]
         let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { key, value in exported[key] = value }
-        defer { try? FileManager.default.removeItem(atPath: (socket as NSString).deletingLastPathComponent) }
+        defer { try? FileManager.default.removeItem(atPath: ((socket as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent) }
         await daemon.apply(enabled: true)
         await daemon.apply(enabled: false)
         #expect(launcher.terminated == [4242])

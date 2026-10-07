@@ -225,19 +225,42 @@ final class ComputerUseHelperDaemon {
         if let value { setenv(key, value, 1) } else { unsetenv(key) }
     }
 
-    /// The socket directory (0700, this user's) and the helper's state directory.
+    /// The socket directory and its parent (under a predictable /tmp path)
+    /// and the helper's state directory: each must be a real directory owned
+    /// by this user and is set to 0700. A symlink or another user's directory
+    /// there could hand the helper's socket to someone else, so nothing starts.
     private func prepareDirectories() -> Bool {
         let socketDirectory = URL(fileURLWithPath: socketPath).deletingLastPathComponent()
-        do {
-            for directory in [socketDirectory.deletingLastPathComponent(), socketDirectory, stateDirectory] {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                        attributes: [.posixPermissions: 0o700])
+        for directory in [socketDirectory.deletingLastPathComponent(), socketDirectory, stateDirectory] {
+            guard Self.makePrivateDirectory(directory.path) else {
+                helperLogger.error("cmux Computer Use helper: \(directory.path, privacy: .public) is not a private directory of this user")
+                return false
             }
-            unlink(socketPath)
-            return true
-        } catch {
-            helperLogger.error("cmux Computer Use helper directories: \(error.localizedDescription, privacy: .public)")
-            return false
         }
+        unlink(socketPath)
+        return true
+    }
+
+    /// Creates `path` (0700; missing parents get the default mode) or takes
+    /// the existing one, then checks it without following a symlink: a
+    /// directory owned by this user, set to 0700. Only `path` itself is
+    /// changed, never a parent.
+    nonisolated static func makePrivateDirectory(_ path: String) -> Bool {
+        if mkdir(path, 0o700) != 0 {
+            switch errno {
+            case EEXIST: break
+            case ENOENT:
+                let parent = (path as NSString).deletingLastPathComponent
+                guard (try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)) != nil,
+                      mkdir(path, 0o700) == 0 || errno == EEXIST else { return false }
+            default: return false
+            }
+        }
+        let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFDIR else { return false }
+        return info.st_mode & 0o777 == 0o700 || fchmod(descriptor, 0o700) == 0
     }
 }
