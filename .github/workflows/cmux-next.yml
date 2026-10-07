@@ -823,8 +823,15 @@ jobs:
 
       # Package.swift links the app FFI from one pinned release; the pin must
       # match these sources and the release must be built from them.
+      # A pull request fails only for FFI drift it made itself (sources or pin
+      # changed against its base, HEAD^1 of the merge commit); a push checks all.
       - name: Check the app FFI pin
-        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
 
       # macOS-only script behavior tests (PlistBuddy, plutil, lipo): the "Bundle
       # server helper" phase writes the server helper and agent plists without

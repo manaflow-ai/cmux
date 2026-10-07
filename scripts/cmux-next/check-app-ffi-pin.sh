@@ -2,7 +2,7 @@
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
 # layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release]
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF]
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -10,7 +10,25 @@
 # URL and checksum in one commit. With --verify-release it also downloads the
 # release's SOURCE_SHA and SHA256SUMS anonymously and fails unless they name
 # the pinned sha and the pinned checksum.
+#
+# With --base REF (a pull request's base, HEAD^1 of its merge commit) a drift
+# the change did not make is a note, not a failure: when neither the FFI
+# sources nor the pin differ between REF and HEAD, the drift came from the
+# base, whose own push run still fails here so the owning lane sees it.
+# 2026-10-07: three base source changes without a re-pin (2914fa52, d7167cb6,
+# 45845b2d) each made every pull request's swift test red.
 set -euo pipefail
+
+verify=0
+base_ref=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --verify-release) verify=1 ;;
+    --base) base_ref="${2:?--base needs a ref}"; shift ;;
+    *) echo "usage: $0 [--verify-release] [--base REF]" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
@@ -38,7 +56,23 @@ cd "$root"
 if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
   git fetch --quiet --depth=1 origin "$sha" || { echo "error: pinned source sha $sha is not available" >&2; exit 1; }
 fi
-if ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
+# A pull request's own FFI change: its sources or its pin differ from the base's.
+own_change=1
+if [[ -n "$base_ref" ]]; then
+  if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
+    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" 2>/dev/null \
+      | grep -oE 'cmux-app-ffi-[0-9a-f]{40}' | head -n 1 || true)"
+    if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "cmux-app-ffi-$sha" ]]; then
+      own_change=0
+    fi
+  else
+    echo "warning: --base $base_ref is not a commit here; checking against the pin only" >&2
+  fi
+fi
+if ! git diff --quiet "$sha" HEAD -- "${paths[@]}" && [[ "$own_change" -eq 0 ]]; then
+  echo "note: base drift: the app FFI sources on $base_ref differ from the pinned source $sha, and this change touches neither; the base's push run reports it to the owning lane"
+  git diff --stat "$sha" HEAD -- "${paths[@]}" || true
+elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
   git diff --stat "$sha" HEAD -- "${paths[@]}" >&2
   # Who owns the drift: the lane of each changed crate, and the commits.
@@ -55,10 +89,11 @@ if ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
   exit 1
+else
+  echo "app FFI pin: sources match $sha"
 fi
-echo "app FFI pin: sources match $sha"
 
-if [[ "${1:-}" == "--verify-release" ]]; then
+if [[ "$verify" -eq 1 ]]; then
   base="${url%/"$asset"}"
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
