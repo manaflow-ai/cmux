@@ -187,6 +187,27 @@ class PullRequestTiers(unittest.TestCase):
         self.assertTrue(reads, "no Swift test reads a webviews file; pick another fixture")
         self.assertEqual(tiers([reads[0]])["swift"], "true")
 
+    def test_a_ci_only_change_runs_no_mac_tier(self):
+        """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
+        routing replay check them on Linux, and one command reverts them."""
+        for changed in (
+            [".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"],
+            ["scripts/gh-merge-green", "scripts/ci/revert_pr.py", "tests/test_gh_merge_green_revert.py"],
+            ["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"],
+        ):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
+        self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
+        self.assertEqual(tiers([".github/actions/setup-cmux-tui-rust/action.yml"])["swift"], "true")
+
+    def test_a_doc_a_generator_reads_keeps_the_generated_tier(self):
+        """`*.md` looks like docs, but plans/cmux-next/ feeds the action contracts."""
+        self.assertEqual(tiers(["plans/cmux-next/actions.md"])["generated"], "true")
+
     def test_dev_build_label_keeps_the_scheme_compile_for_a_web_change(self):
         result = tiers(["webviews/src/agent-session/pane.tsx"], labels=frozenset({"dev-build"}))
         self.assertEqual(result["scheme"], "true")
