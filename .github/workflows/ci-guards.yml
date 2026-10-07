@@ -1005,6 +1005,12 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
 
+      - name: Validate arm64-only nightly-next publication
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_next_arm64_only.py
+          python3 tests/test_appcast_hardware_requirements.py
+
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh

@@ -405,6 +405,24 @@ class AppcastTests(unittest.TestCase):
                 NOTES.update_appcasts(directory, "102", "Fresh notes")
             self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
 
+    def test_an_arm64_only_track_updates_its_two_feeds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for name in ("appcast-x86_64.xml", "appcast-universal.xml"):
+                (directory / name).unlink()
+            NOTES.update_appcasts(directory, "102", "Fresh notes")
+            for name in ("appcast-arm64.xml", "appcast.xml"):
+                self.assertIn("Fresh notes", (directory / name).read_text())
+
+    def test_a_partial_four_feed_set_still_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            (directory / "appcast-universal.xml").unlink()
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes")
+
     def test_later_feed_without_current_build_does_not_partially_update_other_feeds(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

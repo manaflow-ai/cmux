@@ -379,16 +379,18 @@ fi
 if ! awk '
   /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
   in_legacy && /^      - name:/ { in_legacy=0 }
-  in_legacy && /cp "\$\{CHANNEL_DMG_PREFIX\}-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_universal_legacy=1 }
-  in_legacy && /\$\{CHANNEL_DMG_PREFIX\}-x86_64\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg/ { saw_intel_legacy=1 }
-  END { exit !(saw_universal_legacy && !saw_intel_legacy) }
+  in_legacy && /cp "\$\{CHANNEL_DMG_PREFIX\}-\$\{NIGHTLY_LEGACY_VARIANT\}\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_legacy_copy=1 }
+  in_legacy && /x86_64\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg/ { saw_intel_legacy=1 }
+  /core\.setOutput\(.legacy_variant., arm64Only \? .arm64. : .universal.\);/ { saw_universal_unless_arm64_only=1 }
+  END { exit !(saw_legacy_copy && saw_universal_unless_arm64_only && !saw_intel_legacy) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the legacy nightly DMG and feed must stay universal: browsers cannot pick an architecture, the app can"
+  echo "FAIL: the legacy nightly DMG and feed must stay universal on NIGHTLY and RC (browsers cannot pick an architecture, the app can); only arm64-only nightly-next uses arm64"
   exit 1
 fi
 
-if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
+if ! grep -Fq "const variants = arm64Only ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE" \
+  || ! grep -Fq "const arm64Only = fastBuild || track === 'nightly-next';" "$WORKFLOW_FILE"; then
+  echo "FAIL: NIGHTLY and RC must always build the universal download alongside the thin update tracks (only the fast build and arm64-only nightly-next skip it)"
   exit 1
 fi
 
@@ -667,12 +669,15 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
-  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
-  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
-  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
-  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
-  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
-  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
+  # Every variant the track built (arm64, x86_64 and universal on NIGHTLY and RC; arm64 on
+  # nightly-next) gets its immutable DMG, its alias and its feed, then the legacy alias and feed.
+  in_publish && /for variant in \$\(jq -r .\.\[\]. <<<"\$VARIANTS"\); do/ { saw_variant_loop=1 }
+  in_publish && /--immutable "nightly-out\/\$\{CHANNEL_DMG_PREFIX\}-\$\{variant\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable=1 }
+  in_publish && /--alias "nightly-out\/\$\{CHANNEL_DMG_PREFIX\}-\$\{variant\}\.dmg"/ { saw_variant_alias=1 }
+  in_publish && /--feed "nightly-out\/appcast-\$\{variant\}\.xml"/ { saw_variant_feed=1 }
+  in_publish && /--alias "nightly-out\/\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_legacy_alias=1 }
+  in_publish && /--feed nightly-out\/appcast\.xml/ { saw_legacy_feed=1 }
+  END { exit !(saw_publish_if && saw_publisher && saw_variant_loop && saw_immutable && saw_variant_alias && saw_variant_feed && saw_legacy_alias && saw_legacy_feed) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
   exit 1
