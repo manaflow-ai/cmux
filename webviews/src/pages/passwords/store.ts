@@ -233,6 +233,12 @@ export class PasswordsStore {
     if (await this.write(PasswordOps.export, {}, false)) this.set({ notice: { kind: "exported" } });
   }
 
+  /** Import from Browser… (not yet wired). */
+  async importFromBrowser(): Promise<void> {}
+
+  /** Import Passwords from CSV… (not yet wired). */
+  async importCSV(): Promise<void> {}
+
   /** A native step that changes nothing (reveal, copy): no idempotency key, no reload. */
   private async native(op: string, params: Record<string, unknown>): Promise<boolean> {
     if (!this.client) return false;
