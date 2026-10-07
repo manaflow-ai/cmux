@@ -404,6 +404,8 @@ async fn dispatch_request(
             }
             Ok(cat)
         }
+        crate::catalog::RPC_GET => Ok(hub.catalog.get()),
+        crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))

@@ -41,6 +41,10 @@ final class SidebarRegionView: NSView {
     /// view (the sidebar), so the card and its shadow are never clipped to
     /// the band. Nil: the region itself (tests, a region on its own).
     weak var liftHost: NSView?
+    /// Items and sections can be dragged to reorder. The footer band's
+    /// cannot (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3: no drag and drop
+    /// in the footer row for now).
+    var allowsDrag = true
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
@@ -97,7 +101,20 @@ final class SidebarRegionView: NSView {
     private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content), appHeights: content.appHeights)
+                                 labelWidths: labelWidths(content), appHeights: content.appHeights,
+                                 iconWidths: iconWidths(content))
+    }
+
+    /// Icon-only items wider than a square: the profile avatar and its
+    /// chevron (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    private static func iconWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
+        var widths: [LayoutItemID: CGFloat] = [:]
+        for section in content.sections {
+            for item in section.items where content.infos[item.id]?.avatar != nil {
+                widths[item.id] = SidebarStyle.avatarControlWidth
+            }
+        }
+        return widths
     }
 
     private func place(_ view: NSView, _ frame: CGRect) {
