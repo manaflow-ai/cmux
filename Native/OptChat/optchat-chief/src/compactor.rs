@@ -380,6 +380,7 @@ impl AcpmuxCompactor {
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
+            env: Default::default(),
         };
         let opened = self.port.new_session(&spec).and_then(|id| {
             // The session's own harness is what answers (a name that is

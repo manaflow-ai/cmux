@@ -76,6 +76,11 @@ impl Hub {
         for a in p.argv.iter_mut() {
             *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
+        // The session's own env last, over the preset, never expanded: its
+        // values were checked as given (session_env.rs).
+        for (k, v) in &meta.session_env {
+            p.env.insert(k.clone(), v.clone());
+        }
         p.argv = self.resolved_launcher_argv(p.argv);
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {

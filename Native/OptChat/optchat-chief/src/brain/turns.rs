@@ -338,6 +338,7 @@ impl Brain {
                 effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
+                env: Default::default(),
             },
             blocks,
             system_prompt,
