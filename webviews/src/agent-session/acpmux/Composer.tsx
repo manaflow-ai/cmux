@@ -26,6 +26,7 @@ import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
+import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -106,6 +107,9 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
+  /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
+  blocked?: SendBlock;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -137,6 +141,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   handle,
+  blocked,
 }: Props) {
   const t = useT();
   const [findingFiles, setFindingFiles] = useState(false);
@@ -323,6 +328,8 @@ export function Composer({
     event.preventDefault();
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
+    // The folder's trust question is open: the prompt stays where it is.
+    if (blocked) return false;
     const prompt = unwrapped().trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
@@ -517,6 +524,11 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
+      {!remote.note && blocked?.reason && (
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
+          {t(blocked.reason)}
+        </p>
+      )}
       <ComposerContext
         projectChoices={projectChoices}
         onBrowseProject={onBrowseProject}
@@ -703,9 +715,10 @@ export function Composer({
                 key="send"
                 ref={sendButton}
                 type="submit"
-                className={`acpmux-send${(shell ? shellText.trim() : text.trim() || attachments.length) ? " acpmux-send-ready" : ""}`}
+                disabled={Boolean(blocked) && !shell}
+                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
                 aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : t("composer.sendTooltip")}
+                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>

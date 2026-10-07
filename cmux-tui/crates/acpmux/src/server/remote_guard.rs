@@ -28,6 +28,9 @@
 //!   the dashboard falls back to typed paths, which `session/new` checks).
 //!   LocalApp keeps both: the daemon cannot see user gestures, and the
 //!   native relay enforces a fresh gesture for LocalApp before it sends one.
+//! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
+//!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
+//!   prompts until the user answers it in the app or the CLI.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -56,9 +59,13 @@ pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::C
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
 /// this daemon holds to the Web's rules says so, and the peer applies them.
+/// One from the app's pane says `via: app`, so the peer's folder-trust gate
+/// (`trust_gate.rs`) holds it as it holds its own pane's.
 pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
     if control_of(origin, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
+    } else if origin == super::Origin::LocalApp {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
     }
 }
 
@@ -154,6 +161,15 @@ pub(super) async fn check(
             }
             params["additionalDirectories"] = Value::Array(out);
         }
+    }
+    // The folder-trust question is the user's: a remote browser cannot answer
+    // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
+    // is still refused as one.
+    if m == method::ACP_TRUST_SET && control_of(origin, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "trust.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {

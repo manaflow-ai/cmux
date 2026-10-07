@@ -50,7 +50,12 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
-        HarnessCmd::List => list(json_out),
+        HarnessCmd::List { folder: None } => list(json_out),
+        HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
+        HarnessCmd::Enable { id, folder, yes } => {
+            super::harness_folder::enable_cmd(&id, &folder, yes, json_out)
+        }
+        HarnessCmd::Disable { id, folder } => super::harness_folder::disable_cmd(&id, &folder),
         HarnessCmd::Add { id, command, protocol, example, force } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
