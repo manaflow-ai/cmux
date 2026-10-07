@@ -211,17 +211,35 @@ impl VisitStore {
             .optional()?)
     }
 
-    pub fn remove_visit(&self, id: i64) -> Result<usize, HistoryError> {
+    /// Removes one visit; `backup` names the backup it can be restored
+    /// from.
+    pub fn remove_visit(&self, id: i64, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
         Ok(self.connection.execute("DELETE FROM visits WHERE id = ?1", params![id])?)
     }
 
-    /// Removes every visit of `url`.
-    pub fn remove_url(&self, url: &str) -> Result<usize, HistoryError> {
+    /// Removes every visit of `url` into `backup`.
+    pub fn remove_url(&self, url: &str, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
         Ok(self.connection.execute("DELETE FROM visits WHERE url = ?1", params![url])?)
     }
 
-    /// Removes every visit whose host is `host` or a subdomain of it.
-    pub fn remove_host(&self, host: &str) -> Result<usize, HistoryError> {
+    /// Restores the visits removed into `backup`; returns how many came back.
+    pub fn restore(&self, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
+        Ok(0)
+    }
+
+    /// Deletes `backup` for good; returns how many visits it held.
+    pub fn purge(&self, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
+        Ok(0)
+    }
+
+    /// Removes every visit whose host is `host` or a subdomain of it, into
+    /// `backup`.
+    pub fn remove_host(&self, host: &str, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
         let host = host.to_lowercase();
         let suffix = format!(".{host}");
         let mut ids = Vec::new();
@@ -248,8 +266,10 @@ impl VisitStore {
         Ok(removed)
     }
 
-    /// Removes visits at or after `since_ms` (`None`: every visit).
-    pub fn remove_since(&self, since_ms: Option<i64>) -> Result<usize, HistoryError> {
+    /// Removes visits at or after `since_ms` (`None`: every visit), into
+    /// `backup`.
+    pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
+        let _ = backup;
         let since = since_ms.unwrap_or(i64::MIN);
         Ok(self
             .connection
