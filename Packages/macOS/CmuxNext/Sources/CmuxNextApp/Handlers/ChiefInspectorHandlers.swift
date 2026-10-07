@@ -45,13 +45,17 @@ enum ChiefInspectorHandlers {
     }
 
     /// The pane the new column goes right of: the focused (or targeted) pane;
-    /// with none (Home is shown), the last pane of the window's workspace,
-    /// else of the daemon's first workspace.
+    /// with none (Home is shown), the last pane of the window's workspace
+    /// unless that is the home workspace, else of the first user workspace.
     private static func anchorPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneModel {
         let scope = context.scope(invocation)
         if let pane = scope.pane { return pane.pane }
         guard invocation.target == nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        let workspace = scope.workspace ?? context.daemon.store.workspaces.first
+        // The home workspace (kind "home") holds only the Chief conversation
+        // that the Home page shows: the column goes into a user workspace.
+        let user = { (w: WorkspaceModel) in w.kind != "home" && w.screens.first?.panes.last != nil }
+        let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
+            ?? context.daemon.store.workspaces.first(where: user)
         guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         return pane
     }
