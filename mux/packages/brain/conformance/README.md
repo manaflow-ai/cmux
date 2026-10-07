@@ -89,3 +89,5 @@ Cases run above whose result differs on purpose. Each line says what optchat-chi
 
 | case | deviation |
 | --- | --- |
+| turns: turn_error text (string, number, object, missing, empty) and a turn with no prompt goes to the default conversation | `partial answer`: optchat-chief posts the partial reply and then "(turn failed: cut off)". A turn that failed after it said something posts both; its last words alone (often "Let me check.") would read as the answer (optchat-chief brain/turns.rs `turn_ended`). |
+| outbox: agent_rate is retried once after the gap, then dropped | `2 sends, reconnect false`: optchat-chief never drops a reply refused with agent_rate; it sends the same key again after a growing backoff until the owner takes it (G11, optchat-lab brains/DESIGN-cmux-lawrence.md; optchat-chief src/pacing.rs). |

@@ -29,6 +29,15 @@ use serde_json::{Value, json};
 const CORPUS: &str = include_str!("../../../../mux/packages/brain/conformance/chief-cases.json");
 const README: &str = include_str!("../../../../mux/packages/brain/conformance/README.md");
 
+/// One difference: what the corpus expects (the key a recorded deviation
+/// names) and what the brain did.
+struct Mismatch {
+    corpus: String,
+    detail: String,
+}
+
+type Outcome = Vec<Mismatch>;
+
 #[derive(Debug, Clone, PartialEq)]
 enum Class {
     Inbox,
@@ -39,7 +48,7 @@ enum Class {
 
 /// The README's "optchat-chief" table: `| case | class | reason |`, and its
 /// "Deviations" table: `| case | deviation |`.
-fn readme() -> (BTreeMap<String, Class>, BTreeMap<String, String>) {
+fn readme() -> (BTreeMap<String, Class>, BTreeMap<String, Vec<String>>) {
     let mut classes = BTreeMap::new();
     let mut deviations = BTreeMap::new();
     let mut section = "";
@@ -83,8 +92,22 @@ fn readme() -> (BTreeMap<String, Class>, BTreeMap<String, String>) {
                 );
                 classes.insert(cells[0].to_owned(), class);
             }
+            // `corpus expectation`: why optchat-chief differs.
             "deviations" => {
-                deviations.insert(cells[0].to_owned(), cells[1].to_owned());
+                let token = cells[1]
+                    .strip_prefix('`')
+                    .and_then(|r| r.split_once('`'))
+                    .map(|(t, _)| t.to_owned())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "README: deviation of {} names no corpus expectation",
+                            cells[0]
+                        )
+                    });
+                deviations
+                    .entry(cells[0].to_owned())
+                    .or_insert_with(Vec::new)
+                    .push(token);
             }
             _ => {}
         }
@@ -125,7 +148,7 @@ fn silent() -> Script {
 
 /// `inbox`: which messages of the Chief conversation (the corpus's first
 /// connected conversation) wake the brain.
-fn run_inbox(case: &Value) -> Result<(), String> {
+fn run_inbox(case: &Value) -> Result<Outcome, String> {
     let steps = case["steps"].as_array().unwrap();
     let default = steps
         .iter()
@@ -165,7 +188,23 @@ fn run_inbox(case: &Value) -> Result<(), String> {
             }
         }
     }
-    let summary = first.ok_or("no summary")?;
+    let mut summary = first.ok_or("no summary")?;
+    // The corpus's `answered` prompts are durable in optchat-chief as the
+    // agent read cursor (with logged_seq): nothing at or below it is logged
+    // again.
+    let answered = case["state"]["answered"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let known: Vec<&Message> = stored.values().chain(live.iter()).collect();
+    if let Some(seq) = answered
+        .iter()
+        .filter_map(|id| id.as_str())
+        .filter_map(|id| known.iter().find(|m| m.id == id).map(|m| m.seq))
+        .max()
+    {
+        summary.read_cursors.insert("agent_mux".into(), seq);
+    }
     let dir = tempfile::tempdir().unwrap();
     let owner = std::sync::Arc::new(std::sync::Mutex::new(Owner {
         summary: Some(summary.clone()),
@@ -213,16 +252,19 @@ fn run_inbox(case: &Value) -> Result<(), String> {
         .filter_map(|e| e["prompt_id"].as_str().map(str::to_owned))
         .filter(|id| ids.contains(id))
         .collect();
-    if woke == expected {
-        Ok(())
+    Ok(if woke == expected {
+        Vec::new()
     } else {
-        Err(format!("woke {woke:?}, corpus prompts {expected:?}"))
-    }
+        vec![Mismatch {
+            corpus: format!("prompts {expected:?}"),
+            detail: format!("woke {woke:?}"),
+        }]
+    })
 }
 
 /// `turn-text`: each turn (turn_started to turn_end or turn_error) of the
 /// corpus's mux session, run as one brain turn; the text the brain posts.
-fn run_turn_text(case: &Value) -> Result<(), String> {
+fn run_turn_text(case: &Value) -> Result<Outcome, String> {
     let steps = case["steps"].as_array().unwrap();
     let mut turns: Vec<(Vec<Value>, Option<String>)> = Vec::new();
     let mut current: Option<Vec<Value>> = None;
@@ -271,16 +313,13 @@ fn run_turn_text(case: &Value) -> Result<(), String> {
         let sends = h.owner.lock().unwrap().sends();
         let posted = sends.last().map(|(_, t)| t.clone());
         if posted != expected {
-            failures.push(format!(
-                "events {events:?}: posted {posted:?}, corpus {expected:?}"
-            ));
+            failures.push(Mismatch {
+                corpus: expected.unwrap_or_else(|| "nothing".into()),
+                detail: format!("posted {posted:?} for events {events:?}"),
+            });
         }
     }
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(failures.join("; "))
-    }
+    Ok(failures)
 }
 
 /// The refusal code inside an op_result reason ("conversation-op: agent_rate (...)").
@@ -295,7 +334,7 @@ fn reason_code(reason: &str) -> String {
 }
 
 /// `outbox`: the owner's answers to the first reply, replayed.
-fn run_outbox(case: &Value) -> Result<(), String> {
+fn run_outbox(case: &Value) -> Result<Outcome, String> {
     let steps = case["steps"].as_array().unwrap();
     let key = steps
         .iter()
@@ -355,13 +394,16 @@ fn run_outbox(case: &Value) -> Result<(), String> {
         .iter()
         .filter(|(k, _)| Some(k) == first.as_ref())
         .count();
-    if sends == expected_sends && reconnected == expected_reconnect {
-        Ok(())
-    } else {
-        Err(format!(
-            "answers {answers:?}: {sends} sends, reconnect {reconnected}; corpus {expected_sends} sends, reconnect {expected_reconnect}"
-        ))
-    }
+    Ok(
+        if sends == expected_sends && reconnected == expected_reconnect {
+            Vec::new()
+        } else {
+            vec![Mismatch {
+                corpus: format!("{expected_sends} sends, reconnect {expected_reconnect}"),
+                detail: format!("answers {answers:?}: {sends} sends, reconnect {reconnected}"),
+            }]
+        },
+    )
 }
 
 #[test]
@@ -383,13 +425,28 @@ fn the_shared_behavior_corpus_holds_for_optchat_chief() {
             Class::NotApplicable => continue,
         };
         ran += 1;
-        match (result, deviations.get(name)) {
-            (Ok(()), None) => {}
-            (Err(e), Some(_)) => println!("recorded deviation: {name}: {e}"),
-            (Ok(()), Some(_)) => failures.push(format!(
-                "listed as a deviation but now passes (remove it): {name}"
-            )),
-            (Err(e), None) => failures.push(format!("{name}: {e}")),
+        let listed = deviations.get(name).cloned().unwrap_or_default();
+        match result {
+            Err(e) => failures.push(format!("{name}: the adapter failed: {e}")),
+            Ok(mismatches) => {
+                for token in &listed {
+                    if !mismatches.iter().any(|m| &m.corpus == token) {
+                        failures.push(format!(
+                            "{name}: deviation `{token}` no longer deviates (remove it)"
+                        ));
+                    }
+                }
+                for m in mismatches {
+                    if listed.contains(&m.corpus) {
+                        println!(
+                            "recorded deviation: {name}: corpus `{}`, {}",
+                            m.corpus, m.detail
+                        );
+                    } else {
+                        failures.push(format!("{name}: corpus `{}`, {}", m.corpus, m.detail));
+                    }
+                }
+            }
         }
     }
     for name in classes.keys() {
