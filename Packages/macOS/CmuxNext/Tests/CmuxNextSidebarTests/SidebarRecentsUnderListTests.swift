@@ -6,7 +6,7 @@ import Testing
 /// Leo (2026-10-06): Recents sat pinned at the bottom with an empty gap under
 /// Projects. Its successor, the optional Chats section (`sidebar.showChats`,
 /// SIDEBAR-NO-RECENTS), sits right under the last workspace row and scrolls
-/// with the list, as one sidebar; the footer band (Settings, account) stays
+/// with the list, as one sidebar; the footer (the profile control) stays
 /// pinned.
 @MainActor @Suite struct SidebarRecentsUnderListTests {
     final class Recents: SidebarAppSectionProvider {
@@ -41,9 +41,10 @@ import Testing
         #expect(recents.view.enclosingScrollView === view.scrollView)
         #expect(view.list.trailer.region.frame.minY == view.list.displayed.totalHeight, "no gap")
         #expect(view.list.trailer.region.layoutResult.height > 0)
-        // The footer band keeps Settings at the bottom, without Recents.
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
+        // The footer keeps the profile control at the bottom; Recents is in neither band.
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_account")) != nil)
         #expect(!view.belowRegion.layoutResult.rows.contains { $0.kind == .app(SidebarLayoutDocument.recentsSectionID) })
+        #expect(!view.footerRegion.layoutResult.rows.contains { $0.kind == .app(SidebarLayoutDocument.recentsSectionID) })
     }
 
     @Test func aLongListScrollsWithRecentsAsOne() throws {
