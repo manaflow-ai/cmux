@@ -1,6 +1,6 @@
 # C1 `terminal-rpc`: the terminal experience over `cmux.mobile/1`
 
-Status: lane C1 of [PLAN.md](PLAN.md), 2026-10-06, branch `feat-cmux-next-ios-c1-terminal-rpc` off
+Status: landed on its branch (section 13). Lane C1 of [PLAN.md](PLAN.md), 2026-10-06, branch `feat-cmux-next-ios-c1-terminal-rpc` off
 `feat-cmux-next-ios`, with `feat-cmux-next-ios-c5-workspaces` merged in (C1 implements C5's
 `WorkspaceTerminalSourceFactory`; C5 was not on the base yet). Binding: OWNERSHIP-PRINCIPLES.md,
 ghostty-next.md sections 2 and 6, zero-latency.md, [a0-rpc.md](a0-rpc.md) 3.4 and 5.3,
@@ -29,7 +29,7 @@ confirms or a READY replaces (section 8).
 | `ios/CmuxiOS` target `CmuxiOSTerminalLink` (new) | `LinkWorkspaceTerminalSourceFactory` (C5 seam), `MobileLinkDirectory` seam per host, localized failure text | CmuxTerminalLink, CmuxiOSWorkspacesCore |
 | `Packages/macOS/CmuxNext` target `CmuxNextMobileLink` (new) | the app adapter B5 left: `DaemonMobileDaemon` (`MobileDaemon` over `DaemonConnection`), `DaemonMobileTerminalAttachment` (`MobileTerminalAttachment` over `TerminalAttachment`), `MobileTreeProjection` | CmuxMobileHost, CmuxNextDaemon |
 | `CmuxLink` | `LinkChannel.setSendPriority(_:)`: priority is per sending direction (section 5) | |
-| `CmuxMobileHost` | terminal bridge: render priority for output, `telemetry` param (queue age) | |
+| `CmuxMobileHost` | terminal bridge sends output at render priority; binding files moved to `CmuxMobileLink` | |
 
 ## 3. Attach: keyframe, then live bytes
 
@@ -40,10 +40,11 @@ confirms or a READY replaces (section 8).
 2. `LinkTerminalByteSource.open(viewport)` opens link channel `terminal/<term_id>` (reliable, priority
    `input`, budget 64 KiB for input) and sends `channel.open {kind: terminal, class: interactive,
    window: 262144, params: {terminal, viewport {cols, rows}, visible, counts: visible, snapshot
-   {format: ghostsnp, versions: [1]}, telemetry: true}}`.
+   {format: ghostsnp, versions: [1]}}}`.
 3. The host answers `channel.opened {generation, cols, rows, snapshot_version, title}`; the source emits
-   `.grid(cols, rows, generation)` and `.title`. `snapshot_version: null` (byte replay) passes frames
-   through; `TerminalViewer` handles the version mismatch.
+   `.grid(cols, rows, generation)` and `.title`. A host without snapshot support (`snapshot_version: null`,
+   byte replay) is not served on the phone yet: `TerminalViewer` waits for a READY before applying
+   bytes, and the bundled same-tree daemon always has `terminal-snapshot-history-v1`.
 4. The first output record is a READY (`snapshot_ready`, record flag `keyframe`), then `bytes` frames in
    offset order, `snapshot_history` pages and `digest` frames. Every record becomes `.frame`; the
    renderer's `TerminalStreamPipeline` restores, feeds and resyncs (ghostty-next 2).
@@ -101,8 +102,9 @@ Two drop queues, one rule: a backlog is replaced by one keyframe, never a discon
 
 The READY carries the screen; scrollback follows as `snapshot_history` frames of the same cut, which the
 pipeline prepends. Older pages are fetched with `terminal.history {before, max_bytes}` (answered with
-`snapshot_history` frames) and `terminal.read_range` (`{offset, length}` -> `terminal.read_range.result`).
-The source exposes `requestHistory(before:maxBytes:)` and `readRange(offset:length:)`; the host serves
+`snapshot_history` frames, which the pipeline prepends like the first pages). The source exposes
+`requestHistory(before:maxBytes:)`; `terminal.read_range` (search, copy of off-screen text) is D1's,
+with the same host seam. The host serves
 them through `MobileTerminalAttachment.handle(_:)`, which the app adapter answers `proto.unsupported`
 until cmux-tui exposes paged history on an attach (D1 shows "older history unavailable" then). Local
 scrollback within `scrollback-limit-bytes` needs no request.
@@ -113,9 +115,9 @@ Telemetry (`LinkTerminalByteSource.telemetry()`, newest-only stream of `Terminal
 
 - Input to echo RTT: each `bytes` input records `(sentAt, hostOffset)`; the first `bytes` frame whose
   offset passes that host offset closes the sample. p50, p95 and last over a 64-sample ring.
-- Frame age: host queue age (`terminal.age {offset, queued_ms}`, sent by the bridge after a frame that
-  waited at least 50 ms when the channel opened with `telemetry: true`) plus half the link's smoothed
-  RTT plus the phone's delivery-queue wait (measured when the renderer pulls the frame).
+- Frame age: half the link's smoothed RTT plus the phone's delivery-queue wait, measured when the
+  renderer pulls the frame. The host's own queue wait is visible as overflow keyframes; a host-stamped
+  age needs a catalog message (`terminal.age`, A0 additive, later).
 - Link RTT and path from `PathBadge`, also emitted as `.path(_, rttMilliseconds:)` for the badge.
 - Counters: keyframes, phone overflows, gaps, reattaches, predictions shown, confirmed, rolled back.
 
@@ -175,3 +177,25 @@ monitor and the tree projection.
 Key bar, gestures, selection UI and the prediction DEV switch (D1); a carrier per Mac on the phone
 (B2/B4 fill `MobileLinkDirectory`; until then the real path says "No connection to this Mac");
 paged history in cmux-tui (`terminal.history` answered `proto.unsupported`); the Rust side.
+
+## 13. Status (2026-10-06)
+
+Compiled and tested on this Mac:
+
+- `CmuxTerminalLink`: 29 Swift Testing tests green (`swift test`, run 3 times): attach, unknown terminal,
+  input order on loopback and on a lossy jittery link, no offline queueing, phone flood -> one snapshot,
+  hidden phone and keyboard sizing through `CmuxTerminalSizing`, same-epoch resume, new epoch -> reattach
+  -> READY, kick, exit, prediction confirm / mismatch rollback / expiry rollback / off by default, predictor
+  and monitor units, unpaired hello refused, shared hello with odd ids.
+- `CmuxMobileLink`: builds, 1 test; `CmuxMobileHost`: 45 tests still green after the move; `CmuxLink`: 35.
+- `CmuxiOSApp` (with `CmuxiOSTerminalLink`) compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
+- `CmuxNextMobileLink`: typechecked and 5 tests green through a scratch package that links the real
+  `CmuxNextDaemon` and `CmuxNextWakeups` sources (the local 6.2.4 toolchain needed Swift 5 mode for those
+  two modules only, for one region-isolation diagnostic in `DaemonStore+Driver.swift`). The full CmuxNext
+  package and the Mac app were not built (disk); `check-concurrency`, `check-l10n`, `check-crash-safety`
+  pass.
+
+Not done: no carrier fills `MobileLinkDirectory` yet (B2/B4), so real-Mac terminals show "No connection to
+this Mac"; `MobileHost` is not started by the app (`MobileHostService` still runs the irx host);
+host-stamped frame age (`terminal.age`); `terminal.read_range` in the source; prediction DEV switch (D1).
+No tagged build (blocked: no fleet manifest here, GitHub push auth broken).
