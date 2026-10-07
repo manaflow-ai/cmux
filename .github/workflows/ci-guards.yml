@@ -965,6 +965,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next release notes fetch (published span only)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_release_notes_fetch.py
+
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_cmux_tui_resolve.py

@@ -75,7 +75,9 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 - `spawn` waits for settle, renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
-  `optchat-sub-<home id>-a<N>`, in `optchat/subagent/`, with the required preset
+  `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
+  home; a directory that does not exist on the host is reported and
+  `optchat/subagent/` is used, which is also the default), with the required preset
   `optchat-sub-<home id>`. Tags: `mux.parent=optchat-chief:<home id>`,
   `optchat.spawn=s<N>`, `optchat.subagent=a<N>`; never `cmux.chief`. It answers
   the ids at once (ids are unique per home, kept in host.json).
@@ -96,6 +98,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
   `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+- The spawn answer says, per subagent, the workspace it got and where it
+  lives (`workspace "a1 · task" in the cmux app on this Mac`), or `no cmux
+  workspace (<why>)`: no app socket, workspaces turned off, or the open
+  failed. The Chief is told to repeat only that. Before 2026-10-06 the answer
+  always said "each in its own cmux workspace", and a headless brain without
+  an app socket told the user about workspaces that did not exist.
 - When ALL of one spawn's subagents finished a turn, their reports (each one's
   last reply) reach the chat as ONE `user` message, `[a1] report\n\n[a2] report`.
   It is queued like a human message: it starts a turn when the Chief is idle,
