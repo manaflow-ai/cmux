@@ -17,7 +17,7 @@ const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default)]
-struct OpenWork {
+pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
@@ -290,7 +290,7 @@ impl Hub {
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
-    fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
+    pub(super) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         let mut work = OpenWork::default();
         let mut current = false;
         let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
@@ -445,13 +445,13 @@ impl Hub {
     }
 
     /// The remote floor's marks of an adopted host (`open_work`).
-    fn recover_floor(session: &Session, work: &OpenWork) {
-        session.harness_grant.store(work.harness_grant, Ordering::SeqCst);
-        session.last_turn_web.store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+    pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
+        session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
+        session.floor.last_turn_web.store(work.last_control == Some(Control::Web), Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {
-            *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+            *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(turn_id.clone());
         }
     }
@@ -484,7 +484,7 @@ impl Hub {
                         // older record without it counts as Web.
                         control,
                     });
-                    session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
