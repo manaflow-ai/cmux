@@ -12,6 +12,7 @@ import {
 } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { recordCoderouterSpan } from "./requestTelemetry";
 import type { CodeRouterAccountSummary, CodeRouterCredential } from "./types";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -23,14 +24,71 @@ export type AccountsUsageDependencies = {
   readonly credential: typeof freshCredential;
   readonly fetchUsage: (credential: CodeRouterCredential) => Promise<Response>;
   readonly report: typeof reportCoderouterFailure;
+  /** Records a usage-read timeout that is not reported. Defaults to a log line and a route span. */
+  readonly observeTimeout?: (observation: UsageTimeoutObservation) => void;
+  /** Consecutive usage-read timeouts per account; defaults to one tracker per loader. */
+  readonly timeoutStreaks?: UsageTimeoutStreaks;
 };
+
+/**
+ * Consecutive timed-out polls after which one account's usage read is
+ * reported as an error instead of a transient upstream warning.
+ */
+export const USAGE_TIMEOUT_ERROR_STREAK = 3;
+const MAX_TRACKED_TIMEOUT_ACCOUNTS = 1_000;
+
+export type UsageTimeoutObservation = {
+  readonly provider: string;
+  readonly consecutive: number;
+};
+
+export type UsageTimeoutStreaks = {
+  readonly record: (accountId: string) => number;
+  readonly clear: (accountId: string) => void;
+};
+
+/**
+ * Counts consecutive usage-read timeouts per account on this server
+ * instance. Best effort: a new instance starts at zero, which delays an
+ * escalation but never invents one. Bounded so a long-lived instance
+ * cannot grow it without limit.
+ */
+export function createUsageTimeoutStreaks(): UsageTimeoutStreaks {
+  const streaks = new Map<string, number>();
+  return {
+    record: (accountId) => {
+      const next = (streaks.get(accountId) ?? 0) + 1;
+      streaks.delete(accountId);
+      streaks.set(accountId, next);
+      if (streaks.size > MAX_TRACKED_TIMEOUT_ACCOUNTS) {
+        const oldest = streaks.keys().next().value;
+        if (oldest !== undefined) streaks.delete(oldest);
+      }
+      return next;
+    },
+    clear: (accountId) => {
+      streaks.delete(accountId);
+    },
+  };
+}
+
 
 type AccountWithUsage = CodeRouterAccountSummary & {
   readonly usage?: unknown;
   readonly usageError?: string;
 };
 
-export function createAccountsUsageLoader(dependencies: AccountsUsageDependencies) {
+type ResolvedUsageDependencies = AccountsUsageDependencies & {
+  readonly timeoutStreaks: UsageTimeoutStreaks;
+  readonly observeTimeout: (observation: UsageTimeoutObservation) => void;
+};
+
+export function createAccountsUsageLoader(supplied: AccountsUsageDependencies) {
+  const dependencies: ResolvedUsageDependencies = {
+    ...supplied,
+    timeoutStreaks: supplied.timeoutStreaks ?? createUsageTimeoutStreaks(),
+    observeTimeout: supplied.observeTimeout ?? observeUsageTimeout,
+  };
   return async (teamId: string, access?: CoderouterAccountAccess) => {
     const startedAt = performance.now();
     addCoderouterBreadcrumb("status", "Loading account usage");
@@ -69,7 +127,7 @@ export function createAccountsUsageLoader(dependencies: AccountsUsageDependencie
 }
 
 async function accountUsage(
-  dependencies: AccountsUsageDependencies,
+  dependencies: ResolvedUsageDependencies,
   teamId: string,
   account: CodeRouterAccountSummary,
   known: EncryptedCredential | undefined,
@@ -82,13 +140,13 @@ async function accountUsage(
       known,
     });
     if (credential.provider !== "codex") return account;
-    let response = await dependencies.fetchUsage(credential);
+    let response = await usageRead(() => dependencies.fetchUsage(credential));
     if (response.status === 401) {
       // Release the rejected response's connection before the retry.
       await response.body?.cancel().catch(() => undefined);
       const refreshed = await refreshRejectedCredential(dependencies, teamId, account, known);
       if (refreshed.provider !== "codex") return account;
-      response = await dependencies.fetchUsage(refreshed);
+      response = await usageRead(() => dependencies.fetchUsage(refreshed));
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
@@ -102,7 +160,8 @@ async function accountUsage(
       );
       return { ...account, usageError: `HTTP ${response.status}` };
     }
-    const usage: unknown = await response.json();
+    const usage: unknown = await usageRead(() => response.json());
+    dependencies.timeoutStreaks.clear(account.id);
     const cooldownMs = usageCooldown(usage);
     if (cooldownMs !== null) {
       await dependencies.markCooldown(account.id, cooldownMs);
@@ -118,10 +177,64 @@ async function accountUsage(
     if (error instanceof CodeRouterRefreshBusy) {
       return { ...account, usageError: "credential_refreshing" };
     }
+    if (error instanceof UsageReadTimeout) return reportUsageTimeout(dependencies, account, error.cause);
     dependencies.report("provider_usage", error, {
       provider: account.provider,
     });
     return { ...account, usageError: "unavailable" };
+  }
+}
+
+/**
+ * The usage endpoint answers in ~0.35 s at p50; its tail stalls a response
+ * body past the 5 s budget on a few percent of reads while the provider is
+ * degraded. The account list is polled, so the next poll retries. A timeout
+ * is always logged and kept on the route trace; only an account that keeps
+ * timing out reports to Sentry, as an error.
+ */
+function reportUsageTimeout(
+  dependencies: ResolvedUsageDependencies,
+  account: CodeRouterAccountSummary,
+  error: unknown,
+): AccountWithUsage {
+  const consecutive = dependencies.timeoutStreaks.record(account.id);
+  dependencies.observeTimeout({ provider: account.provider, consecutive });
+  if (consecutive >= USAGE_TIMEOUT_ERROR_STREAK) {
+    dependencies.report(
+      "provider_usage",
+      error,
+      { provider: account.provider, timeout: true, consecutive },
+    );
+  }
+  return { ...account, usageError: "timeout" };
+}
+
+function observeUsageTimeout(observation: UsageTimeoutObservation): void {
+  console.warn("coderouter.usage_timeout", observation);
+  recordCoderouterSpan({
+    name: "usage_timeout",
+    startedAt: performance.now(),
+    attributes: { provider: observation.provider, timeout: true, consecutive: observation.consecutive },
+  });
+}
+
+/**
+ * Marks a timeout from the usage read itself. Credential refresh timeouts
+ * keep their normal reporting and never count toward the streak.
+ */
+class UsageReadTimeout extends Error {
+  constructor(readonly cause: unknown) {
+    super("usage read timed out");
+    this.name = "TimeoutError";
+  }
+}
+
+async function usageRead<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") throw new UsageReadTimeout(error);
+    throw error;
   }
 }
 
