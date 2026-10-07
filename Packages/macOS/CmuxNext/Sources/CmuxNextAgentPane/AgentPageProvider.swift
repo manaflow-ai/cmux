@@ -36,6 +36,7 @@ public nonisolated struct AgentPageOps {
             "git.diff", "git.status", "file.search", "git.checkpoint.diff", "turn.undo",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
+            "models.catalog",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods { methods[method] = method }
         methods["handshake"] = "ready"
