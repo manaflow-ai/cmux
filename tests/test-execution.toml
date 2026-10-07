@@ -1009,6 +1009,10 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
 lane = "linux-guard"
 

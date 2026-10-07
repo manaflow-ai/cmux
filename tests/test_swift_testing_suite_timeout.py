@@ -287,5 +287,50 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
             self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), [f"ensure {ROOT}"])
 
+    def test_string_catalogs_compile_after_the_build_and_before_the_suites(self) -> None:
+        """cx-v2k: swift build copies String Catalogs uncompiled, so QuitAlertContent,
+        RefusalLocalization, TerminalHostLossBanner, TerminalStatusBannerTranslation and
+        SettingsText failed on the fleet only (cmux-next.yml compiles them)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            compile_catalogs = temp / "compile"
+            compile_catalogs.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'compile %s\\n' \"$PWD\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "exit \"${FAKE_COMPILE_STATUS:-0}\"\n",
+                encoding="utf-8",
+            )
+            compile_catalogs.chmod(0o755)
+            package = temp / "ExampleTests"
+            (package / "Sources" / "Example" / "Resources").mkdir(parents=True)
+            (package / "Sources" / "Example" / "Resources" / "Localizable.xcstrings").write_text("{}", encoding="utf-8")
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_COMPILE_STRING_CATALOGS"] = str(compile_catalogs)
+
+            completed = run_runner(package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertIn("test list", invocations[0])
+            self.assertEqual(invocations[1], f"compile {package.resolve()}", invocations)
+            self.assertIn("--skip-build", invocations[2])
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_COMPILE_STATUS"] = "4"
+            completed = run_runner(package, env)
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse([line for line in calls.read_text(encoding="utf-8").splitlines() if "--skip-build" in line])
+
 if __name__ == "__main__":
     unittest.main()
