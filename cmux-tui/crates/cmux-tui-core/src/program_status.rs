@@ -67,10 +67,57 @@ impl ProgramStatusRecord {
     }
 }
 
+/// Alerts kept between two publications; more are dropped (a program that
+/// flips states faster than the reader publishes gets no more banners).
+pub(crate) const MAX_PENDING_ALERTS: usize = 8;
+
+/// A record that entered `blocked` or `error`: the daemon posts one terminal
+/// notification for it (decision OSC-7501-PROGRAM-STATUS: notifications for
+/// blocked and error; the daemon notification ledger owns them). A record
+/// that reports the same state again does not alert again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProgramStatusAlert {
+    pub(crate) state: ProgramStatusState,
+    pub(crate) kind: Option<ProgramStatusKind>,
+    pub(crate) app: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) message: Option<String>,
+}
+
+impl ProgramStatusAlert {
+    /// The notification's title and body. The title names the program
+    /// (its title, else its app name, else `terminal`, the terminal's own
+    /// title); the body says what it waits for, then its message. All of it
+    /// is plain text: the program's text is never a link or a command, and
+    /// the notification carries the source terminal.
+    pub(crate) fn notification(&self, terminal: &str) -> (String, String) {
+        let title = self.title.clone().or_else(|| self.app.clone()).unwrap_or_else(|| terminal.to_owned());
+        let wording = match (self.state, self.kind) {
+            (ProgramStatusState::Error, _) => "Failed",
+            (_, Some(ProgramStatusKind::Permission)) => "Needs approval",
+            (_, Some(ProgramStatusKind::Question)) => "Asks a question",
+            (_, Some(ProgramStatusKind::Auth)) => "Needs sign-in",
+            _ => "Needs input",
+        };
+        let body = match &self.message {
+            Some(message) => format!("{wording}: {message}"),
+            None => wording.to_owned(),
+        };
+        (shown_text(&title, MAX_TITLE_CHARS), shown_text(&body, MAX_MESSAGE_CHARS))
+    }
+
+    pub(crate) fn is_error(&self) -> bool {
+        self.state == ProgramStatusState::Error
+    }
+}
+
 /// The records of one terminal, keyed by record id (`""` is the root).
 #[derive(Debug, Default)]
 pub(crate) struct ProgramStatusRecords {
     records: BTreeMap<String, ProgramStatusRecord>,
+    /// Records that entered `blocked` or `error` since the last
+    /// [`ProgramStatusRecords::take_alerts`].
+    alerts: Vec<ProgramStatusAlert>,
     next_seq: u64,
     /// Bumped on every visible change; `published` is the value last handed
     /// to the public graph.
@@ -113,6 +160,7 @@ impl ProgramStatusRecords {
             }
         }
         self.next_seq += 1;
+        let previous = self.records.get(&id).map(|record| record.state);
         let blocked = state == ProgramStatusState::Blocked;
         let shows_progress = blocked || state == ProgramStatusState::Working;
         let record = ProgramStatusRecord {
@@ -125,8 +173,23 @@ impl ProgramStatusRecords {
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
         };
+        let alerts = matches!(state, ProgramStatusState::Blocked | ProgramStatusState::Error);
+        if alerts && previous != Some(state) && self.alerts.len() < MAX_PENDING_ALERTS && false {
+            self.alerts.push(ProgramStatusAlert {
+                state,
+                kind: record.kind,
+                app: record.app.clone(),
+                title: record.title.clone(),
+                message: record.message.clone(),
+            });
+        }
         self.records.insert(id, record);
         self.revision += 1;
+    }
+
+    /// The records that entered `blocked` or `error` since the last call.
+    pub(crate) fn take_alerts(&mut self) -> Vec<ProgramStatusAlert> {
+        std::mem::take(&mut self.alerts)
     }
 
     /// A primary prompt started: the program that reported `working`,
@@ -197,6 +260,30 @@ pub(crate) fn sink(records: SharedProgramStatus) -> ghostty_vt::ProgramStatusFn 
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn query_only_sink() -> ghostty_vt::ProgramStatusFn {
     Box::new(|_| {})
+}
+
+impl crate::mux::Mux {
+    /// Post one terminal notification per OSC 7501 record that entered
+    /// `blocked` or `error` in `surface`'s terminal (titled `terminal` when
+    /// the program names nothing). Called by the publisher after the
+    /// terminal upsert, outside every terminal lock.
+    pub(crate) fn post_program_status_alerts(
+        &self,
+        surface: crate::SurfaceId,
+        terminal: &str,
+        alerts: Vec<ProgramStatusAlert>,
+    ) {
+        for alert in alerts {
+            let (title, body) = alert.notification(terminal);
+            let level = if alert.is_error() { crate::mux::NotificationLevel::Error } else { crate::mux::NotificationLevel::Warning };
+            if self
+                .post_notification_from(title, body, level, Some(surface), crate::mux::NotificationSource::Terminal)
+                .is_err()
+            {
+                self.report_internal_diagnostic("program status notification not posted");
+            }
+        }
+    }
 }
 
 fn non_empty(text: String) -> Option<String> {

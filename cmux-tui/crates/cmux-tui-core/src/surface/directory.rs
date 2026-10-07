@@ -44,8 +44,10 @@ impl Surface {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        let status_changed =
-            records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_change();
+        let (status_changed, alerts) = {
+            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (records.take_change(), records.take_alerts())
+        };
         if !progress_changed && !status_changed {
             return;
         }
@@ -53,6 +55,11 @@ impl Surface {
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
         if let Err(error) = mux.publish_terminal_progress(self, mutation) {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // After the upsert, so a client that opens the notification finds
+        // the record it names.
+        if !alerts.is_empty() {
+            mux.post_program_status_alerts(self.id, &self.title(), alerts);
         }
     }
 

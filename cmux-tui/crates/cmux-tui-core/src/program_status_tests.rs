@@ -167,3 +167,68 @@ fn each_visible_change_is_taken_once() {
     records.apply(ProgramStatusEvent::PromptStart, 0);
     assert!(!records.take_change());
 }
+
+fn blocked(id: &str, kind: Option<ProgramStatusKind>, message: &str) -> ProgramStatusEvent {
+    ProgramStatusEvent::Report(ProgramStatusReport {
+        state: ProgramStatusState::Blocked,
+        kind,
+        progress: None,
+        id: id.into(),
+        app: "terraform".into(),
+        title: String::new(),
+        message: message.into(),
+    })
+}
+
+#[test]
+fn entering_blocked_or_error_alerts_once() {
+    let mut records = ProgramStatusRecords::default();
+    records.apply(report("", ProgramStatusState::Working), 1);
+    assert!(records.take_alerts().is_empty());
+    records.apply(blocked("", Some(ProgramStatusKind::Permission), "Apply?"), 2);
+    let alerts = records.take_alerts();
+    assert_eq!(alerts.len(), 1);
+    assert_eq!(
+        alerts[0].notification("zsh"),
+        ("terraform".to_owned(), "Needs approval: Apply?".to_owned())
+    );
+    // The same state reported again (a new updated_seq) does not alert again.
+    records.apply(blocked("", Some(ProgramStatusKind::Permission), "Apply?"), 3);
+    assert!(records.take_alerts().is_empty());
+    records.apply(report("", ProgramStatusState::Error), 4);
+    let alerts = records.take_alerts();
+    assert_eq!(alerts.len(), 1);
+    assert!(alerts[0].is_error());
+    assert_eq!(alerts[0].notification("zsh"), ("zsh".to_owned(), "Failed".to_owned()));
+    // Done and working never alert; a new record id alerts on its own.
+    records.apply(report("", ProgramStatusState::Done), 5);
+    records.apply(report("build", ProgramStatusState::Error), 6);
+    assert_eq!(records.take_alerts().len(), 1);
+}
+
+#[test]
+fn the_wording_follows_the_kind() {
+    let mut records = ProgramStatusRecords::default();
+    for (index, kind) in [
+        Some(ProgramStatusKind::Question),
+        Some(ProgramStatusKind::Auth),
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        records.apply(blocked(&format!("r{index}"), kind, ""), index as u64);
+    }
+    let bodies = records.take_alerts().into_iter().map(|alert| alert.notification("t").1).collect::<Vec<_>>();
+    assert_eq!(bodies, ["Asks a question", "Needs sign-in", "Needs input"]);
+}
+
+#[test]
+fn pending_alerts_are_bounded() {
+    let mut records = ProgramStatusRecords::default();
+    for index in 0..(MAX_PENDING_ALERTS + 5) {
+        records.apply(report(&format!("r{index}"), ProgramStatusState::Error), index as u64);
+    }
+    assert_eq!(records.take_alerts().len(), MAX_PENDING_ALERTS);
+    assert!(records.take_alerts().is_empty());
+}
