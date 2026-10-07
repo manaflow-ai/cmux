@@ -108,7 +108,7 @@ extension ConversationViewController {
         case "state":
             let style = traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
             guard let background = store.background else { return "none style=\(style)" }
-            return "\(background.kind.rawValue) look=\(background.look ?? "-") L=\(String(format: "%.3f", background.luminance)) style=\(style) by=\(background.setBy ?? "-") paused=\(backdropView.backdrop.isMotionPaused)"
+            return "\(background.kind.rawValue) look=\(background.look ?? "-") L=\(String(format: "%.3f", background.luminance)) style=\(style) by=\(background.setBy ?? "-") paused=\(backdropView.backdrop.isMotionPaused) image=\(backdropView.backdrop.image != nil) contrast=\(backdropView.backdrop.increasesContrast) \(backdropView.backdrop.debugSummary) superview=\(backdropView.superview != nil) index=\(view.subviews.firstIndex(of: backdropView) ?? -1) alpha=\(backdropView.alpha)"
         default:
             return "error unknown verb"
         }

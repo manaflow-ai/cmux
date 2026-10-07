@@ -60,7 +60,9 @@ public final class ConversationBackdropLayer: CALayer {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.35
-            content.add(fade, forKey: "backdrop.change")
+            // On this layer, never on `content`: a paused (speed 0) content
+            // layer would hold the transition at its first frame forever.
+            add(fade, forKey: "backdrop.change")
         }
         rebuild()
         applyContrast()
@@ -75,6 +77,12 @@ public final class ConversationBackdropLayer: CALayer {
         CATransaction.commit()
         // Static kinds resize in place; dynamic ones are laid out for a size.
         if bounds.size != builtSize { rebuild() }
+    }
+
+    /// What is built, for lab logs.
+    public var debugSummary: String {
+        let first = content.sublayers?.first
+        return "layers=\(content.sublayers?.count ?? 0) contents=\(first?.contents != nil) frame=\(first.map { "\($0.frame)" } ?? "-") speed=\(content.speed) hidden=\(isHidden) opacity=\(opacity) bounds=\(bounds.size)"
     }
 
     // MARK: Building

@@ -85,9 +85,17 @@ final class ConversationBackdropView: UIView {
         photoTask?.cancel()
         photoTask = Task { [weak self] in
             let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth)
-            guard let self, !Task.isCancelled, self.background?.id == background.id, let cgImage = image?.cgImage else { return }
+            guard let self, !Task.isCancelled, self.background?.id == background.id, let image,
+                  let cgImage = image.cgImage ?? Self.rendered(image) else { return }
             self.backdrop.set(background, image: cgImage, animated: true)
         }
+    }
+
+    /// A prepared thumbnail may have no CGImage behind it; draw one.
+    static func rendered(_ image: UIImage) -> CGImage? {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in image.draw(at: .zero) }.cgImage
     }
 
     /// The color the transcript's top wash fades to over this background.
