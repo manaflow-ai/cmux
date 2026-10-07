@@ -20,8 +20,10 @@ public final class ToastWindow: UIWindow {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // UIWindow answers with itself when no subview claims the point, so
+        // both the window and its root view mean "nothing here": pass through.
         let hit = super.hitTest(point, with: event)
-        return hit === rootViewController?.view ? nil : hit
+        return hit === self || hit === rootViewController?.view ? nil : hit
     }
 
     override public var canBecomeKey: Bool { false }
