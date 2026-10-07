@@ -183,8 +183,8 @@ extension ConversationViewController {
     func landFlight(rowID: String) {
         activeFlights.removeValue(forKey: rowID)?.removeFromSuperview()
         flyingRowIDs.remove(rowID)
-        if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) {
-            cell.contentView.alpha = 1
+        if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) as? MessageCell {
+            cell.setFlightHidden(false)
         }
     }
 
@@ -300,6 +300,20 @@ struct SendFlightMotion {
             return lower.1 + (upper.1 - lower.1) * (fieldHeight - lower.0) / (upper.0 - lower.0)
         }
         return 0.9
+    }
+}
+
+extension MessageCell {
+    /// While its send flight is in the air the row hides only what the
+    /// flight draws (bubble, text, emoji, images) and its status, so a
+    /// reply's quote and the sender name stay in place.
+    func setFlightHidden(_ hidden: Bool) {
+        contentView.alpha = 1
+        let alpha: CGFloat = hidden ? 0 : 1
+        let flown: [UIView] = [bubble, textLabel, emojiLabel, footerLabel] + imageViews
+        for view in flown {
+            view.alpha = alpha
+        }
     }
 }
 
