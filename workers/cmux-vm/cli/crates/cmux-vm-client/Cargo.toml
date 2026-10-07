@@ -7,6 +7,11 @@ license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 
+# The generated method docs indent plain text, which rustdoc would compile
+# as doctests. The crate has no hand-written examples to test.
+[lib]
+doctest = false
+
 [dependencies]
 bytes.workspace = true
 futures.workspace = true
