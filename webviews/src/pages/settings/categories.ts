@@ -107,7 +107,10 @@ const SPECS: CategorySpec[] = [
     id: "agents",
     title: page("settingsPage.category.agents", "Agents"),
     symbol: "sparkles",
-    groups: [{ group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] }],
+    groups: [
+      { group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] },
+      { group: "settings.group.computerUse" },
+    ],
   },
   {
     // A core cmux feature: banners, sounds, the attention ring and the feed for agents,
