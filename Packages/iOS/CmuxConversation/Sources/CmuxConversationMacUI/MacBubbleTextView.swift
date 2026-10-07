@@ -126,13 +126,18 @@ final class MacBubbleTextView: NSTextView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        if let find = findHighlightRange, NSMaxRange(find) <= (textStorage?.length ?? 0),
+        var text = attributedText
+        if let find = findHighlightRange, NSMaxRange(find) <= text.length,
            let manager = layoutManager, let container = textContainer {
             let glyphs = manager.glyphRange(forCharacterRange: find, actualCharacterRange: nil)
             NSColor.findHighlightColor.setFill()
             manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: glyphs, in: container) { rect, _ in
                 NSBezierPath(roundedRect: rect.insetBy(dx: -1, dy: 0), xRadius: 3, yRadius: 3).fill()
             }
+            // The match reads dark on the find highlight, as AppKit's find does.
+            let marked = NSMutableAttributedString(attributedString: text)
+            marked.addAttribute(.foregroundColor, value: NSColor.black, range: find)
+            text = marked
         }
         let range = selectedRange()
         if range.length > 0, let manager = layoutManager, let container = textContainer {
@@ -143,7 +148,7 @@ final class MacBubbleTextView: NSTextView {
                 rect.fill()
             }
         }
-        attributedText.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
+        text.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
