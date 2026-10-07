@@ -22,6 +22,17 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. gallery-pr diffs the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
+A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
+`scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
+guards run actionlint and the CI unit tests. When the router itself changes,
+`Routing replay (router changes)` replays the last 30 merged PRs' changed files
+through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)
+and fails on any tier the new router adds, or drops without naming a fast tier.
+`gh-merge-green --revert OWNER/REPO#N` undoes a bad one in a command. A file
+that a Mac tier reads keeps its tier whatever its name: the Xcode pins,
+`.github/actions/setup-cmux-tui-rust/`, daemon and tree inputs, generated-file
+inputs such as `plans/cmux-next/`, and every file a Swift test reads.
+
 Every tier runs on:
 
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the

@@ -118,12 +118,40 @@ CHECKED_WEB_BUNDLES = (
     PACKAGE + "Sources/CmuxNextAgentPane/Resources/agent-pane/*",
 )
 
+# CI-only files: workflows, CI scripts, the router and gh-merge-green, and their tests. actionlint
+# and the CI unit tests (ci.yml's guards) and the routing replay (the checks job) cover them on
+# Linux, and `gh-merge-green --revert` undoes one in a command.
+CI_ONLY = (
+    ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
+    "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
+    "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
+    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+)
+# The CI files that route themselves (the router reads them; the replay checks them).
+CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
+
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
     if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
         return True
     return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
+
+
+def ci_only(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+
+
+def consumed(path: str, tree_inputs: list[str], read) -> bool:
+    """A Mac tier reads this file (a toolchain pin, a job script, a daemon or tree input, a
+    generated-file input or a test fixture), whatever its name looks like."""
+    if path in FULL_INPUTS and path not in CI_SELF:
+        return True
+    if path in DAEMON_PATHS or any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
+        return True
+    if any(matches(path, p) for p in GENERATED_INPUTS) and not any(fnmatch.fnmatch(path, b) for b in CHECKED_WEB_BUNDLES):
+        return True
+    return read(path)
 
 
 @dataclass
@@ -209,10 +237,15 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
-    # The web fast tier: a nit in web code reaches Leo in minutes. The bundle --check in ci-web
-    # stands in for the app compile; a dev-build PR still compiles its dogfood app.
-    if "dev-build" not in labels and all(web_fast(path) and not read(path) for path in changed):
-        result.reasons.append("only web sources, their checked bundles or docs changed: ci-web and the checks job cover them")
+    # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
+    # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
+    # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
+    tree_inputs_early = tree_input_paths(root)
+    if "dev-build" not in labels and all(
+        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+    ):
+        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)

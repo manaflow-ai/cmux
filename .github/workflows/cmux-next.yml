@@ -691,7 +691,29 @@ jobs:
       - name: Tier routing
         id: tier-routing
         continue-on-error: true
-        run: python3 tests/test_cmux_next_route.py
+        run: |
+          python3 tests/test_cmux_next_route.py
+          python3 tests/test_cmux_next_route_replay.py
+
+      # A pull request that changes the router replays the last 30 merged PRs' changed files
+      # through the base router (the merge commit's HEAD^1) and its own: a tier the new router
+      # adds, or drops without naming a fast tier, fails (scripts/ci/cmux_next_route_replay.py).
+      - name: Routing replay (router changes)
+        id: routing-replay
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "Pushes run every tier; the replay checks pull request routing only."
+            exit 0
+          fi
+          if git diff --quiet HEAD^1 HEAD -- scripts/ci/cmux_next_route.py scripts/ci/select_package_tests.py; then
+            echo "The router did not change."
+            exit 0
+          fi
+          python3 scripts/ci/cmux_next_route_replay.py --base HEAD^1 --limit 30 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Package.swift links the app FFI from one pinned release; the pin must
       # match the FFI sources (every crate cmux-app-ffi reaches through Cargo
@@ -732,6 +754,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
         run: |
