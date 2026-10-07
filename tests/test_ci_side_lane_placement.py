@@ -241,6 +241,18 @@ class CmuxNextWiring(unittest.TestCase):
         checks = self.workflow()["jobs"]["checks"]["steps"]
         self.assertFalse(any(step.get("with", {}).get("name") == "owned-pool-watch" for step in checks))
 
+    def test_a_re_push_cancels_each_superseded_job_not_the_whole_run(self):
+        workflow = self.workflow()
+        # A workflow-level group made a re-push wait for every old job to finish cancelling.
+        self.assertNotIn("concurrency", workflow)
+        for name, job in workflow["jobs"].items():
+            if name == "generated-autofix-pr":
+                continue  # one serialized group across pushes (test_cmux_next_checks_workflow)
+            with self.subTest(job=name):
+                group = job["concurrency"]["group"]
+                self.assertEqual(group, "cmux-next-${{ github.event.pull_request.number || github.run_id }}-" + name)
+                self.assertEqual(job["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+
 
 if __name__ == "__main__":
     unittest.main()

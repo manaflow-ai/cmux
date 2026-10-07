@@ -24,8 +24,10 @@ concurrency:
 jobs:
   autofix:
     name: namespace autofix
+    # The repository-wide same-repository gate: no fork-started run reaches
+    # this job, so it may take an owned runner (test_ci_fork_runner_routing).
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
       && !github.event.pull_request.draft
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
