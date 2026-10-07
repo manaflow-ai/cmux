@@ -156,9 +156,17 @@ machine, so the Chief keeps Claude Code's tools, its subagents and children
 5. Cost line in the admin view (backend lead).
 6. Staging measurement of the cold wake; then the reply-time promise.
 
-## 9. Decisions needed
+## 9. Decisions
 
-- Model route for VMs (section 6): Cloud route or the user's key.
-- The daily cap per user, and who pays for the VM after the team flag.
-- Whether a user with a server can also have a VM (one placement at a time is
-  the rule above).
+Internal phase (coordinator, 2026-10-07):
+
+- Model route: Chief VMs use the Cloud coderouter route (section 6, first
+  option).
+- Daily cap: $20 per user per day under the manaflow-team flag; an alert at
+  80%, and at 100% no new turns start and the Chief posts a visible notice.
+- Who pays after the flag: Lawrence's open decision.
+- Backend work (one-VM record, MuxDO wake alarm, cloud import op, admin cost
+  line, the flag): routed to hq-ff (Cloud/CloudDO and cmux VM owner).
+
+Still open: whether a user with a server can also have a VM (one placement at a
+time is the rule above).
