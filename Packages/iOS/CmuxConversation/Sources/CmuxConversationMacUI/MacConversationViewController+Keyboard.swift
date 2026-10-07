@@ -85,7 +85,7 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
         case #selector(continueLastReply(_:)): return lastReplyRootID.flatMap { store.message(id: $0) } != nil
         case #selector(tapbackMessage(_:)): return commandTarget(incoming: false) != nil
         case #selector(editLastMessage(_:)): return lastEditableIndex != nil
-        case #selector(copyMessage(_:)), #selector(copy(_:)): return selectedMessageIndex != nil
+        case #selector(copyMessage(_:)), #selector(copy(_:)), #selector(delete(_:)): return selectedMessageIndex != nil
         default: return true
         }
     }
@@ -180,6 +180,38 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
     }
 
     @objc func copy(_ sender: Any?) { copyMessage(sender) }
+
+    /// Edit > Delete (and the Delete key) on the selected message: the same
+    /// path as the context menu's Delete… (a failed send goes without asking).
+    @objc func delete(_ sender: Any?) { deleteSelectedMessage() }
+
+    func deleteSelectedMessage() {
+        guard let index = selectedMessageIndex, let model = messageModel(at: index) else { return NSSound.beep() }
+        if model.message.delivery?.isFailed == true {
+            deleteLocally([model.rowID])
+        } else {
+            confirmDelete(model)
+        }
+    }
+
+    // MARK: Undo Send
+
+    /// Messages offers Undo Send (Edit > Undo, ⌘Z) right after a send. The
+    /// draft's typing history is gone with the draft, so it is dropped first.
+    func registerUndoSend(rowID: String) {
+        guard let undoManager = composer.textView.undoManager else { return }
+        undoManager.removeAllActions()
+        undoManager.registerUndo(withTarget: self) { controller in
+            MainActor.assumeIsolated { controller.undoSend(rowID: rowID) }
+        }
+        undoManager.setActionName(String(localized: "conversation.undo.send", defaultValue: "Send", bundle: .module))
+    }
+
+    /// Takes back the sent message through the store's Undo Send, if its window is still open.
+    func undoSend(rowID: String) {
+        guard let message = store.messages.first(where: { $0.rowID == rowID }), store.canUnsend(message) else { return NSSound.beep() }
+        store.unsend(messageID: message.id)
+    }
 
     // MARK: Message selection
 

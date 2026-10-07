@@ -89,6 +89,25 @@ import Testing
         #expect(lab.controller.composer.text.isEmpty)
     }
 
+    @Test func undoAfterSendTakesTheMessageBackAndDeleteNeedsASelection() async throws {
+        let lab = try await Lab()
+        lab.focusComposer()
+        lab.controller.composer.text = "oops, wrong chat"
+        lab.key("return")
+        try await waitUntil { lab.controller.store.messages.last?.seq != nil && lab.controller.store.messages.last?.text == "oops, wrong chat" }
+        let undoManager = try #require(lab.controller.composer.textView.undoManager)
+        #expect(undoManager.canUndo)
+        #expect(undoManager.undoMenuItemTitle == "Undo Send")
+        undoManager.undo()
+        try await waitUntil { !lab.backend.unsent.isEmpty }
+        #expect(lab.controller.store.messages.contains { $0.isUnsent })
+
+        // Edit > Delete and the Delete key act only on a selected message.
+        #expect(!lab.controller.canPerform(#selector(NSText.delete(_:))))
+        lab.key("shift+tab")
+        #expect(lab.controller.canPerform(#selector(NSText.delete(_:))))
+    }
+
     @Test func tapbackShortcutPicksWithADigitAndRestoresFocus() async throws {
         let lab = try await Lab()
         lab.focusComposer()
@@ -400,6 +419,19 @@ final class MemoryBackend: ConversationBackend, @unchecked Sendable {
             return messages[index]
         }
     }
+
+    func unsend(messageID: String) async throws -> ConversationMessage {
+        try lock.withLock {
+            guard let index = messages.firstIndex(where: { $0.id == messageID }) else { throw ConversationBackendError(code: -1, message: "no message") }
+            _unsent.append(messageID)
+            messages[index].unsentAt = Date()
+            messages[index].text = ""
+            return messages[index]
+        }
+    }
+
+    private var _unsent: [String] = []
+    var unsent: [String] { lock.withLock { _unsent } }
 
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}

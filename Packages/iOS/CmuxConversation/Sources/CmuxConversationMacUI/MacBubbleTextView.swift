@@ -175,6 +175,11 @@ final class MacBubbleTextView: NSTextView {
         }
     }
 
+    // Delete / Forward Delete remove the selected message (with Messages' confirmation).
+    override func deleteBackward(_ sender: Any?) { transcript?.interaction?.deleteSelectedMessage() }
+    override func deleteForward(_ sender: Any?) { transcript?.interaction?.deleteSelectedMessage() }
+    override func delete(_ sender: Any?) { transcript?.interaction?.deleteSelectedMessage() }
+
     /// With no text selected, Copy copies the whole selected message.
     override func copy(_ sender: Any?) {
         if selectedRange().length == 0, let interaction = transcript?.interaction {

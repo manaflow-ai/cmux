@@ -1629,6 +1629,23 @@
           }
         }
       }
+    },
+    "conversation.undo.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

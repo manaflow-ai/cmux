@@ -39,6 +39,7 @@ final class MacTranscriptTableView: NSTableView {
         case 126: interaction.moveMessageSelection(by: -1)
         case 125: interaction.moveMessageSelection(by: 1)
         case 53: interaction.cancelOperation(nil)
+        case 51, 117: interaction.deleteSelectedMessage()
         default: super.keyDown(with: event)
         }
     }
@@ -576,7 +577,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
     }
 
-    private func confirmDelete(_ model: MacMessageRowModel) {
+    func confirmDelete(_ model: MacMessageRowModel) {
         let alert = NSAlert()
         alert.messageText = String(localized: "conversation.delete.confirmTitle", defaultValue: "Are you sure you want to delete this message?", bundle: .module)
         alert.informativeText = String(localized: "conversation.delete.confirmBody", defaultValue: "This message will be deleted from this device.", bundle: .module)
@@ -847,6 +848,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         trace("submit.cleared")
         let rowID = store.send(text: text, images: images, replyToID: replyTo)
         isSubmitting = false
+        if let rowID { registerUndoSend(rowID: rowID) }
         // The flight's scroll animates to the new bottom.
         updateInsets(followingBottom: false)
         if let rowID, rowIndex[rowID] != nil {
