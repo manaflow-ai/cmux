@@ -32,8 +32,12 @@ fn serve(
                     // The real daemon (server.rs workspace_mutation) refuses a mutation_id
                     // without its origin, and an origin without its mutation_id.
                     if req.get("mutation_id").is_some() != req.get("origin").is_some() {
-                        let _ = writeln!(out, "{}", json!({"id": req["id"], "ok": false,
-                            "error": "origin and mutation_id must be provided together"}));
+                        let _ = writeln!(
+                            out,
+                            "{}",
+                            json!({"id": req["id"], "ok": false,
+                            "error": "origin and mutation_id must be provided together"})
+                        );
                         continue;
                     }
                     let data = match req["cmd"].as_str().unwrap() {
