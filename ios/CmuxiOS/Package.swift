@@ -27,6 +27,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxMobileWire"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxLink"),
+        .package(path: "../../Packages/Shared/CmuxMobileLink"),
+        .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
@@ -64,6 +66,7 @@ let package = Package(
                 "CmuxiOSSSHCore",
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSTerminalLink",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -300,6 +303,22 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C1 (plans/cmux-next/ios-next/c1-terminal-rpc.md): workspace
+        // terminals over the Mac's cmux.mobile/1 session.
+        .target(
+            name: "CmuxiOSTerminalLink",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSTerminal",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxTerminalLink", package: "CmuxTerminalLink"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The Workspaces tab, workspace detail, machines sheet and picker.
