@@ -7,13 +7,17 @@ import UIKit
 /// controller, the feature tabs over the account's seams, and Settings.
 @MainActor
 enum ShellComposition {
-    static func makeShell(container: AppContainer, account: SignedInAccount, home: UIViewController) -> ShellRootController {
+    static func makeShell(
+        container: AppContainer, account: SignedInAccount, home: UIViewController,
+        replayTour: @escaping @MainActor () -> Void
+    ) -> ShellRootController {
         let sources = container.featureSources(for: account)
         let settings = ShellSettingsModel(
             account: ShellAccount(displayName: account.displayName, email: account.email),
             about: ShellAbout.current(),
             registry: sources.devices,
             developer: developerScreen(container: container),
+            replayTour: replayTour,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
         let content = ShellContent(sources: sources, home: home, settings: settings)

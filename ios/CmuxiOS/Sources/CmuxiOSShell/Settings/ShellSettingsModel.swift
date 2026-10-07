@@ -16,15 +16,19 @@ public final class ShellSettingsModel {
     @ObservationIgnored private let signOutAction: @MainActor () async -> Void
     /// DEBUG builds pass the DEV screen; nil hides the Developer section.
     @ObservationIgnored public let developer: (@MainActor () -> DevSourcesModel)?
+    /// Replays the welcome tour (lane C10); nil hides the row.
+    @ObservationIgnored public let replayTour: (@MainActor () -> Void)?
 
     public init(
         account: ShellAccount, about: ShellAbout, registry: any DeviceRegistry,
-        developer: (@MainActor () -> DevSourcesModel)?, signOut: @escaping @MainActor () async -> Void
+        developer: (@MainActor () -> DevSourcesModel)?, replayTour: (@MainActor () -> Void)? = nil,
+        signOut: @escaping @MainActor () async -> Void
     ) {
         self.account = account
         self.about = about
         self.registry = registry
         self.developer = developer
+        self.replayTour = replayTour
         signOutAction = signOut
     }
 

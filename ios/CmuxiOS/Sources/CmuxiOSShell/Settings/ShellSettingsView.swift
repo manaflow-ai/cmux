@@ -35,6 +35,11 @@ struct ShellSettingsView: View {
                 }
             }
             Section(SettingsText.about) {
+                if let replayTour = model.replayTour {
+                    Button(SettingsText.replayTour) { replayTour() }
+                        .foregroundStyle(.primary)
+                        .accessibilityIdentifier("shell.settings.replayTour")
+                }
                 LabeledContent(SettingsText.version, value: model.about.summary)
             }
             Section {
