@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
@@ -20,6 +21,14 @@ public nonisolated enum ProfileBarLogic {
     public static func slotXs(count: Int, slot: Double, width: Double) -> [Double] {
         let x0 = (width - slot * Double(count)) / 2
         return (0...count).map { x0 + Double($0) * slot }
+    }
+
+    /// The hover background of a space (F2): its slot inset by `inset` on
+    /// every side, at most as tall as it is wide, centered in the slot.
+    public static func chipRect(slot: CGRect, inset: CGFloat) -> CGRect {
+        let width = max(0, slot.width - inset * 2)
+        let height = min(width, max(0, slot.height - inset * 2))
+        return CGRect(x: slot.midX - width / 2, y: slot.midY - height / 2, width: width, height: height)
     }
 
     /// Insertion index (the `move-workspace` rule: an index into the list

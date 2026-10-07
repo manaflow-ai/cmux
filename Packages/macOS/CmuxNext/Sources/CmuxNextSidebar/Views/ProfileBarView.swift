@@ -72,6 +72,11 @@ final class ProfileBarView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             let rects = slotRects()
+            if let chip = hoverChip {
+                chip.fill.setFill()
+                let radius = SidebarStyle.rowCornerRadius
+                NSBezierPath(roundedRect: chip.rect, xRadius: radius, yRadius: radius).fill()
+            }
             for (offset, profile) in model.profiles.enumerated().prefix(drawnDotCount) {
                 var rect = rects[offset]
                 if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
@@ -175,7 +180,14 @@ final class ProfileBarView: NSView {
 
     /// The hovered space's background (F2): its rect and fill; nil when no
     /// space is hovered.
-    var hoverChip: (rect: NSRect, fill: NSColor)? { nil }
+    var hoverChip: (rect: NSRect, fill: NSColor)? {
+        guard let hovered, drag == nil else { return nil }
+        let rects = slotRects()
+        let index = hovered == Self.plusIndex ? model.profiles.count : hovered
+        guard rects.indices.contains(index) else { return nil }
+        let fill = performWithTheme { pressed == hovered ? Palette.pressedFill : Palette.hoverFill }
+        return (ProfileBarLogic.chipRect(slot: rects[index], inset: Metrics.space1), fill)
+    }
 
     /// A press on a space (tests; the mouse sets it in `mouseDown`).
     func setPressed(_ value: Int?) {
@@ -184,7 +196,7 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        pressed = index(at: convert(event.locationInWindow, from: nil))
+        setPressed(index(at: convert(event.locationInWindow, from: nil)))
     }
 
     override func mouseDragged(with event: NSEvent) {
