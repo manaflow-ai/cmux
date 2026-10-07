@@ -10,13 +10,11 @@ public final class WebRTCTransport: LinkTransport {
     public let remoteKey: WebRTCPublicKey
     public let peerIdentity: LinkPeerIdentity?
     let connection: WebRTCConnection
-    private let highWater: UInt64
 
     init(events: AsyncStream<TransportEvent>, connection: WebRTCConnection, remoteKey: WebRTCPublicKey, install: String?) {
         self.events = events
         self.connection = connection
         self.remoteKey = remoteKey
-        highWater = connection.context.configuration.highWaterBytes
         peerIdentity = LinkPeerIdentity(carrier: .webrtc, keyKind: .p256, publicKey: remoteKey.x963Representation, install: install)
     }
 
@@ -31,7 +29,7 @@ public final class WebRTCTransport: LinkTransport {
         try Task.checkCancellation()
         try await connection.pacer.pace(frame.bytes.count)
         do {
-            try await connection.peer.send(frame, highWater: highWater)
+            try await connection.peer.send(frame)
         } catch {
             throw WebRTCTransportError.closed
         }

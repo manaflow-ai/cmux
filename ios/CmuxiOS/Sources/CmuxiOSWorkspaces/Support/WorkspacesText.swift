@@ -21,6 +21,8 @@ enum WorkspacesText {
     static func unreadCount(_ count: Int) -> String {
         String(localized: "workspaces.row.unread", defaultValue: "\(count) unread", bundle: .module)
     }
+    static var changes: String { String(localized: "workspaces.detail.changes", defaultValue: "Changes", bundle: .module) }
+    static var files: String { String(localized: "workspaces.detail.files", defaultValue: "Files", bundle: .module) }
     static var mockData: String { String(localized: "workspaces.mock", defaultValue: "Mock data", bundle: .module) }
     static var allOffline: String { String(localized: "workspaces.all-offline", defaultValue: "Every Mac is offline", bundle: .module) }
 

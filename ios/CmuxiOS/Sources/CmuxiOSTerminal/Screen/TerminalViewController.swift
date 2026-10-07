@@ -11,6 +11,9 @@ public final class TerminalViewController: UIViewController {
     public let session: TerminalSession
     var terminalView: GhosttyTerminalView { session.view }
     let badge = UILabel()
+    let banner = TerminalConnectionBanner()
+    /// The More menu's button (rebuilt when the history state changes).
+    var moreButton: UIBarButtonItem?
     /// Invisible; its bottom is the keyboard's top. A view, so a keyboard
     /// move runs `viewDidLayoutSubviews` inside the keyboard's animation.
     private let keyboardTop = UIView()
@@ -54,7 +57,7 @@ public final class TerminalViewController: UIViewController {
         badge.font = .preferredFont(forTextStyle: .caption2)
         badge.adjustsFontForContentSizeCategory = true
         badge.textColor = .secondaryLabel
-        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: badge)
+        navigationItem.rightBarButtonItems = [moreItem(), UIBarButtonItem(customView: badge)]
         NSLayoutConstraint.activate([
             terminalView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
@@ -62,6 +65,14 @@ public final class TerminalViewController: UIViewController {
             // The keyboard never changes the grid's rows (ghostty-next section 6);
             // the view keeps its height and the keyboard covers the bottom.
             terminalView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+        ])
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(banner)
+        NSLayoutConstraint.activate([
+            banner.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            banner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            banner.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            banner.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
         ])
         keyboardTop.isHidden = true
         keyboardTop.isUserInteractionEnabled = false
@@ -117,6 +128,8 @@ public final class TerminalViewController: UIViewController {
         if isViewLoaded { view.backgroundColor = terminalView.backgroundColor }
     }
 
+    public override var keyCommands: [UIKeyCommand]? { terminalKeyCommands() }
+
     /// DEBUG diagnostics of the surface and the stream.
     public var diagnostics: [String: String] { session.diagnostics }
 
@@ -153,9 +166,32 @@ public final class TerminalViewController: UIViewController {
         case .byteReplay: String(localized: "terminal.replay", defaultValue: "Byte replay", bundle: .module)
         case nil: nil
         }
-        badge.text = [status.path?.label, notice].compactMap { $0 }.joined(separator: " · ")
+        let chrome = status.chrome
+        badge.text = [chrome.badge.map(Self.badgeText), notice].compactMap { $0 }.joined(separator: " · ")
+        badge.textColor = chrome.badge?.isEmphasized == true ? .label : .secondaryLabel
+        badge.accessibilityLabel = chrome.badge.map(Self.badgeAccessibilityText)
         badge.sizeToFit()
+        banner.show(chrome.banner)
+        refreshMenu()
         if let title = status.title, !title.isEmpty { self.title = title }
+    }
+}
+
+extension TerminalViewController {
+    /// "Direct", or "Relayed · 140 ms" when the path is relayed or slow.
+    static func badgeText(_ badge: TerminalChrome.Badge) -> String {
+        guard let rtt = badge.rttMilliseconds else { return badge.path.label }
+        let format = String(localized: "terminal.badge.rtt", defaultValue: "%1$@ · %2$lld ms", bundle: .module)
+        return String(format: format, badge.path.label, rtt)
+    }
+
+    static func badgeAccessibilityText(_ badge: TerminalChrome.Badge) -> String {
+        guard let rtt = badge.rttMilliseconds else {
+            let format = String(localized: "terminal.badge.a11y", defaultValue: "%@ path", bundle: .module)
+            return String(format: format, badge.path.label)
+        }
+        let format = String(localized: "terminal.badge.a11y.rtt", defaultValue: "%1$@ path, %2$lld milliseconds", bundle: .module)
+        return String(format: format, badge.path.label, rtt)
     }
 }
 

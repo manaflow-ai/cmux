@@ -59,11 +59,9 @@ actor StallingUploadHandler: MobileChannelHandler {
     }
 }
 
-final class MaxBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: UInt64 = 0
-    func record(_ v: UInt64) { lock.withLock { value = max(value, v) } }
-    var current: UInt64 { lock.withLock { value } }
+actor MaxBox {
+    private(set) var current: UInt64 = 0
+    func record(_ v: UInt64) { current = max(current, v) }
 }
 
 @Suite("Back-pressure")
@@ -80,18 +78,19 @@ struct BackPressureTests {
         let sent = MaxBox()
         let upload = Task {
             try await client.upload(source, name: "bp.bin", mime: "application/octet-stream", sha256: FilesWorld.sha256(data),
-                                    dest: FilesUploadDestination(kind: .composer)) { completed, _ in sent.record(completed) }
+                                    dest: FilesUploadDestination(kind: .composer)) { completed, _ in await sent.record(completed) }
         }
         try await within { await handler.waitUntilStalled() }
         // Give the sender time to run into the credit wall; it must not get past it.
         try await Task.sleep(for: .milliseconds(300))
         let consumed = UInt64(await handler.consumedBytes)
         #expect(consumed == UInt64(4 * chunk))
-        #expect(sent.current <= consumed + UInt64(budget + chunk), "sent \(sent.current) with \(consumed) consumed")
-        #expect(sent.current < UInt64(data.count))
+        let stalledAt = await sent.current
+        #expect(stalledAt <= consumed + UInt64(budget + chunk), "sent \(stalledAt) with \(consumed) consumed")
+        #expect(stalledAt < UInt64(data.count))
         await handler.resume()
         let done = try await within { try await upload.value }
         #expect(done.path == "/stalled/bp.bin")
-        #expect(sent.current == UInt64(data.count))
+        #expect(await sent.current == UInt64(data.count))
     }
 }

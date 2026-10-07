@@ -15,6 +15,9 @@ public final class ShellSettingsModel {
     public let account: ShellAccount
     public let about: ShellAbout
     public private(set) var isSigningOut = false
+    /// A page pushed on the Settings stack from outside (lane C15 search);
+    /// the stack clears it when the user goes back.
+    public var openedPage: ShellSettingsPage?
     /// Devices & Macs.
     public let devicesModel: DeviceSettingsModel
     /// Team switcher and Delete Account; nil hides both.

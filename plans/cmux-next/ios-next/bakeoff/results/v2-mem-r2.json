@@ -1,0 +1,161 @@
+{
+  "bulkFile" : {
+    "cpuMillisecondsPerMiB" : 46.45,
+    "cpuSeconds" : 7.104,
+    "megabitsPerSecond" : 320.1,
+    "priority" : "bulk",
+    "receivedBytes" : 160366592,
+    "recordBytes" : 65536,
+    "seconds" : 4.008
+  },
+  "carrier" : "webrtc-wg",
+  "coldConnect" : {
+    "connectToLive" : {
+      "count" : 5,
+      "max" : 0.915167,
+      "mean" : 0.6327086000000001,
+      "min" : 0.544792,
+      "p50" : 0.570709,
+      "p95" : 0.915167,
+      "p99" : 0.915167
+    },
+    "firstByte" : {
+      "count" : 5,
+      "max" : 1.150375,
+      "mean" : 0.805017,
+      "min" : 0.692917,
+      "p50" : 0.720792,
+      "p95" : 1.150375,
+      "p99" : 1.150375
+    },
+    "firstByteSamples" : [
+      1.150375,
+      0.741834,
+      0.719167,
+      0.692917,
+      0.720792
+    ]
+  },
+  "conditions" : {
+    "loss" : 0,
+    "note" : "in-memory underlay: fixed one-way delay, independent datagram loss, no rate limit, 1200 B datagrams",
+    "rttMilliseconds" : 0,
+    "shaped" : true
+  },
+  "durationSeconds" : 13.974598833,
+  "errors" : [
+
+  ],
+  "machine" : {
+    "cores" : 14,
+    "cpu" : "Apple M4 Pro",
+    "loadAverage1m" : 38.94,
+    "model" : "Mac16,11",
+    "os" : "Version 27.0.1 (Build 26A434)"
+  },
+  "memory" : {
+    "baselineMaxResidentMiB" : 8.984375,
+    "finalFootprintMiB" : 14.672492980957031,
+    "finalMaxResidentMiB" : 24.96875
+  },
+  "rawTransport" : {
+    "cpuMillisecondsPerMiB" : 46.15,
+    "cpuSeconds" : 6.44,
+    "megabitsPerSecond" : 292.4,
+    "priority" : "bulk (raw transport)",
+    "receivedBytes" : 146341888,
+    "recordBytes" : 65536,
+    "seconds" : 4.004
+  },
+  "reconnect" : {
+    "failures" : 0,
+    "fault" : "drop",
+    "pathAfter" : [
+      "p2p",
+      "p2p",
+      "p2p"
+    ],
+    "recovered" : {
+      "count" : 3,
+      "max" : 0.735625,
+      "mean" : 0.687861,
+      "min" : 0.650041,
+      "p50" : 0.677917,
+      "p95" : 0.735625,
+      "p99" : 0.735625
+    },
+    "samples" : [
+      0.735625,
+      0.650041,
+      0.677917
+    ],
+    "sessionReconnected" : [
+      true,
+      true,
+      true
+    ]
+  },
+  "rig" : "v2-wg-in-memory",
+  "roam" : {
+    "failures" : 0,
+    "fault" : "roam",
+    "pathAfter" : [
+      "turn",
+      "turn",
+      "turn"
+    ],
+    "recovered" : {
+      "count" : 3,
+      "max" : 0.1145,
+      "mean" : 0.11344466666666668,
+      "min" : 0.111709,
+      "p50" : 0.114125,
+      "p95" : 0.1145,
+      "p99" : 0.1145
+    },
+    "samples" : [
+      0.111709,
+      0.114125,
+      0.1145
+    ],
+    "sessionReconnected" : [
+      false,
+      false,
+      false
+    ]
+  },
+  "rttIdle" : {
+    "count" : 1000,
+    "max" : 0.165708,
+    "mean" : 0.08158452700000006,
+    "min" : 0.054458,
+    "p50" : 0.078583,
+    "p95" : 0.11225,
+    "p99" : 0.129334
+  },
+  "rttUnderBulk" : {
+    "bulkMegabitsPerSecond" : 304.2,
+    "p50DeltaMilliseconds" : 1.6455,
+    "p99DeltaMilliseconds" : 1.846666,
+    "rtt" : {
+      "count" : 1000,
+      "max" : 2.200542,
+      "mean" : 1.7226638050000014,
+      "min" : 1.492125,
+      "p50" : 1.724083,
+      "p95" : 1.784083,
+      "p99" : 1.976
+    }
+  },
+  "schema" : "cmux-link-bench\/1",
+  "startedAt" : "2026-10-07T06:46:08Z",
+  "terminalFlood" : {
+    "cpuMillisecondsPerMiB" : 52.38,
+    "cpuSeconds" : 8.908,
+    "megabitsPerSecond" : 356,
+    "priority" : "render",
+    "receivedBytes" : 178331648,
+    "recordBytes" : 4096,
+    "seconds" : 4.007
+  }
+}

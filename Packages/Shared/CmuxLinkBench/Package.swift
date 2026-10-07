@@ -1,0 +1,39 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+// D2 bakeoff harness (plans/cmux-next/ios-next/d2-bakeoff.md): drives any
+// CmuxLink carrier and acceptor pair (V1 webrtc, V2 webrtc-wg, V3 direct, the
+// A3 loopback reference) through the same workloads and writes JSON results.
+// A benchmark tool, not app code: nothing here ships in the iOS or macOS app.
+let package = Package(
+    name: "CmuxLinkBench",
+    platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "CmuxLinkBench", targets: ["CmuxLinkBench"]),
+        .executable(name: "cmux-link-bench", targets: ["cmux-link-bench"]),
+    ],
+    dependencies: [
+        .package(path: "../CmuxLink"),
+        .package(path: "../CmuxLinkWG"),
+        .package(path: "../CmuxLinkWebRTC"),
+        .package(path: "../CmuxLinkDirect"),
+    ],
+    targets: [
+        .target(
+            name: "CmuxLinkBench",
+            dependencies: [
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
+                .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
+                .product(name: "CmuxLinkWGTesting", package: "CmuxLinkWG"),
+                .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxLinkWebRTCUnderlay", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+            ]
+        ),
+        .executableTarget(name: "cmux-link-bench", dependencies: ["CmuxLinkBench"]),
+        .testTarget(name: "CmuxLinkBenchTests", dependencies: ["CmuxLinkBench"]),
+    ],
+    swiftLanguageModes: [.v6]
+)

@@ -1,11 +1,15 @@
 import CmuxiOSAuth
 import CmuxiOSBrowser
+import CmuxiOSCloud
 import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
+import CmuxiOSSearch
+import CmuxiOSSearchCore
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSViewers
 import CmuxiOSWorkspaces
 import UIKit
 
@@ -15,8 +19,8 @@ import UIKit
 enum ShellComposition {
     static func makeShell(
         container: AppContainer, account: SignedInAccount, home: UIViewController,
-        replayTour: @escaping @MainActor () -> Void
-    ) -> ShellRootController {
+        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void
+    ) -> (shell: ShellRootController, features: ShellFeatures) {
         let sources = container.featureSources(for: account)
         // Lane C4: built with the seams so background transfer handling runs
         // for the whole signed-in session.
@@ -42,7 +46,7 @@ enum ShellComposition {
         let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice,
                              appearance: container.terminalPreferences)
         // Lane C14: a host's localhost in the in-app browser (Hosts swipe action).
-        ssh.browsers = WebComposition.screens(WebComposition.feature(clients: nil))
+        ssh.browsers = WebComposition.screens(WebComposition.feature(clients: container.webClients))
         // Lane C6: the Feed tab over the account's feed seam.
         let feedSource = sources.feed
         let feedIsMock = sources.resolved[.feed] != .real
@@ -59,7 +63,11 @@ enum ShellComposition {
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.
             surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
+            appearance: container.terminalPreferences,
             isMock: !workspacesAreReal)
+        // Lane C13: Changes and Files in the workspace detail, and the viewer
+        // for finished downloads.
+        workspaces.viewers = WorkspaceViewersAdapter(feature: container.viewersFeature(for: sources, real: workspacesAreReal))
         // Lane C8: the Compose tab and the floating compose button over Feed
         // and Workspaces. The picker and "open workspace" are C5's, passed as
         // closures so the composer never imports the Workspaces feature.
@@ -72,8 +80,14 @@ enum ShellComposition {
                 workspaces.open(hostID: hostID, workspaceID: workspaceID)
             },
             isMock: sources.resolved[.composer] != .real)
+        // Lane C12: the Cloud tab over the team's machines.
+        let cloud = CloudFeature(source: sources.cloud, isMock: sources.resolved[.cloud] != .real)
         let floatingCompose = container.flags.isEnabled(.composeTab)
+        // Lane C15: universal search over the same seams.
+        let search = SearchComposition.makeFeature(
+            sources: sources, visibleTabs: container.flags.visibleTabs, opener: searchOpener)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
+            .search: { search.makeSearchScreen() },
             .hosts: { ssh.makeHostsScreen() },
             .workspaces: {
                 let screen = workspaces.makeWorkspacesScreen()
@@ -83,6 +97,7 @@ enum ShellComposition {
                 return screen
             },
             .compose: { composer.makeComposeScreen() },
+            .cloud: { cloud.makeCloudScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)
@@ -97,7 +112,7 @@ enum ShellComposition {
             content: { content.controller(for: $0) }
         )
         shellBox.controller = shell
-        return shell
+        return (shell, ShellFeatures(workspaces: workspaces, ssh: ssh, settings: settings, search: search))
     }
 
     /// Live link badges per device: the real owner once B5/D1 register it;

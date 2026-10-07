@@ -86,6 +86,7 @@ public final class ShellRouter {
         case .settings: "settings"
         case .diagnostics: "diagnostics"
         case .whatsNew: "whats-new"
+        case .search: "search"
         case .pairing: "pairing"
         }
     }

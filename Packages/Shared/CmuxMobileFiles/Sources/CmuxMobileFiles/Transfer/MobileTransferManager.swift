@@ -18,7 +18,8 @@ public actor MobileTransferManager {
     /// Live runs by transfer id; the token tells a run from its replacement.
     private var tasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
     private var cancelled: Set<UUID> = []
-    private let progressBox = ProgressBox()
+    /// The latest byte count per running transfer, so the journal shows where a run stopped.
+    private var latest: [String: UInt64] = [:]
 
     public init(connector: @escaping Connector, journal: TransferJournal, chunkBytes: Int = MobileFileClient.defaultChunkBytes) {
         self.connector = connector
@@ -102,7 +103,7 @@ public actor MobileTransferManager {
                     if cancelled.contains(token) {
                         record = await markCancelled(record)
                     } else {
-                        let completed = progressBox.take(id) ?? record.completedBytes
+                        let completed = latest.removeValue(forKey: id) ?? record.completedBytes
                         record = await journal.update(id) {
                             $0.status = .paused
                             $0.completedBytes = completed
@@ -118,7 +119,7 @@ public actor MobileTransferManager {
                     record = await journal.update(id) { $0.sha256 = $0.direction == .download ? nil : $0.sha256 } ?? record
                     continue
                 }
-                let completed = progressBox.take(id) ?? record.completedBytes
+                let completed = latest.removeValue(forKey: id) ?? record.completedBytes
                 record = await journal.update(id) {
                     $0.status = .failed(code: failure.code, message: failure.message, retryable: failure.retryable)
                     $0.completedBytes = completed
@@ -135,9 +136,8 @@ public actor MobileTransferManager {
         try Task.checkCancellation()
         let client = MobileFileClient(session: session, chunkBytes: chunkBytes)
         let id = record.id
-        let box = progressBox
-        let progress: @Sendable (UInt64, UInt64) -> Void = { completed, total in
-            box.set(id, completed)
+        let progress: @Sendable (UInt64, UInt64) async -> Void = { [weak self] completed, total in
+            await self?.recordProgress(id, completed)
             continuation.yield(MobileTransferUpdate(id: id, completedBytes: completed, totalBytes: total, status: .running))
         }
         switch record.direction {
@@ -157,7 +157,7 @@ public actor MobileTransferManager {
             }
             let done = try await client.upload(source, name: record.name, mime: record.mime, sha256: sha ?? "",
                                                dest: record.dest ?? FilesUploadDestination(kind: .composer), progress: progress)
-            _ = progressBox.take(id)
+            latest[id] = nil
             return await journal.update(id) {
                 $0.status = .finished
                 $0.resultPath = done.path
@@ -174,7 +174,7 @@ public actor MobileTransferManager {
                     $0.mime = info.mime
                 }
             }, progress: progress)
-            _ = progressBox.take(id)
+            latest[id] = nil
             let final = URL(fileURLWithPath: record.localPath)
             try? FileManager.default.removeItem(at: final)
             try FileManager.default.moveItem(at: part, to: final)
@@ -186,6 +186,10 @@ public actor MobileTransferManager {
                 $0.mime = info.mime
             } ?? record
         }
+    }
+
+    private func recordProgress(_ id: String, _ completed: UInt64) {
+        latest[id] = completed
     }
 
     @discardableResult

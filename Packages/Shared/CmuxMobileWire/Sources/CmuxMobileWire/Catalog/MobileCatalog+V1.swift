@@ -70,6 +70,10 @@ extension MobileCatalog {
             MobileMessage("simulator.rd", .record, .stream, .both, owner: "mac-simulator-host"),
             MobileMessage("simulator.list", .read, .stream, .c2s, owner: "mac-simulator-host"),
         ]),
+        MobileFamily("git", .stream, owner: "mac-host", messages: [
+            MobileMessage("git.status", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
+            MobileMessage("git.diff", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
+        ]),
         MobileFamily("feed", .control, owner: "FeedDO", stream: "feed:<user>", messages: [
             MobileMessage("feed.list", .read, .control, .c2s, owner: "FeedDO", existing: true),
             MobileMessage("feed.answer", .op, .control, .c2s, owner: "FeedDO", existing: true),

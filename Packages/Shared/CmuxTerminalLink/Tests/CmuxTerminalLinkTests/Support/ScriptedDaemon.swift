@@ -125,8 +125,21 @@ actor ScriptedAttachment: MobileTerminalAttachment {
         await recorded.push("snapshot:\(request.reason)")
     }
 
+    /// The app adapter's answer until cmux-tui pages history.
+    private(set) var refusesHistory = false
+
+    func setRefusesHistory(_ refuses: Bool) { refusesHistory = refuses }
+
+    nonisolated func history(offset: UInt64, generation: UInt32 = 7) {
+        emit(.frame(TerminalFrame(kind: .snapshotHistory, generation: generation, offset: offset, snapshotVersion: 1,
+                                  payload: Data("OLDER".utf8))))
+    }
+
     func handle(_ message: ChannelMessage) async throws -> [ChannelMessage] {
         await recorded.push(message.name)
+        if refusesHistory, message.name == "terminal.history" {
+            throw MobileDaemonError(code: "proto.unsupported", message: "terminal.history is not supported by this host")
+        }
         return []
     }
 

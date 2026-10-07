@@ -1,11 +1,16 @@
 @preconcurrency import WebRTC
 
 /// The process-wide libwebrtc factory per network mode. libwebrtc factories
-/// own threads; one per mode is shared by every peer connection.
+/// own threads; one per mode is shared by every peer connection. In loopback
+/// mode (both ends in one test or bench process) the accepting side gets its
+/// own factory, so each end has its own network thread as two devices do: with
+/// one shared thread, the sender's SCTP bursts starve the receiving socket and
+/// the drops collapse throughput (d2-bakeoff.md).
 final class WebRTCFactory: @unchecked Sendable {
     // lint:allow singleton: libwebrtc factories own their threads; one per mode per process.
     private static let standard = WebRTCFactory(loopback: false)
     private static let loopback = WebRTCFactory(loopback: true)
+    private static let loopbackHost = WebRTCFactory(loopback: true)
 
     let factory: RTCPeerConnectionFactory
 
@@ -20,8 +25,9 @@ final class WebRTCFactory: @unchecked Sendable {
         factory.setOptions(options)
     }
 
-    static func shared(for mode: WebRTCNetworkMode) -> WebRTCFactory {
-        mode == .loopbackOnly ? loopback : standard
+    /// `host` is true for the accepting side (acceptor, datagram listener).
+    static func shared(for mode: WebRTCNetworkMode, host: Bool = false) -> WebRTCFactory {
+        mode == .loopbackOnly ? (host ? loopbackHost : loopback) : standard
     }
 
     /// The configuration every cmux peer connection uses (section 5).

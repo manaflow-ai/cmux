@@ -19,6 +19,9 @@ final class RootViewController: UIViewController {
     private var current: UIViewController?
     private weak var home: HomeViewController?
     private(set) weak var shell: ShellRootController?
+    /// The current shell's feature entry points (routes and search use them).
+    var shellFeatures: ShellFeatures?
+    let searchOpener = AppSearchOpener()
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
     private var toastWindow: ToastWindow?
@@ -96,6 +99,7 @@ final class RootViewController: UIViewController {
         case .signedOut:
             container.router.setAccountReady(false)
             shellAccount = nil
+            shellFeatures = nil
             container.signedOut()
             if presentsOnboarding(signedIn: false) {
                 showOnboarding(signedIn: false)
@@ -176,11 +180,14 @@ final class RootViewController: UIViewController {
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
-        let shell = ShellComposition.makeShell(
-            container: container, account: account, home: navigation,
+        searchOpener.root = self
+        let (shell, features) = ShellComposition.makeShell(
+            container: container, account: account, home: navigation, searchOpener: searchOpener,
             replayTour: { [weak self] in self?.presentReplay() }
         )
+        shell.onSearchCommand = { [weak self] in self?.openSearch(query: nil) }
         self.shell = shell
+        shellFeatures = features
         shellAccount = account
         install(shell)
         ShellComposition.selectLaunchTab(in: shell)

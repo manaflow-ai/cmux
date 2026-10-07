@@ -1,0 +1,28 @@
+{
+  "family": "git",
+  "cases": [
+    { "message": "git.status", "frame": { "t": "read", "id": 21, "op": "git.status", "params": { "path": "/Users/me/src/cmux" } } },
+    { "message": "git.status", "phase": "result", "frame": { "t": "read.result", "id": 21, "revision": "0", "value": {
+      "root": "/Users/me/src/cmux", "branch": "feat-viewer", "detached": false, "head": "c9d94829df6a", "upstream": "origin/feat-viewer", "base": "main", "ahead": 2, "behind": 0
+    } } },
+    { "message": "git.diff", "frame": { "t": "read", "id": 22, "op": "git.diff", "params": { "path": "/Users/me/src/cmux", "scope": "uncommitted", "max_files": 500 } } },
+    { "message": "git.diff", "phase": "result", "frame": { "t": "read.result", "id": 22, "revision": "0", "value": {
+      "scope": "uncommitted", "root": "/Users/me/src/cmux", "head": "c9d94829df6a",
+      "files": [
+        { "path": "Sources/App/Viewer.swift", "status": "modified", "additions": 3, "deletions": 1 },
+        { "path": "docs/new-name.md", "previous_path": "docs/old-name.md", "status": "renamed", "additions": 0, "deletions": 0 },
+        { "path": "assets/logo.png", "status": "added", "additions": 0, "deletions": 0, "binary": true }
+      ],
+      "additions": 3, "deletions": 1, "total_files": 3, "files_omitted": 0
+    } } },
+    { "message": "git.diff", "frame": { "t": "read", "id": 23, "op": "git.diff", "params": { "path": "/Users/me/src/cmux", "scope": "uncommitted", "paths": ["Sources/App/Viewer.swift"], "include_patch": true, "max_patch_bytes": 131072 } } },
+    { "message": "git.diff", "phase": "result", "frame": { "t": "read.result", "id": 23, "revision": "0", "value": {
+      "scope": "uncommitted", "root": "/Users/me/src/cmux", "head": "c9d94829df6a",
+      "files": [
+        { "path": "Sources/App/Viewer.swift", "status": "modified", "additions": 3, "deletions": 1,
+          "patch": "@@ -1,4 +1,6 @@ struct Viewer {\n import UIKit\n-let mode = \"unified\"\n+let mode = \"split\"\n+let hunks = 2\n+let lines = 40\n struct Viewer {}\n" }
+      ],
+      "additions": 3, "deletions": 1, "total_files": 1, "files_omitted": 0
+    } } }
+  ]
+}

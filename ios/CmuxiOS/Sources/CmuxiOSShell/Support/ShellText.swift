@@ -40,6 +40,10 @@ enum ShellText {
         String(format: String(localized: "shell.compose.workspaces", defaultValue: "Workspaces: %lld", bundle: .module), count)
     }
 
+    static var searchCommand: String {
+        String(localized: "shell.command.search", defaultValue: "Search", bundle: .module)
+    }
+
     static var unreachable: String {
         String(localized: "shell.host.unreachable", defaultValue: "Unreachable", bundle: .module)
     }

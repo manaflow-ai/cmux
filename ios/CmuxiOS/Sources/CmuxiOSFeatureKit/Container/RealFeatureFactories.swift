@@ -6,8 +6,9 @@ import Foundation
 public struct RealFeatureFactories: Sendable {
     public var feed: (@Sendable () -> any FeedSource)?
     /// Gets the account's resolved device registry (real or mock), whose
-    /// paired Macs are the hosts the workspace list mirrors.
-    public var workspaces: (@Sendable (any DeviceRegistry) -> any WorkspaceSource)?
+    /// paired Macs are the hosts the workspace list mirrors, and the resolved
+    /// Cloud machines (C12), whose bound VMs can join that list.
+    public var workspaces: (@Sendable (any DeviceRegistry, any CloudMachineSource) -> any WorkspaceSource)?
     /// Gets the account's resolved workspace source (real or mock): the
     /// composer targets those hosts and workspaces.
     public var composer: (@Sendable (any WorkspaceSource) -> any TaskComposerSink)?
@@ -15,6 +16,8 @@ public struct RealFeatureFactories: Sendable {
     public var devices: (@Sendable () -> any DeviceRegistry)?
     public var files: (@Sendable () -> any FileTransfer)?
     public var browser: (@Sendable () -> any BrowserStreamSource)?
+    /// Lane C12: the team's Cloud machines (`CloudDO`).
+    public var cloud: (@Sendable () -> any CloudMachineSource)?
 
     public init() {}
 
@@ -27,6 +30,7 @@ public struct RealFeatureFactories: Sendable {
         case .devices: devices != nil
         case .files: files != nil
         case .browser: browser != nil
+        case .cloud: cloud != nil
         }
     }
 
@@ -44,7 +48,8 @@ public struct RealFeatureFactories: Sendable {
         }
         let feed = pick(.feed, feed) { MockFeedSource() as any FeedSource }
         let devices = pick(.devices, devices) { MockDeviceRegistry() as any DeviceRegistry }
-        let workspacesFactory = workspaces.map { make in { @Sendable in make(devices) } }
+        let cloud = pick(.cloud, cloud) { MockCloudMachineSource() as any CloudMachineSource }
+        let workspacesFactory = workspaces.map { make in { @Sendable in make(devices, cloud) } }
         let workspaces = pick(.workspaces, workspacesFactory) { MockWorkspaceSource() as any WorkspaceSource }
         let composerFactory = composer.map { make in { @Sendable in make(workspaces) } }
         let composer = pick(.composer, composerFactory) { MockTaskComposerSink() as any TaskComposerSink }
@@ -52,6 +57,6 @@ public struct RealFeatureFactories: Sendable {
         let files = pick(.files, files) { MockFileTransfer() as any FileTransfer }
         let browser = pick(.browser, browser) { MockBrowserStreamSource() as any BrowserStreamSource }
         return FeatureSources(feed: feed, workspaces: workspaces, composer: composer, hosts: hosts,
-                              devices: devices, files: files, browser: browser, resolved: resolved)
+                              devices: devices, files: files, browser: browser, cloud: cloud, resolved: resolved)
     }
 }

@@ -1,0 +1,102 @@
+import CmuxLink
+@_spi(Testing) public import CmuxLinkDirect
+@_spi(Testing) public import CmuxLinkWebRTC
+import CmuxLinkWebRTCUnderlay
+import CmuxLinkWG
+public import CmuxMobileConnect
+public import CmuxMobileHost
+import CmuxPairing
+
+/// The Mac's side of the phone link (d1-terminal-ux.md section 2): B4's
+/// `DirectAcceptor`, B2's `WebRTCAcceptor` and (DEV switch) B3's acceptor
+/// merged into one B5 `MobileHost`, every one authorized by the same trust
+/// store, and each session's carrier identity checked against its hello.
+///
+/// Single use like `MobileHost`: `stop()` is final.
+public actor MobileHostAssembly {
+    public nonisolated let host: MobileHost
+    private let direct: DirectAcceptor
+    private let webrtc: WebRTCAcceptor?
+    private let datagrams: WebRTCDatagramListener?
+    private let wireGuard: WireGuardOverWebRTCAcceptor?
+    private let signaling: MobileHostSignaling?
+    private let devices: any MobileTrustStore
+    private var port: UInt16?
+    private var stopped = false
+
+    public init(credentials: MobileHostCredentials, trust: MobileHostTrust, daemon: any MobileDaemon,
+                signaling: MobileHostSignaling?, options: MobileHostAssemblyOptions = MobileHostAssemblyOptions(),
+                handlers: MobileChannelHandlers = MobileChannelHandlers()) {
+        self.init(credentials: credentials, trust: trust, daemon: daemon, signaling: signaling, options: options,
+                  handlers: handlers, directFaults: nil, webrtcFaults: nil)
+    }
+
+    @_spi(Testing)
+    public init(credentials: MobileHostCredentials, trust: MobileHostTrust, daemon: any MobileDaemon,
+                signaling: MobileHostSignaling?, options: MobileHostAssemblyOptions,
+                handlers: MobileChannelHandlers, directFaults: DirectFaultInjector?, webrtcFaults: WebRTCFaultInjector?) {
+        let hostID = credentials.hostID
+        direct = DirectAcceptor(identity: credentials.direct, hostID: hostID, configuration: options.listen,
+                                authorizer: CmuxPairing.TrustStoreAuthorizer(lookup: trust.lookup, host: hostID),
+                                faultInjector: directFaults)
+        var acceptors: [any LinkAcceptor] = [direct]
+        if let signaling, let identity = credentials.webrtc {
+            let acceptor = WebRTCAcceptor(router: signaling.router, iceServers: signaling.iceServers, identity: identity,
+                                          hostID: hostID, authorizer: trust.webrtc, configuration: options.webrtc,
+                                          injector: webrtcFaults)
+            webrtc = acceptor
+            acceptors.append(acceptor)
+        } else {
+            webrtc = nil
+        }
+        if let signaling, options.wireGuardOverWebRTC, let key = credentials.wireGuard {
+            let listener = WebRTCDatagramListener(router: signaling.router, iceServers: signaling.iceServers, hostID: hostID,
+                                                  configuration: options.webrtc)
+            let acceptor = WireGuardOverWebRTCAcceptor(identity: key, hostID: hostID,
+                                                       underlays: WebRTCUnderlayListener(listener: listener),
+                                                       authorizer: TrustStoreWireGuardAuthorizer(lookup: trust.lookup),
+                                                       configuration: options.wireGuard)
+            datagrams = listener
+            wireGuard = acceptor
+            acceptors.append(acceptor)
+        } else {
+            datagrams = nil
+            wireGuard = nil
+        }
+        self.signaling = signaling
+        devices = trust.devices
+        let authorizer = CmuxMobileHost.TrustStoreAuthorizer(hostID: hostID, accountUserID: credentials.accountUserID,
+                                                             store: trust.devices)
+        host = MobileHost(configuration: MobileHostConfiguration(hostID: hostID, accountUserID: credentials.accountUserID),
+                          acceptor: MergedLinkAcceptor(acceptors), daemon: daemon, authorizer: authorizer,
+                          handlers: handlers, linkConfiguration: options.link,
+                          keyResolver: TrustedKeyCarrierResolver(lookup: trust.lookup, hostID: hostID))
+    }
+
+    /// Starts every acceptor and the host; returns the direct port (for the
+    /// Bonjour advertisement and the Mac's published endpoints).
+    public func start() async throws -> UInt16 {
+        if let port { return port }
+        guard !stopped else { throw CancellationError() }
+        let bound = try await direct.start()
+        await webrtc?.start()
+        await datagrams?.start()
+        await wireGuard?.start()
+        await host.start()
+        port = bound
+        return bound
+    }
+
+    /// Stops accepting and closes every session. Final.
+    public func stop() async {
+        guard !stopped else { return }
+        stopped = true
+        await host.stop()
+        await direct.stop()
+        await webrtc?.stop()
+        datagrams?.stop()
+        await wireGuard?.stop()
+        if let devices = devices as? TrustStoreMobileDevices { await devices.stop() }
+        await signaling?.close()
+    }
+}

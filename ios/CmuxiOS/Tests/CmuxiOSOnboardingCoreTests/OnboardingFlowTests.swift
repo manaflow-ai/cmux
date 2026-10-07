@@ -10,7 +10,8 @@ struct OnboardingFlowTests {
     func freshRunVisitsEveryStep() {
         var flow = OnboardingFlow(context: signedOut)
         #expect(flow.current == .welcome)
-        #expect(flow.visibleSteps == OnboardingStep.allCases)
+        // The Cloud step (C12) shows only when the app offers it.
+        #expect(flow.visibleSteps == OnboardingStep.allCases.filter { $0 != .cloudMachine })
         flow.send(.advance)
         flow.send(.advance)
         flow.send(.advance)
@@ -142,5 +143,28 @@ struct OnboardingFlowTests {
         #expect(flow.current == .notifications)
         #expect(flow.visibleSteps.contains(.notifications))
         #expect(flow.send(.advance).to == .installMac)
+    }
+}
+
+struct OnboardingCloudStepTests {
+    @Test func theCloudStepShowsOnlyWhenOfferedOnAFirstRun() {
+        let offered = OnboardingContext(isSignedIn: true, notifications: .granted, localNetwork: .granted,
+                                        hasTrustedMac: true, offersCloudMachine: true)
+        var flow = OnboardingFlow(progress: OnboardingProgress(current: .sshHost), context: offered)
+        flow.send(.skipStep)
+        #expect(flow.current == .cloudMachine)
+        flow.send(.skipStep)
+        #expect(flow.current == .celebrate)
+        #expect(flow.progress.outcomes[.cloudMachine] == .skipped)
+
+        var plain = offered
+        plain.offersCloudMachine = false
+        var without = OnboardingFlow(progress: OnboardingProgress(current: .sshHost), context: plain)
+        without.send(.skipStep)
+        #expect(without.current == .celebrate)
+
+        var replay = offered
+        replay.mode = .replay
+        #expect(!OnboardingFlow(context: replay).applies(.cloudMachine))
     }
 }

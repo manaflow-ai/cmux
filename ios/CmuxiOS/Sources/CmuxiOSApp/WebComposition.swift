@@ -5,9 +5,8 @@ import CmuxiOSSSH
 import CmuxiOSWeb
 
 /// Lane C14 plug point (c14-web.md): the tunnel browser and simulator
-/// streaming need the phone's `MobileLinkClient` per Mac (D1, the same
-/// provider C2 and C4 wait for). Until it exists Mac routes report "No
-/// connection to this machine"; SSH routes work through C9's connections.
+/// streaming use D1's per-Mac `MobileLinkClient` (`AppContainer.webClients`,
+/// the provider C2 and C4 use); SSH routes use C9's connections.
 @MainActor
 enum WebComposition {
     static func feature(clients: (any MobileLinkClientProvider)?) -> WebFeature {

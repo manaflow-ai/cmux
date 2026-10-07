@@ -186,5 +186,5 @@ real `MobileHost` tunnel to a local HTTP server, SSH forward through a fake open
 Unverified: everything visual and every live path (WKWebView through the proxy, cookie delivery for
 `localhost` in a non-persistent store, ATS for `http://localhost` in the app target, SSH direct-tcpip
 against a real server, simulator capture and HID on the Mac). No tagged build (no Mac app build, disk).
-Mac routes show "No connection to this machine" until D1 supplies the per-Mac `MobileLinkClientProvider`
-(`WebComposition.feature(clients:)`), the same slot C2 and C4 wait on.
+Mac routes and simulator streams use D1's per-Mac clients (`AppContainer.webClients` over
+`AccountLinkDirectory`, the provider C2 and C4 use), available once pairing is configured.

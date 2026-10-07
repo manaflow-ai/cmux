@@ -4,7 +4,8 @@ import CmuxLinkSignaling
 import Foundation
 import Testing
 
-@Suite("Fingerprint binding", .serialized)
+extension LiveWebRTCTests {
+@Suite("Fingerprint binding")
 struct FingerprintBindingTests {
     static let fp1 = "E0:89:4F:B6:0B:B0:AA:72:FE:2A:61:0C:7F:81:69:66:6F:CE:70:F7:2E:60:31:5C:22:75:78:03:C3:3B:2C:86"
     static let fp2 = "11:89:4F:B6:0B:B0:AA:72:FE:2A:61:0C:7F:81:69:66:6F:CE:70:F7:2E:60:31:5C:22:75:78:03:C3:3B:2C:86"
@@ -142,6 +143,7 @@ struct FingerprintBindingTests {
         watcher.cancel()
         await pair.stop()
     }
+}
 }
 
 final class ByeRecorder: @unchecked Sendable {

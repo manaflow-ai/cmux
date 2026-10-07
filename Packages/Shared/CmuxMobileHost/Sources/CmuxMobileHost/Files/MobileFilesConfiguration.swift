@@ -45,9 +45,4 @@ public struct MobileFilesConfiguration: Sendable {
         self.maxChannelsPerDevice = max(1, maxChannelsPerDevice)
         self.finishGrace = finishGrace
     }
-
-    /// The signed-in Mac user's locations.
-    public static var standard: MobileFilesConfiguration {
-        MobileFilesConfiguration(homeDirectory: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
-    }
 }
