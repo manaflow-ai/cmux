@@ -55,7 +55,7 @@ impl Hub {
                     self.revoke_permission_chat(&session);
                     // A new agent holds no grant and no undeclared mode.
                     session.harness_grant.store(false, Ordering::SeqCst);
-                    *session.undeclared_mode.lock().unwrap() = None;
+                    *session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.

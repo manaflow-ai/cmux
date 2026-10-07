@@ -43,7 +43,9 @@ impl Hub {
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
         let turn = session.turn().map(|t| t.turn_id);
-        if turn.is_some() && *session.floor_cancelled_turn.lock().unwrap() == turn {
+        if turn.is_some()
+            && *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
+        {
             return Some("remote.turn_cancelled");
         }
         if session.web_control_ended.load(Ordering::SeqCst) {
@@ -63,7 +65,7 @@ impl Hub {
         if crate::web_modes::mode_of(meta).is_some() {
             return true;
         }
-        match session.undeclared_mode.lock().unwrap().as_deref() {
+        match session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
             Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
             None => true,
         }
@@ -76,7 +78,8 @@ impl Hub {
     pub(super) fn remote_floor_cancel(&self, session: &Session, reason: &str) {
         let Some(turn) = session.turn() else { return };
         {
-            let mut cancelled = session.floor_cancelled_turn.lock().unwrap();
+            let mut cancelled =
+                session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner());
             if cancelled.as_deref() == Some(turn.turn_id.as_str()) {
                 return;
             }
@@ -93,7 +96,11 @@ impl Hub {
         if turn.turn_seq == 0 {
             return;
         }
-        let Some(s) = self.sessions.lock().unwrap().get(&session.id).cloned() else { return };
+        let Some(s) =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned()
+        else {
+            return;
+        };
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
         rt.spawn(async move {
             let child = s.child.lock().await.clone();

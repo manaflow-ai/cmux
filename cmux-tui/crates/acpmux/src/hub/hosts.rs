@@ -451,7 +451,8 @@ impl Hub {
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {
-            *session.floor_cancelled_turn.lock().unwrap() = Some(turn_id.clone());
+            *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(turn_id.clone());
         }
     }
 

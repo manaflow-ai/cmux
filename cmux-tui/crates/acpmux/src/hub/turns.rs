@@ -316,7 +316,7 @@ impl Hub {
             )
             .seq;
         let control = {
-            let mut turn = session.turn.lock().unwrap();
+            let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = turn.as_mut() {
                 t.turn_seq = turn_seq;
             }
