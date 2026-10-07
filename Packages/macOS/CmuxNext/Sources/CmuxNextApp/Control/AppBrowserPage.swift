@@ -7,13 +7,23 @@ import Foundation
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
 enum AppBrowserPage {
-    /// The URL `cmux browser navigate` loads for `raw` (stub: the record's engine decides).
+    /// The URL `cmux browser navigate` loads for `raw`, resolved as the
+    /// omnibar resolves typed text. The live page decides, not the tab
+    /// record (whose engine is nil for a default-engine tab): a Chromium
+    /// page opens Chromium's own pages; a WebKit page refuses them by name.
+    /// The agent refusals run after this (`agentURLRefusal`). `tabEngine`
+    /// (the record's) is deliberately not consulted.
     static func navigationTarget(_ raw: String, tabEngine: String?, page: BrowserEngineKind) -> Result<URL, ControlError> {
-        let chromium = tabEngine == BrowserEngineTag.cef.rawValue
-        guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
-            return .failure(ControlError(code: "invalid_params", message: "Invalid url: \(raw)"))
+        let chromium = page == .cef
+        if let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) {
+            return .success(resolved)
         }
-        return .success(resolved)
+        if !chromium, let chromePage = BrowserURLResolver(allowsChromiumSchemes: true).url(for: raw),
+           ChromiumInternalURL.needsChromium(chromePage) {
+            return .failure(ControlError(code: "wrong_engine",
+                                         message: "\(raw) opens only in a Chromium tab; this tab uses WebKit"))
+        }
+        return .failure(ControlError(code: "invalid_params", message: "Invalid url: \(raw)"))
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
