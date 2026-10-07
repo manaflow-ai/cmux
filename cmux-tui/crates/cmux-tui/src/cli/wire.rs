@@ -514,7 +514,7 @@ fn run_response(
                     return print_operation_error(&error, global.output);
                 }
                 let message = end.recovery.unwrap_or_else(|| "stream ended with an error".into());
-                eprintln!("{message}");
+                eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
             _ => {
@@ -688,22 +688,27 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let _ = io::stderr().lock().write_all(human_error_text(error).as_bytes());
+            eprint!("{}", human_error_lines(error));
         }
     }
     exit_code
 }
 
-/// The human form of a local error: its message, then any candidates.
-fn human_error_text(error: &Value) -> String {
+/// Render an operation error for human-readable stderr. The message and any
+/// candidate names can carry remote-supplied text, so they get the same
+/// visible sanitizing as human stdout.
+fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-    let mut text = format!("{}\n", visible_controls(message));
+    let mut text = sanitize_human_block(message);
+    text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
     {
         for candidate in candidates {
             if let Some(candidate) = candidate.as_str() {
-                text.push_str(&format!("  {}\n", visible_controls(candidate)));
+                text.push_str("  ");
+                text.push_str(&sanitize_human_cell(candidate));
+                text.push('\n');
             }
         }
     }
@@ -764,7 +769,8 @@ fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            output.push_str(&visible_controls(value));
+            let value = sanitize_human_block(value);
+            output.push_str(&value);
             if !value.ends_with('\n') {
                 output.push('\n');
             }
@@ -880,7 +886,7 @@ fn flatten_human_object(
         if let Value::Object(nested) = value {
             flatten_human_object(Some(&path), nested, rows);
         } else {
-            rows.push((visible_controls(&path), human_cell(value)));
+            rows.push((sanitize_human_cell(&path), human_cell(value)));
         }
     }
 }
@@ -888,35 +894,19 @@ fn flatten_human_object(
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => visible_controls(&value.replace(['\r', '\n'], "\\n")),
+        Value::String(value) => sanitize_human_cell(value),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        value => visible_controls(
+        // serde_json escapes C0 controls but writes C1 controls and the
+        // Unicode separators raw, so the serialized form needs the same pass.
+        value => sanitize_human_cell(
             &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
         ),
     }
 }
 
-/// Daemon and terminal-derived text shows control characters as escapes
-/// (`\u{1b}`) so it cannot drive the terminal that runs the CLI. Newlines and
-/// tabs are layout, not commands, and pass through.
-fn visible_controls(text: &str) -> String {
-    if !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-        return text.to_string();
-    }
-    let mut visible = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_control() && c != '\n' && c != '\t' {
-            visible.extend(c.escape_default());
-        } else {
-            visible.push(c);
-        }
-    }
-    visible
-}
-
 fn human_header(key: &str) -> String {
-    visible_controls(&key.replace('_', " ").to_uppercase())
+    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
 }
 
 fn human_key_rank(key: &str) -> usize {
@@ -982,7 +972,9 @@ pub(super) fn resolve_socket_with_env(
 
 mod closed_view;
 mod hints;
+mod sanitize;
 pub(super) use hints::connect_failure;
+use sanitize::{sanitize_human_block, sanitize_human_cell};
 
 #[cfg(test)]
 mod tests;
