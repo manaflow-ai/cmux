@@ -57,6 +57,10 @@ export function SummaryButton({
             summary={summary}
             changes={changes}
             onOpenChanges={() => {
+              // Diff review restores focus to its opener after closing. Keep the
+              // persistent Sources button as that opener before unmounting this
+              // popover, rather than handing it a detached Changes row.
+              button.current?.focus();
               setOpen(false);
               onOpenChanges?.();
             }}
