@@ -45,24 +45,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-local-socket"
-version = "1.0.0"
-dependencies = [
- "uds_windows",
- "windows-sys",
-]
-
-[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-local-socket",
  "getrandom",
  "libc",
  "serde",
  "serde_json",
  "sha2",
+ "uds_windows",
+ "windows-sys",
 ]
 
 [[package]]

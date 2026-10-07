@@ -129,24 +129,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
-name = "cmux-local-socket"
-version = "1.0.0"
-dependencies = [
- "uds_windows",
- "windows-sys",
-]
-
-[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-local-socket",
  "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
  "sha2",
+ "uds_windows",
+ "windows-sys",
 ]
 
 [[package]]

@@ -36,16 +36,16 @@ folder come from the daemon. Today GPUI builds `daemon_off.rs` on Windows
   the tree publication forbids the Windows binaries today
   (`cmux-tui-artifacts.yml --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe`).
 
-## 1. One local-socket transport: crate `cmux-local-socket`
+## 1. One local-socket transport: `cmux::local_socket` in cmux-sdk
 
-Decision (coordinator, 2026-10-07): a shared crate, used by the daemon
-(cmux-tui-core) and cmux-sdk, so the same-user checks exist once (two
-copies would drift: a security bug). Its version moves in lockstep with
-cmux-sdk and it is published by the same release workflow and trusted
-publisher (no new token or account). If crates.io trusted publishing needs
-a web-UI step for the new name, that is reported to the coordinator and
-cmux-sdk keeps a path dependency until then. The new crate and Cargo.lock
-need CORE + LOCK.
+Decision (coordinator, 2026-10-07, revised): the transport is a module of
+cmux-sdk, `cmux::local_socket`, behind the `local-socket` feature (built
+always on Windows, where the SDK connects through it). The daemon
+(cmux-tui-core) depends on cmux-sdk with `default-features = false` and only
+that feature, so one copy of the same-user checks serves daemon and clients,
+without a new published crate (which would need a workflow change on main
+and a crates.io web step). An earlier version of this branch had a separate
+crate `cmux-local-socket`; it was folded in.
 
 Unix-only code in the clients (feat-cmux-next e98b689d646):
 
@@ -58,7 +58,7 @@ Unix-only code in the clients (feat-cmux-next e98b689d646):
 | `bindings/rust/src/socket_hash.rs`, `resource/client.rs` | `UnixListener` in tests |
 | `bindings/rust-daemon-client/src/launcher.rs` | `kill` (SIGKILL), `user_temp_dir` (macOS confstr), `is_executable` (mode bits) |
 
-Crate API (Unix and Windows behind cfg):
+Module API (Unix and Windows behind cfg):
 
 - `Stream`: Read + Write + Send + Sync, `try_clone`, `set_read_timeout`,
   `set_write_timeout`, `shutdown`, `set_nonblocking`, `peer_pid`. Unix:
@@ -92,13 +92,13 @@ Crate API (Unix and Windows behind cfg):
   changed.
 - Sockets are not inherited by child processes (experiment 1).
 
-Users of the crate:
+Users of the module:
 
 - cmux-sdk: `codec.rs`, `client.rs`, the byte attachment and the resource
-  streams hold `cmux_local_socket::Stream`; nothing above the transport
+  streams hold `cmux::local_socket::Stream`; nothing above the transport
   changes (no second client). The `UnixStream::pair()` tests use
-  `cmux_local_socket::pair()`.
-- cmux-tui-core: `platform/transport.rs` becomes a thin wrapper of the crate
+  `cmux::local_socket` listeners (tests/common, mock daemon).
+- cmux-tui-core: `platform/transport.rs` becomes a thin wrapper of the module
   (its `Stream` trait object stays for the server's existing users).
 - cmux-daemon-client launcher: `kill` -> `TerminateProcess`; `user_temp_dir`
   -> `std::env::temp_dir()` (the daemon's base) and no `TMPDIR` pinning;
@@ -111,7 +111,7 @@ windows-daemon-design, `scripts/windows/uds-experiment/`):
 1. Inheritance: listener, connected and accepted `uds_windows` sockets have
    `HANDLE_FLAG_INHERIT` clear; a child started with handle inheritance
    (`std::process::Command`) gets `WSAENOTSOCK` (10038) for each. So
-   `uds_windows` sockets are not inherited; a crate test keeps it so.
+   `uds_windows` sockets are not inherited; a test keeps it so.
 2. Socket file owner: `GetNamedSecurityInfoW(SE_FILE_OBJECT, OWNER)` reads
    the owner of an AF_UNIX socket file (std sees it as a plain file). For an
    elevated process (High integrity) the owner is BUILTIN\Administrators
@@ -128,7 +128,7 @@ windows-daemon-design, `scripts/windows/uds-experiment/`):
    `uds_windows` sockets, on the accepted and the connecting side, and
    returns the peer's process id.
 
-Tests (crate, hosted `test-windows` in `cmux-tui-sdks.yml` and
+Tests (module, hosted `test-windows` in `cmux-tui-sdks.yml` and
 `cmux-tui.yml`; red first):
 
 - Not inherited (experiment 1 as a test); peer pid; deadline and poll checks.
@@ -252,7 +252,7 @@ unsigned is OK: raised with the coordinator before any publish.
 
 ## Decisions
 
-Taken (coordinator, 2026-10-07): shared crate `cmux-local-socket`; no cwd
+Taken (coordinator, 2026-10-07): one transport, folded into cmux-sdk (`local-socket` feature); no cwd
 for 32-bit processes in v1; foreground = newest live descendant (a
 heuristic); Job Object per terminal with `IsProcessInJob` on one handle;
 `test-windows` jobs; no new Windows account.
