@@ -22,6 +22,11 @@ interface RequestConnection {
 
 const CurrentConnection = FiberRef.unsafeMake<RequestConnection | null>(null);
 
+// JSON parameters are passed as strings and cast in SQL as `$n::text::jsonb`,
+// never `$n::jsonb`: postgres.js serializes a parameter the server types as
+// jsonb with JSON.stringify, so a JSON string would be stored as a jsonb
+// string (staging: every create failed resources_labels_check). PGlite in the
+// tests does not do this, so the cast is the guard.
 const connect = (connectionString: string) =>
   postgres(connectionString, { max: 1, fetch_types: false, prepare: false, connect_timeout: 5 });
 
