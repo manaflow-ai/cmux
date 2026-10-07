@@ -9,7 +9,8 @@ import Observation
 @Observable
 final class SSHMachineSession {
     let host: SSHHost
-    var machineID: String { host.machineID }
+    /// The host's id, or the paired server's (`ServerMachineSession`).
+    let machineID: String
     let daemon: DaemonService
     @ObservationIgnored let link: SSHMachineLink
     @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -28,9 +29,11 @@ final class SSHMachineSession {
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
 
-    init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String]) {
+    init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
+         machineID: String? = nil) {
         self.host = host
-        daemon = DaemonService(machineID: host.machineID)
+        self.machineID = machineID ?? host.machineID
+        daemon = DaemonService(machineID: self.machineID)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

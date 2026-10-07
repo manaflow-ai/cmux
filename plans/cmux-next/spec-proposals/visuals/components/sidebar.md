@@ -2,7 +2,7 @@
 
 Window-height list of workspaces with pinned sections (Home at the top; Settings and Account at the bottom). A flat tonal step over the window backdrop: `sidebarStep` (the foreground at 4%) painted by `ChromeStepView` (`SidebarContainerView.swift (SidebarContainerView.backdropStep)`), no panel, no border, no seam, no borders on rows. Apple System dark: `#272727` over `#1E1E1E`. The images predate this step and show the bare window background. Width 208 compact / 240 comfortable. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/` at `d445a445556` unless noted; images from `1824883286a`. Tokens: [design-tokens.md](../design-tokens.md); JSON keys `components["sidebar.*"]`.
 
-![Sidebar, dark, default: selected row on the shared pill, unread badge on api-server](../images/sidebar/dark-default.png) ![Sidebar, light, default](../images/sidebar/light-default.png)
+![Sidebar, dark, default: selected row painted in place, unread badge on api-server](../images/sidebar/dark-default.png) ![Sidebar, light, default](../images/sidebar/light-default.png)
 
 ## Workspace row
 
@@ -12,8 +12,8 @@ Row height `sidebarRowHeight` (24/32); `sidebarRowHeightWithSubtitle` (36/46) on
 |---|---|---|---|---|---|
 | default | none | textPrimary | textSecondary | | WorkspaceRowView.swift:117-126 (`WorkspaceRowView.updateLayer`) |
 | hover | hoverFill, fading over 0.08 s (`SidebarRowView.paintFill`) | textPrimary | textSecondary | close button (x) replaces the badge; title narrows, then marquees after 0.6 s | :103-115 (`hoverChanged`), :122-124, :149-156 (`layout`) |
-| selected (active) | selectionFill on one shared pill that glides between rows (spring selection 0.15/0.9) | textPrimary | textSecondary | | ChromeDecorations.swift:48-58 (`SidebarDecorationView.updateColors`, `setPill`) |
-| selected + hover | selectionFill pill | textPrimary | | close button shown | |
+| selected (active) | selectionFill painted by the row itself, in place and at once, no travel between rows or sections (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) | textPrimary | textSecondary | | WorkspaceRowView.swift (`updateLayer`), SidebarRowView.swift (`isSelected`) |
+| selected + hover | selectionFill | textPrimary | | close button shown | |
 | multi-selected (not active) | secondarySelectionFill | | | | WorkspaceRowView.swift:122-124 (`updateLayer`) |
 | drop target | selectionFill; insertion gap is a hoverFill pill | | | | WorkspaceRowView.swift:122; ChromeDecorations.swift:49 |
 | dragging | card elevatedBackground, radius itemCornerRadius; shadow color shadow, opacity 0.28, radius 12, y 6 (rest: 0, 4, 2); stacked cards inset 4 per depth with alpha 0.85 and a 0.5 pt separator border; count badge textPrimary fill, textOnPrimary text | | | lift fade 0.12 s, drop spring settle | DragLiftView.swift:20-107 (`DragLiftView.init`, `layout`, `setLifted`) |
