@@ -11,6 +11,8 @@ pub struct Packetizer {
     stream: u16,
     max_datagram: usize,
     next_transport_seq: u16,
+    /// Shards go out as upstream media (rd change C4).
+    upstream: bool,
 }
 
 /// The datagrams of one frame, ready to send in order.
@@ -36,7 +38,7 @@ impl Packetizer {
     /// `max_datagram` comes from the link (1152 or 1332 bytes); tests may use
     /// smaller values, never below 64.
     pub fn new(stream: u16, max_datagram: usize) -> Self {
-        Self { stream, max_datagram: max_datagram.max(64), next_transport_seq: 0 }
+        Self { stream, max_datagram: max_datagram.max(64), next_transport_seq: 0, upstream: false }
     }
 
     /// Payload bytes per shard.
@@ -57,6 +59,12 @@ impl Packetizer {
     /// for transport-wide feedback.
     pub fn set_stream(&mut self, stream: u16) {
         self.stream = stream;
+    }
+
+    /// Upstream mode (rd change C4): every shard, data and parity, goes out
+    /// as `DatagramKind::UpMedia` (viewer to host media).
+    pub fn set_upstream(&mut self, upstream: bool) {
+        self.upstream = upstream;
     }
 
     /// Splits `body` into data shards plus `parity` parity shards.
@@ -99,7 +107,13 @@ impl Packetizer {
             .map(|(index, payload)| {
                 let header = DatagramHeader {
                     flags,
-                    kind: if index < data_shards { DatagramKind::Video } else { DatagramKind::Fec },
+                    kind: if self.upstream {
+                        DatagramKind::UpMedia
+                    } else if index < data_shards {
+                        DatagramKind::Video
+                    } else {
+                        DatagramKind::Fec
+                    },
                     stream: self.stream,
                     frame,
                     index: index as u16,

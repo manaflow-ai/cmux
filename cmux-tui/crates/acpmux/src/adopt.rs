@@ -35,7 +35,8 @@ impl AdoptRequest {
 }
 
 /// Where the harnesses keep their sessions: `CLAUDE_CONFIG_DIR` (else
-/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`).
+/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`), from the daemon's
+/// environment, else the imported login shell environment.
 #[derive(Debug, Clone)]
 pub struct HarnessHomes {
     pub claude: PathBuf,
@@ -46,12 +47,32 @@ impl HarnessHomes {
     pub fn from_env() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let dir = |key: &str, default: &str| {
-            std::env::var_os(key)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(default))
+            crate::chats::login_var(key).map(PathBuf::from).unwrap_or_else(|| home.join(default))
         };
         Self { claude: dir("CLAUDE_CONFIG_DIR", ".claude"), codex: dir("CODEX_HOME", ".codex") }
+    }
+
+    /// These homes with the `CLAUDE_CONFIG_DIR` / `CODEX_HOME` of spawn env
+    /// layers on top, later layers winning: the store a profile's harness
+    /// really uses. A value that is not an absolute path (a `${...}`
+    /// template, a relative path) is skipped.
+    pub fn with_env(&self, layers: &[&std::collections::BTreeMap<String, String>]) -> Self {
+        let mut out = self.clone();
+        for env in layers {
+            let path = |key: &str| {
+                env.get(key)
+                    .filter(|v| !v.contains('$'))
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+            };
+            if let Some(claude) = path("CLAUDE_CONFIG_DIR") {
+                out.claude = claude;
+            }
+            if let Some(codex) = path("CODEX_HOME") {
+                out.codex = codex;
+            }
+        }
+        out
     }
 }
 

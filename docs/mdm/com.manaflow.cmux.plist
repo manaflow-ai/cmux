@@ -99,6 +99,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.</string>
+			<key>pfm_name</key>
+			<string>app.globalHotKey</string>
+			<key>pfm_title</key>
+			<string>Global Hot Key</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>page</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
@@ -1777,28 +1789,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
-			<key>pfm_name</key>
-			<string>sidebar.showCounts</string>
-			<key>pfm_title</key>
-			<string>Show Tab Counts</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Shows each workspace's folder under its name. A live agent status always shows.</string>
-			<key>pfm_name</key>
-			<string>sidebar.showWorkspaceDirectory</string>
-			<key>pfm_title</key>
-			<string>Show Workspace Folder</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>bottom</string>
 			<key>pfm_description</key>
 			<string>Hides the chosen sections until the pointer is over the sidebar.</string>
@@ -1912,6 +1902,623 @@
 			<string>Wrap Around</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The icon or emoji you chose for a workspace.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.icon</string>
+			<key>pfm_title</key>
+			<string>Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.directory</string>
+			<key>pfm_title</key>
+			<string>Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.branch</string>
+			<key>pfm_title</key>
+			<string>Git Branch</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The terminal's title, which the shell or program sets.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.process</string>
+			<key>pfm_title</key>
+			<string>Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The status line agents and hooks report.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agentStatus</string>
+			<key>pfm_title</key>
+			<string>Agent Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.tabCount</string>
+			<key>pfm_title</key>
+			<string>Tab Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Set by a hook: cmux workspace status set ports &lt;text&gt;.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.ports</string>
+			<key>pfm_title</key>
+			<string>Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.lastActivity</string>
+			<key>pfm_title</key>
+			<string>Last Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Set by a hook: cmux workspace status set pr &lt;text&gt;.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.pullRequest</string>
+			<key>pfm_title</key>
+			<string>Pull Request</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A progress bar under the row and the busy mark of running work.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.progress</string>
+			<key>pfm_title</key>
+			<string>Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A mark while an agent works in the workspace.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.working</string>
+			<key>pfm_title</key>
+			<string>Agent Working</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array>
+				<string>directory</string>
+				<string>branch</string>
+				<string>process</string>
+				<string>agentStatus</string>
+				<string>ports</string>
+				<string>lastActivity</string>
+			</array>
+			<key>pfm_description</key>
+			<string>The order of the shown items under the workspace name.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.secondLineOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>directory</string>
+						<string>branch</string>
+						<string>process</string>
+						<string>agentStatus</string>
+						<string>ports</string>
+						<string>lastActivity</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Second Line Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.icon</string>
+			<key>pfm_title</key>
+			<string>Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.directory</string>
+			<key>pfm_title</key>
+			<string>Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.branch</string>
+			<key>pfm_title</key>
+			<string>Git Branch</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.process</string>
+			<key>pfm_title</key>
+			<string>Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.agentStatus</string>
+			<key>pfm_title</key>
+			<string>Agent Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.tabCount</string>
+			<key>pfm_title</key>
+			<string>Tab Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.ports</string>
+			<key>pfm_title</key>
+			<string>Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.lastActivity</string>
+			<key>pfm_title</key>
+			<string>Last Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.pullRequest</string>
+			<key>pfm_title</key>
+			<string>Pull Request</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.progress</string>
+			<key>pfm_title</key>
+			<string>Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.working</string>
+			<key>pfm_title</key>
+			<string>Agent Working</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.secondLineOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>directory</string>
+						<string>branch</string>
+						<string>process</string>
+						<string>agentStatus</string>
+						<string>ports</string>
+						<string>lastActivity</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Second Line Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.icon</string>
+			<key>pfm_title</key>
+			<string>Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.directory</string>
+			<key>pfm_title</key>
+			<string>Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.branch</string>
+			<key>pfm_title</key>
+			<string>Git Branch</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.process</string>
+			<key>pfm_title</key>
+			<string>Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.agentStatus</string>
+			<key>pfm_title</key>
+			<string>Agent Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.tabCount</string>
+			<key>pfm_title</key>
+			<string>Tab Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.ports</string>
+			<key>pfm_title</key>
+			<string>Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.lastActivity</string>
+			<key>pfm_title</key>
+			<string>Last Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.pullRequest</string>
+			<key>pfm_title</key>
+			<string>Pull Request</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.progress</string>
+			<key>pfm_title</key>
+			<string>Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.working</string>
+			<key>pfm_title</key>
+			<string>Agent Working</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.secondLineOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>directory</string>
+						<string>branch</string>
+						<string>process</string>
+						<string>agentStatus</string>
+						<string>ports</string>
+						<string>lastActivity</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Second Line Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.icon</string>
+			<key>pfm_title</key>
+			<string>Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.directory</string>
+			<key>pfm_title</key>
+			<string>Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.branch</string>
+			<key>pfm_title</key>
+			<string>Git Branch</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.process</string>
+			<key>pfm_title</key>
+			<string>Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.agentStatus</string>
+			<key>pfm_title</key>
+			<string>Agent Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.tabCount</string>
+			<key>pfm_title</key>
+			<string>Tab Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.ports</string>
+			<key>pfm_title</key>
+			<string>Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.lastActivity</string>
+			<key>pfm_title</key>
+			<string>Last Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.pullRequest</string>
+			<key>pfm_title</key>
+			<string>Pull Request</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.progress</string>
+			<key>pfm_title</key>
+			<string>Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.working</string>
+			<key>pfm_title</key>
+			<string>Agent Working</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.secondLineOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>directory</string>
+						<string>branch</string>
+						<string>process</string>
+						<string>agentStatus</string>
+						<string>ports</string>
+						<string>lastActivity</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Second Line Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.icon</string>
+			<key>pfm_title</key>
+			<string>Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.directory</string>
+			<key>pfm_title</key>
+			<string>Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.branch</string>
+			<key>pfm_title</key>
+			<string>Git Branch</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.process</string>
+			<key>pfm_title</key>
+			<string>Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.agentStatus</string>
+			<key>pfm_title</key>
+			<string>Agent Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.tabCount</string>
+			<key>pfm_title</key>
+			<string>Tab Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.ports</string>
+			<key>pfm_title</key>
+			<string>Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.lastActivity</string>
+			<key>pfm_title</key>
+			<string>Last Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.pullRequest</string>
+			<key>pfm_title</key>
+			<string>Pull Request</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.progress</string>
+			<key>pfm_title</key>
+			<string>Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.working</string>
+			<key>pfm_title</key>
+			<string>Agent Working</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.secondLineOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>directory</string>
+						<string>branch</string>
+						<string>process</string>
+						<string>agentStatus</string>
+						<string>ports</string>
+						<string>lastActivity</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Second Line Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2601,6 +3208,42 @@
 			<string>Refresh Interval</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>confirm</string>
+			<key>pfm_description</key>
+			<string>What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.</string>
+			<key>pfm_name</key>
+			<string>agentPane.links.outsideRoots</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>confirm</string>
+				<string>text</string>
+				<string>open</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Files Outside the Project</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>click</string>
+			<key>pfm_description</key>
+			<string>A web image loads from its site, which then sees that you read the reply.</string>
+			<key>pfm_name</key>
+			<string>agentPane.images.remote</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>click</string>
+				<string>never</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Web Images in Replies</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>

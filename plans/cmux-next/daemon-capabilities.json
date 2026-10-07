@@ -18,6 +18,7 @@
     "end-terminals-keep-layout-v1",
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
+    "frontend-browser-insert-after-v1",
     "frontend-browser-tabs-v1",
     "launch-snapshot-v1",
     "local-attachments-v1",
@@ -35,6 +36,7 @@
     "screen-groups-v1",
     "screen-metadata-v1",
     "session-identity-v1",
+    "sidebar-layout-v1",
     "state-resources-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",
@@ -72,7 +74,6 @@
   ],
   "unservedByBundledDaemon" : [
     "detached-terminals-v1",
-    "remote-terminal-tabs-v1",
-    "sidebar-layout-v1"
+    "remote-terminal-tabs-v1"
   ]
 }
