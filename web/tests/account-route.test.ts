@@ -3046,19 +3046,18 @@ describe("account deletion resume cron", () => {
     )).toBe(true);
   });
 
-  test("finishes cmux cleanup when the Stack user is already gone", async () => {
+  test("removes user-keyed rows but parks a hosted checkpoint whose Stack user is gone", async () => {
     selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
     transactionTombstoneSelectResults = [hostedPendingTombstone()];
     stackUserMissing = true;
 
     const response = await GET(cronRequest());
 
-    expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
       resumed: 1,
-      completed: 1,
-      retryable: 0,
+      completed: 0,
+      retryable: 1,
     });
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(postHogDeleteRequests).toHaveLength(0);
@@ -3067,6 +3066,10 @@ describe("account deletion resume cron", () => {
     );
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "completed"
+    )).toBe(false);
+    expect(tombstoneUpdates.at(-1)).toMatchObject({ status: "failed" });
+    expect(consoleError.mock.calls.some((call) =>
+      (call as unknown[])[0] === "cmux.observability.error"
     )).toBe(true);
   });
 

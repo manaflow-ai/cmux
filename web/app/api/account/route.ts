@@ -400,20 +400,20 @@ function isRestingResumeFailureStatus(status: string): boolean {
  * The Stack user is gone: removed outside this flow after the tombstone
  * reached the hosted step, or by this flow just before a crash in the
  * Stack-delete phase. PostHog, billing, TestFlight, identity, VM, networking,
- * and vault cleanup already ran; finish the idempotent post-Stack cmux
- * cleanup and complete the tombstone.
+ * and vault cleanup already ran in both cases.
+ *
+ * Only the Stack-delete phase also ran deleteCmuxOwnedAccountRows with the
+ * full personal-team scope, so only it can complete here. For a hosted
+ * checkpoint the personal teams can no longer be listed: the user-keyed rows
+ * are still removed, then the tombstone is failed (keeping user_id) and
+ * reported so an operator finishes the team-keyed rows.
  */
 async function finishAccountDeletionWithoutStackUser(
   userId: string,
   status: string,
 ): Promise<boolean> {
-  // Only the hosted checkpoint and the Stack-delete phase prove that the
-  // pre-Stack cleanup (billing, VMs, networking, vault) finished. A stale
-  // earlier attempt whose Stack user vanished needs an operator.
-  if (
-    !(HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status) &&
-    status !== "stack_delete_pending"
-  ) {
+  const hostedCheckpoint = (HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status);
+  if (!hostedCheckpoint && status !== "stack_delete_pending") {
     await markAccountDeletionTombstoneFailed(
       userId,
       new Error("Stack user is gone before pre-Stack cleanup was confirmed"),
@@ -427,14 +427,26 @@ async function finishAccountDeletionWithoutStackUser(
     await finishPostStackAccountCleanup(userId, [userId], {
       deletePostHogPerson: false,
     });
-    await markAccountDeletionTombstoneCompleted(userId);
-    return true;
   } catch (error) {
     logAccountDeleteError("account.delete.resume_cleanup_failed", error);
-    await markAccountDeletionTombstoneHostedDeletePending(userId);
+    if (hostedCheckpoint) {
+      await markAccountDeletionTombstoneHostedDeletePending(userId);
+    } else {
+      await markAccountDeletionTombstoneStackDeletePending(userId);
+    }
     await settleFailedAccountDeletionResume(userId);
     return false;
   }
+  if (hostedCheckpoint) {
+    const error = new Error("account deletion personal-team scope is unknown after the Stack user was removed");
+    await markAccountDeletionTombstoneFailed(userId, error);
+    reportError(error, { operation: "account_deletion_resume", last_status: status }, {
+      fingerprint: ["account-deletion-resume-team-scope-unknown"],
+    });
+    return false;
+  }
+  await markAccountDeletionTombstoneCompleted(userId);
+  return true;
 }
 
 function initialAccountDeletionProgress(): AccountDeletionProgress {
