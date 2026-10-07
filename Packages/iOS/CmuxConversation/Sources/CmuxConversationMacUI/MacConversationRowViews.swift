@@ -559,8 +559,43 @@ final class MacMessageRowView: MacFlippedView {
         }
     }
 
-    /// Arrivals: the bubble grows from its tail corner (bottom leading edge)
-    /// and fades in; the avatar and sender name do not scale.
+    /// A send failing or being retried: the bubble glides sideways to make
+    /// (or give back) room for the red badge, which pops in or fades out.
+    func animateFailedChange(fromContentMinX oldMinX: CGFloat, failed: Bool) {
+        guard let layer, let rowLayout else { return }
+        let dx = oldMinX - rowLayout.contentFrame.minX
+        if abs(dx) > 0.5 {
+            let slide = CASpringAnimation(keyPath: "transform.translation.x")
+            slide.fromValue = dx
+            slide.toValue = 0
+            slide.isAdditive = true
+            slide.damping = 26
+            slide.stiffness = 300
+            slide.mass = 1
+            slide.duration = slide.settlingDuration
+            layer.add(slide, forKey: "failedShift")
+        }
+        if failed, let badge = failedBadge.layer {
+            let pop = CABasicAnimation(keyPath: "transform.scale")
+            pop.fromValue = 0.3
+            pop.toValue = 1
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            let group = CAAnimationGroup()
+            group.animations = [pop, fade]
+            group.duration = 0.25
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            badge.add(group, forKey: "failedPop")
+            // The row glides; the badge is born at its place.
+            if abs(dx) > 0.5, let slide = layer.animation(forKey: "failedShift") as? CASpringAnimation,
+               let counter = slide.copy() as? CASpringAnimation {
+                counter.fromValue = -dx
+                badge.add(counter, forKey: "failedHold")
+            }
+        }
+    }
+
     /// An arrival fades in at its place (0.3 s) while the transcript scrolls
     /// it into view, as ChatKit's transcript layout does; there is no scale.
     func growIn() {
@@ -636,6 +671,16 @@ final class MacTimestampRowView: MacFlippedView {
             .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
         ]))
         label.attributedStringValue = text
+        needsLayout = true
+    }
+
+    /// A system line ("You unsent a message") in the timestamp's regular weight.
+    func configure(notice: String) {
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        label.attributedStringValue = NSAttributedString(string: notice, attributes: [
+            .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ])
         needsLayout = true
     }
 

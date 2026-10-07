@@ -176,9 +176,16 @@ async function main() {
   const unreacted = await c.call("react", { messageId: mid, reaction: null });
   check(!unreacted.message.reactions.some((r: any) => r.participantId === "aziz"), "react null removes my reaction");
   const edited = await c.call("edit", { messageId: mid, text: "edited text" });
-  check(edited.message.text === "edited text" && edited.message.editedAt > 0, "edit sets text and editedAt");
+  check(edited.message.text === "edited text" && edited.message.editedAt > 0 && edited.message.editCount === 1, "edit sets text, editedAt and editCount");
   const badEdit = await c.raw("edit", { messageId: newest.messages.find((m: any) => m.senderId !== "aziz").id, text: "x" });
   check(badEdit.error?.code === -32602, "editing someone else's message is rejected");
+  const unsent = await c.call("unsend", { messageId: mid });
+  check(unsent.message.unsentAt > 0 && unsent.message.text === "" && unsent.message.attachments.length === 0, "unsend clears the message and sets unsentAt");
+  const oldMine = newest.messages.find((m: any) => m.senderId === "aziz" && Date.now() - m.sentAt > 120_000);
+  if (oldMine) {
+    const late = await c.raw("unsend", { messageId: oldMine.id });
+    check(late.error?.code === -32003, "unsend after two minutes is refused (-32003)");
+  }
 
   console.log("resume");
   await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.text === "edited text"), 3000, "edit event");

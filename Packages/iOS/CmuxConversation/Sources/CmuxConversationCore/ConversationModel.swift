@@ -116,6 +116,11 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var replyToID: String?
     public var replyCount: Int
     public var editedAt: Date?
+    /// How many times the sender edited it (Messages allows five).
+    public var editCount: Int
+    /// Set when the sender took the message back (Undo Send). The row shows
+    /// a notice in its place; text and attachments are gone.
+    public var unsentAt: Date?
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
@@ -130,6 +135,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         replyToID: String? = nil,
         replyCount: Int = 0,
         editedAt: Date? = nil,
+        editCount: Int = 0,
+        unsentAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
         delivery: ConversationDelivery? = nil
@@ -143,6 +150,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.replyToID = replyToID
         self.replyCount = replyCount
         self.editedAt = editedAt
+        self.editCount = editedAt == nil ? editCount : max(1, editCount)
+        self.unsentAt = unsentAt
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
@@ -151,6 +160,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     /// Identity that survives the pending to acknowledged transition, so the
     /// row a sender sees never re-inserts when the server echo arrives.
     public var rowID: String { clientMessageID.map { "c:\($0)" } ?? "s:\(id)" }
+
+    public var isUnsent: Bool { unsentAt != nil }
 }
 
 public struct ConversationHistoryPage: Sendable {

@@ -84,6 +84,8 @@ public final class ConversationViewController: UIViewController {
     var replyHapticFired = false
     var replyTarget: ConversationMessage?
     var editingMessageID: String?
+    /// The in-place editor while a message is being edited.
+    var editOverlay: MessageEditOverlay?
     /// A row kept visible above the composer as insets change (the message
     /// being edited stays in view when the keyboard rises).
     var revealRowID: String?
@@ -353,14 +355,17 @@ public final class ConversationViewController: UIViewController {
         // Changed rows are refreshed after the structural batch applies, with
         // post-update paths: inside a batch, reconfigure would dequeue against
         // the new data at a pre-update path and hit a different row kind.
+        // One row changing place (Try Again sends a failed message again, so
+        // it moves to the bottom) moves in the batch instead of reloading all.
+        let moved = Self.singleMove(from: commonOld, to: commonNew)
+        let structural = commonOld == commonNew || moved != nil
         var updated: [IndexPath] = []
-        if commonOld == commonNew {
+        if structural {
             for id in commonNew {
                 guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
                 updated.append(IndexPath(item: n, section: 0))
             }
         }
-        let structural = commonOld == commonNew
 
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
@@ -389,7 +394,7 @@ public final class ConversationViewController: UIViewController {
                 flyingRowIDs.insert(id)
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: arrivingRowIDs.append(id)
-            case .loadingOlder: appearances[id] = .fade
+            case .loadingOlder, .notice: appearances[id] = .fade
             default: break
             }
         }
@@ -420,12 +425,24 @@ public final class ConversationViewController: UIViewController {
         // (spacing, tail, sender name); rows that move a few points glide.
         let screenBefore = animateLive ? [:] : visibleScreenTops()
 
+        // Undo Send: the bubble dissolves where it stood while its notice fades in.
+        if animateLive {
+            for indexPath in deleted where indexPath.item < rows.count {
+                guard case let .message(model) = rows[indexPath.item], newIndex["unsent:\(model.rowID)"] != nil,
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { continue }
+                dissolve(cell)
+            }
+        }
+
         let updates = {
             self.rows = newRows
             self.rowIndex = newIndex
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
+                if let moved, let from = oldIndex[moved], let to = newIndex[moved] {
+                    self.collectionView.moveItem(at: IndexPath(item: from, section: 0), to: IndexPath(item: to, section: 0))
+                }
             } else {
                 self.collectionView.reloadSections(IndexSet(integer: 0))
             }
@@ -553,6 +570,32 @@ public final class ConversationViewController: UIViewController {
     /// `CKUIBehavior.scrollInNewMessageAnimationDuration`.
     static let arrivalFadeDuration: TimeInterval = 0.3
 
+    /// Unsent bubble: a snapshot swells slightly and fades out in place (the
+    /// cell itself is hidden so the row's own removal shows nothing).
+    private func dissolve(_ cell: MessageCell) {
+        let frame = cell.liftedContentFrame
+        guard let snapshot = cell.shiftable.resizableSnapshotView(from: frame, afterScreenUpdates: false, withCapInsets: .zero) else { return }
+        snapshot.frame = cell.convert(frame, to: view)
+        view.insertSubview(snapshot, aboveSubview: collectionView)
+        UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+        UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut]) {
+            snapshot.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
+        }
+    }
+
+    /// The id whose removal makes both orders equal, when exactly one row moved.
+    static func singleMove(from old: [String], to new: [String]) -> String? {
+        guard old.count == new.count, old != new else { return nil }
+        guard let first = old.indices.first(where: { old[$0] != new[$0] }) else { return nil }
+        for candidate in [old[first], new[first]] {
+            if old.filter({ $0 != candidate }) == new.filter({ $0 != candidate }) { return candidate }
+        }
+        return nil
+    }
+
     private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {
         if case let .live(inserted, mine) = change { return mine && !inserted.isEmpty }
         return false
@@ -651,6 +694,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
             cell.configure(date: date)
             return cell
+        case let .notice(_, text):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
+            cell.configure(notice: text)
+            return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
             cell.configure(active: true)
@@ -734,7 +781,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         switch rows[index] {
         case let .message(model):
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
-        case .timestamp: return TimestampCell.height
+        case .timestamp, .notice: return TimestampCell.height
         case .loadingOlder: return LoadingCell.height
         case .conversationStart: return ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)

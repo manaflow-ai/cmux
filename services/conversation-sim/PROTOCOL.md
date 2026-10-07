@@ -23,7 +23,8 @@ process and keep growing.
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
 | `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
-| `edit` | `{messageId, text}` | `{message: Message}` |
+| `edit` | `{messageId, text}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
+| `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
 
@@ -56,7 +57,7 @@ Conversation { id, title, kind: "group"|"direct", participants: [Participant] }
 Participant  { id, name, initials, colorHex, isMe }
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
-  replyToId?, replyCount, editedAt?,
+  replyToId?, replyCount, editedAt?, editCount?, unsentAt?,
   reactions: [{participantId, reaction}],
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages

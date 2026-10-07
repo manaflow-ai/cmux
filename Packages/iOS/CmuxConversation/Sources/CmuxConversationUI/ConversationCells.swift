@@ -200,6 +200,7 @@ final class MessageCell: UICollectionViewCell {
         let sameRow = previousRowID == model.rowID
         let footerWasHidden = footerLabel.isHidden
         let previousFooterText = footerLabel.attributedText
+        let wasNotDelivered = !footerWasHidden && footerLabel.textColor == ConversationTheme.notDelivered
         defer {
             // Explicit layer animations: these run the same inside a batch
             // update, a spring, or performWithoutAnimation.
@@ -207,7 +208,8 @@ final class MessageCell: UICollectionViewCell {
                 // A status landing on this row grows out of its own center.
                 footerLabel.alpha = 1
                 footerLabel.layer.add(Self.statusAnimation(appearing: true), forKey: "statusFade")
-            } else if sameRow, !footerWasHidden, footerLabel.isHidden {
+            } else if sameRow, !footerWasHidden, footerLabel.isHidden, !wasNotDelivered {
+                // (Not Delivered leaves at once on Try Again; the row is moving.)
                 // A status leaving this row shrinks slightly and fades in ~0.1 s.
                 footerLabel.isHidden = false
                 footerLabel.attributedText = previousFooterText
@@ -245,8 +247,26 @@ final class MessageCell: UICollectionViewCell {
             UIView.performWithoutAnimation { footerLabel.setUntransformedFrame(frame) }
             footerLabel.textAlignment = model.isOutgoing ? .right : .left
         }
+        let badgeWasHidden = failedBadge.isHidden
         failedBadge.isHidden = layout.failedBadgeFrame == nil
-        if let frame = layout.failedBadgeFrame { failedBadge.setUntransformedFrame(frame) }
+        if let frame = layout.failedBadgeFrame {
+            // The badge is born at its place; only the bubble glides over to it.
+            UIView.performWithoutAnimation { failedBadge.setUntransformedFrame(frame) }
+        }
+        if sameRow, badgeWasHidden, !failedBadge.isHidden {
+            // A send failing on this row: the red badge pops in.
+            let pop = CABasicAnimation(keyPath: "transform.scale")
+            pop.fromValue = 0.3
+            pop.toValue = 1
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            let group = CAAnimationGroup()
+            group.animations = [pop, fade]
+            group.duration = 0.25
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            failedBadge.layer.add(group, forKey: "failedPop")
+        }
 
         editedLabel.isHidden = layout.editedFrame == nil
         if let frame = layout.editedFrame {
@@ -477,6 +497,16 @@ final class TimestampCell: UICollectionViewCell {
 
     func configure(date: Date) {
         label.attributedText = Self.text(for: date)
+        setNeedsLayout()
+    }
+
+    /// A system line in the transcript ("You unsent a message"): the
+    /// timestamp's regular weight and color.
+    func configure(notice: String) {
+        label.attributedText = NSAttributedString(string: notice, attributes: [
+            .font: ConversationTheme.timestampFont,
+            .foregroundColor: ConversationTheme.secondaryText,
+        ])
         setNeedsLayout()
     }
 
