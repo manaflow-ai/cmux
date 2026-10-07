@@ -523,7 +523,38 @@
   }
 }
 
+/* A narrow pane: the search and the categories stack over one column, the categories as one
+   horizontal strip that scrolls, so no category is cut off and nothing overlaps (layout.test.ts).
+   This block must stay after the two-column grid above. */
 @media (max-width: 600px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    max-height: none;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-list {
+    flex-direction: row;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .section-link {
+    flex: none;
+    width: auto;
+    white-space: nowrap;
+    padding: 4px 8px;
+  }
+
   .content {
     padding: 14px 16px 40px;
   }
