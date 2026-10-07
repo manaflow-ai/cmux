@@ -1588,11 +1588,11 @@ struct ProcessSSHFileExplorerListingTests {
 
     @Test
     func testRemoteListingExitsNonZeroWhenListingCommandFails() throws {
-        // A wholesale listing failure — e.g. a remote `find` that lacks
-        // `-mindepth`/`-maxdepth`, or a `stat` format the probe did not exercise —
-        // must surface as a non-zero exit (→ sshCommandFailed), never a silently
-        // empty directory. Shadow `find` with a stub that exits non-zero while the
-        // real `stat`/`base64` stay resolvable through the inherited PATH.
+        // A wholesale listing failure, e.g. a remote `find` that lacks
+        // `-mindepth`/`-maxdepth`, must surface as a non-zero exit
+        // (→ sshCommandFailed), never a silently empty directory. Shadow `find`
+        // with a stub that exits non-zero while the real `stat`/`base64` stay
+        // resolvable through the inherited PATH.
         let root = try makeListingFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try "x".write(to: root.appendingPathComponent("present.txt"), atomically: true, encoding: .utf8)
@@ -1621,8 +1621,8 @@ struct ProcessSSHFileExplorerListingTests {
         try process.run()
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        // Without `|| exit 1` on the `find`, the failure is swallowed and the
-        // script reaches the trailing `exit 0` with empty output — the regression.
+        // Without the `find` probe, the failure is swallowed and the script
+        // reaches the trailing `exit 0` with empty output.
         #expect(process.terminationStatus != 0)
         #expect(data.isEmpty)
     }

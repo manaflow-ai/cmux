@@ -784,11 +784,14 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// so changing the sort key re-sorts the cached listing without a re-fetch.
     ///
     /// Access failures stay distinguishable from empty directories: an
-    /// unreadable or missing directory (`cd` fails or `.` is not readable), a
-    /// host without a usable `stat`, or a listing command that fails (`find`
-    /// lacks `-mindepth`/`-maxdepth`, an unsupported `stat` format, or a
-    /// per-entry error) exits non-zero via `|| exit 1` so `runSSHCommand` raises
-    /// `sshCommandFailed` instead of masking the failure as an empty listing. A
+    /// unreadable or missing directory (`cd` fails or `.` is not readable) or a
+    /// `find` without `-mindepth`/`-maxdepth` exits 1 so `runSSHCommand` raises
+    /// `sshCommandFailed` instead of masking the failure as an empty listing.
+    /// The `stat` probe runs the exact listing format against `.`, so a host
+    /// whose `stat` rejects any directive in it (a BusyBox or toybox `stat`
+    /// without `%W`) exits with ``remoteListingUnsupportedToolsStatus`` and gets
+    /// the `ls` fallback. Once both probes pass, a per-entry `stat` failure, such
+    /// as a file deleted between `find` and `stat`, drops only that entry. A
     /// readable but genuinely empty directory makes `find` exit zero with no
     /// output and reaches the trailing `exit 0`, listing as empty.
     static func remoteListingScript(path: String, showHidden: Bool) -> String {
@@ -802,14 +805,21 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         // type — matching the previous `ls -F` behavior.
         //
         // Literal tabs separate the fields; GNU `stat -c` does not expand `\t`.
+        // GNU is probed first because GNU `stat -f` exists and means filesystem
+        // status. The listing `find` has no `|| exit 1`: its status is non-zero
+        // whenever one batched `stat` misses an entry, and the probes above have
+        // already ruled out the failures that would empty the whole listing.
+        let gnuFormat = "'%A\t%Y\t%W\t%n'"
+        let bsdFormat = "'%Sp\t%m\t%B\t%N'"
         return """
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
         command -v find >/dev/null 2>&1 || exit \(remoteListingUnsupportedToolsStatus)
-        if stat -c %Y / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%A\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
-        elif stat -f %m / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%Sp\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
+        find . -mindepth 0 -maxdepth 0 >/dev/null 2>&1 || exit 1
+        if stat -c \(gnuFormat) . >/dev/null 2>&1; then
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c \(gnuFormat) {} + 2>/dev/null
+        elif stat -f \(bsdFormat) . >/dev/null 2>&1; then
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f \(bsdFormat) {} + 2>/dev/null
         else
           exit \(remoteListingUnsupportedToolsStatus)
         fi
