@@ -1,8 +1,18 @@
 // l10n-allow-file: gallery fixtures (sample projects), not shipped UI.
 import { createElement } from "react";
+import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { Project } from "./ProjectChooser";
+
+type Props = {
+  projects: Project[];
+  current?: string;
+  currentLabel?: string;
+  icon: ReactNode;
+  onPick(cwd: string): void;
+  onBrowse?(): void;
+};
 
 const icon = createElement(
   "svg",
@@ -54,11 +64,7 @@ const typedPath: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-menu-active"));
 };
 
-export default componentEntry<{
-  projects: Project[];
-  current?: string;
-  currentLabel?: string;
-}>({
+export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
   area: "Agent pane",
