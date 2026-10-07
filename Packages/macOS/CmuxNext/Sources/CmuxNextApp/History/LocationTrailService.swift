@@ -52,8 +52,8 @@ final class LocationTrailService {
     init(services: AppServices) {
         self.services = services
         // Page views' mouse buttons and swipes run Go Back / Go Forward (history.md 4.2b).
-        services.pages.navigate = { [unowned services] back in
-            _ = services.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
+        services.pages.navigate = { [weak services] back in
+            _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
         let store = services.daemon.store
         observation = Task { [weak self] in

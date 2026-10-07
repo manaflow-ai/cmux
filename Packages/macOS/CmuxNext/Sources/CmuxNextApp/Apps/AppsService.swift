@@ -152,7 +152,7 @@ final class AppsService {
     private func makeStoreModel() -> AppStoreModel {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
         model.onRemoved = { [storage] id in await storage.clear(app: id) }
-        model.onNavigate = { [unowned self] in services.locationTrail.pageHistoryDidChange() }
+        model.onNavigate = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
 
