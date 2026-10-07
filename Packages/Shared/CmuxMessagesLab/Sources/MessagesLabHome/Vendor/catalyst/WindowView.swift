@@ -305,23 +305,24 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         refreshVisibleCells()
     }
 
-    private func setOffset(_ y: CGFloat) {
+    /* MarkdownHost.swift uses it. */ func setOffset(_ y: CGFloat) {
         guard collection.contentOffset.y != y else { return }
         settingOffset = true
         collection.contentOffset = CGPoint(x: 0, y: y)
         settingOffset = false
     }
 
-    /// Transcript clip: everything above the field top (minus 4 pt).
+    /// Transcript clip: the whole window. macOS 27 Messages draws the transcript under the
+    /// compose glass down to the window's bottom edge (lossless vscroll-check-take1: rows under
+    /// and beside the field while scrolled; send-typed-media-take1: the arriving photo slides up
+    /// from below the field, compose 29.6 when ours clipped it at the field top minus 4 pt).
+    /// At rest the rows end above the field, so nothing changes there.
     private func placeMask(animated: Bool, element: SpringElement?, begin: CFTimeInterval, oldTop: CGFloat) {
-        let top = fieldTop
+        let top = bounds.height + 4
         CATransaction.begin(); CATransaction.setDisableActions(true)
         clipMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: top - 4 + 200)
         clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
         CATransaction.commit()
-        if animated, let element, oldTop != top {
-            Animate.scalar(clipMask, "bounds.size.height", from: Double(oldTop - 4 + 200), to: Double(top - 4 + 200), element, begin: begin)
-        }
     }
 
     // MARK: Transactions
@@ -427,7 +428,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         var rowsChange = true, paging = false, animate = true, rowsUnchanged = false
         switch action {
         case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread: rowsChange = false
-        case .appendText: animate = false
+        case .appendText, .remeasureCustom(_, false): animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
         }
@@ -624,7 +625,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
-        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _):
+        case let .remeasureCustom(ids, _):
+            guard let i = ids.compactMap(index).min() else { return nil }
+            idx.append(i)
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _), let .setCustomPart(id, _, _):
             guard let i = index(id) else { return nil }
             idx.append(i)
             if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
@@ -1061,7 +1065,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
     }
 
-    private func refreshVisibleCells() {
+    /* MarkdownHost.swift uses it. */ func refreshVisibleCells() {
         // Bench (commit log on): the slowest cells of this refresh, with what they did.
         let logSlow = MessagesWindowView.commitLog != nil
         var slow: [(Double, String)] = []
@@ -1121,6 +1125,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.setConnector(top: nil, bottom: 0, mirrored: false)
         }
         step(1)
+        defer { CustomRows.host?.decorated(cell) }
         for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
             cell.applied.insert(e.id)
             // The previous receipt text is drawn once, when its fade starts on this cell.

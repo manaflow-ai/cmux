@@ -7,6 +7,7 @@ extension ServerReachService {
     /// API Worker call, dials with the bundled cmux-tui.
     static func app(services: AppServices) -> ServerReachService {
         let feed = services.feed, auth = services.cloud.auth
+        let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         return ServerReachService(
             machines: services.machines,
             call: { [weak feed] path, body in
@@ -18,8 +19,9 @@ extension ServerReachService {
                 return auth.user?.id ?? ""
             },
             paths: SSHPaths.standard(bundleID: services.environment.launch.bundleID),
-            binary: try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment),
-            local: { ServerReachService.thisMac() })
+            binary: binary,
+            local: { ServerReachService.thisMac() },
+            linkPeers: { await ServerReachService.readLinkPeers(binary: binary) })
     }
 }
 
