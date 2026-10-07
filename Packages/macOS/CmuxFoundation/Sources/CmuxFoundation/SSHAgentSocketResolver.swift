@@ -64,7 +64,7 @@ public struct SSHAgentSocketResolver: Sendable {
               let value = parsedOption(option)?.value else { return result }
         if value.caseInsensitiveCompare("none") == .orderedSame {
             result.removeValue(forKey: "SSH_AUTH_SOCK")
-        } else {
+        } else if value.hasPrefix("/"), !value.contains("$"), !value.contains("%") {
             result["SSH_AUTH_SOCK"] = value
         }
         return result
