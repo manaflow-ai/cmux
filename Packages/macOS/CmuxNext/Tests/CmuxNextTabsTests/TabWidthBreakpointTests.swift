@@ -80,12 +80,12 @@ struct TabWidthBreakpointTests {
     }
 }
 
-/// Separators sit between unselected, unhovered neighbors (Chromium's
-/// `Tab::GetSeparatorOpacity`), never at the strip's end.
+/// Every tab in the row draws its subtle separator in the gap after its
+/// pill: next to the selected and hovered tabs, across the pinned edge, and
+/// after the last tab (between it and the + button).
 @MainActor @Suite struct TabSeparatorTests {
-    @Test func separatorsHideNextToTheSelectedAndHoveredTabs() {
-        let tabs = (0..<6).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let model = TabStripModel(tabs: tabs, selectedID: TabID("t2"))
+    private func makeStrip(_ tabs: [TabItem], selected: String) -> (TabStripView, NSWindow) {
+        let model = TabStripModel(tabs: tabs, selectedID: TabID(selected))
         let strip = TabStripView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -93,10 +93,23 @@ struct TabWidthBreakpointTests {
         window.contentView!.addSubview(strip)
         strip.layoutSubtreeIfNeeded()
         strip.sync(fromModel: true)
+        return (strip, window)
+    }
+
+    @Test func separatorsStayNextToTheSelectedAndHoveredTabsAndBeforeThePlusButton() {
+        let tabs = (0..<6).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
+        let (strip, window) = makeStrip(tabs, selected: "t2")
+        defer { window.close() }
         func separators() -> [Bool] { (0..<6).map { strip.cells[TabID("t\($0)")]!.showsSeparator } }
-        #expect(separators() == [true, false, false, true, true, false])
-        strip.hoveredID = TabID("t4")
-        strip.updateSeparators()
-        #expect(separators() == [true, false, false, false, false, false])
+        #expect(separators() == [true, true, true, true, true, true])
+        strip.setHovered(TabID("t4"))
+        #expect(separators() == [true, true, true, true, true, true])
+    }
+
+    @Test func separatorsCrossThePinnedEdge() {
+        let tabs = (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)", isPinned: $0 < 2) }
+        let (strip, window) = makeStrip(tabs, selected: "t0")
+        defer { window.close() }
+        #expect((0..<4).map { strip.cells[TabID("t\($0)")]!.showsSeparator } == [true, true, true, true])
     }
 }

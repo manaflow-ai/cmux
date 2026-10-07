@@ -1056,6 +1056,17 @@
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
+    "notifications.mutedWorkspaces" : {
+      "default" : [
+
+      ],
+      "description" : "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Muted Workspaces",
+      "type" : "array"
+    },
     "notifications.quietHours" : {
       "description" : "No banners or sounds between these times.",
       "properties" : {
@@ -1360,6 +1371,18 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.showCounts" : {
+      "default" : false,
+      "description" : "sidebar.showCounts",
+      "title" : "Show Tab Counts",
+      "type" : "boolean"
+    },
+    "sidebar.showWorkspaceDirectory" : {
+      "default" : false,
+      "description" : "Shows each workspace's folder under its name. A live agent status always shows.",
+      "title" : "Show Workspace Folder",
+      "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,

@@ -50,6 +50,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         table.setAccessibilityIdentifier("cmux.home.compose.people")
         scroll.documentView = table
         scroll.hasVerticalScroller = true
+        SystemScrollers.follow(scroll)
         scroll.borderType = .bezelBorder
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true

@@ -131,7 +131,7 @@ extension AppActionContext {
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
-        guard let tab = pane.tab(id) else { return refuse(RefusalStrings.sessionLocalTab(id.rawValue)) }
+        guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
     }
 

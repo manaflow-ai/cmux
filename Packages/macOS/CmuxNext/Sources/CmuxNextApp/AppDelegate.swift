@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardReads: TerminalClipboardReadService?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
     private var ghosttyKeybinds: GhosttyKeybindSync?
+    /// Watches the exact Ghostty files libghostty loaded and reloads them live.
+    private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -57,6 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // loginwindow reopens it at the next login (without the agent's
         // environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
+        // cmux.json's appearance goes on the Ghostty overrides before the
+        // runtime's first config load, so the first frame needs no reload.
+        let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
+        TerminalThemeSetting.prime(settingsRead.snapshot)
+        DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
@@ -65,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
+        DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
@@ -74,10 +82,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
+        ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(registry: services.registry)
+        startSettingsAndControl(registry: services.registry, launch: settingsRead)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
@@ -151,17 +162,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux-next.json settings (density, shortcut overrides) and the tagged
-    /// control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(registry: ActionRegistry) {
-        let fileURL: URL
+    /// cmux.json, created on first launch.
+    private func settingsFileURL() -> URL {
         do {
-            fileURL = try CmuxConfigFile.prepareDefaultURL()
+            return try CmuxConfigFile.prepareDefaultURL()
         } catch {
             logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            fileURL = CmuxConfigFile.defaultURL()
+            return CmuxConfigFile.defaultURL()
         }
-        let settings = SettingsController(registry: registry, fileURL: fileURL)
+    }
+
+    /// cmux-next.json settings (density, shortcut overrides) and the tagged
+    /// control socket (`action.list/describe/run`) over the same registry.
+    private func startSettingsAndControl(registry: ActionRegistry, launch: SettingsController.LaunchRead) {
+        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
@@ -203,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.managedPreferencesMayHaveChanged()
             }
         }
-        services.tabBarButtons.start(settings: settings)
+        services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
@@ -289,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
         control.stop()
-        services?.tabBarButtons.stop()
+        services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()

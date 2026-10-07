@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
@@ -44,20 +45,20 @@ final class SectionHeaderRowView: SidebarRowView {
         )
         guard needsConfigure(content) else { return }
         collapsed = row.isCollapsed
-        let symbol: String
+        let symbol: IconName
         var title: String
         switch section.kind {
         case .pinned:
-            symbol = "pin.fill"
+            symbol = .statePinned
             title = Strings.pinned
             statusTone = nil
             badgeText = nil
             toolTip = nil
         case let .machine(machine):
             switch machine.kind {
-            case .local: symbol = "laptopcomputer"
-            case .cloud: symbol = "cloud.fill"
-            case .ssh: symbol = "server.rack"
+            case .local: symbol = .machineLocal
+            case .cloud: symbol = .cloud
+            case .ssh: symbol = .machineRemote
             }
             title = machine.name
             switch (machine.kind, machine.status) {
@@ -102,14 +103,12 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityHelp(nil)
         }
         if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
-        glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
+        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         name.stringValue = title
         name.font = SidebarStyle.headerFont
         badge.stringValue = badgeText ?? ""
         badge.font = SidebarStyle.headerFont
-        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig)
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityExpanded(!collapsed)
@@ -156,9 +155,10 @@ final class SectionHeaderRowView: SidebarRowView {
         name.isHidden = false
         let nameX = SidebarStyle.horizontalInset
         var trailing = b.width - Metrics.space2
+        // The add button keeps its slot, so the name never re-truncates on hover.
         addButton.isHidden = !(isHovered && allowsAdd)
         let control = SidebarStyle.controlSize
-        if !addButton.isHidden {
+        if allowsAdd {
             addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
@@ -186,6 +186,8 @@ final class SectionHeaderRowView: SidebarRowView {
         super.hoverChanged()
         needsLayout = true
     }
+
+    var nameFrame: NSRect { name.frame }
 }
 
 // MARK: - Empty section drop zone

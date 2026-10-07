@@ -82,6 +82,14 @@ extension AgentTabStore {
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }
+        tabs.persistAgentFolder = { [weak services] key, workspace, path in
+            guard let services, let (tab, _) = services.locateTab(key) else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
+            return await AgentTabStore.saveAgentFolder(path, workspace: workspace, on: services.machines.daemon(forTab: tab))
+        }
+        tabs.servesAgentFolder = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return false }
+            return services.machines.daemon(forTab: tab).supports(DaemonCapabilities.shared.workspaceAgentFolder)
+        }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
@@ -104,10 +112,12 @@ extension AgentTabStore {
                 return (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
             }
         }
-        // task-owner: one read of this Mac's name, shown to Macs that see its tabs
-        Task { [weak tabs] in
+        // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
+        // pane's location row (a pane's handshake awaits it)
+        AgentPaneModel.localMachineName = Task { [weak tabs] in
             let name = await MacName.computerName()
             tabs?.localHostName = name
+            return AgentTabStore.displayName(name) ?? name
         }
         services.madeAgentTabs = tabs
         return tabs

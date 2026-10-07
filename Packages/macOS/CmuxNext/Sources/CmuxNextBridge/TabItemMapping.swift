@@ -18,7 +18,11 @@ public struct TabItemMapping {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        let title = untitled ? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+        // A terminal its shell has not titled yet shows its folder, which the
+        // shell's first title usually is, so the label does not change a
+        // frame after the tab opens.
+        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
+        let title = untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),

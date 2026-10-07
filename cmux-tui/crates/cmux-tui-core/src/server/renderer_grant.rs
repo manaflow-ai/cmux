@@ -102,6 +102,7 @@ fn mint_legacy(mux: &Mux, surface: SurfaceId, ttl_ms: u64) -> anyhow::Result<Val
         "token": grant.token,
         "rights": grant.rights.bits(),
         "protocol_version": grant.protocol_version,
+        "supports_viewer_size_priority": grant.supports_viewer_size_priority,
         "ttl_ms": ttl_ms,
     }))
 }

@@ -219,6 +219,8 @@ export function intersectAllowLists(lists) {
 // ---- the host ------------------------------------------------------------------------
 
 export function createReferenceHost(ns, { host, driver }) {
+  // The session runs agent-world calls inside the page agent's reply.
+  const SEALED_DISPATCH = ns.core.sealAgentSource(AGENT_DISPATCH);
   const { parsePattern, urlMatches } = ns.agentTools;
   const now = () => (host.now ? host.now() : Date.now());
 
@@ -537,7 +539,7 @@ export function createReferenceHost(ns, { host, driver }) {
   const titleOf = (params, fallback) => (typeof params.title === "string" && /^locator\.\w+$/.test(params.title) ? params.title : fallback);
   // Runs one call that carries a secret handle, or refuses it.
   async function secretCall(method, params) {
-    if (method === "frame.evaluate" && params.world === "agent" && params.source === AGENT_DISPATCH && params.args && params.args[0] === "fill" && isHandle(params.args[2]) && !containsHandle(params.args.slice(0, 2)) && !containsHandle(params.args.slice(3))) {
+    if (method === "frame.evaluate" && params.world === "agent" && params.source === SEALED_DISPATCH && params.args && params.args[0] === "fill" && isHandle(params.args[2]) && !containsHandle(params.args.slice(0, 2)) && !containsHandle(params.args.slice(3))) {
       const h = params.args[2];
       const frames = await driver.call("frames.list", { targetId: params.targetId });
       const frameId = params.frameId || frames.find((f) => !f.parentFrameId).frameId;

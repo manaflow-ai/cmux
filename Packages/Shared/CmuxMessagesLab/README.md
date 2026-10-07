@@ -64,6 +64,7 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
+| Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
@@ -85,8 +86,11 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 0e4eb90
-(0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
+that are wip checkpoints. Current pins (2026-10-06): every file at bd65bbf
+(bd65bbf: the applied contentOffset read back (no rounding drift), deferred spell checking
+(SpellCheck.swift; its probe driver is compiled out), the scroller's track from under the
+header to the field, send morph from the field top with a glass mask, Messages' interactions;
+0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
 rows add only their difference (`--no-container-motion` for A/B); 995b723's cheaper
 flight recorder (the cmux edits re-applied: policy, optional window, log folder);
 85684b4 builds with Xcode 26.6 and 27 and keeps ScrollPrefetcher on the engine

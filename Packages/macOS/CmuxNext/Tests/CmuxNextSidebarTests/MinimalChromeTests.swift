@@ -48,9 +48,12 @@ import Testing
         #expect(blank.liveDetail == nil)
         #expect(live.liveDetail == "Claude: running tests")
         #expect(passive.rowDetail == "~")
-        #expect(m.height(for: passive) == m.rowHeightWithSubtitle)
-        #expect(m.height(for: blank) == m.rowHeight)
-        #expect(m.height(for: live) == m.rowHeightWithSubtitle)
+        // S1: the passive folder line shows only when the setting is on.
+        #expect(passive.rowDetail(showingDirectory: false) == nil)
+        #expect(m.height(for: passive, showingDirectory: false) == m.rowHeight)
+        #expect(m.height(for: passive, showingDirectory: true) == m.rowHeightWithSubtitle)
+        #expect(m.height(for: blank, showingDirectory: true) == m.rowHeight)
+        #expect(m.height(for: live, showingDirectory: false) == m.rowHeightWithSubtitle)
     }
 
     @Test func sidebarHasNoSearchFieldAndTypingDoesNotFilter() throws {

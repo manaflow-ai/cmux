@@ -7,6 +7,7 @@ import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
+import { registerPicker } from "./pickerOpeners";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -23,7 +24,8 @@ type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string };
 
 /// The small location row above the composer. New chats can choose a local or Cloud
-/// computer and one of its known folders; once the first turn starts both are labels.
+/// computer and one of its known folders. Once the first turn starts the computer is a label and
+/// the folder moves the chat (`onMove`), except while a turn runs.
 export function ComposerContext({
   summary,
   sessions = [],
@@ -32,6 +34,10 @@ export function ComposerContext({
   onProject,
   projectChoices,
   onBrowseProject,
+  localName,
+  movedTo,
+  onMove,
+  busy = false,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -40,8 +46,18 @@ export function ComposerContext({
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// This Mac's name (the handshake's `machineName`).
+  localName?: string;
+  /// The folder a started chat moved to.
+  movedTo?: string;
+  onMove?(cwd: string): void;
+  /// A turn runs: the folder holds still.
+  busy?: boolean;
 }) {
-  const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
+  const computers = useMemo(
+    () => availableComputers(summary, sessions, peers, localName),
+    [summary, sessions, peers, localName],
+  );
   const initialComputer = computerId(summary);
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
   useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
@@ -57,18 +73,22 @@ export function ComposerContext({
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices]);
   const currentFolder =
-    summary?.cwd && computerId(summary) === selectedComputer
-      ? normalizeCwd(summary.cwd)
-      : projectChoices
-        ? undefined
-        : folders[0]?.id;
+    started && movedTo
+      ? movedTo
+      : summary?.cwd && computerId(summary) === selectedComputer
+        ? normalizeCwd(summary.cwd)
+        : projectChoices
+          ? undefined
+          : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
+  const moves = started && onMove !== undefined && !busy;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <LocationPicker
         label={t(CONTEXT_LABELS.computer)}
+        menu="Computer"
         value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
         options={computers}
         selected={selectedComputer}
@@ -87,6 +107,7 @@ export function ComposerContext({
       {!readOnly && selectedComputer === "local" && projectChoices ? (
         <FolderMenu
           label={t(CONTEXT_LABELS.folder)}
+          menu="Location"
           folders={folders}
           current={currentFolder}
           onPick={(cwd) => onProject?.(cwd)}
@@ -95,14 +116,17 @@ export function ComposerContext({
       ) : (
         <LocationPicker
           label={t(CONTEXT_LABELS.folder)}
+          menu="Location"
           value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
           options={folders}
           selected={currentFolder}
-          disabled={readOnly}
+          disabled={readOnly && !moves}
           icon={<FolderIcon />}
           allowPath
           onPick={(cwd) => {
-            if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+            if (moves) {
+              if (cwd !== currentFolder) onMove?.(cwd);
+            } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
           }}
         />
       )}
@@ -114,8 +138,14 @@ function computerId(summary?: Summary): string {
   return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
 }
 
-function availableComputers(summary: Summary | undefined, sessions: Session[], peers: string[]): Location[] {
-  const localLabel = summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local);
+function availableComputers(
+  summary: Summary | undefined,
+  sessions: Session[],
+  peers: string[],
+  localName?: string,
+): Location[] {
+  const localLabel =
+    localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Location[] = [{ id: "local", label: localLabel }];
   const seen = new Set<string>();
   for (const peer of peers) {
@@ -194,23 +224,42 @@ function FolderIcon() {
   );
 }
 
+/// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
+/// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)
+/// registers nothing.
+function useLocationOpener(name: string | undefined, open: () => void) {
+  const latest = useRef(open);
+  latest.current = open;
+  useEffect(() => {
+    if (!name) return;
+    return registerPicker(name, () => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      latest.current();
+    });
+  }, [name]);
+}
+
 /// The new chat's folder menu: the recent folders (the current one checked), then Choose folder…,
 /// which asks the host for its folder panel from the click itself. Base UI owns the menu's roles,
 /// focus, arrows, typeahead and Escape. The full path is the control's tooltip.
 function FolderMenu({
   label,
+  menu,
   folders,
   current,
   onPick,
   onBrowse,
 }: {
   label: string;
+  /// The name automation opens it by (`openPicker`).
+  menu: string;
   folders: Location[];
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
 }) {
   const [open, setOpen] = useState(false);
+  useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
     <span className="acpmux-location-picker" title={current}>
@@ -266,6 +315,7 @@ function FolderMenu({
 /// absolute or `~/` path is offered too.
 function LocationPicker({
   label,
+  menu,
   value,
   options,
   selected,
@@ -275,6 +325,8 @@ function LocationPicker({
   onPick,
 }: {
   label: string;
+  /// The name automation opens it by (`openPicker`).
+  menu: string;
   value: string;
   options: Location[];
   selected?: string;
@@ -286,6 +338,7 @@ function LocationPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
+  useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return options.filter((option) =>

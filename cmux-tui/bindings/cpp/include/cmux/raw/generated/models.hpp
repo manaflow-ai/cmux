@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4956e57434ede4b4ecaf51f31811ae4bfbb979ba8cbba8b9c6608f22ff8aa568";
+inline constexpr std::string_view kProtocolIrSha256 = "dc997c9439a1b81719ac07e6902388c798c5fc766e3159e8c9f5e1e10d23cb33";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -48,6 +48,7 @@ struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
 struct ConversationChange;
+struct ConversationImportMessage;
 struct ConversationMessage;
 struct ConversationPart;
 struct ConversationPartRef;
@@ -259,6 +260,8 @@ struct ConversationCreateRequest;
 struct ConversationCreateResult;
 struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
+struct ConversationImportRequest;
+struct ConversationImportResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
@@ -1711,6 +1714,28 @@ struct ConversationHistoryResult {
     friend bool operator==(const ConversationHistoryResult&, const ConversationHistoryResult&) = default;
 };
 
+struct ConversationImportMessage {
+    std::string author{};
+    std::string client_msg_id{};
+    std::string created_at{};
+    Field<std::string> id{};
+    std::vector<ConversationPart> parts{};
+    friend bool operator==(const ConversationImportMessage&, const ConversationImportMessage&) = default;
+};
+
+struct ConversationImportRequest {
+    std::string conversation{};
+    std::vector<ConversationImportMessage> messages{};
+    friend bool operator==(const ConversationImportRequest&, const ConversationImportRequest&) = default;
+};
+
+struct ConversationImportResult {
+    ConversationSummary conversation{};
+    std::vector<std::uint64_t> imported{};
+    std::uint64_t skipped{};
+    friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
+};
+
 struct ConversationListRequest {
     friend bool operator==(const ConversationListRequest&, const ConversationListRequest&) = default;
 };
@@ -2781,6 +2806,7 @@ struct MintTerminalRendererResult {
     std::string incarnation{};
     std::uint16_t protocol_version{};
     std::uint32_t rights{};
+    std::optional<bool> supports_viewer_size_priority{};
     std::string terminal_id{};
     std::string token{};
     std::uint64_t ttl_ms{};
@@ -5015,6 +5041,12 @@ struct Codec<ConversationChange> {
 };
 
 template <>
+struct Codec<ConversationImportMessage> {
+    static Result<Json> encode(const ConversationImportMessage& value);
+    static Result<ConversationImportMessage> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationMessage> {
     static Result<Json> encode(const ConversationMessage& value);
     static Result<ConversationMessage> decode(const Json& value);
@@ -6278,6 +6310,18 @@ template <>
 struct Codec<ConversationHistoryResult> {
     static Result<Json> encode(const ConversationHistoryResult& value);
     static Result<ConversationHistoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationImportRequest> {
+    static Result<Json> encode(const ConversationImportRequest& value);
+    static Result<ConversationImportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationImportResult> {
+    static Result<Json> encode(const ConversationImportResult& value);
+    static Result<ConversationImportResult> decode(const Json& value);
 };
 
 template <>

@@ -29,6 +29,8 @@ nonisolated struct ChiefHome: Sendable, Equatable {
     var muxHome: URL { root }
     /// `CMUX_TUI_STATE_DIR` of the Chief's conversation owner.
     var daemonStateDirectory: URL { root.appendingPathComponent("tui", isDirectory: true) }
+    /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
+    var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
     /// `ACPMUX_HOME` of the Chief's turn, compactor and subagent sessions.
     var acpmuxHome: URL { root.appendingPathComponent("acpmux", isDirectory: true) }
     /// The conversation owner's cmux-tui session (its socket name).

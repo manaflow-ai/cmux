@@ -100,8 +100,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2914fa520b6d7ae10f961fdb57966d8d976a4276/CCmuxAppFFI.xcframework.zip",
-    checksum: "5a0cdcdab75b99d71c41506292315ef94f5bba74927ce19364a0d28fa8639dc8"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d7167cb6ebdb73d06b8822141355a012153319cb/CCmuxAppFFI.xcframework.zip",
+    checksum: "44c9ac1c4a214d01da973a6e3e0bcc3e754f8f7b8c54be5afad2a256cdcd41c0"
 )
 
 let package = Package(
@@ -305,7 +305,7 @@ let package = Package(
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextDesign", "CmuxNextWakeups",
+                "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -318,7 +318,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextHomeTests",
             dependencies: [
-                "CmuxNextHome", "CmuxNextDesign",
+                "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -804,7 +804,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -812,7 +812,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextLayoutTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextLayout"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

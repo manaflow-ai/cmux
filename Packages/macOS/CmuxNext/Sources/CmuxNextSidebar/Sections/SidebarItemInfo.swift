@@ -1,12 +1,15 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// How a layout item draws. The sidebar knows built-ins; the App resolves
 /// workspace, tab, room and other references (`SidebarModel.itemInfo`).
 public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var title: String
-    /// SF Symbol name.
+    /// SF Symbol name, drawn when `icon` is nil (a third-party app's symbol).
     public var symbol: String
+    /// The cmux icon registry name the item draws.
+    public var icon: IconName?
     /// A swatch instead of the plain glyph tint.
     public var color: GroupColor?
     /// Count shown trailing (notifications, unread).
@@ -21,9 +24,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var shortcut: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
+    /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
+    public var brand: String?
 
-    public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
-                isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil) {
+    public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
+        self.icon = icon
+        self.brand = brand
         self.shortcut = shortcut
         self.isHidden = isHidden
         self.caption = caption
@@ -51,9 +58,29 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
-        case .newWorkspace: "plus"
-        case .importSync: "square.and.arrow.down"
         }
+    }
+
+    /// The built-in's cmux icon.
+    public var icon: IconName {
+        switch self {
+        case .home: .home
+        case .settings: .settings
+        case .account: .account
+        case .notifications: .notification
+        case .history: .history
+        case .bookmarks: .bookmarkManager
+        case .appStore: .store
+        case .newTerminal: .terminalNew
+        case .newBrowser: .browserNew
+        case .newAgentChat: .agentChatNew
+        case .customize: .theme
+        }
+    }
+
+    /// The built-in a first-party app replaced (Home, App Store), whose look it keeps.
+    public static func firstParty(appID: String) -> SidebarBuiltIn? {
+        SidebarLayoutDocument.firstPartyApps.first { $0.value == appID }?.key
     }
 
     /// Localized title.
@@ -70,8 +97,6 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
-        case .newWorkspace: SectionStrings.newWorkspace
-        case .importSync: SectionStrings.importSync
         }
     }
 
@@ -79,13 +104,11 @@ extension SidebarBuiltIn {
     public var caption: String? {
         switch self {
         case .appStore: SectionStrings.appStoreCaption
-        case .newWorkspace: SectionStrings.newWorkspaceCaption
-        case .importSync: SectionStrings.importSyncCaption
         default: nil
         }
     }
 
-    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, caption: caption) }
+    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
 }
 
 extension SidebarItemInfo {
@@ -103,19 +126,19 @@ extension SidebarItemInfo {
         if let builtIn = ref.builtIn { return builtIn.defaultInfo }
         // First-party apps read as their former built-ins until the app
         // registry answers (R63/R64): Home stays "Home" at launch.
-        if ref.kind == LayoutItemRef.appKind,
-           let builtIn = SidebarLayoutDocument.firstPartyApps.first(where: { $0.value == ref.value })?.key {
+        if ref.kind == LayoutItemRef.appKind, let builtIn = SidebarBuiltIn.firstParty(appID: ref.value) {
             return builtIn.defaultInfo
         }
-        let symbol = switch ref.kind {
-        case LayoutItemRef.workspaceKind: "square.stack"
-        case LayoutItemRef.tabKind: "terminal"
-        case LayoutItemRef.roomKind: "circle.grid.2x2"
-        case LayoutItemRef.savedGroupKind: "folder"
-        case LayoutItemRef.urlKind: "globe"
-        case LayoutItemRef.appKind: "app.dashed"
-        default: "questionmark.square.dashed"
+        let icon: IconName = switch ref.kind {
+        case LayoutItemRef.workspaceKind: .workspace
+        case LayoutItemRef.tabKind: .terminal
+        case LayoutItemRef.roomKind: .space
+        case LayoutItemRef.savedGroupKind: .folder
+        case LayoutItemRef.urlKind: .browser
+        case LayoutItemRef.appKind: .appGeneric
+        default: .iconMissing
         }
-        return SidebarItemInfo(title: ref.value, symbol: symbol, isMissing: true)
+        let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "questionmark.square.dashed"
+        return SidebarItemInfo(title: ref.value, symbol: symbol, icon: icon, isMissing: true)
     }
 }

@@ -28,9 +28,9 @@ final class ChiefConversationOwner {
     /// Why the owner is not connected, for `debug.home`.
     private(set) var lastError: String?
     /// Runs once on the first connection, before the connection is
-    /// published (the move of the old per-tag Chiefs). False keeps the owner
-    /// unpublished for this launch.
-    @ObservationIgnored var prepare: ((DaemonConnection) async -> Bool)?
+    /// published (the move of the old per-tag Chiefs). It never holds the
+    /// owner back: Home's availability does not wait for the move.
+    @ObservationIgnored var prepare: ((DaemonConnection) async -> Void)?
     /// Conversation events (`conversation-changed`, `conversation-typing`).
     @ObservationIgnored var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -84,10 +84,7 @@ final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
-            if let prepare = self.prepare, await !prepare(connection) {
-                await connection.close()
-                return
-            }
+            if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             do {
                 for try await envelope in connection.events {
@@ -96,6 +93,17 @@ final class ChiefConversationOwner {
             } catch {}
             self.connection = nil
         }
+    }
+
+    /// Quit, end sessions: the owner ends with the other sessions. The
+    /// connection closes first-hand after the request, so its reconnect
+    /// never starts the owner again; its conversations stay on disk.
+    func shutdownForEndSessions() async {
+        runTask?.cancel()
+        guard let connection, let identity else { return }
+        self.connection = nil
+        _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+        await connection.close()
     }
 
     private func noteFailure(_ error: DaemonError) {

@@ -33,6 +33,9 @@ pub struct Paths {
     pub home: PathBuf,
     /// `$MUX_HOME/state/host.lock`, shared with mux/host (chief-mac.md section 2).
     pub host_lock: PathBuf,
+    /// `$MUX_HOME/state/settle.json` while a turn waits for the compactor
+    /// (settle_status.rs); the app shows it in the Chief conversation.
+    pub settle_status: PathBuf,
     /// `$MUX_HOME/optchat`.
     pub root: PathBuf,
     /// The OptChat memory's directory (section 2): its single-writer `lock`,
@@ -79,6 +82,7 @@ impl Paths {
         Paths {
             home: home.to_owned(),
             host_lock: home.join("state").join("host.lock"),
+            settle_status: home.join("state").join("settle.json"),
             chat: root.join("chat"),
             memory_db: root.join("memory.sqlite3"),
             session: root.join("session"),

@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
 
@@ -36,16 +37,27 @@ extension HomeService {
             do {
                 outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds, tool: tool)
             } catch {
-                logger.error("chief migration failed: \(String(describing: error), privacy: .public)")
-                return true
+                // Soft: Home works; nothing merges (for example an owner without conversation-import).
+                logger.debug("chief migration failed: \(String(describing: error), privacy: .public)")
+                return
             }
             logger.info("chief migration: \(String(describing: outcome), privacy: .public)")
-            if case .blocked = outcome {
-                await MainActor.run { self?.migrationNotice = HomeStrings.chiefMergeBlocked }
-                return false
-            }
-            return true
+            let notice = ChiefMigration.notice(for: outcome)
+            await MainActor.run { self?.migrationNotice = notice }
         }
+    }
+
+    /// A conversation of the cloud owner (the placed Chief's, or one the
+    /// store lists as cloud): it does not wait for the local Chief owner.
+    func isCloudConversation(_ id: ConversationID) -> Bool {
+        cloudChief?.mainConversation == id.rawValue || homeStore.summary(id)?.owner == .cloud
+    }
+
+    /// The notice row of a conversation: the local Chief's organizing
+    /// status while a turn waits, else the merge notice.
+    func conversationNotice(for id: ConversationID) -> String? {
+        let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
+        return (isLocalChief ? settleNotice : nil) ?? migrationNotice
     }
 
     /// What Home shows when it cannot show conversations.

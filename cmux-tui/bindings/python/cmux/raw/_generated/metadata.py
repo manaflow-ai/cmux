@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4956e57434ede4b4ecaf51f31811ae4bfbb979ba8cbba8b9c6608f22ff8aa568'
+IR_SHA256 = 'dc997c9439a1b81719ac07e6902388c798c5fc766e3159e8c9f5e1e10d23cb33'
 
 
 @dataclass(frozen=True)
@@ -682,6 +682,18 @@ COMMANDS = {
             'before_seq': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-import': CommandMetadata(
+        'conversation-import',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'messages': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-list': CommandMetadata(

@@ -59,6 +59,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_BIND = new CommandMetadata("conversation-bind", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_CREATE = new CommandMetadata("conversation-create", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_IMPORT = new CommandMetadata("conversation-import", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -294,6 +295,7 @@ public final class Commands {
         values.put("conversation-bind", CONVERSATION_BIND);
         values.put("conversation-create", CONVERSATION_CREATE);
         values.put("conversation-history", CONVERSATION_HISTORY);
+        values.put("conversation-import", CONVERSATION_IMPORT);
         values.put("conversation-list", CONVERSATION_LIST);
         values.put("conversation-op", CONVERSATION_OP);
         values.put("conversation-search", CONVERSATION_SEARCH);

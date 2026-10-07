@@ -28,6 +28,7 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
+    let middleClick = SidebarMiddleClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
@@ -38,6 +39,8 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
+    /// The row that paints the selection fill (`SidebarLayout.selectedRowKey`).
+    private(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// Offered a row drag whose pointer left the sidebar sideways (another
@@ -128,11 +131,10 @@ final class SidebarListView: NSView {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         applyKeepingViewport(displayLayout(), animated: animated)
+        inlineRename.follow()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
-        var o = SidebarLayoutOptions()
-        o.filterMatches = model.filterMatches
-        o.showWorkspaceTabs = model.showWorkspaceTabs
+        var o = model.listOptions()
         o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
@@ -166,6 +168,7 @@ final class SidebarListView: NSView {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
@@ -208,24 +211,22 @@ final class SidebarListView: NSView {
             return section
         })
         var leaving: [SidebarRowView] = []
-        var replacedRows = false
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
             let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
-            replacedRows = replacedRows || replaced
             if suppressed.contains(key) || !animate || placeholder || replaced {
                 recycle(view)
             } else {
+                // A leaving row fades out without the selection fill: the
+                // fill is already on the new selected item (no second one).
+                view.isSelected = false
                 leaving.append(view)
             }
         }
-        let pillFrame = activePillFrame(in: layout)
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
-        // A pill whose row the placeholder replaced at once leaves with it.
-        decorations.setPill(pillFrame, animated: animate && !(pillFrame == nil && replacedRows))
         decorations.setGap(gapFrame, animated: animate)
         let moves = {
             for (view, target) in targets {
@@ -258,22 +259,14 @@ final class SidebarListView: NSView {
             self.pruneOffscreen()
         })
     }
-    func activePillFrame(in layout: SidebarLayout) -> NSRect? {
-        guard let active = model.activeWorkspaceID, !suppressed.contains(.workspace(active)) else { return nil }
-        if let row = layout.row(for: .workspace(active)) { return frame(for: row) }
-        // A workspace in a collapsed group: the group's header stands for it.
-        let group = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in
-            if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == active }) { group.id } else { nil }
-        }.first
-        return group.flatMap { layout.row(for: .group($0)) }.map(frame(for:))
-    }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
+        view.isSelected = selectedRowKey == row.key
         switch (row.key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row)
-            view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
+            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
@@ -316,7 +309,6 @@ final class SidebarListView: NSView {
             view.frame = target
         }
         decorations.frame = bounds
-        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {

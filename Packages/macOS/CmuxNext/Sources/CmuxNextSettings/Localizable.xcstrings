@@ -60264,6 +60264,477 @@
           }
         }
       }
+    },
+    "settings.sidebar.showCounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار عدد علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži broj kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis antal faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzahl der Tabs anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Tab Counts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar número de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le nombre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra numero di schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ数を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញចំនួនផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 개수 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis antall faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż liczbę kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar número de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать число вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงจำนวนแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme sayısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати кількість вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện số tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示标签页数量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示分頁數量"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showWorkspaceDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مجلد مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži mapu radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis arbejdsområdets mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichsordner anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Folder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar carpeta del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le dossier de l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra cartella dello spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのフォルダを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញថតរបស់កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 폴더 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mappen til arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż folder obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar pasta do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать папку рабочей области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโฟลเดอร์ของพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı klasörünü göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати теку робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị thư mục của không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示工作区文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示工作區資料夾"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showWorkspaceDirectory.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مجلد كل مساحة عمل تحت اسمها. تظهر حالة الوكيل المباشرة دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje mapu svakog radnog prostora ispod njegovog naziva. Status agenta uživo se uvijek prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser hvert arbejdsområdes mappe under dets navn. En agents aktuelle status vises altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt den Ordner jedes Arbeitsbereichs unter seinem Namen. Ein aktueller Agentenstatus wird immer angezeigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows each workspace's folder under its name. A live agent status always shows."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra la carpeta de cada espacio de trabajo bajo su nombre. El estado en vivo de un agente siempre se muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le dossier de chaque espace de travail sous son nom. L’état en direct d’un agent s’affiche toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la cartella di ogni spazio di lavoro sotto il suo nome. Lo stato in tempo reale di un agente è sempre visibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペースの名前の下にフォルダを表示します。エージェントの実行中ステータスは常に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញថតរបស់កន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះរបស់វា។ ស្ថានភាពផ្ទាល់របស់ភ្នាក់ងារតែងតែបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 작업 공간의 폴더를 이름 아래에 표시합니다. 에이전트의 실시간 상태는 항상 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser mappen til hvert arbeidsområde under navnet. En agents gjeldende status vises alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje folder każdego obszaru roboczego pod jego nazwą. Bieżący stan agenta jest zawsze widoczny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra a pasta de cada espaço de trabalho abaixo do nome. O status ao vivo de um agente sempre aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает папку каждой рабочей области под её названием. Текущий статус агента показывается всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ สถานะสดของเอเจนต์จะแสดงเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her çalışma alanının klasörünü adının altında gösterir. Bir ajanın canlı durumu her zaman gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує теку кожного робочого простору під його назвою. Поточний стан агента показується завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị thư mục của mỗi không gian làm việc dưới tên của nó. Trạng thái trực tiếp của tác tử luôn hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个工作区名称下方显示其文件夹。代理的实时状态始终显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個工作區名稱下方顯示其資料夾。代理的即時狀態一律顯示。"
+          }
+        }
+      }
+    },
+    "settings.source.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
+      }
+    },
+    "settings.notifications.mutedWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات العمل المكتومة" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Utišani radni prostori" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Lydløse arbejdsområder" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Stummgeschaltete Workspaces" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Muted Workspaces" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Espacios de trabajo silenciados" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Espaces de travail en sourdine" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Workspace silenziati" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "ミュート中のワークスペース" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "កន្លែងធ្វើការដែលបានបិទសំឡេង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "음소거된 워크스페이스" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Dempede arbeidsområder" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wyciszone obszary robocze" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Espaços de trabalho silenciados" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Беззвучные рабочие пространства" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "เวิร์กสเปซที่ปิดเสียง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sessize alınan çalışma alanları" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Беззвучні робочі простори" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Không gian làm việc đã tắt tiếng" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "已静音的工作区" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "已靜音的工作區" } }
+      }
+    },
+    "settings.notifications.mutedWorkspaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "معرّفات مساحات العمل التي تكون إشعاراتها صامتة. اكتم مساحة عمل من قائمة صفها في الشريط الجانبي." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "ID-ovi radnih prostora čije su obavijesti utišane. Utišajte radni prostor iz menija njegovog reda na bočnoj traci." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Id'er for arbejdsområder, hvis notifikationer er lydløse. Gør et arbejdsområde lydløst fra dets rækkemenu i sidepanelet." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "IDs der Workspaces, deren Mitteilungen stumm sind. Schalte einen Workspace über das Menü seiner Zeile in der Seitenleiste stumm." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Identificadores de los espacios de trabajo cuyas notificaciones están silenciadas. Silencia un espacio desde el menú de su fila en la barra lateral." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Identifiants des espaces de travail dont les notifications sont silencieuses. Mettez un espace en sourdine depuis le menu de sa ligne dans la barre latérale." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "ID dei workspace le cui notifiche sono silenziate. Silenzia un workspace dal menu della sua riga nella barra laterale." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "通知を鳴らさないワークスペースの ID。ワークスペースのミュートはサイドバーの行メニューから行います。" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "លេខសម្គាល់កន្លែងធ្វើការដែលការជូនដំណឹងត្រូវបានបិទសំឡេង។ បិទសំឡេងកន្លែងធ្វើការពីម៉ឺនុយជួររបស់វានៅរបារចំហៀង។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "알림이 울리지 않는 워크스페이스 ID입니다. 사이드바 행 메뉴에서 워크스페이스를 음소거하세요." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "ID-er for arbeidsområder med dempede varsler. Demp et arbeidsområde fra radmenyen i sidepanelet." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Identyfikatory obszarów roboczych z wyciszonymi powiadomieniami. Wycisz obszar roboczy z menu jego wiersza na pasku bocznym." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "IDs dos espaços de trabalho com notificações silenciadas. Silencie um espaço de trabalho pelo menu da linha dele na barra lateral." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Идентификаторы рабочих пространств с беззвучными уведомлениями. Выключите звук пространства в меню его строки на боковой панели." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "รหัสของเวิร์กสเปซที่ปิดเสียงการแจ้งเตือน ปิดเสียงเวิร์กสเปซได้จากเมนูของแถวในแถบด้านข้าง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bildirimleri sessiz olan çalışma alanlarının kimlikleri. Bir çalışma alanını kenar çubuğundaki satır menüsünden sessize alın." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Ідентифікатори робочих просторів із беззвучними сповіщеннями. Вимкніть звук простору в меню його рядка на бічній панелі." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "ID của các không gian làm việc có thông báo bị tắt tiếng. Tắt tiếng một không gian làm việc từ menu hàng của nó trên thanh bên." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "通知静音的工作区 ID。可在侧边栏的工作区行菜单中静音。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
+      }
     }
   },
   "version": "1.0"

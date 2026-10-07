@@ -30,6 +30,25 @@ extension AgentPaneModel {
     static var gitFailedMessage: String {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
+
+    /// Shell mode's `shell.run` came without a key press or click in the pane.
+    static var shellGestureMessage: String {
+        String(localized: "agentPane.shell.gestureRequired", defaultValue: "Not run", bundle: .module)
+    }
+
+    /// Why shell mode's command did not run, or was lost.
+    static func shellFailureMessage(_ error: any Error) -> String {
+        switch error as? AgentPaneShell.Failure {
+        case .tooMany:
+            String(localized: "agentPane.shell.tooMany", defaultValue: "Too many commands running", bundle: .module)
+        case .folderMissing:
+            String(localized: "agentPane.shell.folderMissing", defaultValue: "Folder not found", bundle: .module)
+        case .unknownRun:
+            String(localized: "agentPane.shell.unknownRun", defaultValue: "Output unavailable", bundle: .module)
+        case .spawnFailed, nil:
+            String(localized: "agentPane.shell.spawnFailed", defaultValue: "Could not start", bundle: .module)
+        }
+    }
 }
 
 extension AgentPaneView {

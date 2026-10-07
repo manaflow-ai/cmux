@@ -178,7 +178,10 @@ function indentOf(l: string) {
 /// The blocks of lines nested `depth` levels down, or their text as one paragraph at the cap.
 function nested(lines: string[], depth: number): MdBlock[] {
   if (depth < MAX_NESTING) return parseLines(lines, depth);
-  const text = lines.map((line) => line.trim()).filter(Boolean).join("\n");
+  const text = lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
   return text ? [{ type: "paragraph", text }] : [];
 }
 
@@ -213,7 +216,10 @@ function parseList(lines: string[], start: number, depth: number): [MdBlock, num
       while (i < lines.length && lines[i].trim() && indentOf(lines[i]) > base) inner.push(lines[i++]);
       if (inner.length) {
         const strip = Math.min(...inner.map(indentOf));
-        item.children = nested(inner.map((n) => n.slice(strip)), depth + 1);
+        item.children = nested(
+          inner.map((n) => n.slice(strip)),
+          depth + 1,
+        );
       }
       items.push(item);
       continue;

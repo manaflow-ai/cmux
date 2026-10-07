@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4956e57434ede4b4ecaf51f31811ae4bfbb979ba8cbba8b9c6608f22ff8aa568.
+// cmux-tui mux protocol 12, IR dc997c9439a1b81719ac07e6902388c798c5fc766e3159e8c9f5e1e10d23cb33.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -344,6 +344,17 @@ pub struct ConversationChange {
     pub seq: Option<u64>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationImportMessage {
+    pub author: String,
+    pub client_msg_id: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<String>,
+    pub parts: Vec<ConversationPart>,
 }
 
 #[rustfmt::skip]
@@ -887,6 +898,8 @@ pub struct MintTerminalRendererResult {
     pub incarnation: String,
     pub protocol_version: u16,
     pub rights: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub supports_viewer_size_priority: Option<bool>,
     pub terminal_id: String,
     pub token: String,
     pub ttl_ms: u64,

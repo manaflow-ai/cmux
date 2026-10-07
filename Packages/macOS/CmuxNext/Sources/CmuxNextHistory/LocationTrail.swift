@@ -85,6 +85,15 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
         return true
     }
 
+    /// Records a location the user jumped to on purpose (the New Tab page's
+    /// location bar): always its own step, never coalesced into the entry it
+    /// left, so Back returns there.
+    @discardableResult
+    public mutating func recordJump(_ location: HistoryLocation, at time: Date) -> Bool {
+        recordedAt = nil
+        return record(location, at: time)
+    }
+
     /// Moves to the newest older entry that `isAvailable`, marks it pending,
     /// and returns it (nil: nothing to go back to).
     public mutating func back(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Entry? {

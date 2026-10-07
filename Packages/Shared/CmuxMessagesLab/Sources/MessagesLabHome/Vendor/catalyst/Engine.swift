@@ -13,6 +13,8 @@ struct Draft: Equatable {
 struct ConversationUIState: Equatable {
     var draft = Draft()
     var typing: [ID] = []
+    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none).
+    var notice: String?
     var openThread: PartRef?
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
@@ -68,6 +70,8 @@ enum Action {
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
+    /// cmux: the host's notice changed (nil clears it); the rows are derived again.
+    case cmuxNotice(String?)
 }
 
 enum Reducer {
@@ -172,6 +176,8 @@ enum Reducer {
                   let pi = s.conversation.messages[i].parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break }
             s.conversation.messages[i].parts[pi] = .attachment(a)
+        case let .cmuxNotice(text):  // cmux
+            s.ui.notice = text
         }
         return nil
     }
@@ -315,6 +321,30 @@ final class Store {
     func date(at t: Double) -> Date { baseDate.addingTimeInterval(t) }
 
     func dispatch(_ action: Action) { apply(action, at: now) }
+
+    /// Apply a user action at `t` ahead of the jobs that fall due by then: they fire at the
+    /// next `advance`, in their own order and at that time. A keystroke's pass then carries
+    /// only the keystroke; statuses, replies and typing due in it follow in the next run-loop
+    /// pass (they are not latency-critical; appkit-native Host.dispatch).
+    func dispatchAhead(_ action: Action, at t: Double) {
+        now = max(now, t)
+        apply(action, at: now)
+    }
+
+    /// Whether every job due by `t` is a status or a typing change (a send may go ahead of
+    /// them: neither changes the order of the messages). Replies and responder steps keep
+    /// their place in time.
+    func onlyAmbientDue(by t: Double) -> Bool {
+        for j in queue {
+            guard j.time <= t else { break }
+            guard case let .action(a) = j.job else { return false }
+            switch a {
+            case .status, .typing: continue
+            default: return false
+            }
+        }
+        return true
+    }
 
     func schedule(_ action: Action, after delay: Double) { schedule(action, at: now + delay) }
 

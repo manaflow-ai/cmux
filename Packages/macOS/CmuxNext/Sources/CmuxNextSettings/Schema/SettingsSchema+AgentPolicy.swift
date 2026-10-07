@@ -104,7 +104,8 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
+        "sidebar.showWorkspaceDirectory",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -131,6 +132,8 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
+        "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
         "announcements.enabled",

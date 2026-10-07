@@ -58,6 +58,8 @@ nonisolated enum SidebarSectionSettingsSchema {
                 keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showCountsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showWorkspaceDirectoryDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
