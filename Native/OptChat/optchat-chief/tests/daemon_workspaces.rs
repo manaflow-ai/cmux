@@ -27,7 +27,9 @@ fn serve(listener: UnixListener, capabilities: Vec<&'static str>, requests: Arc<
                     requests.lock().unwrap().push(req.clone());
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => {
-                            json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities})
+                            json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities,
+                                "daemon_handoff": 1, "generation": "g", "pid": 1, "registry_id": "r",
+                                "session": "main", "terminal_revision": 1, "workspace_revision": 1})
                         }
                         "create-workspace" => json!({
                             "generation": "g", "index": 3, "key": req["key"], "registry_id": "r",
@@ -72,7 +74,7 @@ fn commands(requests: &Mutex<Vec<Value>>, cmd: &str) -> Vec<Value> {
 
 #[test]
 fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
-    let (w, requests, _dir) = workspaces(vec!["conversation-tabs-v1", "agent-session-tabs-v1"]);
+    let (w, requests, _dir) = workspaces(vec!["workspace-registry-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]);
     let key = w.open("sess-1", "a1 · summarize", Path::new("/Users/x/fun/repo")).unwrap();
     let created = commands(&requests, "create-workspace");
     assert_eq!(created.len(), 1);
@@ -93,7 +95,7 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
 
 #[test]
 fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
-    let (w, requests, _dir) = workspaces(vec!["conversation-tabs-v1"]);
+    let (w, requests, _dir) = workspaces(vec!["workspace-registry-v1", "conversation-tabs-v1"]);
     let err = w.open("sess-1", "a1 · x", Path::new("/tmp")).unwrap_err();
     assert!(err.contains("agent-session-tabs-v1"), "{err}");
     assert!(commands(&requests, "create-workspace").is_empty(), "nothing half made");
