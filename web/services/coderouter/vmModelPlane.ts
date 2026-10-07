@@ -13,8 +13,10 @@
 // every team member's machine gets a token. The only exception is the
 // local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0, which creates an
 // unwired machine (no env, no rule, still no secret). Never set it in
-// production. Tokens expire and are revocable; signing keys rotate through the
-// configured key-version map.
+// production. The edge rule cannot change on a running machine, so a token
+// lives as long as its machine: revocation (destroy, team removal) and the
+// live-machine check end it, not its `exp` claim. Signing keys rotate through
+// the configured key-version map.
 import { issueVmAuthorizationToken, revokeRouteTokensForVm } from "./repository";
 import { VM_AUTHORIZATION_HEADER } from "./vmAuthorization";
 import {
