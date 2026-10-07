@@ -154,6 +154,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
       if (part?.type !== "question") return fail("invalid_part_index")
       const answered = answerQuestion(part, op.answer, actor, now)
+      // A person's answer is a human turn: the agent may go on (the loop guard counts from here).
+      next.agent_text_streak = 0
       return updated(next, { ...message, parts: message.parts.map((p, i) => (i === index ? answered : p)) })
     }
     case "read_cursor.set": {

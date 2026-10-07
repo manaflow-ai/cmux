@@ -196,7 +196,8 @@ export const currentParticipant = (head: ConversationHead, id: string): Particip
 export const currentParticipants = (head: ConversationHead): ReadonlyArray<Participant> =>
   head.participants.filter((participant) => participant.left_at === undefined)
 
-export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text")
+/** Whether a message is a counted turn for the loop guard: text, or a question (an agent asking is a turn). */
+export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text" || part.type === "question")
 
 /**
  * A display name from an outside source (Stack, the caller): control
