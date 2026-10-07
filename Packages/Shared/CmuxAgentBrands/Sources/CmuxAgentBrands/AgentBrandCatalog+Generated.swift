@@ -3,7 +3,7 @@
 
 extension AgentBrandID {
     /// Every brand with a mark, in manifest order.
-    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
+    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio, .vercel]
     public static let claude = AgentBrandID(rawValue: "claude")
     public static let anthropic = AgentBrandID(rawValue: "anthropic")
     public static let openai = AgentBrandID(rawValue: "openai")
@@ -31,6 +31,7 @@ extension AgentBrandID {
     public static let ollama = AgentBrandID(rawValue: "ollama")
     public static let openrouter = AgentBrandID(rawValue: "openrouter")
     public static let lmstudio = AgentBrandID(rawValue: "lmstudio")
+    public static let vercel = AgentBrandID(rawValue: "vercel")
 }
 
 extension AgentBrandCatalog {
@@ -375,6 +376,18 @@ extension AgentBrandCatalog {
             tile: nil,
             overlays: []
         ),
+        .vercel: AgentBrandSpec(
+            name: "Vercel",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
+            paths: [
+                AgentBrandPathSpec(d: "M12 1.6L24 22.4L0 22.4Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
     ]
 
     /// Marks drawn at this many points or smaller use their `small` art.
@@ -386,6 +399,7 @@ extension AgentBrandCatalog {
     static let lookup: [String: AgentBrandID?] = [
         "acli": .rovodev,
         "agy": .antigravity,
+        "ai-gateway": .vercel,
         "aider": .aider,
         "amp": .amp,
         "anthropic": .anthropic,
@@ -448,6 +462,9 @@ extension AgentBrandCatalog {
         "qwen-code": .qwen,
         "rovo-dev": .rovodev,
         "rovodev": .rovodev,
+        "vercel": .vercel,
+        "vercel-ai-gateway": .vercel,
+        "vercel-gateway": .vercel,
         "vertex": nil,
         "xai": .grok,
     ]
@@ -459,6 +476,7 @@ extension AgentBrandCatalog {
         AgentDescriptor(id: "chatgpt", name: "ChatGPT", brand: .openai),
         AgentDescriptor(id: "opencode", name: "OpenCode", brand: .opencode),
         AgentDescriptor(id: "pi", name: "Pi", brand: .pi),
+        AgentDescriptor(id: "vercel-ai-gateway", name: "Vercel AI Gateway", brand: .vercel),
         AgentDescriptor(id: "omp", name: "oh-my-pi", brand: .omp),
         AgentDescriptor(id: "hermes-agent", name: "Hermes Agent", brand: .hermes),
         AgentDescriptor(id: "deepseek", name: "DeepSeek", brand: .deepseek),
@@ -503,5 +521,6 @@ extension AgentBrandCatalog {
         ("campfire", nil),
         ("piper", nil),
         ("", nil),
+        ("vercel-ai-gateway", .vercel),
     ]
 }

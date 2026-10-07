@@ -861,6 +861,30 @@
         },
         "precision": 2
       }
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "owner": "Vercel",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#FFFFFF",
+          "#000000"
+        ]
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/vercel.svg",
+        "file": "simple-icons 16.34.0 icons/vercel.svg (source https://vercel.com/geist/brands)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Vercel."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/vercel.svg"
+        },
+        "precision": 2
+      }
     }
   ],
   "agents": [
@@ -907,6 +931,15 @@
       "aliases": [
         "pi-acp",
         "pi-agent"
+      ]
+    },
+    {
+      "id": "vercel-ai-gateway",
+      "name": "Vercel AI Gateway",
+      "brand": "vercel",
+      "aliases": [
+        "ai-gateway",
+        "vercel-gateway"
       ]
     },
     {
@@ -1083,6 +1116,10 @@
       "brand": "openai"
     },
     {
+      "id": "vercel",
+      "brand": "vercel"
+    },
+    {
       "id": "xai",
       "brand": "grok"
     },
@@ -1194,6 +1231,10 @@
     [
       "",
       null
+    ],
+    [
+      "vercel-ai-gateway",
+      "vercel"
     ]
   ]
 }

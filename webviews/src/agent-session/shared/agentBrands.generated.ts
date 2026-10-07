@@ -277,6 +277,14 @@ export const AGENT_BRANDS = {
       { d: "M14.03 0c3.49 0 5.23 0 6.57.68a6.2 6.2 0 0 1 2.72 2.72C24 4.74 24 6.48 24 9.98v4.04c0 3.5 0 5.24-.68 6.58a6.2 6.2 0 0 1-2.72 2.72c-1.34.68-3.08.68-6.58.68H9.99c-3.5 0-5.24 0-6.58-.68A6.2 6.2 0 0 1 .68 20.6C0 19.26 0 17.52 0 14.02V9.99c0-3.5 0-5.24.68-6.58A6.2 6.2 0 0 1 3.4.68C4.74 0 6.48 0 9.97 0zM7.69 16.31a1.31 1.31 0 0 0 0 2.63H19.3a1.31 1.31 0 0 0 0-2.63zm-3-3.75a1.31 1.31 0 0 0 0 2.63H16.3a1.31 1.31 0 0 0 0-2.63zm3-3.75a1.31 1.31 0 0 0 0 2.63H19.3a1.31 1.31 0 0 0 0-2.63zm-3-3.75a1.31 1.31 0 0 0 0 2.63H16.3a1.31 1.31 0 0 0 0-2.63z" },
     ],
   },
+  "vercel": {
+    name: "Vercel",
+    viewBox: [0, 0, 24, 24],
+    tone: ["#FFFFFF", "#000000"],
+    paths: [
+      { d: "m12 1.6 12 20.8H0Z" },
+    ],
+  },
 } as const satisfies Record<string, AgentBrandSpec>;
 
 export type AgentBrandId = keyof typeof AGENT_BRANDS;
@@ -288,6 +296,7 @@ export const AGENT_BRAND_SMALL_POINT_SIZE = 16;
 export const AGENT_BRAND_LOOKUP: Readonly<Record<string, AgentBrandId | null>> = {
   "acli": "rovodev",
   "agy": "antigravity",
+  "ai-gateway": "vercel",
   "aider": "aider",
   "amp": "amp",
   "anthropic": "anthropic",
@@ -350,6 +359,9 @@ export const AGENT_BRAND_LOOKUP: Readonly<Record<string, AgentBrandId | null>> =
   "qwen-code": "qwen",
   "rovo-dev": "rovodev",
   "rovodev": "rovodev",
+  "vercel": "vercel",
+  "vercel-ai-gateway": "vercel",
+  "vercel-gateway": "vercel",
   "vertex": null,
   "xai": "grok",
 };
@@ -361,6 +373,7 @@ export const SUPPORTED_AGENTS: readonly { id: string; name: string; brand: Agent
   { id: "chatgpt", name: "ChatGPT", brand: "openai" },
   { id: "opencode", name: "OpenCode", brand: "opencode" },
   { id: "pi", name: "Pi", brand: "pi" },
+  { id: "vercel-ai-gateway", name: "Vercel AI Gateway", brand: "vercel" },
   { id: "omp", name: "oh-my-pi", brand: "omp" },
   { id: "hermes-agent", name: "Hermes Agent", brand: "hermes" },
   { id: "deepseek", name: "DeepSeek", brand: "deepseek" },
@@ -405,6 +418,7 @@ export const AGENT_BRAND_RESOLUTION_CASES: readonly (readonly [input: string, br
   ["campfire", null],
   ["piper", null],
   ["", null],
+  ["vercel-ai-gateway", "vercel"],
 ];
 
 /// The ids an agent string may be known by, most specific first. Must match
