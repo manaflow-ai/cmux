@@ -237,6 +237,10 @@ final class AppContainer {
         if let base, let identity {
             let device = UIDevice.current.name
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            // B6: the account's trust store, pairing and Mac presence (one registry per account build).
+            let pairing = PairingComposition(base: base, identity: identity, bundleID: Bundle.main.bundleIdentifier ?? "",
+                                             appVersion: version ?? "0")
+            factories.devices = { pairing.registry() }
             factories.feed = {
                 CloudFeedSource(apiBaseURL: base, device: device, clientVersion: version) {
                     try await identity.token(for: nil)

@@ -61,6 +61,17 @@ final class PairingModel {
         settle()
     }
 
+    /// A pairing link from the camera scanner (B6): the registry publishes this
+    /// device's key and claims the offer; the new Mac resolves from the mirror.
+    func redeemScanned(_ url: URL) async {
+        qrBaseline = trustedMacs()
+        intent = .pairing(PairingCandidate(id: "qr", name: ""))
+        // The ticket payload is the link itself (B6's PairingTicketPayload.link).
+        await redeem(PairingTicket(payload: Data(url.absoluteString.utf8)))
+        resolveQRRedemption()
+        settle()
+    }
+
     func retry() {
         intent = .idle
         qrBaseline = nil

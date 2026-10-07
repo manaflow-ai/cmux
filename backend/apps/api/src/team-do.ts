@@ -2,7 +2,7 @@ import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
 import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -378,9 +378,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> { return this.isBound(entity) ? hostAccessFor(this.bind(entity).currentState, this.rows, host, principal) : null } // RPC from the Worker before a HostDO control socket (b1-control-do.md 2)
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
-  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
-    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
-  }
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> { return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows) }
+  async hostGuest(entity: string, op: "host.guest.set" | "host.guest.remove", params: unknown, key: string): Promise<SubmitResult> { this.bind(entity); return this.submitSystem(op, params, key) } // RPC from UserDO's pairing handlers only (b6-pairing.md 4.2)
 
   /**
    * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2),

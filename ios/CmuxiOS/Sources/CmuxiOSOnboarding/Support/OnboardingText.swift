@@ -76,7 +76,6 @@ enum OnboardingText {
     static var openSettings: String { String(localized: "onboarding.camera.openSettings", defaultValue: "Open Settings", bundle: .module) }
     static var scannerTitle: String { String(localized: "onboarding.scanner.title", defaultValue: "Scan the pairing code", bundle: .module) }
     static var scannerBody: String { String(localized: "onboarding.scanner.body", defaultValue: "Point your camera at the QR code in cmux on your Mac.", bundle: .module) }
-    static var scannerPending: String { String(localized: "onboarding.scanner.pending", defaultValue: "The camera scanner arrives with Mac pairing. Use discovery on your account for now.", bundle: .module) }
     static var sampleCode: String { String(localized: "onboarding.scanner.sample", defaultValue: "Use Sample Code", bundle: .module) }
     static var sshTitle: String { String(localized: "onboarding.ssh.title", defaultValue: "Have a server too?", bundle: .module) }
     static var sshBody: String { String(localized: "onboarding.ssh.body", defaultValue: "Add an SSH host now, or later from Hosts.", bundle: .module) }
