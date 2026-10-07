@@ -35,6 +35,12 @@ final class ChatsFeed {
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
+    /// Keeps the mirror current for the palette chats page and Open Chat while
+    /// no sidebar shows Chats: one idle push connection, no timers.
+    func keepCurrent() {
+        observe(self) {}
+    }
+
     private func connect() {
         reconnect = nil
         guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
