@@ -356,6 +356,7 @@ public final class SidebarView: NSView {
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
             || lastState?.preferences.showCounts != state.preferences.showCounts
+            || lastState?.preferences.showWorkspaceDirectory != state.preferences.showWorkspaceDirectory
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
