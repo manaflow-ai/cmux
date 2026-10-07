@@ -78,7 +78,10 @@ final class SidebarUpdateNotesView: NSView {
         let field = NSTextField(wrappingLabelWithString: text)
         field.font = font
         field.maximumNumberOfLines = lines
-        field.lineBreakMode = .byTruncatingTail
+        // Wraps up to `lines`, then truncates the last one (a truncating
+        // line break mode alone would keep it to one line).
+        field.lineBreakMode = .byWordWrapping
+        field.cell?.truncatesLastVisibleLine = true
         field.preferredMaxLayoutWidth = Self.width - 2 * Self.padding
         field.isSelectable = false
         labels.append((field, role))

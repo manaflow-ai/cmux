@@ -9,7 +9,7 @@ extension UpdaterService {
     /// The card while an update is staged or installing; nil otherwise and,
     /// for a staged update, under `updates.notify` silent (``footerPill``).
     public var readyCard: UpdateReadyCard? {
-        guard let pill = footerPill, pill != .ready, pill != .installing else { return nil }  // red
+        guard let pill = footerPill else { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
         return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes)
     }
@@ -24,7 +24,7 @@ extension UpdaterService {
     /// The checkbox: writes the setting; the setting's change comes back
     /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
     public func setAutomaticUpdates(_ on: Bool) {
-        _ = on  // red: UPDATE-CARD not implemented
+        writeAutomaticUpdates?(on)
     }
 
     /// Follows the flow's phase: a staged update records its version and

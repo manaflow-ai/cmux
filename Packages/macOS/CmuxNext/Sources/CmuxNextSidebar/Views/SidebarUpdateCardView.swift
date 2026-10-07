@@ -51,8 +51,8 @@ final class SidebarUpdateCardView: NSView {
     func configure(_ card: SidebarUpdateCard?) {
         guard card != self.card else { return }
         self.card = card
-        isHidden = true  // red: UPDATE-CARD not implemented
-        guard let card, card.title.isEmpty else {
+        isHidden = card == nil
+        guard let card else {
             hideNotes()
             return
         }
