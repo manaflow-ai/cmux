@@ -596,8 +596,9 @@ public final class ConversationStore {
 
     /// Applies a list action at once and confirms it with the backend. A
     /// rejected action (the pin limit, a network failure) rolls back unless a
-    /// newer state arrived meanwhile.
-    public func updateListState(_ change: ConversationListStateChange) {
+    /// newer state arrived meanwhile. `rejected` receives the backend's error
+    /// (code `-32004` is the pin limit, reached from another device).
+    public func updateListState(_ change: ConversationListStateChange, rejected: (@MainActor (ConversationBackendError) -> Void)? = nil) {
         guard !change.isEmpty, var optimistic = info else { return }
         let previous = optimistic.listState
         optimistic.listState = previous.applying(change)
@@ -613,6 +614,7 @@ public final class ConversationStore {
                 self.info = confirmed
                 self.notify(.listState)
             } catch {
+                rejected?(error as? ConversationBackendError ?? ConversationBackendError(code: -1, message: String(describing: error)))
                 guard let self, self.listStateGeneration == generation, var current = self.info else { return }
                 current.listState = previous
                 self.info = current

@@ -89,6 +89,10 @@ if arguments.count > 3 {
                             let sidebarOnly = line.hasPrefix("sidebarpng ")
                             let path = String(line.split(separator: " ", maxSplits: 1)[1])
                             reply = MacConversationLab.renderPNG(to: path, sidebarOnly: sidebarOnly) ? "ok \(path)" : "error render"
+                        } else if line == "sheet" {
+                            reply = MacConversationLab.sheetSummary() ?? "none"
+                        } else if line.hasPrefix("sheetpress ") {
+                            reply = MacConversationLab.pressSheetButton(String(line.dropFirst(11))) ? "ok" : "error no button"
                         } else if line == "deactivate" {
                             app.deactivate()
                             reply = "ok"

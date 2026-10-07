@@ -83,9 +83,11 @@ import Testing
         backend.fail = true
         let store = ConversationStore(backend: backend)
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
-        store.updateListState(.init(muted: true))
+        var rejection: ConversationBackendError?
+        store.updateListState(.init(muted: true)) { rejection = $0 }
         #expect(store.listState.muted)
         try await waitUntil { !store.listState.muted }
+        #expect(rejection?.code == -32004)
         #expect(backend.received.count == 1)
     }
 

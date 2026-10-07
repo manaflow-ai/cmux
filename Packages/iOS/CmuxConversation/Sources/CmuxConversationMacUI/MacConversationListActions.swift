@@ -137,7 +137,11 @@ final class MacPinnedGridView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        for (index, view) in tileViews.enumerated() { view.frame = tileFrame(index) }
+        for (index, view) in tileViews.enumerated() {
+            view.frame = tileFrame(index)
+            // A tile measures its name against its own width.
+            view.needsLayout = true
+        }
         placeholder.isHidden = !(tiles.isEmpty && showsDropTarget)
         placeholder.frame = CGRect(x: 10, y: (bounds.height - 16) / 2, width: bounds.width - 20, height: 16)
     }
@@ -269,7 +273,9 @@ final class MacPinnedTileView: MacFlippedView, NSDraggingSource {
             avatar.initials = others.first?.initials ?? ""
             avatar.colorHex = others.first?.colorHex
         }
-        name.stringValue = info?.title ?? ""
+        // Messages labels a pinned person by first name, a group by its name.
+        let person = isGroup ? nil : others.first?.name.split(separator: " ").first.map(String.init)
+        name.stringValue = person ?? info?.title ?? ""
         unreadDot.isHidden = !tile.isUnread
         mutedGlyph.isHidden = !store.listState.muted
         setAccessibilityIdentifier("conversation.sidebar.pin.\(tile.id)")
@@ -294,7 +300,8 @@ final class MacPinnedTileView: MacFlippedView, NSDraggingSource {
             CGRect(x: disc.midX + (-3 - 5.5) * scale, y: disc.midY + (11 - 5.5) * scale, width: 11 * scale, height: 11 * scale),
         ]
         for (index, view) in cluster.enumerated() where index < frames.count { view.frame = frames[index] }
-        let nameWidth = min(bounds.width - 8, ceil(name.attributedStringValue.size().width) + 2)
+        // The cell's own width (text plus the field's padding), capped to the tile.
+        let nameWidth = min(bounds.width - 8, ceil(name.cell?.cellSize.width ?? name.intrinsicContentSize.width))
         let glyphWidth: CGFloat = mutedGlyph.isHidden ? 0 : 13
         let nameX = (bounds.width - nameWidth - glyphWidth) / 2 + glyphWidth
         name.frame = CGRect(x: nameX, y: disc.maxY + 7, width: nameWidth, height: 15)

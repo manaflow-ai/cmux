@@ -686,12 +686,17 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         let current = Dictionary(uniqueKeysWithValues: pinned.compactMap { pin in pin.store.listState.pinOrder.map { (pin.id, $0) } })
         let orders = ConversationListArrangement.pinOrders(pinned: pinned.map(\.id), current: current, moving: entry.id, to: index)
         if !alreadyPinned {
-            entry.store.updateListState(.init(pinned: true, pinOrder: orders[entry.id] ?? index))
+            entry.store.updateListState(.init(pinned: true, pinOrder: orders[entry.id] ?? index)) { [weak self] error in
+                // Pins made on another device can reach the limit first.
+                if error.code == Self.pinLimitErrorCode { self?.showPinLimitAlert() }
+            }
         }
         for (id, order) in orders where id != entry.id || alreadyPinned {
             self.entry(id)?.store.updateListState(.init(pinOrder: order))
         }
     }
+
+    static let pinLimitErrorCode = -32004
 
     private func dropOnPins(_ id: String, at index: Int) {
         guard let entry = entry(id) else { return }
@@ -1133,7 +1138,9 @@ public enum MacConversationLab {
         window.identifier = .init("cmux.conversationLab")
         let windowController = NSWindowController(window: window)
         windows.append(windowController)
-        windowController.showWindow(nil)
+        // CMUX_LAB_HEADLESS=1 lays the window out offscreen and never orders it
+        // in (fleet runs render it with `png`, needing no display or capture).
+        if ProcessInfo.processInfo.environment["CMUX_LAB_HEADLESS"] != "1" { windowController.showWindow(nil) }
         return entries[0].controller
     }
 
@@ -1186,6 +1193,33 @@ public enum MacConversationLab {
             ]
         }
         return ["pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations]
+    }
+
+    /// The sheet on the lab window (an alert): its texts and buttons.
+    public static func sheetSummary() -> String? {
+        guard let sheet = windows.last?.window?.attachedSheet, let content = sheet.contentView else { return nil }
+        var texts: [String] = []
+        var buttons: [String] = []
+        func walk(_ view: NSView) {
+            if let button = view as? NSButton, !button.title.isEmpty { buttons.append(button.title) }
+            else if let field = view as? NSTextField, !field.stringValue.isEmpty { texts.append(field.stringValue) }
+            view.subviews.forEach(walk)
+        }
+        walk(content)
+        return (texts + buttons.map { "[\($0)]" }).joined(separator: " | ")
+    }
+
+    /// Clicks the sheet button titled `title`.
+    @discardableResult
+    public static func pressSheetButton(_ title: String) -> Bool {
+        guard let content = windows.last?.window?.attachedSheet?.contentView else { return false }
+        func find(_ view: NSView) -> NSButton? {
+            if let button = view as? NSButton, button.title == title { return button }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        guard let button = find(content) else { return false }
+        button.performClick(nil)
+        return true
     }
 
     /// Renders the lab window's content in-process to a PNG (no screen
