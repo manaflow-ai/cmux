@@ -798,6 +798,8 @@ fn a_page_popup_asks_the_app_for_a_tab_with_rising_requests() {
         "{window:?}"
     );
     assert_eq!(tab.popup_requested("https://d.example/", 7, true), None, "save to disk");
+    // CEF_WOD_OFF_THE_RECORD (8): an incognito open never becomes a normal tab.
+    assert_eq!(tab.popup_requested("https://e.example/", 8, true), None, "off the record");
     let answer = Control::OpenTabResult { request: 1, tab: Some("tab-2".into()), refused: None };
     assert!(tab.control("v1", &answer, &mut fake).is_empty());
     assert!(fake.calls.is_empty());
