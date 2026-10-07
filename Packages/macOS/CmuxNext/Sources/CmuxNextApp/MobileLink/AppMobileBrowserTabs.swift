@@ -33,17 +33,19 @@ final class AppMobileBrowserTabs: MobileBrowserTabs {
 
 /// One live page (`BrowserTab`) as the phone stream sees it.
 final class AppMobileBrowserTab: MobileBrowserTab {
-    private let page: any BrowserTab
+    // Not `page`: that name is the protocol's `RbPage` snapshot below, and
+    // Swift 6.2 rejects a stored property and a computed one sharing it.
+    private let browserTab: any BrowserTab
 
     init(page: any BrowserTab) {
-        self.page = page
+        browserTab = page
     }
 
     var placement: MobileBrowserPlacement? {
-        let view = page.contentView
+        let view = browserTab.contentView
         guard let window = view.window, window.isVisible else { return nil }
         let onScreen = window.convertToScreen(view.convert(view.bounds, to: nil))
-        if page.presentation == .childWindow,
+        if browserTab.presentation == .childWindow,
            let child = window.childWindows?.first(where: { $0.isVisible && $0.frame.insetBy(dx: -2, dy: -2).contains(onScreen) }) {
             return MobileBrowserPlacement(windowID: CGWindowID(child.windowNumber),
                                           rect: CGRect(origin: .zero, size: child.frame.size))
@@ -54,25 +56,25 @@ final class AppMobileBrowserTab: MobileBrowserTab {
     }
 
     var geometry: BrowserPageGeometry {
-        let size = page.contentView.bounds.size
-        let zoom = max(page.state.zoom, 0.25)
+        let size = browserTab.contentView.bounds.size
+        let zoom = max(browserTab.state.zoom, 0.25)
         return BrowserPageGeometry(cssWidth: Double(size.width) / zoom, cssHeight: Double(size.height) / zoom,
-                                   backingScale: Double(page.contentView.window?.backingScaleFactor ?? 2) * zoom)
+                                   backingScale: Double(browserTab.contentView.window?.backingScaleFactor ?? 2) * zoom)
     }
 
     var page: RbPage {
-        let state = self.page.state
+        let state = browserTab.state
         return RbPage(url: state.url?.absoluteString ?? "about:blank", title: state.title ?? "", loading: state.isLoading,
                       canGoBack: state.canGoBack, canGoForward: state.canGoForward)
     }
 
     func changes() -> AsyncStream<Void> {
-        let page = self.page
+        let browserTab = browserTab
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             // Page state only: pane resizes reach the phone with the next page change.
             // task-owner: one per attached phone; ends when the phone detaches (stream terminated).
             let task = Task { @MainActor in
-                for await _ in Observations({ page.state }) {
+                for await _ in Observations({ browserTab.state }) {
                     continuation.yield()
                 }
                 continuation.finish()
@@ -82,13 +84,13 @@ final class AppMobileBrowserTab: MobileBrowserTab {
     }
 
     func devTools(method: String, params: [String: any Sendable]) async throws {
-        guard let chromium = page as? CEFTab else { throw BrowserPageError.failed("this page takes no remote input") }
+        guard let chromium = browserTab as? CEFTab else { throw BrowserPageError.failed("this page takes no remote input") }
         _ = try await chromium.devTools(method: method, params: params)
     }
 
-    func load(_ url: URL) { page.load(url) }
-    func goBack() { page.goBack() }
-    func goForward() { page.goForward() }
-    func reload() { page.reload() }
-    func stopLoading() { page.stop() }
+    func load(_ url: URL) { browserTab.load(url) }
+    func goBack() { browserTab.goBack() }
+    func goForward() { browserTab.goForward() }
+    func reload() { browserTab.reload() }
+    func stopLoading() { browserTab.stop() }
 }
