@@ -706,6 +706,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
+        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.cmdWClosesPinnedTabs",
+      "keywords" : [
+        "pin",
+        "pinned",
+        "close",
+        "cmd-w",
+        "tab",
+        "keep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "cmdWClosesPinnedTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs",
+        "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
@@ -1684,6 +1732,54 @@
       "title" : {
         "key" : "settings.announcements.fetch",
         "text" : "Download Announcements"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.enabled.help",
+        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.enabled",
+      "keywords" : [
+        "computer use",
+        "agents",
+        "automation",
+        "screen recording",
+        "accessibility",
+        "helper"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.computerUse.enabled",
+        "text" : "Computer Use"
       },
       "validation" : "portable"
     },
@@ -3610,6 +3706,57 @@
       "title" : {
         "key" : "settings.appearance.theme",
         "text" : "Theme"
+      },
+      "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "followTerminal",
+      "default_label" : {
+        "key" : "settings.default.followTerminal",
+        "text" : "Match Terminal Theme"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.appTheme.help",
+        "text" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+      },
+      "kept_on_reset_all" : true,
+      "key" : "appearance.appTheme",
+      "keywords" : [
+        "app theme",
+        "accent",
+        "chrome",
+        "interface",
+        "colors",
+        "contrast",
+        "wcag"
+      ],
+      "kind" : "theme",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "appTheme"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.appTheme",
+        "text" : "App Theme"
       },
       "validation" : "domain:theme"
     },
@@ -7230,6 +7377,100 @@
         "text" : "Loading Indicator"
       },
       "help" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs.help",
+        "text" : "Three dots take the tab's icon place while an agent works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showAgentWorkingOnTabs",
+      "keywords" : [
+        "agent",
+        "working",
+        "thinking",
+        "dots"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showAgentWorkingOnTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs",
+        "text" : "Show Agent Working on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.showPageLoading.help",
+        "text" : "A spinner takes a browser tab's icon place while its page loads."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showPageLoading",
+      "keywords" : [
+        "browser",
+        "loading",
+        "spinner",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showPageLoading"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showPageLoading",
+        "text" : "Show Page Loading on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
         "key" : "settings.statusIndicator.honorStatusStyle.help",
         "text" : "A status that asks for a style (cmux status set --style) uses it."
       },
@@ -8306,6 +8547,55 @@
       "title" : {
         "key" : "settings.sidebar.minimalMode",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cards.tips.help",
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cards.tips",
+      "keywords" : [
+        "sidebar",
+        "tips",
+        "did you know",
+        "cards",
+        "learn",
+        "features"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cards",
+        "tips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cards.tips",
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -15702,7 +15992,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e56ff476e0cc0b67f6fe96017f244fd81c9941a0b13c978f3cdc35c9d2397e44",
+  "schema_hash" : "871c83cb0e29ba68ccd5d289f2d4e311c4356e93ed011fa3188644555bd80d4e",
   "sections" : [
     {
       "id" : "general",

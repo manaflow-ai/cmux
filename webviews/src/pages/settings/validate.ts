@@ -1,5 +1,6 @@
 // Portable value checks per row kind. The daemon is the authority; the mock provider uses
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
+import { parseThemeSpec } from "./themeSpec";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
 
@@ -57,6 +58,13 @@ function inDomain(list: string[] | undefined, value: unknown): boolean {
   return !list || list.length === 0 || list.includes(value);
 }
 
+/** A theme name, or `light:<theme>,dark:<theme>` with each side a name (AppThemeSetting's ThemeSpec). */
+function themeInDomain(list: string[] | undefined, value: unknown): boolean {
+  const spec = parseThemeSpec(value);
+  if (!spec) return false;
+  return spec.kind === "single" ? inDomain(list, spec.name) : inDomain(list, spec.light) && inDomain(list, spec.dark);
+}
+
 /**
  * A custom search engine address (`browser.customSearchEngine.*`): empty, or a page address that
  * marks where the typed text goes with %s or {searchTerms}. The Swift rule is
@@ -102,9 +110,16 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     case "folder_list":
       if (row.key === "agents.chats.roots") {
         // Full home/TCC/symlink validation belongs to the native host; this is the portable shape.
-        return Array.isArray(value) && value.every((item) => typeof item === "string" && item.startsWith("/")
-          && item !== "/" && !/^\/(Volumes|Network|net)(\/|$)/i.test(item))
-          ? null : "expected absolute, unprotected chat folder paths";
+        return Array.isArray(value) &&
+          value.every(
+            (item) =>
+              typeof item === "string" &&
+              item.startsWith("/") &&
+              item !== "/" &&
+              !/^\/(Volumes|Network|net)(\/|$)/i.test(item),
+          )
+          ? null
+          : "expected absolute, unprotected chat folder paths";
       }
       return Array.isArray(value) &&
         value.every((item) => typeof item === "string" && (item.startsWith("/") || item.startsWith("~/")))
@@ -117,7 +132,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         : "expected {start, end} times HH:MM";
     }
     case "theme":
-      return inDomain(domains?.themes, value) ? null : "unknown theme";
+      // A theme row's default is a keyword (appearance.appTheme: followTerminal), not a theme.
+      if (row.default !== null && value === row.default) return null;
+      return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
       return inDomain(domains?.font_families, value) ? null : "unknown font family";
     case "sound":

@@ -1,0 +1,77 @@
+{
+  "description": "What a cmux host lets the agent pane page send to acpmux through the host-owned socket. Data copied from CmuxNextAgentPane AcpmuxPaneMethods.swift, AcpmuxPathPolicy.swift (path_keys) and AcpmuxConnection.swift; the Swift parity test (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift) fails when the two differ. Changing it needs the protocol/origin lead's review (ad349).",
+  "pane_origin": "cmux-agent://pane",
+  "initialize": "initialize",
+  "requests": [
+    "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
+    "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
+    "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+    "_acpmux/status",
+    "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
+    "_acpmux/handoff_discard",
+    "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+    "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable"
+  ],
+  "notifications": ["session/cancel"],
+  "maximum_frame_bytes": 33554432,
+  "servers_key": "mcpServers",
+  "gesture_ticket_key": "cmuxGesture",
+  "session_scoped": [
+    "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
+    "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
+  ],
+  "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
+  "source_scoped": [
+    "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
+    "_acpmux/handoff_discard"
+  ],
+  "gesture_rules": {
+    "session/prompt": "always",
+    "session/set_mode": "always",
+    "session/set_config_option": "always",
+    "acp.trust.set": "when_trusting",
+    "_acpmux/harness_enable": "always",
+    "_acpmux/permission_respond": "when_option_allows",
+    "_acpmux/permission_group_respond": "when_decision_allows"
+  },
+  "non_trusting_levels": ["untrusted", "unknown"],
+  "setting_methods": ["session/set_mode", "session/set_config_option"],
+  "known_params": {
+    "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
+    "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer"]},
+    "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId"]},
+    "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
+    "session/cancel": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/watch": {"params": ["enabled"], "acpmux": []},
+    "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], "acpmux": []},
+    "_acpmux/attach": {"params": ["sessionId", "limit", "kinds", "eventStream"], "acpmux": []},
+    "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
+    "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
+    "_acpmux/prewarm": {"params": ["harness", "cwd"], "acpmux": []},
+    "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
+    "_acpmux/models": {"params": [], "acpmux": []},
+    "_acpmux/status": {"params": [], "acpmux": []},
+    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId"], "acpmux": []},
+    "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
+    "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
+    "_acpmux/handoff_draft": {"params": ["handoffId", "revision", "draftKey", "capsule", "checkpoint"], "acpmux": []},
+    "_acpmux/handoff_start": {"params": ["handoffId", "revision", "promptId", "capsule", "checkpoint"], "acpmux": []},
+    "_acpmux/handoff_discard": {"params": ["handoffId"], "acpmux": []},
+    "_acpmux/permission_groups": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/permission_group_respond": {"params": ["sessionId", "groupId", "revision", "decisionKey", "decision"], "acpmux": []},
+    "_acpmux/permission_chat_revoke": {"params": ["sessionId"], "acpmux": []},
+    "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
+    "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
+    "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
+    "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
+    "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
+    "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
+  },
+  "reply_shapes": {
+    "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}}
+  },
+  "history_replies": ["_acpmux/attach", "_acpmux/events"],
+  "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
+    "folder", "folders", "root", "roots", "worktree", "worktreePath"]
+}

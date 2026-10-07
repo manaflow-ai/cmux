@@ -8,7 +8,7 @@ Build it with:
 ./scripts/build-webviews-app.sh
 ```
 
-The build output is committed under `Resources/markdown-viewer/webviews-app` because the macOS app serves local static files from its bundled resources. Keep source changes in this directory, then regenerate the bundled asset with the script above.
+The build output goes to `Resources/markdown-viewer/webviews-app`, which the macOS app serves as local static files from its bundled resources. It is gitignored build output: `scripts/cmux-next/build-web-bundles.sh` builds it, with the cmux-next agent pane, pages, Agent Activity and palette ranker, before every app build and Swift test run. Commit only the sources.
 
 The same build emits `diff-page.html`, the diff viewer of the cmux-next shared page host (`cmux-page://cmux.diff/`, whose root is this output directory). It embeds no config and no CSP meta: it calls `cmux.diff.config` over the cmuxPage bridge (`src/diff/page.ts` lists the ops and streams), and the scheme handler sends the CSP.
 

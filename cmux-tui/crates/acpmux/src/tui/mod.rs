@@ -9,8 +9,10 @@
 //!   Ctrl-l       pick model         Ctrl-o   pick mode
 //!   :            command mode       ?        help
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
+//!   (on a question, y opens the answer flow: digits pick, Enter confirms)
 
 pub mod actions;
+mod answering;
 mod events;
 mod run;
 mod scheduler;
@@ -39,6 +41,7 @@ pub mod skills;
 pub mod theme;
 
 pub use actions::Action;
+pub use answering::Answering;
 pub use mouse::{ButtonAction, PermChoice};
 pub use picker::{PickRow, Picker};
 
@@ -204,6 +207,8 @@ pub struct App {
     pub perm_rows: Vec<(Rect, ButtonAction)>,
     /// The current dialog's rect; a click outside it closes the dialog.
     pub dialog_rect: Rect,
+    /// The open answer flow of a pending agent question (answering.rs).
+    pub answering: Option<Answering>,
 }
 
 pub(super) const DEFAULT_STATUS: &str = "";
@@ -611,6 +616,10 @@ impl App {
     }
 
     pub(super) fn answer_permission(&mut self, choice: PermChoice) {
+        // A question is answered through its flow, never by a blank allow.
+        if self.question_choice(&choice) {
+            return;
+        }
         let Some(id) = self.selected_id() else { return };
         let Some(t) = self.transcripts.get(&id) else { return };
         let Some(Item::Permission { id: pid, options, .. }) = t.pending_permission() else {
@@ -644,9 +653,11 @@ impl App {
 }
 
 #[cfg(test)]
+mod answering_tests;
+#[cfg(test)]
 mod interaction_tests {
     use super::*;
-    async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
+    pub(super) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", uuid::Uuid::now_v7()));
         let _ = std::fs::remove_file(&socket);

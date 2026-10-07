@@ -47,7 +47,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
     public let isPooled: Bool
     var pooledOwner: PagePooledOwner?
-    /// Whether a pooled host has received user input or a page operation since its claim.
+    /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
+    /// Page messages do not count: a parked page mounts when it is shown, so every claim starts
+    /// with its own subscriptions and reads; the parking reset drops those and clears storage.
     public internal(set) var touched = false
     /// Prepared page activity does not count as user activity while the view is parked.
     public internal(set) var countsTouches = true
@@ -210,6 +212,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
+        installDocumentStartTheme()
         if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
     }
 
@@ -306,7 +309,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             return nil
         }
         guard let body = JSONValue(foundation: message.body) else { return nil }
-        if let type = body["t"]?.stringValue, type != "ok", type != "err" { noteTouch() }
         let reply = await router.handle(body)
         return reply.isNull ? nil : reply.foundationObject
     }
