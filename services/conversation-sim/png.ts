@@ -92,7 +92,24 @@ export function cappedSize(width: number, height: number, cap = 1200): [number, 
 
 /** Procedural image seeded by id: diagonal gradient plus a few circles and rectangles. */
 export function proceduralPNG(id: string, width: number, height: number): Uint8Array {
-  const [w, h] = cappedSize(width, height);
+  const { w, h, rgb } = proceduralRGB(id, width, height);
+  return encodePNG(w, h, rgb);
+}
+
+/** Mean WCAG relative luminance of `proceduralPNG(id, width, height)`, from a small render. */
+export function proceduralLuminance(id: string, width: number, height: number): number {
+  const { rgb } = proceduralRGB(id, width, height, 48);
+  const linear = (c: number) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  let total = 0;
+  for (let i = 0; i < rgb.length; i += 3) total += 0.2126 * linear(rgb[i]) + 0.7152 * linear(rgb[i + 1]) + 0.0722 * linear(rgb[i + 2]);
+  return total / (rgb.length / 3);
+}
+
+function proceduralRGB(id: string, width: number, height: number, cap = 1200): { w: number; h: number; rgb: Uint8Array } {
+  const [w, h] = cappedSize(width, height, cap);
   const rnd = mulberry32(hashString(id));
   const hue = rnd() * 360;
   const c0 = hsl(hue, 0.55 + rnd() * 0.3, 0.35 + rnd() * 0.2);
@@ -136,7 +153,7 @@ export function proceduralPNG(id: string, width: number, height: number): Uint8A
       rgb[i + 2] = b;
     }
   }
-  return encodePNG(w, h, rgb);
+  return { w, h, rgb };
 }
 
 /** Parse width/height from PNG IHDR or JPEG SOFn. Returns null when unknown. */

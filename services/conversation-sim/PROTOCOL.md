@@ -31,6 +31,7 @@ process and keep growing.
 | `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
 | `audioPlayed` | `{messageId}` | `{}` |
+| `setBackground` | `{background: BackgroundDraft \| null}` | `{conversation}` |
 
 `keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
 `audioPlayed` reports that I listened to someone's recording; it starts that
@@ -52,6 +53,16 @@ conversations (env `MAX_PINNED`) are pinned, and one more fails with `-32004
 `markedUnread` (Hide Alerts stays). A deleted conversation is recoverable: a
 new message from someone else, or `deleted: false`, brings it back. Every
 change is pushed to the conversation's subscribed clients as `conversation`.
+
+`setBackground` sets the conversation background everyone sees (iOS 26 /
+macOS 26 Messages), or removes it with `null`. The server assigns a new `id`
+and `setBy`, pushes `conversation` to every connection, and appends a system
+line by the actor (`system: "backgroundChanged"` or `"backgroundRemoved"`).
+Removing when there is none changes nothing. A preset `look` fills in its
+`colors`; `luminance` defaults to the mean WCAG relative luminance of
+`colors`. A photo needs an uploaded image's `attachmentId` and its
+`luminance` (the client measures it), so every device derives the same
+transcript contrast. Invalid input fails with `-32602`.
 
 ## Notifications (server to client)
 
@@ -84,7 +95,17 @@ dedupes on `eventSeq` and on message `id`.
 Conversation {
   id, title, kind: "group"|"direct", participants: [Participant],
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
+  background?: Background                          // absent when none
 }
+Background {
+  id, kind: "color"|"photo"|"sky"|"water"|"aurora"|"glitter",
+  colors?: ["#RRGGBB"],          // top to bottom; one is solid; dynamic kinds tint with them
+  look?: string,                 // preset id (backgrounds.ts LOOKS), e.g. "sky.dusk"
+  photo?: {url, width, height},  // kind "photo"
+  luminance: 0..1,               // mean relative luminance; below ~0.179 the transcript goes dark
+  setBy: participantId
+}
+BackgroundDraft { kind, colors?, look?, attachmentId?, luminance? }
 Participant  { id, name, initials, colorHex, isMe }
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
@@ -96,6 +117,7 @@ Message {
   textRuns?: [TextRun]                           // omitted when plain
   linkPreview?: LinkPreview   // when a URL opens or ends `text`
   effect?: Effect                                // "send with effect"
+  system?: "backgroundChanged"|"backgroundRemoved" // a system line by senderId; text is empty
 }
 LinkPreview {
   url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
@@ -160,9 +182,14 @@ edit without `textRuns` clears the formatting.
   Receiver-side effect testing. With a JSON body `{conversation, senderId,
   text, effect}` instead, the message posts at once and the sender may be me
   (deterministic link, data detector and layout fixtures).
+- `POST /admin/background?conversation=<id>[&sender=<id>]` with `look=<preset>`,
+  `colors=%23RRGGBB,...` (`kind` defaults to the look's or `color`),
+  `kind=photo` (a procedural 1179x2556 photo), `clear=1`, or nothing (what a
+  bot would do). The sender defaults to a random bot and may be me.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
+  botBackgroundRate}`.
 
 ## Link previews
 
@@ -202,6 +229,12 @@ is unchanged) plus, near each conversation's newest message, two consecutive
 recordings from one participant and one of mine just above the boot unread
 backlog (which is all from others). Bots send a recording 3% of
 the time. Every recording has a spoken transcript.
+
+Backgrounds: on each bot loop tick (every 5 to 25 s), a bot changes the
+background with probability `botBackgroundRate` (default 0.01): a random
+preset, a procedural photo (20%), or removing the current one (15%). System
+lines never count as unread, never revive a deleted conversation, and bots
+never react or reply to them.
 
 Effects: `effectRate` (default 0.03) of bot text messages carry a random
 effect; ~1.5% of generated history text messages do too.

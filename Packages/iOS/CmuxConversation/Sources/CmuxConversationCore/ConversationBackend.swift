@@ -107,3 +107,22 @@ public protocol ConversationAudioBackend: ConversationBackend {
 public extension ConversationBackend {
     func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
 }
+
+/// Conversation backgrounds (iOS 26 / macOS 26 Messages). Optional for
+/// backends: the defaults refuse, and `supportsBackgrounds` hides the picker.
+public protocol ConversationBackgroundBackend: ConversationBackend {
+    /// Sets (or, with nil, removes) the shared background and returns the
+    /// conversation. The service broadcasts it and writes the system line.
+    func setConversationBackground(_ draft: ConversationBackgroundDraft?) async throws -> ConversationInfo
+}
+
+extension ConversationBackend {
+    public var supportsBackgrounds: Bool { self is any ConversationBackgroundBackend }
+
+    public func setBackground(_ draft: ConversationBackgroundDraft?) async throws -> ConversationInfo {
+        if let backgrounds = self as? any ConversationBackgroundBackend {
+            return try await backgrounds.setConversationBackground(draft)
+        }
+        throw ConversationBackendError(code: -32601, message: "backgrounds are not supported")
+    }
+}

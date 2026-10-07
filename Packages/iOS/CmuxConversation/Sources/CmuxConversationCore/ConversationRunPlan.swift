@@ -29,14 +29,14 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
         var lastAckedOutgoing = messages.lastIndex { message in
-            guard message.senderID == meID, !message.isUnsent else { return false }
+            guard message.senderID == meID, !message.isNotice else { return false }
             switch message.delivery {
             case .delivered, .read: return true
             default: return false
             }
         }
         // Once someone replies below it, the status has done its job.
-        if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID }) {
+        if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID && $0.systemEvent == nil }) {
             lastAckedOutgoing = nil
         }
         var entries: [Entry] = []
@@ -71,8 +71,9 @@ public struct ConversationRunPlan: Sendable, Equatable {
     }
 
     static func sameRun(_ a: ConversationMessage, _ b: ConversationMessage) -> Bool {
-        // An unsent message renders as a centered notice, which ends the run
-        // above it (that bubble regains its tail) and starts a new one below.
-        !a.isUnsent && !b.isUnsent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
+        // An unsent message or a system event renders as a centered notice,
+        // which ends the run above it (that bubble regains its tail) and
+        // starts a new one below.
+        !a.isNotice && !b.isNotice && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
     }
 }

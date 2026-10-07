@@ -94,7 +94,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         if let markedUnread = change.markedUnread { params["markedUnread"] = markedUnread }
         if let deleted = change.deleted { params["deleted"] = deleted }
         let result = try await core.request("updateConversation", params: JSONBox(params), timeout: .seconds(15)).value
-        guard let info = WireDecoding.conversation(result["conversation"] as? [String: Any] ?? [:]) else {
+        guard let info = WireDecoding.conversation(result["conversation"] as? [String: Any] ?? [:], base: await core.httpBase) else {
             throw ConversationBackendError(code: -4, message: "bad conversation")
         }
         return info
@@ -182,7 +182,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             if let lastEventSeq { params["resumeAfterEventSeq"] = lastEventSeq }
             let result = try await send("hello", params: params, timeout: .seconds(10)).value
             guard let conversation = result["conversation"] as? [String: Any],
-                  let info = WireDecoding.conversation(conversation),
+                  let info = WireDecoding.conversation(conversation, base: httpBase),
                   let me = (result["me"] as? String) ?? ((result["me"] as? [String: Any])?["id"] as? String) else {
                 throw ConversationBackendError(code: -4, message: "bad hello")
             }
@@ -238,7 +238,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                 guard let read = WireDecoding.readState(params) else { return }
                 continuation?.yield(.readState(read))
             case "conversation":
-                guard let info = WireDecoding.conversation(params["conversation"] as? [String: Any] ?? [:]) else { return }
+                guard let info = WireDecoding.conversation(params["conversation"] as? [String: Any] ?? [:], base: httpBase) else { return }
                 continuation?.yield(.conversationChanged(info))
             case "typing":
                 guard let participant = params["participantId"] as? String else { return }
@@ -315,7 +315,7 @@ enum WireDecoding {
         return ConversationReadState(lastReadSeq: lastRead, unreadCount: unread, headSeq: raw["headSeq"] as? Int ?? lastRead)
     }
 
-    static func conversation(_ raw: [String: Any]) -> ConversationInfo? {
+    static func conversation(_ raw: [String: Any], base: URL? = nil) -> ConversationInfo? {
         guard let id = raw["id"] as? String else { return nil }
         let participants = (raw["participants"] as? [[String: Any]] ?? []).compactMap { p -> ConversationParticipant? in
             guard let id = p["id"] as? String else { return nil }
@@ -332,8 +332,41 @@ enum WireDecoding {
             title: raw["title"] as? String ?? "",
             kind: ConversationKind(rawValue: raw["kind"] as? String ?? "") ?? .group,
             participants: participants,
-            listState: listState(raw)
+            listState: listState(raw),
+            background: (raw["background"] as? [String: Any]).flatMap { background($0, base: base) }
         )
+    }
+
+    /// `{id, kind, colors?, look?, photo?: {url, width, height}, luminance, setBy?}`.
+    static func background(_ raw: [String: Any], base: URL?) -> ConversationBackground? {
+        guard let id = raw["id"] as? String,
+              let kind = (raw["kind"] as? String).flatMap(ConversationBackground.Kind.init(rawValue:)) else { return nil }
+        let colors = raw["colors"] as? [String] ?? []
+        var photo: ConversationBackground.Photo?
+        if let p = raw["photo"] as? [String: Any], let string = p["url"] as? String {
+            let url = string.hasPrefix("/") ? base.flatMap { URL(string: string, relativeTo: $0)?.absoluteURL } : URL(string: string)
+            photo = ConversationBackground.Photo(url: url, width: p["width"] as? Int ?? 0, height: p["height"] as? Int ?? 0)
+        }
+        if kind == .photo, photo == nil { return nil }
+        let luminance = (raw["luminance"] as? NSNumber)?.doubleValue ?? ConversationBackground.luminance(colors: colors) ?? 0.5
+        return ConversationBackground(
+            id: id,
+            kind: kind,
+            colors: colors,
+            look: raw["look"] as? String,
+            photo: photo,
+            luminance: luminance,
+            setBy: raw["setBy"] as? String
+        )
+    }
+
+    static func wireBackground(_ draft: ConversationBackgroundDraft) -> [String: Any] {
+        var out: [String: Any] = ["kind": draft.kind.rawValue]
+        if !draft.colors.isEmpty { out["colors"] = draft.colors }
+        if let look = draft.look { out["look"] = look }
+        if let attachmentID = draft.attachmentID { out["attachmentId"] = attachmentID }
+        if let luminance = draft.luminance { out["luminance"] = luminance }
+        return out
     }
 
     static func listState(_ raw: [String: Any]) -> ConversationListState {
@@ -381,7 +414,8 @@ enum WireDecoding {
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
             textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
             linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) },
-            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:))
+            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
+            systemEvent: (raw["system"] as? String).flatMap(ConversationSystemEvent.init(rawValue:))
         )
     }
 
@@ -515,5 +549,17 @@ extension ConversationSimBackend: ConversationAudioBackend {
 
     public func markAudioPlayed(messageID: String) async {
         _ = try? await core.request("audioPlayed", params: JSONBox(["messageId": messageID]), timeout: .seconds(5))
+    }
+}
+
+extension ConversationSimBackend: ConversationBackgroundBackend {
+    /// `setBackground {background: {...} | null}` -> `{conversation}`.
+    public func setConversationBackground(_ draft: ConversationBackgroundDraft?) async throws -> ConversationInfo {
+        let params: [String: Any] = ["background": draft.map(WireDecoding.wireBackground) ?? NSNull()]
+        let result = try await core.request("setBackground", params: JSONBox(params), timeout: .seconds(15)).value
+        guard let info = WireDecoding.conversation(result["conversation"] as? [String: Any] ?? [:], base: await core.httpBase) else {
+            throw ConversationBackendError(code: -4, message: "bad conversation")
+        }
+        return info
     }
 }

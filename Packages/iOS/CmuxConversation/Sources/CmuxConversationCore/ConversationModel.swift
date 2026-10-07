@@ -30,19 +30,23 @@ public struct ConversationInfo: Sendable, Hashable {
     public var participants: [ConversationParticipant]
     /// Pin, Hide Alerts, Mark as Unread and Delete state in the conversation list.
     public var listState: ConversationListState
+    /// The shared conversation background (iOS 26 / macOS 26). Nil is none.
+    public var background: ConversationBackground?
 
     public init(
         id: String,
         title: String,
         kind: ConversationKind,
         participants: [ConversationParticipant],
-        listState: ConversationListState = ConversationListState()
+        listState: ConversationListState = ConversationListState(),
+        background: ConversationBackground? = nil
     ) {
         self.id = id
         self.title = title
         self.kind = kind
         self.participants = participants
         self.listState = listState
+        self.background = background
     }
 
     public func participant(_ id: String) -> ConversationParticipant? {
@@ -228,6 +232,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
     public var effect: ConversationMessageEffect?
+    /// Set on a system line ("Leo changed the background."): the row is a
+    /// centered notice by `senderID`, never a bubble.
+    public var systemEvent: ConversationSystemEvent?
 
     public init(
         id: String,
@@ -247,7 +254,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
         linkPreview: ConversationLinkPreview? = nil,
-        effect: ConversationMessageEffect? = nil
+        effect: ConversationMessageEffect? = nil,
+        systemEvent: ConversationSystemEvent? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -267,6 +275,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.textRuns = textRuns
         self.linkPreview = linkPreview
         self.effect = effect
+        self.systemEvent = systemEvent
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -274,6 +283,10 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var rowID: String { clientMessageID.map { "c:\($0)" } ?? "s:\(id)" }
 
     public var isUnsent: Bool { unsentAt != nil }
+
+    /// Renders as a centered system line instead of a bubble: an unsent
+    /// message or a system event. It ends the run above it and is not unread.
+    public var isNotice: Bool { unsentAt != nil || systemEvent != nil }
 }
 
 public struct ConversationHistoryPage: Sendable {
