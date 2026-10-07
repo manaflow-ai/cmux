@@ -1,5 +1,5 @@
 public import CmuxControlPlane
-public import CmuxMobileWire
+import CmuxMobileWire
 public import Foundation
 
 /// The pairing ops on the account's `/v1/wire/user` socket (b6-pairing.md

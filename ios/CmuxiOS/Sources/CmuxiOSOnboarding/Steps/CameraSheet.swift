@@ -1,14 +1,15 @@
 import CmuxiOSOnboardingCore
+import CmuxiOSPairing
 import SwiftUI
 import UIKit
 
 /// Camera priming before the system prompt, the denial path to Settings,
-/// and the scanner. The camera scanner itself is lane B6's; until it lands
-/// this shows the viewfinder and, in DEBUG, a sample code for the mock.
+/// and lane B6's camera scanner (DEBUG also offers a sample code for the mock).
 struct CameraSheet: View {
     let model: OnboardingModel
     let pairing: PairingModel
     @State var stage: CameraSheetStage
+    @State private var cameraUnavailable = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -40,11 +41,29 @@ struct CameraSheet: View {
         switch stage {
         case .primer: OnboardingText.cameraBody
         case .denied: OnboardingText.cameraDenied
-        case .scanner: OnboardingText.scannerBody + "\n\n" + OnboardingText.scannerPending
+        case .scanner: cameraUnavailable ? QRScannerView.unavailableMessage : OnboardingText.scannerBody
         }
     }
 
+    @ViewBuilder
     private var viewfinder: some View {
+        if stage == .scanner && !cameraUnavailable {
+            QRScannerView(onLink: { url in
+                model.choose("qrScan")
+                Task {
+                    await pairing.redeemScanned(url)
+                    dismiss()
+                }
+            }, onUnavailable: { cameraUnavailable = true })
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
             .strokeBorder(OnboardingColors.tertiaryText, style: StrokeStyle(lineWidth: 3, dash: [28, 18]))
             .frame(width: 200, height: 200)

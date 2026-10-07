@@ -21,14 +21,14 @@ extension RootViewController {
             presentOnTop(PlatformComposition.diagnosticsScreen(container: container))
         case .whatsNew:
             presentOnTop(PlatformComposition.whatsNewScreen())
-        case .pairing:
-            // B6 owns the pair/attach grammar and installs its handler here.
-            container.diagnostics.info("router", "pairing link waits for B6")
+        case .pairing(let url):
+            // B6 owns the pair/attach grammar (RootViewController+Pairing.swift).
+            handlePairingLink(url)
         }
     }
 
     /// Selects a tab; a tab hidden by its flag falls back to Home.
-    private func select(_ tab: ShellTab) {
+    func select(_ tab: ShellTab) {
         dismissPresented()
         guard let shell else { return }
         if !shell.select(tab) { _ = shell.select(.home) }

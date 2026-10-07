@@ -1,5 +1,3 @@
-public import Foundation
-
 /// What a pairing link asks for.
 public enum PairingLinkKind: Hashable, Sendable {
     /// A QR offer from a Mac: claim it with the bound host key.

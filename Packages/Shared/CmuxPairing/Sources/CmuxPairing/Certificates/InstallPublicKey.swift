@@ -1,5 +1,5 @@
 public import CryptoKit
-public import Foundation
+import Foundation
 
 /// An install's P-256 public key as the backend records it (a JWK).
 public struct InstallPublicKey: Hashable, Sendable, Codable {

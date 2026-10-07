@@ -25,6 +25,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
+        .package(path: "../../Packages/Shared/CmuxControlPlane"),
+        .package(path: "../../Packages/Shared/CmuxMobileWire"),
+        .package(path: "../../Packages/Shared/CmuxPairing"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
@@ -57,6 +60,11 @@ let package = Package(
                 "CmuxiOSOnboardingCore",
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSPairing",
+                "CmuxiOSPairingCore",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -178,7 +186,38 @@ let package = Package(
         // ...and its screens.
         .target(
             name: "CmuxiOSOnboarding",
-            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign", "CmuxiOSPairing"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane B6 (plans/cmux-next/ios-next/b6-pairing.md): the real
+        // DeviceRegistry over the trust store mirror and host presence,
+        // pairing tickets and links. No UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSPairingCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSPairingCoreTests",
+            dependencies: [
+                "CmuxiOSPairingCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The AVFoundation QR scanner (replaces C10's placeholder viewfinder).
+        .target(
+            name: "CmuxiOSPairing",
+            dependencies: ["CmuxiOSPairingCore", .product(name: "CmuxPairing", package: "CmuxPairing")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
