@@ -20,6 +20,13 @@ import WebKit
 /// pages over the window (the window server's image alone: a Chromium
 /// page's own child window is not in it, but native UI over it is, such as
 /// the prompt bar).
+///
+/// The refusal HUD (`RefusalHUD`) is a Liquid Glass pill that fades in and
+/// hides after 1.8 s, so its pixels are not a reliable assertion: a capture
+/// may land before the fade, after the hide, or (AppKit path) without the
+/// glass. Every reply therefore carries `refusal_hud`: the message the HUD
+/// shows now (null when hidden) and `refusal_hud_count`, the messages shown
+/// so far. Check those instead of looking for the pill in the PNG.
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -31,6 +38,7 @@ enum DebugWindowSnapshot {
             return .object([
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
@@ -80,10 +88,16 @@ enum DebugWindowSnapshot {
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(images.count),
                 "webviews_failed": JSONValue(failed),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
+    }
+
+    /// The refusal HUD's message while it shows, else null.
+    static func hudMessage(_ services: AppServices) -> JSONValue {
+        services.refusalHUD.message.map(JSONValue.string) ?? .null
     }
 
     private static func baseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
