@@ -35,8 +35,7 @@ import Testing
         let model = OnboardingModel(services: services, resumingFirstRunAt: .classicSessions)
         #expect(model.isFirstRun)
         #expect(model.step == .classicSessions)
-        // The first run's steps (the mock offers no Accounts step), not Import and Sync's.
-        #expect(model.steps.contains(.importData) && !model.steps.contains(.projects))
+        #expect(model.steps.contains(.accounts) && model.steps.contains(.importData))
     }
 
     /// The first run reports each step it shows, so the App can keep it.
