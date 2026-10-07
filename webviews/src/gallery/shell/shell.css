@@ -262,3 +262,5 @@ body {
 .gallery-play--warn {
   color: #c69026;
 }
+/* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
+.gallery .variant-pick-option { flex: 0 0 auto; }
