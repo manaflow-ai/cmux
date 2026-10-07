@@ -292,11 +292,4 @@ enum TabLifecycle {
         ctx.send("rename-surface") { try await $0.renameTab(surface, to: name) }
         return true
     }
-
-    static func togglePinHidden(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> Bool {
-        guard let tab = hiddenTab(ctx, invocation) else { return false }
-        let surface = tab.surface, pinned = !tab.pinned
-        ctx.send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
-        return true
-    }
 }
