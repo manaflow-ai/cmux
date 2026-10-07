@@ -1663,19 +1663,21 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
-  # Green Linux checks on a feat-cmux-next push ask main's nightly.yml to promote
-  # this commit to the protected `nightly-next` branch. The nightly build is the
-  # Release compile gate: it compiles Release itself and publishes nothing when
-  # that fails, so a push never waits for a mini before nightly-next builds it.
+  # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
+  # promote this commit to the protected `nightly-next` branch. Main's promote
+  # job refuses a head whose push run has no successful Release compile, so the
+  # request waits for that job and for nothing else: an unrelated red job never
+  # holds the promotion. (Requested after the Linux checks instead, it ran
+  # before the Release compile finished and every promotion was refused.)
   # Every green head is promoted, with no debounce: nightly.yml's concurrency
   # group lets the running nightly-next build finish and replaces only the
   # pending one, so the feed rolls forward to the newest green head without
   # dropping the last one. Only main's job, in the `release` environment,
-  # holds the release App key and checks this push run's Linux checks; this
+  # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   request-nightly-next:
-    needs: checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success'
+    needs: release-compile
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
