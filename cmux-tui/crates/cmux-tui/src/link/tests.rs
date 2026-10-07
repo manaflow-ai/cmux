@@ -462,3 +462,15 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
     .await;
     assert_eq!(refused, Err(InboundRefused::UnknownPeer));
 }
+
+/// `cmux link show` names the pairing file, which the app watches so a peer
+/// change re-resolves a paired server's route (bead cx-ysq).
+#[test]
+fn link_show_names_the_pairing_file() {
+    let directory = cmux_unix_socket::short_test_dir("linkshow");
+    let state = super::state::LinkState::open(Some(directory.path().join("link"))).unwrap();
+    state.init(&super::state::LinkConfig { install: "inst_show".into(), port: 4101 }).unwrap();
+    let shown = super::show_json(&state).unwrap();
+    assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
+    assert_eq!(shown["install"].as_str(), Some("inst_show"));
+}

@@ -78,22 +78,9 @@ if [ "$MODE" = "--check" ]; then
     write_agent_session_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
   )
-  diff_output="$(mktemp)"
-  set +e
-  diff -qr "$OUT_DIR" "$tmp_dir" >"$diff_output"
-  diff_status=$?
-  set -e
-  if [ "$diff_status" -ne 0 ]; then
-    cat "$diff_output" >&2
-    rm -f "$diff_output"
-    if [ "$diff_status" -eq 1 ]; then
-      echo "webviews app assets are stale; run ./scripts/build-webviews-app.sh" >&2
-      exit 1
-    fi
-    echo "failed to compare webviews assets (diff exit $diff_status)" >&2
-    exit 2
-  fi
-  rm -f "$diff_output"
+  # The app is build output (gitignored; scripts/cmux-next/build-web-bundles.sh
+  # builds it before every app build): --check proves the sources build.
+  echo "webviews app builds"
   exit 0
 fi
 
