@@ -129,6 +129,15 @@ extension PaneController {
         })
     }
 
+    /// Whether a session-local (WebKit) tab may stand in when the daemon
+    /// cannot make browser tabs.
+    /// Never for a Chromium request or a Chromium internal page: those are
+    /// refused rather than shown by the wrong engine.
+    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
+        if BrowserEngineResolver.explicitEngine(requested) == .cef { return false }
+        return !(url.map(ChromiumInternalURL.needsChromium) ?? false)
+    }
+
     /// New browser tab: daemon-owned when supported, on the engine
     /// `BrowserTabService.resolve` picks (an explicit engine, else
     /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
@@ -143,14 +152,18 @@ extension PaneController {
     /// surface once the daemon made the tab. `opener` is the tab of the page
     /// that asked for it: the new tab goes next to it in Chrome's order
     /// (`BrowserTabOpeners`); without it the tab goes to the end.
+    /// False when the tab is refused (no tab, no daemon request).
+    @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
             switch browserTabs.resolve(requested: requested, inherited: inherited) {
-            case .refuse(let reason): return services.registry.refuse(BrowserTabService.message(reason))
+            case .refuse(let reason):
+                services.registry.refuse(BrowserTabService.message(reason))
+                return false
             case .open(let resolved): choice = resolved
             }
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
@@ -179,15 +192,21 @@ extension PaneController {
                     return "new-frontend-browser-tab: \(error)"
                 }
             })
-            return
+            return true
+        }
+        guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
+            child?.close()
+            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
         state?.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
-        if background { return }
+        if background { return true }
         select(StripTabID(local.id))
         if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+        return true
     }
 
     /// Several tabs (close others, to the left, to the right) close in one

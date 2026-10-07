@@ -409,8 +409,9 @@ export function ModelPicker(props: ModelPickerProps) {
               </button>
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
               <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
-                {harnesses.map((entry, index) => (
-                  <button
+                <div className="acpmux-mp-harness-list-inner">
+                  {harnesses.map((entry, index) => (
+                    <button
                     type="button"
                     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
                     role="option"
@@ -446,8 +447,9 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.id} size={16} />
                     <span>{entry.name}</span>
                     {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div
