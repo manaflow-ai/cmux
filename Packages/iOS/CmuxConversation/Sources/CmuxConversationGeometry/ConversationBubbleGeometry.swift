@@ -8,8 +8,9 @@ public enum ConversationBubbleGeometry {
         case trailing
     }
 
-    /// Both tails stay inside the body's width: iOS 26 curls the tail out of
-    /// the bottom corner, macOS tucks it under the corner and points down.
+    /// macOS Messages is Mac Catalyst ChatKit and draws the same outline as
+    /// iOS (CKBalloonShapeLayer on macOS 26.7), scaled by its corner radius;
+    /// both styles render it.
     public enum TailStyle: Sendable {
         case iOS
         case macOS
@@ -17,7 +18,8 @@ public enum ConversationBubbleGeometry {
 
     /// `rect` includes the tail area on `side` whether or not a tail is drawn,
     /// so tailed and tailless bubbles in a run share one body edge. A tailed
-    /// bubble also draws `tailDrop` below `rect`.
+    /// bubble also draws `iOSTailDrop(radius:)` below `rect`; `tailDrop` is
+    /// kept for callers and must match it.
     public static func path(
         in rect: CGRect,
         side: Side,
@@ -30,18 +32,7 @@ public enum ConversationBubbleGeometry {
         var body = rect
         body.size.width -= tailWidth
         if side == .leading { body.origin.x += tailWidth }
-        if style == .iOS {
-            return iOSPath(in: body, side: side, tail: tail, radius: radius)
-        }
-        let r = max(0, min(radius, body.height / 2, body.width / 2))
-        guard tail else {
-            return CGPath(roundedRect: body, cornerWidth: r, cornerHeight: r, transform: nil)
-        }
-        var transform = side == .leading
-            ? CGAffineTransform(translationX: rect.maxX, y: rect.minY).scaledBy(x: -1, y: 1)
-            : CGAffineTransform(translationX: rect.minX, y: rect.minY)
-        let path = macTrailingTailPath(width: body.width, height: body.height, radius: r, tailDrop: tailDrop)
-        return path.copy(using: &transform) ?? path
+        return iOSPath(in: body, side: side, tail: tail, radius: radius)
     }
 
     // MARK: iOS 26 outline
@@ -135,31 +126,6 @@ public enum ConversationBubbleGeometry {
         }
         addCorner({ CGPoint(x: $0.x, y: h - $0.y) }, reversed: true)
         addCorner({ $0 }, reversed: false)
-        p.closeSubpath()
-        return p
-    }
-
-    /// macOS Messages: the bottom-trailing corner rounds in early, then a
-    /// short tail drops `tailDrop` below the body with its tip just inside
-    /// the trailing edge, and sweeps back into the bottom edge.
-    private static func macTrailingTailPath(width w: CGFloat, height h: CGFloat, radius r: CGFloat, tailDrop d: CGFloat) -> CGPath {
-        let k: CGFloat = 0.4477
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: r, y: 0))
-        p.addLine(to: CGPoint(x: w - r, y: 0))
-        p.addCurve(to: CGPoint(x: w, y: r), control1: CGPoint(x: w - r * k, y: 0), control2: CGPoint(x: w, y: r * k))
-        p.addLine(to: CGPoint(x: w, y: max(r, h - r * 0.5)))
-        // A small concave notch where the corner would be.
-        p.addCurve(to: CGPoint(x: w - 3.2, y: h - 0.6), control1: CGPoint(x: w, y: h - r * 0.18), control2: CGPoint(x: w - 1.2, y: h - 1.4))
-        // The tail: down and slightly back toward the trailing edge.
-        p.addCurve(to: CGPoint(x: w - 2.4, y: h + d), control1: CGPoint(x: w - 4.6, y: h + d * 0.35), control2: CGPoint(x: w - 4.2, y: h + d * 0.8))
-        // Rounded tip, then the underside back into the bottom edge.
-        p.addCurve(to: CGPoint(x: w - 5.6, y: h + d - 0.8), control1: CGPoint(x: w - 1.2, y: h + d + 0.9), control2: CGPoint(x: w - 3.6, y: h + d + 0.3))
-        p.addCurve(to: CGPoint(x: w - r * 0.95, y: h), control1: CGPoint(x: w - 8.5, y: h + d * 0.5), control2: CGPoint(x: w - r * 0.62, y: h))
-        p.addLine(to: CGPoint(x: r, y: h))
-        p.addCurve(to: CGPoint(x: 0, y: h - r), control1: CGPoint(x: r * k, y: h), control2: CGPoint(x: 0, y: h - r * k))
-        p.addLine(to: CGPoint(x: 0, y: r))
-        p.addCurve(to: CGPoint(x: r, y: 0), control1: CGPoint(x: 0, y: r * k), control2: CGPoint(x: r * k, y: 0))
         p.closeSubpath()
         return p
     }

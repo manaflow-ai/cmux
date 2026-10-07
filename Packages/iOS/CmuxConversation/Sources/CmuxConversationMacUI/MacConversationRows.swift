@@ -269,7 +269,7 @@ extension MacMessageLayout {
         let isFailed = model.footer == .notDelivered
         let outgoingTrailing = width - t.outgoingMargin - (isFailed ? 26 : 0)
         let available = model.isOutgoing ? width : width - avatarColumn
-        let maxBubble = min(t.maxBubbleWidth, floor(available * t.maxBubbleWidthFraction))
+        let maxBubble = min(t.maxBubbleWidth, floor((available - 2 * margin) * t.maxBubbleWidthFraction))
 
         func bubbleRect(bodyWidth w: CGFloat, y: CGFloat, height h: CGFloat) -> CGRect {
             model.isOutgoing

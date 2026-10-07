@@ -121,4 +121,23 @@ import Testing
         #expect(abs(path.boundingBoxOfPath.maxY - 52.704) < 0.05)
         #expect(path.boundingBoxOfPath.maxX <= 200)
     }
+
+    /// macOS Messages (Mac Catalyst ChatKit, macOS 26.7) draws the same
+    /// outline at its 15 pt radius: a 618.39 x 30 incoming balloon.
+    @Test func macOSStyleMatchesCatalystChatKit() {
+        let path = ConversationBubbleGeometry.path(
+            in: CGRect(x: 0, y: 0, width: 618.38818359375, height: 30), side: .leading, tail: true,
+            radius: 15, tailWidth: 0, tailDrop: ConversationBubbleGeometry.iOSTailDrop(radius: 15), style: .macOS
+        )
+        expectMatches(path, """
+        618.388,15.000 618.388,13.099 618.027,11.215 617.323,9.449 615.799,5.621 612.796,2.590 608.916,1.124
+        605.362,0.000 602.061,0.000 595.458,0.000 22.930,0.000 16.327,0.000 13.026,0.000 9.472,1.124
+        5.592,2.536 2.536,5.621 1.065,9.449 0.361,11.215 0.000,13.099 0.000,15.000 0.000,18.230 1.061,21.374
+        3.021,23.943 3.815,24.984 4.732,25.902 5.745,26.682 7.189,27.808 7.813,28.983 7.813,30.303
+        7.813,31.190 7.657,32.067 6.383,33.741 5.771,34.543 6.385,35.362 7.340,34.999 9.305,34.253
+        11.543,32.895 13.504,31.445 15.260,30.146 15.728,30.015 16.553,30.009 595.458,30.000
+        602.061,30.000 605.362,30.000 608.916,28.876 612.796,27.464 615.852,24.379 617.323,20.551
+        618.027,18.785 618.388,16.901
+        """)
+    }
 }
