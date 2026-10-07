@@ -1523,7 +1523,6 @@ def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
 def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
     sdk_ci = workflow("cmux-tui-sdks.yml")
     guarded = (
-        "cmux-tui-nightly.yml",
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
@@ -1598,13 +1597,6 @@ def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
             "Verify every PyPI wheel after upload",
             "${{ inputs.version }}",
         ),
-        (
-            "cmux-tui-nightly.yml",
-            "publish-pypi",
-            "Publish nightly package distributions to PyPI",
-            "Verify every nightly PyPI wheel after upload",
-            "${{ needs.version.outputs.pypi_version }}",
-        ),
     )
 
     for name, job_name, publish_name, verify_name, version in cases:
@@ -1647,19 +1639,11 @@ def test_tui_pypi_reconciliation_behavior_test_is_in_tui_ci() -> None:
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
     for name in (
         "tui-publish-npm.yml",
-        "cmux-tui-nightly.yml",
         "sdk-release-cut.yml",
     ):
         text = workflow(name)
         assert "npm install -g npm@11.5.1" in text
         assert "npm@^11.5.1" not in text
-
-
-def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
-    text = workflow("cmux-tui-nightly.yml")
-    assert "ref: ${{ github.sha }}" in text
-    assert 'if [[ "$head_sha" != "$GITHUB_SHA" ]]' in text
-    assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
 
 
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
@@ -1830,10 +1814,9 @@ def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> 
 
 
 def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
-    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
-        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
-        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
-        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    document = yaml.load(workflow("cmux-tui-release.yml"), Loader=yaml.BaseLoader)
+    assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+    assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
     publisher = workflow("tui-publish-npm.yml")
     assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
     platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
@@ -1843,21 +1826,20 @@ def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> N
 
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
-    # family. If the coordinated TUI publish or the nightly lane ever grows a
-    # cmux-relay npm publish back, a routine TUI release could silently take
-    # over cmux-relay@latest from the shipping relay (chatmux relay Rust
-    # cutover, chatmux docs/RELAY-RUST.md).
-    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
-        text = workflow(name)
-        assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
-        assert (
-            "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
-            not in text
-        )
-        publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
-        assert publish_lists
-        for block in publish_lists:
-            assert "cmux-relay" not in block
+    # family. If the coordinated TUI publish ever grows a cmux-relay npm
+    # publish back, a routine TUI release could silently take over
+    # cmux-relay@latest from the shipping relay (chatmux relay Rust cutover,
+    # chatmux docs/RELAY-RUST.md).
+    text = workflow("tui-publish-npm.yml")
+    assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
+    assert (
+        "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
+        not in text
+    )
+    publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
+    assert publish_lists
+    for block in publish_lists:
+        assert "cmux-relay" not in block
 
 
 def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
