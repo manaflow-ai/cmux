@@ -13,6 +13,12 @@ import CmuxNextRemoteBrowser
 /// socket verb share `open(address:url:in:)`, which opens a browser record
 /// `cmux://remote-browser?address=…`; `TabContentCache` turns that record
 /// into a `RemoteBrowserTab` streamed from the loopback rb/1 host.
+///
+/// `remote.openLocalBrowserTab` (and `debug.remote_browser` `open_local`)
+/// share `openLocal(url:in:)`: it starts this build's remote browser host
+/// (`LocalRemoteBrowserHostLocator`) on a free loopback port, opens the tab
+/// once the host listens, and stops the host when that tab closes. One host
+/// serves one tab, so a page's new tab (`rb.open_tab`) starts its own host.
 enum RemoteBrowserPages {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("remote.openBrowserTab", run: { invocation in
@@ -20,6 +26,12 @@ enum RemoteBrowserPages {
             let address = invocation["address"]?.stringValue ?? ""
             guard let pane = context.paneController(invocation) else { return }
             try open(address: address, url: invocation["url"]?.stringValue, in: pane)
+            #endif
+        })
+        registry.bind("remote.openLocalBrowserTab", run: { invocation in
+            #if DEBUG
+            guard let pane = context.paneController(invocation) else { return }
+            try openLocal(url: invocation["url"]?.stringValue.flatMap(URL.init(string:)), in: pane)
             #endif
         })
     }
@@ -30,6 +42,52 @@ enum RemoteBrowserPages {
 
     private struct WeakSession {
         weak var value: RemoteBrowserSession?
+    }
+
+    /// Hosts this app started, by port, each owned until its tab closes.
+    @MainActor private static var localHosts: [UInt16: LocalRemoteBrowserHost] = [:]
+    /// Hosts still starting, and the last start failure (debug socket).
+    @MainActor private static var startingLocalHosts = 0
+    @MainActor private static var lastLocalFailure: String?
+
+    /// The first page of a local remote tab opened without a URL.
+    static let localStartPage = URL(string: "https://www.google.com/")
+
+    /// Starts a local host for `url` (nil: `localStartPage`) and
+    /// opens its tab in `pane` once it listens; `then` gets the new tab's
+    /// surface id. Throws at once when this
+    /// build has no host; a host that fails to start shows an alert.
+    @MainActor
+    static func openLocal(url: URL?, in pane: PaneController, background: Bool = false,
+                          then: (@MainActor (String) -> Void)? = nil) throws {
+        guard let executable = LocalRemoteBrowserHostLocator().executable() else {
+            throw ActionFailure(message: RemoteBrowserStrings.hostNotInBuild(LocalRemoteBrowserHostLocator.environmentKey))
+        }
+        let page = (url ?? localStartPage).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        startingLocalHosts += 1
+        // task-owner: one host start; ends when the host listens or exits. The host then belongs to localHosts until its tab closes.
+        Task { [weak pane] in
+            defer { startingLocalHosts -= 1 }
+            do {
+                let host = try await LocalRemoteBrowserHost.start(executable: executable, pageURL: page)
+                let record = RemoteBrowserTabRecord(endpoint: host.endpoint)
+                localHosts[host.endpoint.port] = host
+                guard let pane, pane.newBrowserTab(url: record.url, background: background, then: { surface in
+                    then?(String(describing: surface))
+                }) else {
+                    localHosts[host.endpoint.port] = nil
+                    host.stop()
+                    return
+                }
+            } catch {
+                lastLocalFailure = String(describing: error)
+                guard let window = pane?.view.window else { return }
+                let alert = NSAlert()
+                alert.messageText = RemoteBrowserStrings.hostDidNotStart
+                alert.informativeText = String(describing: error)
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+        }
     }
 
     /// The one open path: refuses anything but a loopback host port.
@@ -50,12 +108,31 @@ enum RemoteBrowserPages {
               let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next"),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        let localHost = localHosts[record.endpoint.port]
         session.openTab = { [weak services] target, disposition, answer in
-            // A page's new tab is a remote tab on the same host (RT1).
+            // A page's new tab is a remote tab on the same runtime host (RT1).
             guard let services, let holder = pane(holding: key, services: services) else { return answer(nil) }
+            let background = disposition == .backgroundTab
+            guard localHost == nil else {
+                // A local host serves one tab: the new tab gets its own host.
+                do {
+                    try openLocal(url: target, in: holder, background: background) { answer($0) }
+                } catch {
+                    answer(nil)
+                }
+                return
+            }
             let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target)
-            holder.newBrowserTab(url: child.url, background: disposition == .backgroundTab) { surface in
+            holder.newBrowserTab(url: child.url, background: background) { surface in
                 answer(String(describing: surface))
+            }
+        }
+        if let localHost {
+            let port = record.endpoint.port
+            // The tab owns its host: closing the tab stops it.
+            session.onClose = { [weak localHost] in
+                localHost?.stop()
+                if localHosts[port] === localHost { localHosts[port] = nil }
             }
         }
         sessions = sessions.filter { $0.value.value != nil }
@@ -75,7 +152,8 @@ enum RemoteBrowserPages {
     }
 
     /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `pane`?)
-    /// runs the shared open path in that pane or the focused one; `state` (default) lists live
+    /// runs the shared open path in that pane or the focused one; `open_local`
+    /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
     /// does (`BrowserTab.load`); `menu_choose` (`id` or `index`, `tab`?)
     /// answers the open native menu; `menu_cancel` dismisses it; `click`
@@ -85,7 +163,7 @@ enum RemoteBrowserPages {
         let live = sessions.compactMapValues(\.value)
         let target = params["tab"]?.stringValue.flatMap { live[$0] } ?? live.values.first
         switch params["action"]?.stringValue ?? "state" {
-        case "open":
+        case "open", "open_local":
             // A background app has no active window: `pane` names one, else
             // the active window's focused pane, else the first window's.
             let named = params["pane"]?.stringValue.flatMap { key in
@@ -95,6 +173,10 @@ enum RemoteBrowserPages {
                 return ["error": "no pane"]
             }
             do {
+                if params["action"]?.stringValue == "open_local" {
+                    try openLocal(url: params["url"]?.stringValue.flatMap(URL.init(string:)), in: pane)
+                    return ["starting": true]
+                }
                 try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue, in: pane)
                 return ["opened": true]
             } catch {
@@ -112,7 +194,16 @@ enum RemoteBrowserPages {
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
-            return ["sessions": .array(rows)]
+            var hosts: [JSONValue] = []
+            for (port, host) in localHosts.sorted(by: { $0.key < $1.key }) {
+                let row: [String: JSONValue] = [
+                    "port": .number(Double(port)), "pid": .number(Double(host.processIdentifier)), "log": .string(host.logURL.path),
+                ]
+                hosts.append(.object(row))
+            }
+            let failure: JSONValue = lastLocalFailure.map(JSONValue.string) ?? .null
+            return ["sessions": .array(rows), "local_hosts": .array(hosts),
+                    "local_starting": .number(Double(startingLocalHosts)), "local_failure": failure]
         case "navigate":
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
             target.tab?.load(url)

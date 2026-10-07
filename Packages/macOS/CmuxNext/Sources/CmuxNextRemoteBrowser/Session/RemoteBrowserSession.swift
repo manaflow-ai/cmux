@@ -19,6 +19,9 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     /// `target=_blank`) and calls the completion with the new tab's id, or
     /// nil when it refuses. Unset: every request is refused.
     public var openTab: ((URL, BrowserNewTabDisposition, @escaping @MainActor (String?) -> Void) -> Void)?
+    /// Runs once when the tab closes the session (the App stops a local
+    /// host it started for this tab).
+    public var onClose: (@MainActor () -> Void)?
     /// The first page to load once the session is open.
     private let initialURL: URL?
     private let transport: RemoteRdStreamTransport
@@ -206,6 +209,9 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         transport.stop()
         serviceTask?.cancel()
         statusTask?.cancel()
+        let closed = onClose
+        onClose = nil
+        closed?()
     }
 
 }

@@ -525,6 +525,268 @@
         }
       }
     },
+    "remoteBrowser.localHost.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ مضيف المتصفح البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host udaljenog preglednika se nije pokrenuo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernbrowserværten startede ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Remote-Browser-Host wurde nicht gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote browser host did not start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host del navegador remoto no se inició"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte du navigateur distant n’a pas démarré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host del browser remoto non si è avviato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートブラウザホストを起動できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយមិនបានចាប់ផ្ដើមទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 브라우저 호스트가 시작되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den eksterne nettleserverten startet ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zdalnej przeglądarki nie uruchomił się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host do navegador remoto não iniciou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост удалённого браузера не запустился"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์เบราว์เซอร์ระยะไกลไม่เริ่มทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak tarayıcı ana bilgisayarı başlamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост віддаленого браузера не запустився"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trình duyệt từ xa không khởi động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程浏览器主机未启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端瀏覽器主機未啟動"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي هذا الإصدار على مضيف المتصفح البعيد. اضبط %@ على تطبيق cmux-remote-browser-host."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija nema host udaljenog preglednika. Postavite %@ na aplikaciju cmux-remote-browser-host."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne build har ingen fjernbrowservært. Sæt %@ til en cmux-remote-browser-host-app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build enthält keinen Remote-Browser-Host. Setze %@ auf eine cmux-remote-browser-host-App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build has no remote browser host. Set %@ to a cmux-remote-browser-host app."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta compilación no tiene host de navegador remoto. Define %@ con una app cmux-remote-browser-host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version n’a pas d’hôte de navigateur distant. Définissez %@ sur une app cmux-remote-browser-host."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non ha un host del browser remoto. Imposta %@ su un’app cmux-remote-browser-host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドにはリモートブラウザホストがありません。%@ に cmux-remote-browser-host アプリを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនមានម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយទេ។ កំណត់ %@ ទៅកម្មវិធី cmux-remote-browser-host។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 원격 브라우저 호스트가 없습니다. %@을(를) cmux-remote-browser-host 앱으로 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen har ingen ekstern nettleservert. Sett %@ til en cmux-remote-browser-host-app."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kompilacja nie ma hosta zdalnej przeglądarki. Ustaw %@ na aplikację cmux-remote-browser-host."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta build não tem host de navegador remoto. Defina %@ com um app cmux-remote-browser-host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой сборке нет хоста удалённого браузера. Укажите в %@ приложение cmux-remote-browser-host."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีโฮสต์เบราว์เซอร์ระยะไกล ตั้งค่า %@ เป็นแอป cmux-remote-browser-host"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derlemede uzak tarayıcı ana bilgisayarı yok. %@ değerini bir cmux-remote-browser-host uygulamasına ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій збірці немає хоста віддаленого браузера. Укажіть у %@ застосунок cmux-remote-browser-host."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có máy chủ trình duyệt từ xa. Đặt %@ thành ứng dụng cmux-remote-browser-host."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本没有远程浏览器主机。请将 %@ 设置为 cmux-remote-browser-host 应用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本沒有遠端瀏覽器主機。請將 %@ 設定為 cmux-remote-browser-host 應用程式。"
+          }
+        }
+      }
+    },
     "remoteBrowser.refusal.address": {
       "extractionState": "manual",
       "localizations": {
