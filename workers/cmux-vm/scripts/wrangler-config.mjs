@@ -12,7 +12,7 @@ if (!["preview", "staging", "production"].includes(target ?? "") || !/^[0-9a-f]{
   process.exit(2);
 }
 
-/** Removes // and /* */ comments outside strings. */
+// Removes line comments and block comments outside strings.
 function stripComments(text) {
   let out = "";
   for (let i = 0; i < text.length; i++) {
