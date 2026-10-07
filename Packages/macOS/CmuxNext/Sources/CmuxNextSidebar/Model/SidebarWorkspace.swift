@@ -129,7 +129,11 @@ nonisolated extension SidebarWorkspace {
     }
 
     /// The most useful detail to show below the workspace title.
-    public var rowDetail: String? {
-        liveDetail ?? subtitle.flatMap { $0.isEmpty ? nil : $0 }
+    public var rowDetail: String? { detail(showsDirectory: true) }
+
+    /// The second line: a live status, else the passive directory when
+    /// `showsDirectory` (`sidebar.showWorkspaceDirectory`; Lawrence 2026-10-06).
+    public func detail(showsDirectory: Bool) -> String? {
+        liveDetail ?? (showsDirectory ? subtitle.flatMap { $0.isEmpty ? nil : $0 } : nil)
     }
 }

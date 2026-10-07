@@ -50,6 +50,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// A workspace row's tab count, when `sidebar.showCounts` is on.
     public var tabCount: Int? = nil
+    /// A workspace row leaves out its passive directory line (minimal rows).
+    public var hidesDirectory = false
 
     public var maxY: CGFloat { y + height }
 }

@@ -107,6 +107,7 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant
         var disclosure: SidebarTabDisclosure?
         var count: Int?
+        var hidesDirectory: Bool
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
@@ -115,7 +116,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group, groupColor: row.groupColor,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: observedAgentMarkVariant(),
-            disclosure: row.tabDisclosure, count: row.tabCount
+            disclosure: row.tabDisclosure, count: row.tabCount, hidesDirectory: row.hidesDirectory
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -129,8 +130,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
-        subtitle.stringValue = ws.rowDetail ?? ""
-        hasSubtitle = ws.rowDetail != nil
+        // Minimal by default: the directory line shows only with
+        // `sidebar.showWorkspaceDirectory`; a live status always shows.
+        let detail = ws.detail(showsDirectory: !row.hidesDirectory)
+        subtitle.stringValue = detail ?? ""
+        hasSubtitle = detail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
         activityState = ws.activity
         agentMarkVariant = content.agentMark

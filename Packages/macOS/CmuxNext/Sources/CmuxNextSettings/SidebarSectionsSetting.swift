@@ -13,6 +13,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showCountsPath = ["sidebar", "showCounts"]
+    public static let showWorkspaceDirectoryPath = ["sidebar", "showWorkspaceDirectory"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -36,6 +37,16 @@ public nonisolated enum SidebarSectionsSetting {
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
                           keywords: ["sidebar", "workspace", "tabs"])
+    }
+
+    /// Minimal rows by default (Lawrence 2026-10-06).
+    static func showWorkspaceDirectoryDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showWorkspaceDirectoryPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showWorkspaceDirectory", "Show Workspace Directory"),
+                          help: SettingsText.keyed("settings.sidebar.showWorkspaceDirectory.help",
+                                                   "Shows each workspace's folder and branch under its name."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceDirectory),
+                          keywords: ["sidebar", "workspace", "directory", "folder", "cwd", "branch", "minimal"])
     }
 
     static func showCountsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -94,6 +105,7 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
+        result.showWorkspaceDirectory = flag(root, showWorkspaceDirectoryPath, fallback: result.showWorkspaceDirectory, &diagnostics)
         return result
     }
 

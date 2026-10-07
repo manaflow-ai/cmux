@@ -36,8 +36,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    func height(for ws: SidebarWorkspace) -> CGFloat {
-        ws.rowDetail == nil ? rowHeight : rowHeightWithSubtitle
+    func height(for ws: SidebarWorkspace, showsDirectory: Bool = true) -> CGFloat {
+        ws.detail(showsDirectory: showsDirectory) == nil ? rowHeight : rowHeightWithSubtitle
     }
 }
 
@@ -63,6 +63,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Workspace rows show their tab count (`sidebar.showCounts`).
     public var showCounts = false
+    /// Workspace rows show their passive directory line
+    /// (`sidebar.showWorkspaceDirectory`, off in the app by default).
+    public var showsWorkspaceDirectory = true
 
     public init() {}
 }

@@ -3,11 +3,11 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// Group header: quiet text. The name aligns with workspace titles in the
-/// secondary text color; a small dot follows it only when the user chose a
-/// color. The disclosure chevron and child count appear on hover (the
-/// chevron stays while collapsed). A collapsed group also surfaces its
-/// children's activity and unread total.
+/// Group header: quiet text, as in Dia (Lawrence 2026-10-06). The disclosure
+/// caret leads where workspace titles start and always shows; the name
+/// follows in the secondary text color, then a small dot only when the user
+/// chose a color. The child count appears on hover, over the row's hover
+/// fill. A collapsed group also surfaces its children's activity and unread total.
 final class GroupHeaderRowView: SidebarRowView {
     private let dot = CAShapeLayer()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
@@ -120,6 +120,9 @@ final class GroupHeaderRowView: SidebarRowView {
         }
     }
 
+    /// The leading caret shows (it always does; tests read it).
+    var showsDisclosure: Bool { !chevron.isHidden }
+
     /// The disclosure chevron: a click here toggles immediately.
     var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space3, dy: -bounds.height) }
 
@@ -144,11 +147,10 @@ final class GroupHeaderRowView: SidebarRowView {
         editButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
         trailing -= control + Metrics.space1
         addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
-        trailing -= control + Metrics.space1
-        chevronFrame = CGRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        trailing -= control + Metrics.space2
+        chevronFrame = CGRect(x: SidebarStyle.titleLeading, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
-        chevron.isHidden = !(isHovered || collapsed)
-        trailing = chevronFrame.minX - Metrics.space2
+        chevron.isHidden = false
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth
@@ -170,8 +172,8 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }
-        // The name starts where workspace titles start (FlatSidebarTests).
-        let nx = SidebarStyle.titleLeading
+        // The name follows the caret (FlatSidebarTests).
+        let nx = chevronFrame.maxX + Metrics.space1
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3

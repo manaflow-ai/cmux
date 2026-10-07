@@ -31,6 +31,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showWorkspaceTabs: Bool
     /// Each workspace row shows how many tabs it has.
     public var showCounts = false
+    /// Workspace rows show their directory line; off, rows are minimal and a
+    /// second line shows only a live status (`sidebar.showWorkspaceDirectory`).
+    public var showWorkspaceDirectory = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
