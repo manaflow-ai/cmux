@@ -6055,4 +6055,7 @@ impl Drop for SessionLease {
 mod tests;
 
 #[cfg(test)]
+mod receipt_env_tests;
+
+#[cfg(test)]
 mod personal_tests;

@@ -134,16 +134,8 @@ fn relaunch_env_keeps_allowlisted_keys_and_no_secret_reaches_sqlite() {
     assert_eq!(reopened.spawn_cwd().as_deref(), Some("/tmp"));
 
     let text = registry_text(&mux);
-    // KNOWN LEAK, not this record's: the resource creation and effect receipts
-    // keep the whole creation request, env values included, for exactly-once
-    // replay. Tracked separately; every other table must stay clean.
-    let leaked = text
-        .iter()
-        .filter(|(table, _)| {
-            table != "resource_creation_receipts" && table != "resource_effect_receipts"
-        })
-        .filter(|(_, value)| value.contains(SECRET))
-        .collect::<Vec<_>>();
+    // Every table, the exactly-once receipts included (cx-1a6).
+    let leaked = text.iter().filter(|(_, value)| value.contains(SECRET)).collect::<Vec<_>>();
     assert!(leaked.is_empty(), "a secret value reached SQLite: {leaked:?}");
     let relaunch = text
         .iter()
