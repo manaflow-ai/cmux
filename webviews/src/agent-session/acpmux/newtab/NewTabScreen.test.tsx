@@ -299,3 +299,16 @@ test("typed text offers no app action rows", async () => {
   expect(titles).not.toContain("Keyboard Shortcuts");
   await act(async () => root.unmount());
 });
+
+test("New Tab acknowledges the input generation only after the field has focus", async () => {
+  const seen: string[] = [];
+  const { root } = await mount({
+    inputToken: "opening-1",
+    onInputReady: (token: string) => {
+      expect(dom.window.document.activeElement?.className).toBe("nt-field");
+      seen.push(token);
+    },
+  });
+  expect(seen).toEqual(["opening-1"]);
+  await act(async () => root.unmount());
+});
