@@ -56,11 +56,7 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "choice_or_number") value = 45;
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
-      // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
-      value =
-        setting.key === "agents.chats.roots"
-          ? ["/Users/sample/Projects/Atlas", "/Users/sample/Projects/Research with a long folder name"]
-          : ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
+      value = ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
     else if (setting.kind === "time_range") value = { start: "22:00", end: "07:30" };
     else if (setting.kind === "url")
       value =
