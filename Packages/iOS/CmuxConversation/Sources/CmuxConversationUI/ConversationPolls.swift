@@ -318,6 +318,8 @@ final class PollCardView: UIView {
         background.side = outgoing ? .trailing : .leading
         background.hasTail = tail
         background.fillColor = ConversationTheme.incomingBubble
+        // A gray card, so it turns material over a conversation background like incoming bubbles.
+        background.adaptsToBackdrop = true
         background.frame = CGRect(x: outgoing ? 0 : -tailWidth, y: 0, width: bounds.width + tailWidth, height: bounds.height)
         titleLabel.isHidden = layout.titleFrame == nil
         titleLabel.text = model.poll.question
