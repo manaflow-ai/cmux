@@ -894,7 +894,7 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
-- `Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
