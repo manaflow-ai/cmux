@@ -170,7 +170,11 @@ final class CloudWorkspaceCreationCoordinator {
                 title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
                 machine: operation.machine,
                 receipt: reservationReceipt,
-                focus: focus,
+                // Keep an existing workspace out of view until its remote
+                // graph is materialized. Input ownership is independent from
+                // visible selection and still starts optimistically.
+                focus: false,
+                startInput: focus,
                 remoteView: firstTerminal?.view
             )
             operation.reservation = reservation
@@ -239,12 +243,30 @@ final class CloudWorkspaceCreationCoordinator {
             guard !projections.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
             operation.openedProjections = projections
             try check(operation, catalog: catalog)
+            // The workspace was populated as one local admission. Apply the
+            // accepted remote geometry before completing the reservation, so a
+            // newly opened workspace never paints the temporary tab layout and
+            // then visibly moves its panes when reconciliation catches up.
+            if let layout = catalog.cloudWorkspaceLayout(machine: operation.machine, workspaceID: receipt.workspace.id),
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                workspace.applyCloudWorkspaceLayout(
+                    layout.includingMissingPlacements(group.placements),
+                    projections: projections
+                )
+            }
             // Commit the request before retiring its loading reservation. A
             // synchronous pane teardown must never cancel an accepted open.
             operation.isComplete = true
             operations[operation.id] = nil
             catalog.notifyChange()
             host.complete(reservation, projection: projections[0])
+            if focus, let manager = host.manager,
+               manager.selectedTabId == host.selectedWorkspaceID,
+               manager.window?.isKeyWindow != false,
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                manager.selectWorkspace(workspace)
+                SurfacePaneFactory.focus(panelID: projections[0].panelID, in: workspace.id)
+            }
             catalog.requestCloudWorkspaceProjection(reservation.workspaceID)
             await catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
             return (reservation.workspaceID, projections)
@@ -337,6 +359,24 @@ final class CloudWorkspaceCreationCoordinator {
         }
     }
 
+    /// The pane's title until the daemon's receipt names the workspace. A new
+    /// unnamed workspace shows the name the daemon is about to assign, so the
+    /// receipt confirms the title instead of renaming a generic placeholder.
+    private func provisionalWorkspaceTitle(
+        for operation: CloudWorkspaceCreationOperation, name: String?, catalog: SurfaceCatalog
+    ) -> String {
+        let placeholder = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        guard !operation.isExistingWorkspaceOpen else { return placeholder }
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        let pendingCreations = operations.values.filter {
+            $0 !== operation && $0.machine == operation.machine && !$0.isExistingWorkspaceOpen
+                && $0.reservation != nil && $0.receipt == nil && $0.failure == nil
+        }.count
+        return CloudTreeNodeBuilder.predictedDefaultWorkspaceName(
+            on: operation.machine, snapshot: catalog.snapshot, pendingCreations: pendingCreations
+        ) ?? placeholder
+    }
+
     private func run(
         _ operation: CloudWorkspaceCreationOperation, name: String?, focus: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
@@ -347,7 +387,7 @@ final class CloudWorkspaceCreationCoordinator {
             // Admit the local manual pane before the first remote await. It is
             // the request's early-input owner while the daemon allocates the
             // workspace and starter terminal behind it.
-            let provisionalTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+            let provisionalTitle = provisionalWorkspaceTitle(for: operation, name: name, catalog: catalog)
             let provisionalReceipt = operation.isExistingWorkspaceOpen
                 ? operation.receipt ?? existingWorkspace.map {
                     SurfaceWorkspaceCreationReceipt(workspace: $0, terminal: existingTerminal, cursor: nil)

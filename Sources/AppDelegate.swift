@@ -695,13 +695,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
-    private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+    private nonisolated static let persistedWindowGeometryDefaultsKey = SessionSnapshotPersistenceWriter.persistedWindowGeometryDefaultsKey
 #if DEBUG
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess() {
+        UserDefaults.standard.removeObject(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry()
+    }
 #endif
-    private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
-        "cmux.session.lastWindowGeometry.v1"
-    ]
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
@@ -837,13 +839,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // duplicated payload that the jump-unread XCUITest asserts on, so they are left app-side per
     // the wave brief's escape hatch. The coordinator's `onDidFocusForJumpUnread` hook is therefore
     // left unwired (wiring it would double-record). The recorder-FREE members of the open/click
-    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
-    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
+    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    /// "Introducing cmux cloud", shown once from the first main window.
+    private(set) lazy var cloudWelcomeWindowController = CloudWelcomeWindowController()
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
@@ -916,6 +920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.isMainTerminalWindow(window) ?? false
         }
     )
+    private var cmuxConfigDiagnosticMessages: [String: [String]] = [:]
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -984,10 +989,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `DisableAutoUpdate` (MDM): the updater never starts and manual checks
         // are suppressed while forced; `managedAutoUpdateAllowsCheck()` explains.
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
-    )
-    /// Shared by the app menu, command palette and Settings "Switch to Nightly/Stable" action.
-    private lazy var appChannelSwitchPresenter = AppChannelSwitchPresenter(
-        requestQuit: { AppDelegate.requestApplicationTermination() }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
@@ -1302,15 +1303,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
-    private var sessionAutosaveTimer: DispatchSourceTimer?
-    private var sessionAutosaveTickInFlight = false
-    private var sessionAutosaveDeferredRetryPending = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
-    private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
     var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
     let sessionScrollbackCheckpointQueue = DispatchQueue(
@@ -1327,6 +1323,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier,
         decoderUserInfo: [.cmuxTrustedPersistedSessionSnapshot: true]
+    )
+    private lazy var sessionSnapshotPersistenceWriter = SessionSnapshotPersistenceWriter(
+        store: sessionSnapshotStore,
+        queue: sessionPersistenceQueue
+    )
+    private lazy var sessionAutosaveCoordinator = SessionAutosaveCoordinator(
+        isTerminatingApp: { [weak self] in self?.isTerminatingApp ?? true },
+        isStartupSessionRestorePending: { [weak self] in
+            guard let self else { return true }
+            return !self.didAttemptStartupSessionRestore
+        },
+        currentTTYDeviceBindings: { [weak self] in
+            self?.currentSurfaceTTYDeviceBindings() ?? [:]
+        },
+        fingerprint: { [weak self] restorableAgentIndex, surfaceResumeBindingIndex in
+            self?.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
+        },
+        save: { [weak self] restorableAgentIndex, surfaceResumeBindingIndex in
+            guard let self else { return false }
+            return self.saveSessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
+        },
+        saveCurrentSnapshot: { [weak self] in
+            guard let self else { return false }
+            return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+        },
+        onTimerTick: { [weak self] in
+            self?.sessionScrollbackCheckpointCoordinator?.tickIfDue()
+        }
     )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
@@ -1346,10 +1378,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
     }
-    private var lastSessionAutosaveFingerprint: Int?
-    private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
-    private(set) var lastTypingActivityAt: TimeInterval = 0
+    var lastTypingActivityAt: TimeInterval { sessionAutosaveCoordinator.lastTypingActivityAt }
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -1369,6 +1399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var preconfirmedMainWindowCloses: Set<ObjectIdentifier> = []
     // Avoid showing the quit warning twice after confirmation.
     private var isQuitWarningConfirmed = false
+    /// Set when Sparkle is about to relaunch to finish an update, so the terminate it
+    /// requests next skips the quit confirmation the user already gave by installing.
+    private var isRelaunchingForUpdate = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
     // True while owned asynchronous cleanup controls the terminate reply.
@@ -1399,7 +1432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state.
     let commandPaletteWindowStore = CommandPaletteWindowStore()
-    private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
     private let mainThreadHangWatchdog: MainThreadHangWatchdog
 
     var updateViewModel: UpdateStateModel {
@@ -1549,9 +1581,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
     /// Shared native auth callback entrypoint for LaunchServices and embedded
-    /// browser handoffs. The returned value reflects completed sign-in.
+    /// browser handoffs. `delivery` must be `.trustedEmbeddedBrowser` only for
+    /// the embedded browser's policy-checked handoff; LaunchServices callbacks
+    /// are `.external`, so unsolicited stateless ones need user approval.
+    /// The returned value reflects completed sign-in.
     @MainActor
-    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+    func handleAuthCallbackURLInProcess(
+        _ url: URL,
+        delivery: AuthCallbackDelivery = .external
+    ) async -> Bool {
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         guard callbackRouter.isAuthCallbackURL(url) else {
             AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
@@ -1561,7 +1599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-        let signedIn = await accountFlow.handleCallbackURL(url)
+        let signedIn = await accountFlow.handleCallbackURL(url, delivery: delivery)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
             return false
@@ -1590,7 +1628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         for url in authCallbacks {
             Task { @MainActor in
-                _ = await handleAuthCallbackURLInProcess(url)
+                _ = await handleAuthCallbackURLInProcess(url, delivery: .external)
             }
         }
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -1703,12 +1741,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             startSudoApprovalCoordinator()
         }
-        // Prewarm the shared restorable-agent index off the main thread so the first
-        // tab/workspace/window close after launch reads a warm cache instead of paying a
-        // synchronous RestorableAgentSessionIndex.load() on the main thread. See
-        // closedPanelHistoryEntry.
+        // Prewarm the restorable-agent index (see closedPanelHistoryEntry) and the agent
+        // message journal off the main thread, so the first close or command palette open
+        // after launch doesn't load either synchronously on main.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            AgentMessageCenter.warmStoreOffMain()
         }
 
         claimAuthCallbackURLSchemes()
@@ -1779,7 +1817,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
             if TestProcessDefaults.isolatedDomainName == nil {
-                Self.forgetPersistedWindowGeometryForTestProcess()
+                Self.removeLegacyPersistedWindowGeometry()
+                UserDefaults.standard.removeObjectIfPresent(
+                    forKey: Self.persistedWindowGeometryDefaultsKey
+                )
             }
         }
 #endif
@@ -2158,6 +2199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !shouldTerminate {
             didReplyToTerminate = false
             isAwaitingTerminateCleanup = false
+            // Sparkle's relaunch notice does not guarantee the quit; a later Cmd+Q
+            // is a user quit again and must reach the confirmation.
+            isRelaunchingForUpdate = false
         }
     }
 
@@ -2386,7 +2430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
-        let quitReason = Self.currentQuitRequestReason()
+        let quitReason: QuitRequestReason = isRelaunchingForUpdate ? .updateRelaunch : Self.currentQuitRequestReason()
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2394,7 +2438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
-                "quitReason": quitReason == .sessionEnd ? "sessionEnd" : "user",
+                "quitReason": Self.breadcrumbName(for: quitReason),
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
@@ -2411,8 +2455,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
-            if quitReason == .sessionEnd {
-                reason = "sessionEnd"
+            if quitReason != .user {
+                reason = Self.breadcrumbName(for: quitReason)
             } else if isQuitWarningConfirmed {
                 reason = "confirmed"
             } else if buildFlavor == .dev {
@@ -2440,6 +2484,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private static func breadcrumbName(for reason: QuitRequestReason) -> String {
+        switch reason {
+        case .user: return "user"
+        case .sessionEnd: return "sessionEnd"
+        case .updateRelaunch: return "updateRelaunch"
+        }
     }
 
     /// Reads `kAEQuitReason` from the quit Apple Event AppKit is handling.
@@ -2487,7 +2539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PresenceHeartbeatClient.shared.appWillTerminate()
         connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
-        stopSessionAutosaveTimer()
+        sessionAutosaveCoordinator.stop()
         CloudVMActionLauncher.shared.terminateAll()
         // No Cloud session survives the app, so neither does the tunnel.
         cloudTunnelCoordinator?.appWillTerminate()
@@ -2591,9 +2643,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator,
             operations: cloudOperations,
             telemetry: .live(),
-            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
+            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }, isCloudAvailable: { CloudMachinesFeature.offMainIsAvailable() }
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
+        // Warms the New Machine sheet's plan and network catalog per signed-in
+        // account so Cmd+Y never waits on the network.
+        NewMachineSheetDataCache.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         TeamsClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -2688,6 +2743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
+        SidebarAgentUsageCoordinator { [weak self] id in self?.tabManagerFor(tabId: id)?.workspacesById[id]?.sidebarMetadata }.start()
         installMobileHostSettingsObserver()
         installManagedPolicyEnforcement()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -2699,7 +2755,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastVisibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
             .trustedTopologySignature(of: currentDisplayGeometries().available)
         prepareStartupSessionSnapshotIfNeeded()
-        startSessionAutosaveTimerIfNeeded()
+        sessionAutosaveCoordinator.startIfNeeded()
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
+            startSessionScrollbackCheckpointsIfNeeded(environment: ProcessInfo.processInfo.environment)
+        }
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
@@ -3643,14 +3702,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
             }
         }
         portalStatsUITestObservers.append(observer)
         uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.portalStats.setup")
     }
-
 
 #endif
 
@@ -3679,6 +3737,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
+                )
+            }
+        }
+
         if shouldAwaitCrashRecoveryProbe() {
             isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
@@ -3703,8 +3773,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -3859,7 +3929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func removeLegacyPersistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
+        SessionSnapshotPersistenceWriter.removeLegacyPersistedWindowGeometry(defaults: defaults)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -4032,6 +4102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if wasApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
         }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
@@ -4430,53 +4501,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && abs(lhsStd.size.height - rhsStd.size.height) <= tolerance
     }
 
-    private func startSessionAutosaveTimerIfNeeded() {
-        guard sessionAutosaveTimer == nil else { return }
-        let env = ProcessInfo.processInfo.environment
-        guard !isRunningUnderXCTest(env) else { return }
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        let interval = SessionPersistencePolicy.autosaveInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
-        timer.setEventHandler { [weak self] in
-            guard let self,
-              Self.shouldRunSessionAutosaveTick(
-                  isTerminatingApp: self.isTerminatingApp,
-                  isStartupSessionRestorePending: !self.didAttemptStartupSessionRestore
-              ) else {
-                return
-            }
-            self.runSessionAutosaveTick(source: "timer")
-            self.sessionScrollbackCheckpointCoordinator?.tickIfDue()
-        }
-        sessionAutosaveTimer = timer
-        timer.resume()
-        startSessionScrollbackCheckpointsIfNeeded(environment: env)
-    }
-
-    private func stopSessionAutosaveTimer() {
-        sessionAutosaveTimer?.cancel()
-        sessionAutosaveTimer = nil
-        sessionAutosaveTickInFlight = false
-        sessionAutosaveDeferredRetryPending = false
-    }
-
-    /// Schedule a session snapshot after todo edits settle. The existing
-    /// session persistence owner captures current in-memory state, keeping
-    /// todo edits consistent with simultaneous pane and workspace changes.
+    /// Schedule a session snapshot after todo edits settle, through the same
+    /// autosave owner that gates timer and typing-debounced saves.
     func saveTodoState(in _: Workspace) {
-        guard !isTerminatingApp,
-              didAttemptStartupSessionRestore,
-              !isApplyingSessionRestore else { return }
-        if todoStatePersistenceCoordinator == nil {
-            todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
-                saveSnapshot: { [weak self] in
-                    guard let self, !self.isTerminatingApp else { return false }
-                    return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
-                }
-            )
-        }
-        todoStatePersistenceCoordinator?.enqueue()
+        sessionAutosaveCoordinator.scheduleTodoStateSave(
+            isApplyingSessionRestore: isApplyingSessionRestore
+        )
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -4850,7 +4880,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp: Bool,
         isStartupSessionRestorePending: Bool
     ) -> Bool {
-        !isTerminatingApp && !isStartupSessionRestorePending
+        SessionAutosaveCoordinator.shouldRunSessionAutosaveTick(
+            isTerminatingApp: isTerminatingApp,
+            isStartupSessionRestorePending: isStartupSessionRestorePending
+        )
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
@@ -4859,149 +4892,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-    private func remainingSessionAutosaveTypingQuietPeriod(
-        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) -> TimeInterval? {
-        guard lastTypingActivityAt > 0 else { return nil }
-        let elapsed = nowUptime - lastTypingActivityAt
-        guard elapsed < Self.sessionAutosaveTypingQuietPeriod else { return nil }
-        return Self.sessionAutosaveTypingQuietPeriod - elapsed
-    }
-
-    private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
-        guard delay.isFinite, delay > 0 else { return }
-        guard !sessionAutosaveDeferredRetryPending else { return }
-        sessionAutosaveDeferredRetryPending = true
-        sessionPersistenceQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.sessionAutosaveDeferredRetryPending = false
-                self.runSessionAutosaveTick(source: "typingQuietRetry")
-            }
-        }
-    }
-
-    private func runSessionAutosaveTick(source: String) {
-        guard Self.shouldRunSessionAutosaveTick(
-            isTerminatingApp: isTerminatingApp,
-            isStartupSessionRestorePending: !didAttemptStartupSessionRestore
-        ) else {
-            return
-        }
-        guard !sessionAutosaveTickInFlight else { return }
-        if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=typing_recent includeScrollback=0 source=\(source) " +
-                "retryMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
-            )
-#endif
-            scheduleDeferredSessionAutosaveRetry(after: remainingQuietPeriod)
-            return
-        }
-
-        sessionAutosaveTickInFlight = true
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
-    }
-
-    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
-#if DEBUG
-        let timingStart = CmuxTypingTiming.start()
-        let phaseStart = ProcessInfo.processInfo.systemUptime
-        var loadMs: Double = 0
-        var fingerprintMs: Double = 0
-        var saveMs: Double = 0
-        defer {
-            sessionAutosaveTickInFlight = false
-            let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
-            CmuxTypingTiming.logBreakdown(
-                path: "session.autosaveTick.phase",
-                totalMs: totalMs,
-                thresholdMs: 2.0,
-                parts: [
-                    // loadMs is await wall time on a detached utility task, not
-                    // main-thread blocking; fingerprintMs and saveMs are the
-                    // synchronous main-thread portions.
-                    ("loadMs", loadMs),
-                    ("fingerprintMs", fingerprintMs),
-                    ("saveMs", saveMs),
-                ],
-                extra: "source=\(source)"
-            )
-            CmuxTypingTiming.logDuration(
-                path: "session.autosaveTick",
-                startedAt: timingStart,
-                extra: "source=\(source)"
-            )
-        }
-#else
-        defer { sessionAutosaveTickInFlight = false }
-#endif
-
-        let now = Date()
-#if DEBUG
-        let loadStart = ProcessInfo.processInfo.systemUptime
-#endif
-        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load(
-            ttyDeviceBindings: ttyDeviceBindings
-        )
-#if DEBUG
-        loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
-        let fingerprintStart = ProcessInfo.processInfo.systemUptime
-#endif
-        guard !isTerminatingApp,
-              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
-            )
-#endif
-            return
-        }
-        let autosaveFingerprint = sessionAutosaveFingerprint(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
-#if DEBUG
-        fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
-#endif
-        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
-            isTerminatingApp: isTerminatingApp,
-            includeScrollback: false,
-            previousFingerprint: lastSessionAutosaveFingerprint,
-            currentFingerprint: autosaveFingerprint,
-            lastPersistedAt: lastSessionAutosavePersistedAt,
-            now: now
-        ) {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=\(source)"
-            )
-#endif
-            return
-        }
-
-#if DEBUG
-        let saveStart = ProcessInfo.processInfo.systemUptime
-#endif
-        let didSave = saveSessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
-#if DEBUG
-        saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
-#endif
-        guard didSave else { return }
-        updateSessionAutosaveSaveState(
-            includeScrollback: false,
-            persistedAt: now,
-            fingerprint: autosaveFingerprint
-        )
-    }
 
     @discardableResult
     private func saveSessionSnapshotUsingCachedProcessDetectedIndexes(
@@ -5112,15 +5002,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
-        let generation = nextProcessDetectedSessionSaveGeneration()
+        let generation = sessionAutosaveCoordinator.nextProcessDetectedSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+
         Task { @MainActor [weak self] in
             let resumeIndexes = await ProcessDetectedResumeIndexes.load(
                 ttyDeviceBindings: ttyDeviceBindings
             )
             guard let self,
                   !self.isTerminatingApp,
-                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
+                  self.sessionAutosaveCoordinator.isCurrentProcessDetectedSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
                 removeWhenEmpty: removeWhenEmpty,
@@ -5131,18 +5022,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    @discardableResult
-    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
-    }
-
-    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
-    }
-
     fileprivate func recordTypingActivity() {
-        lastTypingActivityAt = ProcessInfo.processInfo.systemUptime
+        sessionAutosaveCoordinator.recordTypingActivity()
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(
@@ -5161,25 +5042,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         now: Date,
         maximumAutosaveSkippableInterval: TimeInterval = 60
     ) -> Bool {
-        guard !isTerminatingApp,
-              !includeScrollback,
-              let previousFingerprint,
-              let currentFingerprint,
-              previousFingerprint == currentFingerprint else {
-            return false
-        }
-
-        return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
-    }
-
-    private func updateSessionAutosaveSaveState(
-        includeScrollback: Bool,
-        persistedAt: Date,
-        fingerprint: Int?
-    ) {
-        guard !isTerminatingApp, !includeScrollback else { return }
-        lastSessionAutosaveFingerprint = fingerprint
-        lastSessionAutosavePersistedAt = persistedAt
+        SessionAutosaveCoordinator.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback,
+            previousFingerprint: previousFingerprint,
+            currentFingerprint: currentFingerprint,
+            lastPersistedAt: lastPersistedAt,
+            now: now,
+            maximumAutosaveSkippableInterval: maximumAutosaveSkippableInterval
+        )
     }
 
     private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
@@ -5203,39 +5074,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
         installSessionSnapshotOverwriteGuardIfNeeded()
         let snapshot = snapshotAllowedByOverwriteGuard(snapshot)
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
-
-        // Persistence can outlive its main-actor owner; retain only the Sendable
-        // store so finishing a write cannot destroy AppDelegate on this queue.
-        let writeBlock = { [sessionSnapshotStore] in
-            // Autosave runs every few seconds. Only write defaults that changed:
-            // each set/remove posts didChangeNotification even when it is a no-op,
-            // waking every defaults observer and SwiftUI's @AppStorage lock.
-            Self.removeLegacyPersistedWindowGeometry()
-            if let persistedGeometryData {
-                UserDefaults.standard.setIfChanged(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
-            }
-            if let snapshot {
-                Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                _ = sessionSnapshotStore.save(snapshot, fileURL: nil)
-            } else if removeWhenEmpty {
-                if preserveManualRestoreBackupOnMissingPrimary {
-                    Self.markCrashOnlyPrimarySnapshotRemoval()
-                } else {
-                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                }
-                sessionSnapshotStore.removeSnapshot(fileURL: nil)
-            }
-        }
-
-        if synchronously {
-            writeBlock()
-        } else {
-            sessionPersistenceQueue.async(execute: writeBlock)
-        }
+        sessionSnapshotPersistenceWriter.persist(
+            snapshot,
+            removeWhenEmpty: removeWhenEmpty,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: synchronously,
+            preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary
+        )
     }
 
     func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
@@ -5719,6 +5564,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        presentCloudWelcomeIfNeeded(over: window)
+    }
+
+    /// In release builds, once per Mac after the first main window is up. Tests
+    /// never see it; debug builds can open it from Help when needed.
+    private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
+#if DEBUG
+        // Keep the first-run welcome available from Help while iterating on the
+        // app, but do not interrupt every development launch with it.
+        return
+#else
+        let env = ProcessInfo.processInfo.environment
+        guard !isRunningUnderXCTestCached, !isRunningUnderXCTest(env), env["CMUX_UI_TEST_MODE"] != "1" else { return }
+        // Next turn of the main loop, so the window is on screen to place it over.
+        DispatchQueue.main.async { [weak self, weak window] in
+            self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
+        }
+#endif
     }
 
 #if DEBUG
@@ -5830,7 +5693,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        // Resolve the owner before creating the destination. The active/fallback
+        // window may differ from the workspace's source, especially when moving
+        // a workspace out of a native fullscreen window.
+        let sourceWindow = mainWindowContainingWorkspace(workspaceId)
+        let windowId = createMainWindow(sourceWindow: sourceWindow)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
@@ -8257,8 +8124,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Applies the command-palette Cloud policy to shared entry points such as
+    /// keyboard shortcuts, menus, and direct Cloud VM handlers. Keeping this
+    /// check here prevents a local-resource shortcut from bypassing the same
+    /// capability decision used while materializing the palette.
+    func commandPaletteCloudCapabilityAllows(
+        commandId: String,
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(
+                event: nil,
+                debugSource: "commandPalette.cloudCapability"
+            )
+        guard let workspace = context?.tabManager.selectedWorkspace else {
+            return true
+        }
+
+        var snapshot = CommandPaletteContextSnapshot()
+        snapshot.setBool(
+            CommandPaletteContextKeys.workspaceIsCloud,
+            workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
+        )
+        let cloudCapabilities = workspace.cloudVMID.flatMap { vmID in
+            (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
+        }
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, cloudCapabilities != nil)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, cloudCapabilities?.canFork ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, cloudCapabilities?.snapshot ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, cloudCapabilities?.restore ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, cloudCapabilities?.ports ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, cloudCapabilities?.exec ?? true)
+        return CommandPaletteCloudCapabilityPolicy().allows(
+            commandId: commandId,
+            context: snapshot
+        )
+    }
+
     @discardableResult
     func focusFileSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.findInDirectory",
+            preferredWindow: preferredWindow
+        ) else {
+            NSSound.beep()
+            return false
+        }
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
@@ -9212,10 +9125,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
+            NSSound.beep()
+            return false
+        }
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: command.commandPaletteID,
+            tabManager: context.tabManager,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+        ) else {
             NSSound.beep()
             return false
         }
@@ -9226,6 +9149,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preferredWindow: resolvedWindow(for: context) ?? preferredWindow
             )
             return false
+        }
+        if case .fork = command {
+            // Same pending "Fork of …" row and reserved workspace as the sidebar's Fork.
+            return NewMachineSheetPresenter.shared.startFork(
+                sourceMachineID: vmId,
+                sourceName: nil,
+                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            )
         }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -9241,6 +9172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performCloudVMRestoreCommand(
+        tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
@@ -9256,13 +9188,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
         }
         let window = resolvedWindow(for: context) ?? preferredWindow
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: ContentView.commandPaletteCloudRestoreCommandId,
+            tabManager: context.tabManager,
+            preferredWindow: window
+        ) else {
+            NSSound.beep()
+            return false
+        }
         guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
             return false
         }
@@ -9276,6 +9219,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
             presentOutputOnSuccess: true
         )
+    }
+
+    /// Resolves a Cloud palette action to the window that opened the palette.
+    /// The tab manager takes precedence so a secondary window cannot fall back
+    /// to another window's selected workspace.
+    func contextForCloudVMCommand(
+        preferredTabManager: TabManager?,
+        preferredWindow: NSWindow?,
+        debugSource: String
+    ) -> MainWindowContext? {
+        preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
     }
 
     enum CurrentCloudVMCommand {
@@ -9312,6 +9268,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             case .status, .snapshot, .ports, .tools, .handoff, .promoteTemplate:
                 return true
+            }
+        }
+
+        @MainActor var commandPaletteID: String {
+            switch self {
+            case .fork: return ContentView.commandPaletteCloudForkCommandId
+            case .snapshot: return ContentView.commandPaletteCloudSnapshotCommandId
+            case .ports: return ContentView.commandPaletteCloudPortsCommandId
+            case .tools: return ContentView.commandPaletteCloudToolsCommandId
+            case .handoff: return ContentView.commandPaletteCloudHandoffCommandId
+            case .promoteTemplate: return ContentView.commandPaletteCloudPromoteTemplateCommandId
+            case .status: return ContentView.commandPaletteCloudStatusCommandId
             }
         }
 
@@ -9626,7 +9594,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
     /// Called from both the SwiftUI menu and `handleCustomShortcut`.
-    func showOpenFolderPanel() {
+    func showOpenFolderPanel(
+        preferredWindow: NSWindow? = nil,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolder",
+            tabManager: preferredTabManager,
+            preferredWindow: preferredWindow
+        ) else {
+            NSSound.beep()
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -9639,7 +9618,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Seed the panel with the active workspace's directory. Use the shared
         // main-window resolver so this works even when an auxiliary window is key.
         // app.defaultWorkspacePath, when set to an existing folder, wins.
-        let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed")
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed")
         if let startDirectory = OpenFolderPanelStartDirectory().resolve(
             configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
             workspaceDirectory: context?.tabManager.selectedWorkspace?.currentDirectory
@@ -9659,6 +9640,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ directoryURL: URL,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolderInVSCodeInline",
+            tabManager: preferredTabManager
+        ) else {
+            NSSound.beep()
+            return false
+        }
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
@@ -9700,6 +9688,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        guard commandPaletteCloudCapabilityAllows(
+            commandId: "palette.openFolderInVSCodeInline",
+            tabManager: preferredTabManager
+        ) else {
+            NSSound.beep()
+            return
+        }
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             NSSound.beep()
             return
@@ -10559,6 +10554,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
             ?? sourceContext.flatMap { resolvedWindow(for: $0) }
         let existingFrame = sourceWindow?.frame
+        let shouldTemporarilyDisallowFullScreenTiling =
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: sessionWindowSnapshot != nil
+            )
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
@@ -10640,6 +10640,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 && !self.isApplyingSessionRestore
                 && !displayReconcilePending
         }
+        if shouldTemporarilyDisallowFullScreenTiling {
+            controller.disallowFullscreenTilingUntilPresentation()
+        }
         controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
             guard let exactOwner = self.mainWindowOwnerIdentity(forExactWindow: closingWindow),
@@ -10686,6 +10689,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        refreshCmuxConfigDiagnostics()
         restoreWindowDockSessionSnapshot(
             forWindowId: windowId,
             from: sessionWindowSnapshot,
@@ -10743,18 +10747,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard managedAutoUpdateAllowsCheck() else { return }
         updateController.model.setOverrideState(nil)
         updateController.checkForUpdatesInCustomUI()
-    }
-
-    /// The release app this one can switch to: NIGHTLY from stable, stable from NIGHTLY,
-    /// and none for tagged development builds.
-    var appChannelSwitchTarget: AppChannelSwitchTarget? {
-        AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier)
-    }
-
-    /// Opens the other release app, installing it first when missing.
-    @objc func switchAppChannel(_ sender: Any?) {
-        guard let target = appChannelSwitchTarget, managedAutoUpdateAllowsCheck() else { return }
-        appChannelSwitchPresenter.start(target: target)
     }
 
     func openWelcomeWorkspace() {
@@ -14387,6 +14379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return notificationStore?.notifications.first(where: { $0.id == openedId })
     }
 
+    /// Installs the production responder guards plus the test window-routing override.
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
@@ -14394,6 +14387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
 #if DEBUG
         installShortcutRoutingFocusedWindowSwizzleForTesting()
 #endif
@@ -14411,6 +14405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Installs event routing and stale SwiftUI proxy guards once during application setup.
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle
@@ -14418,6 +14413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
     }
 
     private func installShortcutMonitor() {
@@ -14510,14 +14506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.handleShortcutDefaultsDidChange()
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.handleShortcutDefaultsDidChange()
-                }
+            Task { @MainActor [weak self] in
+                self?.handleShortcutDefaultsDidChange()
             }
         }
     }
@@ -14581,7 +14571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.ghosttyConfigDidReloadForLiveReload()
             }
         }
@@ -14594,16 +14584,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.shared.configurationFilesWillLoad = { [weak self] in
             self?.ghosttyConfigLiveReloadCoordinator.noteConfigurationFilesWillLoad()
         }
-        ghosttyConfigDiagnosticsNoticePresenter.update(
-            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
-        )
+        updateConfigurationDiagnosticsNotice()
     }
 
     private func ghosttyConfigDidReloadForLiveReload() {
         guard !isRunningUnderXCTestCached else { return }
         ghosttyConfigLiveReloadCoordinator.noteConfigurationDidReload()
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    func cmuxConfigDiagnosticsDidReload(source: String, messages: [String]) {
+        cmuxConfigDiagnosticMessages[source] = messages
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    private func refreshCmuxConfigDiagnostics() {
+        var messagesByStore: [String: [String]] = [:]
+        for context in mainWindowContexts.values {
+            guard let store = context.cmuxConfigStore else { continue }
+            let messages = store.configurationIssues.compactMap { issue -> String? in
+                guard let path = issue.sourcePath else { return nil }
+                let location = issue.line.map { "\(path):\($0)" } ?? path
+                return "\(location): \(issue.message ?? issue.settingName)"
+            }
+            messagesByStore[String(ObjectIdentifier(store).hashValue)] = messages
+        }
+        messagesByStore[CmuxSettingsFileStore.defaultPrimaryPath] =
+            KeyboardShortcutSettings.settingsFileStore.configurationIssues
+        cmuxConfigDiagnosticMessages = messagesByStore
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    private func updateConfigurationDiagnosticsNotice() {
+        var seen = Set<String>()
+        let diagnosticMessages = (
+            GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+                + cmuxConfigDiagnosticMessages.values.flatMap { $0 }
+        ).filter { seen.insert($0).inserted }
         ghosttyConfigDiagnosticsNoticePresenter.update(
-            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+            diagnosticMessages: diagnosticMessages
         )
     }
 
@@ -14615,7 +14637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
-            _ = MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
@@ -14702,9 +14724,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
         reconcileSocketListenerConfiguration(source: source)
+        refreshCmuxConfigDiagnostics()
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {
@@ -15489,7 +15513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Handled here to prevent AppKit's default NSDocumentController from opening
         // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
         if matchConfiguredShortcut(event: event, action: .openFolder) {
-            showOpenFolderPanel()
+            showOpenFolderPanel(preferredWindow: event.window)
             return true
         }
 
@@ -18577,7 +18601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.handleBrowserWebViewFirstResponderNotification(notification)
             }
         }
@@ -19346,6 +19370,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
@@ -19617,7 +19646,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19628,7 +19656,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19642,8 +19669,7 @@ private extension NSWindow {
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
                 "web=\(ObjectIdentifier(webView)) " +
-                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0)"
             )
         }
 #endif
@@ -19672,7 +19698,12 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
+        let cloudMountKeyEventForwarded =
+            AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true
+        if cloudMountKeyEventForwarded {
+            if event.type == .keyDown {
+                AppDelegate.shared?.recordTypingActivity()
+            }
             return
         }
 #if DEBUG
@@ -19694,10 +19725,22 @@ private extension NSWindow {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
         }
 #endif
-        // recordTypingActivity must run in all builds so runSessionAutosaveTick
+        // recordTypingActivity runs in all builds so the autosave coordinator
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
-        if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        let terminalInputIsRouted: Bool = {
+            guard event.type == .keyDown,
+                  let app = AppDelegate.shared,
+                  let context = app.contextForMainWindow(self) ?? app.contextForMainTerminalWindow(self),
+                  context.tabManager.selectedWorkspace?.focusedTerminalInputTarget() != nil else {
+                return false
+            }
+            guard let firstResponder = self.firstResponder else { return true }
+            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+                app.isRightSidebarFocusResponder($0, in: self)
+            })
+        }()
+        if terminalInputIsRouted { AppDelegate.shared?.recordTypingActivity() }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return
@@ -20560,62 +20603,12 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     func updaterWillRelaunchApplication() {
+        isRelaunchingForUpdate = true
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()
         }
-    }
-
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        var seen = Set<ObjectIdentifier>()
-        let managers = mainWindowContexts.values.map { $0.tabManager }
-            + [tabManager].compactMap { $0 }
-            + mainWindowSessionPersistenceRoutes().map { $0.tabManager }
-        let workspaces = managers
-            .filter { seen.insert(ObjectIdentifier($0)).inserted }
-            .flatMap(\.tabs)
-        var activity: [UpdateRelaunchPanelActivity] = []
-        for workspace in workspaces {
-            let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
-            for panelId in workspace.panels.keys {
-                activity.append(UpdateRelaunchPanelActivity(
-                    agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
-                    shellActivity: workspace.panelShellActivityStates[panelId],
-                    isRemote: isRemote
-                ))
-            }
-            if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
-            }
-        }
-        for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(isRemote: false)
-        }
-        return Self.updateRelaunchBlockers(panels: activity)
-    }
-
-    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
-    /// agent. A local panel running some other foreground command is a running command; panels
-    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
-    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
-    /// are not agents and are ignored.
-    nonisolated static func updateRelaunchBlockers(
-        panels: [UpdateRelaunchPanelActivity]
-    ) -> UpdateRelaunchBlockers {
-        var blockers = UpdateRelaunchBlockers.empty
-        for panel in panels {
-            let agentStates = panel.agentLifecycles
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .values
-            if agentStates.contains(.running) {
-                blockers.busyAgentCount += 1
-            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
-                blockers.runningCommandCount += 1
-            }
-        }
-        return blockers
     }
 
     func attemptUpdate() {
@@ -20631,26 +20624,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
-    }
-}
-
-/// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
-struct UpdateRelaunchPanelActivity: Sendable {
-    var agentLifecycles: [String: AgentHibernationLifecycleState]
-    var shellActivity: PanelShellActivityState?
-    var isRemote: Bool
-}
-
-extension DockSplitStore {
-    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
-    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
-        panels.map { panelId, panel in
-            UpdateRelaunchPanelActivity(
-                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
-            )
-        }
     }
 }
 

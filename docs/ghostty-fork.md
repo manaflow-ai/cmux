@@ -12,6 +12,32 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Layer display after teardown no longer reaches the freed renderer
+
+- Branch: `fix-metal-layer-display-cb-uaf`
+  ([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)),
+  based on the previous pin `324c02738`.
+- Commits: `4eb8a9c12` (regression test), `e2a26bc94` (fix)
+- Summary: on macOS the host view keeps Ghostty's `IOSurfaceLayer` after
+  `ghostty_surface_free`, and its `-display` still called `drawFrame` through
+  `display_cb`/`display_ctx` on the freed renderer
+  ([#17483](https://github.com/manaflow-ai/cmux/issues/17483)).
+  `Metal.prepareDeinit` unbound them only on iOS. The macOS invalidation
+  block, which already runs on main after the renderer thread joins, now
+  clears both ivars, so `loopEnter` cannot rebind them. #17524 clears them
+  from the cmux side as well.
+- Coverage: Ghostty's `teardown invalidation makes display a no-op`, run by
+  `build-ghosttykit.yml` before packaging. It passed in
+  [run 37421168473](https://github.com/manaflow-ai/cmux/actions/runs/37421168473).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream fixed the same bug in `4b4a5b241` by clearing the
+  callback in `IOSurfaceLayer.release()` from the freeing thread. On a merge,
+  keep the main-thread clear in `invalidateSurfaceUpdatesCallback`; taking
+  upstream's `release()` clear as well is harmless on macOS but bypasses the
+  iOS ownership check in `detachFromHostIfDisplayCallbackOwned`.
+
 ### VT replay blank cells keep the default style
 
 - Branch: `fix-formatter-blank-cell-style-9d8d`
@@ -117,22 +143,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### CJK fallback ideograph sizing
 
-- Branch: `issue-4978-cjk-spacing`
-- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Branch: `issue-17490-cjk-fallback-sizing`
+  ([manaflow-ai/ghostty#259](https://github.com/manaflow-ai/ghostty/pull/259))
+- Commits: `4eabe98fc` (regression test), `b657a8188` (fix), `324f86c88`
+  (keep the existing CI test filter), `5f0ae5e41` (exclude halfwidth Hangul),
+  `01f4e0fe2` (exercise the capped mode directly)
 - Summary: keep the existing measured ideograph width for fallback faces, but
-  size a primary face without an ideograph metric against its full two-cell
-  terminal span. This prevents Hangul glyphs selected through CoreText fallback
-  from leaving a gap before the next terminal cell.
+  choose the target width by script. Hangul fallback faces use the primary
+  font's full two-cell terminal span to avoid inter-character gaps. Chinese,
+  Japanese, and other non-Hangul fallback faces retain the primary font's
+  height-capped estimate, so their glyphs stay balanced with Latin text.
 - Coverage: the Ghostty `Collection` regression test
-  `ideograph fallback sizing fills two primary cells` asserts that an
-  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted
-  [run 36178061916](https://github.com/manaflow-ai/cmux/actions/runs/36178061916)
-  passed 74 tests with this filter at `0068ece73` and rebuilt GhosttyKit.
-  The test-only commit has not been executed in the hosted lane, and tagged
-  cmux rendering verification remains pending.
-- Conflict note: preserve the distinction between `icWidth()` for a face's
-  measured or conservative fallback metric and `fallbackIcWidth()` for the
-  primary terminal grid's missing-ideograph target.
+  `ideograph fallback sizing fills two primary cells` plus
+  `ideograph fallback sizing keeps the primary ASCII height by default`.
+  The test-only commit fails with `expected 1.25, found 1.75`; the fixed head
+  passes 75 tests locally. Hosted [run 37566676819](https://github.com/manaflow-ai/cmux/actions/runs/37566676819)
+  passed the Ghostty filters and published GhosttyKit.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: preserve the distinction between `icWidth()` for the
+  height-capped Chinese/Japanese target and `fallbackIcWidth()` for the
+  Hangul fallback target. Fallback entries retain their adjustment so a face
+  shared by both scripts is loaded with the appropriate scale for each.
 
 ### Cloud restore replay trailing rows
 
@@ -147,13 +180,21 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `9c1e67c07`, a merge of `c318e7825` (the
-133;P prompt and wrap padding fix, section 16, manaflow-ai/ghostty#247) and
-`559740279` (the VT replay blank-cell style fix, manaflow-ai/ghostty#249),
-landed on fork main by manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again;
-see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9c1e67c073cce77d7c2bb2592b2bf84d502bb74e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `4538cfea411ca43a420055594b96bcaf7e7b9bea70cb68fb669e2f1242e098d4`, pinned in
+The submodule pinned by this branch is `01f4e0fe2`, the script-aware CJK fallback
+sizing fix on top of `e2a26bc94` (the layer display teardown fix,
+manaflow-ai/ghostty#258). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`, pinned in
+`scripts/ghosttykit-checksums.txt`.
+The previous pin `e2a26bc94` is the layer display teardown fix
+([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)) on
+top of `9c1e67c07`, the merge of `c318e7825` (the 133;P prompt and wrap padding
+fix, section 16, manaflow-ai/ghostty#247) and `559740279` (the VT replay
+blank-cell style fix, manaflow-ai/ghostty#249), landed on fork main by
+manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again; see
+[#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`, pinned in
 `scripts/ghosttykit-checksums.txt`.
 Earlier: the submodule pinned by this branch is `559740279`, the VT replay blank-cell
 style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`

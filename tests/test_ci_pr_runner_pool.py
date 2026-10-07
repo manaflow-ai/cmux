@@ -376,6 +376,23 @@ class JanitorSnapshot(unittest.TestCase):
         # queued, so the run rolls over to the idle macOS 15 pool.
         self.assertEqual(choose(snap).runner, OLD)
 
+    def test_ci_run_name_metadata_does_not_reserve_release_slots(self):
+        # CI's run name carries matrix metadata such as release=arm64. Only
+        # the release/nightly workflow path is a reservation.
+        runs = [
+            {"id": 1, "name": "v1;release=arm64", "path": ".github/workflows/ci.yml"},
+            {"id": 2, "name": "Release macOS app", "path": ".github/workflows/release.yml"},
+            {"id": 3, "name": "Nightly macOS build", "path": ".github/workflows/nightly.yml"},
+        ]
+        jobs = {
+            1: [self.job(LARGE, "queued")],
+            2: [self.job(LARGE, "queued")],
+            3: [self.job(LARGE, "queued")],
+        }
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual(snap["pools"][LARGE]["queued"], 3)
+        self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 2)
+
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
         self.assertTrue(janitor.is_macos_job(mini))
@@ -1055,6 +1072,23 @@ class OwnedPools(unittest.TestCase):
             self.assertIn("names side runners", pool.slot_problems('{"%s": 11, "%s": 4}' % (MINI, side))[0])
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
+
+    def test_namespaced_aws_pool_labels_are_valid_and_keep_role_family(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        self.assertEqual(pool.slot_problems(json.dumps({aws: 25, root: 10})), [])
+        self.assertEqual(pool.root_label(aws), root)
+        self.assertEqual(pool.side_label(aws), side)
+        self.assertEqual(pool.pool_label(root), aws)
+
+    def test_namespaced_role_labels_are_not_pools_or_pool_inputs(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        gui = "glaeda-aws-gui-std-xcode-26.3"
+        self.assertEqual((pool.root_label(root), pool.side_label(side), pool.gui_label(gui)), ("", "", ""))
+        self.assertIn("names side runners", pool.slot_problems(json.dumps({aws: 8, side: 2}))[0])
 
     def test_main_flags_bad_slots_only_on_same_repo_prs_while_owned_pools_are_on(self):
         cases = (("1", "pull_request", "manaflow-ai/cmux", True), ("", "pull_request", "manaflow-ai/cmux", False),
@@ -1784,6 +1818,9 @@ class RootRunners(unittest.TestCase):
         self.assertEqual((pool.side_label(ROOT_MINI), pool.side_label(SIDE_MINI), pool.side_label(SMALL)), ("", "", ""))
         rooted = pool.Choice(MINI, PR_XCODE, "", LARGE, 5, root_runner=ROOT_MINI, root_budget=3)
         self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16}), SIDE_MINI)
+        # A live listing records a missing side label as zero, so side lanes
+        # fall back to the pool label rather than queueing on an absent label.
+        self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16, SIDE_MINI: 0}), MINI)
         self.assertEqual(pool.side_runner(pool.Choice(LIGHT, PR_XCODE, "", LARGE, 2,
                                                       root_runner=pool.root_label(LIGHT), root_budget=1),
                                           {LIGHT: 4, pool.root_label(LIGHT): 2}), pool.side_label(LIGHT))
@@ -1792,6 +1829,14 @@ class RootRunners(unittest.TestCase):
         # No root count (root routing off) or a Blacksmith pick: the pool label as before.
         self.assertEqual(pool.side_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 36}), "")
         self.assertEqual(pool.side_runner(pool.Choice(LARGE, "", ""), {MINI: 36, ROOT_MINI: 16}), "")
+
+    def test_live_routing_records_missing_side_label(self):
+        runners = [{"status": "online", "busy": False,
+                     "labels": [{"name": MINI}, {"name": ROOT_MINI}]}]
+        routed = pool.routing_slots("{}", PR_XCODE, runners)
+        self.assertEqual(routed[MINI], 1)
+        self.assertEqual(routed[ROOT_MINI], 1)
+        self.assertEqual(routed[SIDE_MINI], 0)
 
     def test_gui_jobs_take_the_gui_label_beside_a_root_and_gui_count(self):
         gui = "glaeda-gui-std-xcode-26.6"
@@ -1901,6 +1946,83 @@ class RootRunners(unittest.TestCase):
         snap["pools"][ROOT_MINI] = {"queued": 0, "running": 10}
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
+
+    def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
+        """A media tour's auto pick must reach the UI-aware E2E picker."""
+        with unittest.mock.patch.object(
+                e2e_pool.simple_pool_picker, "pick", side_effect=AssertionError("simple picker bypassed UI routing")), \
+             unittest.mock.patch.object(e2e_pool, "resolve", return_value=GUI_MINI) as resolve:
+            output = io.StringIO()
+            with unittest.mock.patch("sys.stdout", output):
+                e2e_pool.main(
+                    ["--requested", "auto", "--test-filter", "cmuxUITests/DogfoodScenarioUITests",
+                     "--owned", "1", "--owned-ui", "1", "--owned-slots",
+                     json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}), "--pr-xcode-app", PR_XCODE],
+                    env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"},
+                )
+        self.assertEqual(output.getvalue().strip(), GUI_MINI)
+        self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+
+    def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
+        """The real resolver keeps a UI tour on the GUI label when minis are busy."""
+        load = e2e_pool.PoolLoad(fleet(busy=4))
+        choice = e2e_pool.resolve(
+            "auto", SMALL,
+            overflow="1",
+            order="",
+            max_queued="",
+            measure=lambda: load,
+            now=NOW,
+            owned="1",
+            owned_slots=json.dumps({MINI: 4, ROOT_MINI: 0, GUI_MINI: 2}),
+            pr_xcode_app=PR_XCODE,
+            test_filter="cmuxUITests/DogfoodScenarioUITests",
+            owned_ui="1",
+            queue_rounds="0",
+        )
+        self.assertEqual(choice, GUI_MINI)
+
+    def test_ui_owned_runner_prefers_an_online_gui_label(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
+    def test_ui_owned_runner_queues_on_gui_when_all_minis_are_busy(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 0, ROOT_MINI: 0, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
+    def test_ui_owned_runner_does_not_use_root_when_gui_capacity_is_zero(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
 
 
 MERGE_BASE = "0123456789ab" + "c" * 28
@@ -2309,9 +2431,11 @@ class LiveCapacity(unittest.TestCase):
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, MINI)]
         # Live: a label routes while an online runner carries it; the variable's counts and omissions do not count.
-        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners), {MINI: 2, ROOT_MINI: 1, gui: 1})
+        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners),
+                         {MINI: 2, ROOT_MINI: 1, gui: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19, "gui-std": 10}', PR_XCODE,
-                                            [mini_runner("mini-c", 0, MINI)]), {MINI: 1})
+                                            [mini_runner("mini-c", 0, MINI)]),
+                         {MINI: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         # Unreadable runners: the variable, as before.
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19}', PR_XCODE, None),
                          {MINI: 40, ROOT_MINI: 19})

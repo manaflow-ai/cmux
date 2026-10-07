@@ -409,7 +409,11 @@ struct CloudNativeLayoutProjectionTests {
             remoteWorkspaceID: remoteID, resource: created))
         #expect(adopted.workspaceID == viewer.id)
         #expect(adopted.panelID == reservation.panelID)
+        // Adoption binds the pane; only the request's completion retires it.
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+        viewer.completeReservedCloudTerminalPane(reservation, adoptedPanelID: adopted.panelID)
         #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
+        #expect(viewer.panels[reservation.panelID] != nil)
     }
 
     @Test(
@@ -956,5 +960,56 @@ struct CloudNativeLayoutProjectionTests {
         let finalPane = try #require(workspace.bonsplitController.allPaneIds.first)
         #expect(workspace.bonsplitController.tabs(inPane: finalPane).map(\.id) == [third, second, first].compactMap { workspace.surfaceIdFromPanelId($0) })
         #expect(Set(workspace.panels.keys) == originalPanels)
+    }
+
+    @Test("An incomplete Cloud layout cannot flatten an existing Bonsplit tree")
+    func incompleteCloudLayoutPreservesExistingTree() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() }; manager.tabs = [] }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let first = try #require(workspace.focusedPanelId)
+        var panels = [first]
+        for _ in 0..<3 {
+            panels.append(try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id))
+        }
+        let machine = SurfaceMachineID.cloud("incomplete-layout")
+        let projections = panels.enumerated().map { index, panel in
+            SurfaceProjection(
+                resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\(index)"),
+                workspaceID: workspace.id, panelID: panel,
+                remoteWorkspaceID: "remote", remoteTabID: "tab_\(index)"
+            )
+        }
+        let placements = projections.map {
+            SurfaceResourcePlacement(
+                resource: $0.resource,
+                remoteWorkspaceID: $0.remoteWorkspaceID,
+                remoteTabID: $0.remoteTabID
+            )
+        }
+        let complete = SurfaceProjectionLayout.split(
+            direction: .right, ratio: 0.65,
+            first: .leaf(placements: Array(placements[0...1])),
+            second: .split(
+                direction: .down, ratio: 0.3,
+                first: .leaf(placements: [placements[2]]),
+                second: .leaf(placements: [placements[3]])
+            )
+        )
+        workspace.applyCloudWorkspaceLayout(complete, projections: projections)
+        let before = workspace.bonsplitController.treeSnapshot()
+
+        // This models a daemon snapshot whose resource inventory has not caught
+        // up with the right-most tab. Applying it would otherwise move every
+        // tab to the root and silently destroy the user's nested split.
+        let incomplete = SurfaceProjectionLayout.split(
+            direction: .right, ratio: 0.65,
+            first: .leaf(placements: Array(placements[0...1])),
+            second: .leaf(placements: [placements[2]])
+        )
+        workspace.applyCloudWorkspaceLayout(incomplete, projections: projections)
+        #expect(workspace.bonsplitController.treeSnapshot() == before)
+        #expect(workspace.bonsplitController.allPaneIds.count == 3)
     }
 }

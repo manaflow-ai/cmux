@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -672,6 +673,76 @@ struct CrashDiagnosticSessionPolicyTests {
             ofItemAtPath: url.path
         )
         return url
+    }
+}
+
+// The immutable DispatchSpecificKey lacks Sendable annotation; observed contexts
+// are protected by the lock. No store state is accessed without that lock.
+private final class PersistenceQueueProbeStore: SessionSnapshotStoring, @unchecked Sendable {
+    typealias SnapshotValue = AppSessionSnapshot
+    private let key: DispatchSpecificKey<Bool>
+    private let lock = NSLock()
+    private var recordedContexts: [Bool] = []
+
+    init(key: DispatchSpecificKey<Bool>) { self.key = key }
+    var contexts: [Bool] { lock.withLock { recordedContexts } }
+
+    func removeSnapshot(fileURL: URL?) {
+        let isOnPersistenceQueue = DispatchQueue.getSpecific(key: key) == true
+        lock.withLock { recordedContexts.append(isOnPersistenceQueue) }
+    }
+
+    func save(_ snapshot: AppSessionSnapshot, fileURL: URL?) -> Bool { false }
+    func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<AppSessionSnapshot> { .missing }
+    func load(fileURL: URL?) -> AppSessionSnapshot? { nil }
+    func loadReopenSessionSnapshot(fileURL: URL?) -> AppSessionSnapshot? { nil }
+    func syncManualRestoreSnapshotCache() {}
+    func loadStartupSnapshot() -> AppSessionSnapshot? { nil }
+    func defaultSnapshotFileURL() -> URL? { nil }
+    func manualRestoreSnapshotFileURL() -> URL? { nil }
+    func snapshotFileURL(bundleIdentifier: String) -> URL? { nil }
+    func importableSnapshot(
+        fileURL: URL
+    ) -> Result<SessionSnapshotImport<AppSessionSnapshot>, SessionSnapshotImportError> {
+        .failure(.fileNotFound(fileURL))
+    }
+    func importableSnapshot(
+        bundleIdentifier: String
+    ) -> Result<SessionSnapshotImport<AppSessionSnapshot>, SessionSnapshotImportError> {
+        .failure(.fileNotFound(URL(fileURLWithPath: "/dev/null")))
+    }
+    func exportSnapshot(to destination: URL, overwrite: Bool) -> Result<URL, SessionSnapshotExportError> {
+        .failure(.noSnapshot)
+    }
+    func preserveNewerSchemaSnapshot(fileURL: URL) -> URL? { nil }
+    func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool { true }
+    func archiveSnapshotToHistory(
+        fileURL: URL,
+        richness: SessionSnapshotRichness,
+        archivedAt: Date
+    ) -> SessionSnapshotHistoryEntry? { nil }
+    func historyEntries() -> [SessionSnapshotHistoryEntry] { [] }
+}
+
+extension CrashDiagnosticSessionPolicyTests {
+    @Test("Shutdown persistence shares the autosave serial executor")
+    func synchronousPersistenceUsesAutosaveQueue() throws {
+        let queue = DispatchQueue(label: "cmux.tests.snapshot-persistence")
+        let key = DispatchSpecificKey<Bool>()
+        queue.setSpecific(key: key, value: true)
+        let store = PersistenceQueueProbeStore(key: key)
+        // Isolated defaults: the empty-snapshot path clears the crash-only
+        // marker and legacy geometry keys, which must not touch shared state.
+        let suiteName = "cmux.tests.snapshot-persistence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let writer = SessionSnapshotPersistenceWriter(store: store, queue: queue, defaults: defaults)
+
+        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: true)
+        #expect(store.contexts == [true])
+        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: false)
+        queue.sync {}
+        #expect(store.contexts == [true, true])
     }
 }
 

@@ -40,50 +40,36 @@ public final class BrowserDesignModeMessageHandler: NSObject, WKScriptMessageHan
               let body = message.body as? [String: Any],
               let type = body["type"] as? String else { return }
         if type == "exit_requested" {
-            MainActor.assumeIsolated { [onExitRequested] in
-                onExitRequested()
-            }
+            Task { @MainActor [onExitRequested] in onExitRequested() }
             return
         }
         if type == "prompt_reset" {
-            MainActor.assumeIsolated { [onPromptReset] in
-                onPromptReset()
-            }
+            Task { @MainActor [onPromptReset] in onPromptReset() }
             return
         }
         if type == "interaction_mode_changed", let mode = body["mode"] as? String {
-            MainActor.assumeIsolated { [onInteractionModeChanged] in
-                onInteractionModeChanged(mode)
-            }
+            Task { @MainActor [onInteractionModeChanged] in onInteractionModeChanged(mode) }
             return
         }
         if type == "annotation_drawing", let id = body["id"] as? String {
-            MainActor.assumeIsolated { [onAnnotationDrawing] in
-                onAnnotationDrawing(id)
-            }
+            Task { @MainActor [onAnnotationDrawing] in onAnnotationDrawing(id) }
             return
         }
         if type == "annotation_cancelled", let id = body["id"] as? String {
-            MainActor.assumeIsolated { [onAnnotationCancelled] in
-                onAnnotationCancelled(id)
-            }
+            Task { @MainActor [onAnnotationCancelled] in onAnnotationCancelled(id) }
             return
         }
         if type == "annotation_capture_requested",
            let request = body["request"],
            JSONSerialization.isValidJSONObject(request),
            let data = try? JSONSerialization.data(withJSONObject: request) {
-            MainActor.assumeIsolated { [onAnnotationCaptureRequested] in
-                onAnnotationCaptureRequested(data)
-            }
+            Task { @MainActor [onAnnotationCaptureRequested] in onAnnotationCaptureRequested(data) }
             return
         }
         guard type == "snapshot",
               let snapshot = body["snapshot"],
               JSONSerialization.isValidJSONObject(snapshot),
               let data = try? JSONSerialization.data(withJSONObject: snapshot) else { return }
-        MainActor.assumeIsolated { [onSnapshot] in
-            onSnapshot(data)
-        }
+        Task { @MainActor [onSnapshot] in onSnapshot(data) }
     }
 }

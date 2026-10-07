@@ -1,4 +1,7 @@
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import type { teamsCrud } from "@hexclave/shared/dist/interface/crud/teams";
+import type { usersCrud } from "@hexclave/shared/dist/interface/crud/users";
+import type { InferType } from "yup";
 import {
   bigint,
   boolean,
@@ -124,6 +127,15 @@ export const cloudVms = pgTable(
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Outbound network policy (services/vms/networkPolicy.ts). Null means the
+    // historical default, full Internet. Control-plane owned; the driver
+    // reconciles the provider's firewall and TLS rules to it.
+    networkPolicy: jsonb("network_policy").$type<Record<string, unknown>>(),
+    // Last reconcile outcome for networkPolicy: { state, error?, appliedAt }.
+    networkPolicyStatus: jsonb("network_policy_status").$type<Record<string, unknown>>(),
+    // Coding-agent updates (services/vms/guestAgentUpdates.ts). "latest" updates
+    // the baked agents to npm's latest on attach; null keeps the image's pins.
+    agentUpdates: text("agent_updates").$type<"latest">(),
   },
   (table) => [
     foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
@@ -176,6 +188,37 @@ export const cloudVmObservedDestroyCleanups = pgTable(
       "cloud_vm_observed_destroy_cleanups_pending_step",
       observedDestroyCleanupValidityPredicate(table.cleanup),
     ),
+  ],
+);
+
+/**
+ * Idempotency ledger for `POST /api/vm/:id/snapshot`. One row per (machine,
+ * key): `pending` while the provider snapshot runs, `succeeded` with the
+ * provider's snapshot once it returns. A failed attempt deletes its row, so the
+ * same key may retry. A pending row older than the route's budget may be taken
+ * over by a retry (the first attempt died without finishing).
+ */
+export const cloudVmSnapshotRequests = pgTable(
+  "cloud_vm_snapshot_requests",
+  {
+    vmId: uuid("vm_id").notNull().references(() => cloudVms.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    name: text("name"),
+    status: text("status").$type<"pending" | "succeeded">().notNull(),
+    providerSnapshotId: text("provider_snapshot_id"),
+    snapshotName: text("snapshot_name"),
+    snapshotCreatedAtMs: bigint("snapshot_created_at_ms", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.vmId, table.idempotencyKey] }),
+    check("cloud_vm_snapshot_requests_status", sql`${table.status} in ('pending', 'succeeded')`),
+    check(
+      "cloud_vm_snapshot_requests_succeeded_has_snapshot",
+      sql`${table.status} <> 'succeeded' or (${table.providerSnapshotId} is not null and ${table.snapshotCreatedAtMs} is not null)`,
+    ),
+    check("cloud_vm_snapshot_requests_key_length", sql`length(${table.idempotencyKey}) between 1 and 128`),
   ],
 );
 
@@ -1354,6 +1397,44 @@ export const coderouterApiKeys = pgTable(
 );
 
 /**
+ * Short-lived bearer handoffs from an authenticated native client to another
+ * CodeRouter process. The value returned to the client is never stored; only
+ * its SHA-256 digest is persisted. A lease can be claimed exactly once.
+ */
+export const coderouterHandoffLeases = pgTable(
+  "coderouter_handoff_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    leaseHash: text("lease_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_handoff_leases_hash_format_check",
+      sql`${table.leaseHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "coderouter_handoff_leases_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    uniqueIndex("coderouter_handoff_leases_hash_unique").on(table.leaseHash),
+    index("coderouter_handoff_leases_expiry_idx").on(table.expiresAt),
+    index("coderouter_handoff_leases_team_expiry_idx").on(
+      table.teamId,
+      table.expiresAt,
+    ),
+    index("coderouter_handoff_leases_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
  * Envelope-encrypted provider credentials. Every secret-bearing field is
  * ciphertext; the plaintext data key exists only briefly in Vercel memory.
  */
@@ -2415,4 +2496,227 @@ export const teamSeatReconciles = pgTable("team_seat_reconciles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("team_seat_reconciles_dirty_idx").on(table.dirtyAt).where(sql`${table.dirtyAt} is not null`),
+]);
+
+/**
+ * Mirror of the Hexclave (formerly Stack Auth) project: users, teams, direct
+ * memberships and direct permissions. Hexclave stays the source of truth; the
+ * Svix webhook (`/api/webhooks/stack`) and `scripts/hexclave/backfill-mirror.ts`
+ * write these rows only from a fresh, schema-validated Hexclave read. `raw` is
+ * the validated server read object, so its type is the Hexclave schema's.
+ */
+export const hexclaveUsers = pgTable("hexclave_users", {
+  id: text("id").primaryKey(),
+  primaryEmail: text("primary_email"),
+  displayName: text("display_name"),
+  isAnonymous: boolean("is_anonymous").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  signedUpAt: timestamp("signed_up_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof usersCrud.server.readSchema>>().notNull(),
+}, (table) => [
+  index("hexclave_users_primary_email_idx").on(sql`lower(${table.primaryEmail})`),
+]);
+
+export const hexclaveTeams = pgTable("hexclave_teams", {
+  id: text("id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof teamsCrud.server.readSchema>>().notNull(),
+});
+
+export const hexclaveTeamMemberships = pgTable("hexclave_team_memberships", {
+  teamId: text("team_id").notNull().references(() => hexclaveTeams.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_memberships_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_team_memberships_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) team permissions; a permission needs its membership. */
+export const hexclaveTeamPermissions = pgTable("hexclave_team_permissions", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_permissions_pkey", columns: [table.teamId, table.userId, table.permissionId] }),
+  foreignKey({
+    name: "hexclave_team_permissions_membership_fk",
+    columns: [table.teamId, table.userId],
+    foreignColumns: [hexclaveTeamMemberships.teamId, hexclaveTeamMemberships.userId],
+  }).onDelete("cascade"),
+  index("hexclave_team_permissions_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) project permissions. */
+export const hexclaveProjectPermissions = pgTable("hexclave_project_permissions", {
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_project_permissions_pkey", columns: [table.userId, table.permissionId] }),
+]);
+
+/**
+ * Users and teams Hexclave reported gone. Ids are never reused, so a tombstone
+ * is permanent and stops a reconcile that read before the deletion from
+ * writing the entity back.
+ */
+export const hexclaveTombstones = pgTable("hexclave_tombstones", {
+  entityType: text("entity_type").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_tombstones_pkey", columns: [table.entityType, table.entityId] }),
+  check("hexclave_tombstones_entity_type_check", sql`${table.entityType} in ('user', 'team')`),
+]);
+
+/**
+ * Membership revocations decided by a reconcile but not yet carried out.
+ * Written in the same transaction that removes the mirror membership, so a
+ * failed revoke survives the retry that no longer sees the membership; a row
+ * is deleted only after its revoke succeeds, or when the member is re-added.
+ */
+export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_pending_revocations_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_pending_revocations_user_idx").on(table.userId),
+]);
+
+export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
+
+/**
+ * One row per Svix message id. `processed_at` is set only when the mirror and
+ * revocations reflect Hexclave; a redelivery of such an id is acknowledged
+ * without work. Invalid and failed deliveries keep `processed_at` null.
+ */
+export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  outcome: text("outcome").$type<HexclaveWebhookOutcome>().notNull(),
+  attempts: integer("attempts").notNull().default(1),
+}, (table) => [
+  check("hexclave_webhook_events_outcome_check", sql`${table.outcome} in ('processed', 'ignored', 'invalid', 'failed')`),
+  index("hexclave_webhook_events_received_idx").on(table.receivedAt),
+]);
+
+/**
+ * iOS in-app purchases (docs/billing/ios-in-app-purchases.md). The server is
+ * the source of truth: every Apple transaction and App Store Server
+ * Notification is verified, recorded here, and mirrored into the same
+ * `cmuxPlan` entitlement Stripe fulfillment writes.
+ */
+export const APPLE_SUBSCRIPTION_STATUSES = [
+  "active",
+  "grace_period",
+  "billing_retry",
+  "expired",
+  "revoked",
+] as const;
+export type AppleSubscriptionStatus = (typeof APPLE_SUBSCRIPTION_STATUSES)[number];
+
+/** One `appAccountToken` per cmux user, minted by the server and sent with every purchase. */
+export const appleAccountTokens = pgTable("apple_account_tokens", {
+  userId: text("user_id").primaryKey(),
+  appAccountToken: uuid("app_account_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("apple_account_tokens_app_account_token_unique").on(table.appAccountToken),
+]);
+
+/**
+ * Current state of one Apple subscription (one original transaction). The
+ * row only moves forward: `state_signed_at` is the Apple `signedDate` of the
+ * data that produced it, and an older signed payload never overwrites it.
+ */
+export const appleSubscriptions = pgTable("apple_subscriptions", {
+  originalTransactionId: text("original_transaction_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  appAccountToken: uuid("app_account_token"),
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").$type<AppleSubscriptionStatus>().notNull(),
+  autoRenewEnabled: boolean("auto_renew_enabled"),
+  autoRenewProductId: text("auto_renew_product_id"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  originalPurchaseDate: timestamp("original_purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+  storefront: text("storefront"),
+  currency: text("currency"),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  lastTransactionId: text("last_transaction_id"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revocationReason: integer("revocation_reason"),
+  stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_subscriptions_user_id_idx").on(table.userId),
+  index("apple_subscriptions_expires_at_idx").on(table.expiresAt),
+  check(
+    "apple_subscriptions_status_check",
+    sql`${table.status} in ('active', 'grace_period', 'billing_retry', 'expired', 'revoked')`,
+  ),
+]);
+
+/** One row per Apple transaction (purchase, renewal, upgrade); refunds set `revoked_at`. */
+export const appleTransactions = pgTable("apple_transactions", {
+  transactionId: text("transaction_id").primaryKey(),
+  originalTransactionId: text("original_transaction_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id"),
+  environment: text("environment").notNull(),
+  type: text("type"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  currency: text("currency"),
+  storefront: text("storefront"),
+  offerType: integer("offer_type"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_transactions_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_transactions_user_id_idx").on(table.userId),
+  index("apple_transactions_purchase_date_idx").on(table.purchaseDate),
+]);
+
+/**
+ * App Store Server Notifications V2 ledger, idempotent on `notification_uuid`.
+ * The row is written before any state change. A failed application keeps
+ * `processed_at` null and records `error`; the retry job re-applies those
+ * rows. A notification that can never apply (no linked cmux account, an
+ * unknown product) is closed with `processed_at` and an `error` explaining
+ * why, so it is not retried forever.
+ */
+export const appleNotifications = pgTable("apple_notifications", {
+  notificationUuid: text("notification_uuid").primaryKey(),
+  notificationType: text("notification_type").notNull(),
+  subtype: text("subtype"),
+  environment: text("environment").notNull(),
+  originalTransactionId: text("original_transaction_id"),
+  signedDate: timestamp("signed_date", { withTimezone: true }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+}, (table) => [
+  index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_notifications_pending_idx")
+    .on(table.receivedAt)
+    .where(sql`${table.processedAt} is null`),
 ]);

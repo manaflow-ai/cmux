@@ -110,5 +110,21 @@ struct SidebarWorkspaceAuxiliaryDetailVisibilityTests {
         #expect(!visibility.showsBranchDirectory)
         #expect(visibility.showsPullRequests)
         #expect(!visibility.showsPorts)
+        #expect(!visibility.showsAgentUsage)
+    }
+
+    @Test(arguments: [false, true])
+    func agentUsageIsOptInAndHiddenByHideAllDetails(hideAllDetails: Bool) {
+        let visibility = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: true,
+            showLog: true,
+            showProgress: true,
+            showAgentUsage: true,
+            showBranchDirectory: true,
+            showPullRequests: true,
+            showPorts: true,
+            hideAllDetails: hideAllDetails
+        )
+        #expect(visibility.showsAgentUsage == !hideAllDetails)
     }
 }

@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go suporta 2 vCPU, 4 GiB de RAM e 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Recursos de Cloud VM insuficientes",
+      "memoryMessage": "Suas VMs já usam {used} de {pool} GB de RAM. Esta VM precisa de {requested} GB.",
+      "vcpuMessage": "Suas VMs já usam {used} de {pool} vCPUs. Esta VM precisa de {requested} vCPUs.",
+      "upgradeAction": "Pause ou exclua uma VM, ou faça upgrade para o Max.",
+      "action": "Pause ou exclua uma VM."
     }
   },
   "billingRecovery": {
@@ -403,6 +410,7 @@
       "label": "Menu da conta",
       "settings": "Configurações",
       "billing": "Cobrança",
+      "switchAccount": "Trocar de conta",
       "signOut": "Sair",
       "signingOut": "Saindo…",
       "signOutError": "Não foi possível sair. Tente novamente.",
@@ -426,7 +434,8 @@
         "memberReadOnly": "Somente administradores da equipe podem alterar este plano.",
         "grantedBody": "O acesso ao Team foi concedido a {team} pela equipe do cmux. Não há assinatura para gerenciar.",
         "seatsUsed": "{members} de {seats} em uso",
-        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha."
+        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha.",
+        "addSeats": "Adicionar assentos"
       },
       "teamList": {
         "heading": "Escopos de cobrança",
@@ -488,16 +497,17 @@
           ],
           "pro": [
             "Agentes na nuvem em Cloud VMs",
-            "24 GB de RAM e 6 vCPUs compartilhados entre VMs",
+            "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM",
             "O app cmux para iOS"
           ],
           "max": [
-            "64 GB de RAM e 16 vCPUs compartilhados entre VMs",
+            "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM",
             "Máquinas maiores",
             "Tudo do Pro"
           ],
           "team": [
             "Tudo do Pro para cada membro",
+            "Até 5 Cloud VMs por assento pago, que compartilham 20 vCPUs e 40 GB de RAM por assento pago em toda a equipe",
             "Uma fatura para a equipe toda",
             "Suporte prioritário"
           ]
@@ -540,6 +550,11 @@
         "team": "Criar uma equipe",
         "banner": "Agora você está no {plan}.",
         "bannerLink": "Plano e cobrança"
+      },
+      "appStore": {
+        "title": "Cobrado pela App Store",
+        "body": "Seu plano foi comprado no app cmux para iPhone e é cobrado pela Apple. Altere ou cancele nas suas assinaturas da App Store.",
+        "manage": "Gerenciar na App Store"
       }
     },
     "mobileDevices": {
@@ -1058,6 +1073,8 @@
         "revoke": "Revogar",
         "linksTitle": "Links de convite",
         "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro.",
+        "seatNudge": "{used} pessoas são membros ou foram convidadas, mas o plano tem {seats} assentos. Os convites continuam funcionando; adicione {over, plural, one {# assento} other {# assentos}} para cobrir todos.",
+        "seatNudgeAction": "Gerenciar assentos",
         "actions": {
           "makeAdmin": "Tornar administrador",
           "makeMember": "Tornar membro",
@@ -1122,6 +1139,80 @@
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
       "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+    },
+    "cloud": {
+      "title": "Máquinas do Cloud e acesso do Mac",
+      "description": "Defina a rede de saída de cada máquina e revise os Macs com acesso WireGuard à sua rede privada de VMs do Cloud. Os registros de pareamento do iPhone e do Iroh ficam separados.",
+      "macAccessTitle": "Acesso do Mac",
+      "machines": {
+        "title": "Máquinas",
+        "empty": "Você não tem máquinas do Cloud.",
+        "personal": "pessoal",
+        "team": "equipe",
+        "status": {
+          "provisioning": "iniciando",
+          "running": "em execução",
+          "failed": "com falha",
+          "paused": "pausada",
+          "destroyed": "excluída"
+        }
+      },
+      "network": {
+        "open": "Rede",
+        "title": "Rede de saída de {name}",
+        "description": "Escolha o que esta máquina pode acessar. As alterações são aplicadas na hora, sem reiniciar.",
+        "loading": "Carregando a política de rede…",
+        "loadError": "Não foi possível carregar a política de rede desta máquina.",
+        "saveError": "Não foi possível aplicar esta política de rede.",
+        "unsupported": "Esta máquina não oferece suporte ao controle da rede de saída.",
+        "retry": "Tentar novamente",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "aplicada",
+          "pending": "aplicando",
+          "failed": "falha ao aplicar"
+        },
+        "unsaved": "alterações não salvas",
+        "refresh": "Atualizar",
+        "modeLabel": "Acesso de saída",
+        "mode": {
+          "full": {
+            "label": "Internet completa",
+            "description": "Qualquer endereço público."
+          },
+          "allowlist": {
+            "label": "Lista de permissões",
+            "description": "Somente as predefinições, os domínios e os intervalos de IP que você listar."
+          },
+          "none": {
+            "label": "Sem internet",
+            "description": "Somente os hosts do cmux listados abaixo."
+          }
+        },
+        "presetsTitle": "Predefinições",
+        "presetsNote": "Cada predefinição adiciona nomes de host exatos. Um serviço que usa outros subdomínios pode precisar de mais domínios.",
+        "domainsTitle": "Domínios",
+        "domainsNote": "Somente nomes de host exatos, somente HTTPS na porta 443. Curingas ainda não são compatíveis.",
+        "domainInput": "Domínio",
+        "rangesTitle": "Intervalos de IP",
+        "rangesNote": "O firewall do provedor aplica essas regras fora da máquina. Deixe a porta vazia para permitir todas as portas. Uma porta exige um protocolo.",
+        "cidrInput": "Intervalo de IP (CIDR)",
+        "portInput": "Porta",
+        "protocolInput": "Protocolo",
+        "anyProtocol": "qualquer",
+        "noteInput": "Observação (opcional)",
+        "allPorts": "todas as portas",
+        "dnsLabel": "Permitir DNS",
+        "dnsNote": "Permite que as ferramentas resolvam os nomes para os quais seus intervalos de IP apontam. Domínios não precisam de DNS. DNS aberto é um canal de saída: um processo pode enviar dados nos nomes que consulta.",
+        "requiredTitle": "Sempre permitidos",
+        "requiredNote": "O cmux precisa desses hosts em todos os modos para instalar e atualizar a CLI na máquina.",
+        "add": "Adicionar",
+        "remove": "Remover",
+        "discard": "Descartar alterações",
+        "close": "Fechar",
+        "apply": "Aplicar"
+      },
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
       "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
       "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter.",
@@ -2029,9 +2120,9 @@
         "automation": {
           "ampIntegration": "Liga ou desliga os hooks do cmux para o Amp. Quando desligados, o plugin incluído continua instalado, mas inativo.",
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
-          "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
           "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
+          "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -2066,6 +2157,7 @@
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
           "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL.",
+          "showLinkHoverURL": "Mostra o destino de um link no canto inferior esquerdo do painel do navegador enquanto o cursor está sobre o link ou quando o link tem o foco do teclado.",
           "urlAllowlist": "Padrões de host ou URL que restringem a navegação no navegador integrado. Os Ajustes sugerem origens de desenvolvimento local; salvar uma lista ativa a restrição opcional. Remova entradas para bloqueá-las ou deixe o valor do usuário vazio, sem uma política gerenciada, para desativar a restrição."
         },
         "workspaceGroups": {
@@ -2084,6 +2176,7 @@
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
+          "showAgentUsage": "Acrescenta o uso do agente de código à entrada de status do Claude Code ou do Codex: modelo e janela de contexto consumida e, no Claude Code, um custo de API estimado (thread principal e subagentes) pelos preços de tabela publicados pela Anthropic. O custo é uma estimativa, não a sua fatura de assinatura; os níveis batch e priority, os preços para parceiros, o modo rápido e as taxas de ferramentas de servidor não são considerados.",
           "beta": {
             "conversations": {
               "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."
@@ -2838,14 +2931,21 @@
       "planMax": "Max",
       "sizesDefault": "Máquinas novas usam 8 GB de memória quando você não escolhe um tamanho. Execute cmux vm ls --json para ver os tamanhos que seu plano permite.",
       "limitsTitle": "Limites do plano",
-      "limitsDesc": "Os limites do plano contam máquinas, não um conjunto compartilhado de CPU ou memória. Cada máquina recebe os recursos do seu tamanho.",
+      "limitsDesc": "Suas máquinas ativas compartilham um único conjunto de vCPUs e memória. Rode uma máquina grande ou várias pequenas. Máquinas pausadas não usam o conjunto. O disco é definido por máquina e não faz parte do conjunto.",
       "limitsFree": "Contas gratuitas não podem criar máquinas.",
-      "limitsPaid": "Contas Pro e Max podem ter até 50 máquinas ativas. Uma máquina está ativa enquanto está em execução ou iniciando.",
-      "limitsTeam": "Contas de equipe podem ter até 50 máquinas ativas por assento pago.",
-      "limitsMax": "Máquinas maiores que 24 GB exigem o cmux Max.",
+      "limitsPaid": "Contas Pro e Founder's Edition podem ter até 5 máquinas ativas que compartilham 20 vCPUs e 40 GB de memória. Uma máquina está ativa enquanto está em execução ou iniciando.",
+      "limitsTeam": "Contas de equipe podem ter até 5 máquinas ativas por assento pago. Cada assento pago adiciona 20 vCPUs e 40 GB de memória ao conjunto da equipe.",
+      "limitsMax": "Contas Max podem ter até 5 máquinas ativas que compartilham 80 vCPUs e 160 GB de memória. Uma máquina pode ter até 32 GB e 16 vCPUs no Pro e no Team, ou até 64 GB e 32 vCPUs no Max.",
+      "limitsPoolFull": "Se uma máquina nova, retomada, redimensionada ou bifurcada ultrapassar o conjunto, o cmux recusa a solicitação e mostra quanto do conjunto está em uso. Pause ou exclua uma máquina para liberar recursos, ou faça upgrade para o Max.",
       "limitsPricing": "Consulte a página de preços para ver os valores atuais. Não há medição de uso nem cobrança por excedente.",
+      "agentUpdatesTitle": "Manter agentes de programação atualizados",
+      "agentUpdatesDesc": "Com esta opção ativada, a máquina atualiza Claude Code, Codex, OpenCode, pi e agent-browser. Ela verifica depois que a máquina é criada e sempre que você se conecta, no máximo uma vez a cada 24 horas. A atualização roda de forma independente, então nunca bloqueia a conexão.",
+      "agentUpdatesSource": "Cada ferramenta vem da sua versão oficial no GitHub e é verificada pelo digest sha256 do arquivo da versão. O npm não é usado. Uma versão só é instalada depois de estar pública há 3 dias, e uma atualização nunca instala uma versão mais antiga. Um agente em execução mantém os arquivos com que começou, e uma atualização com falha mantém a versão atual.",
+      "agentUpdatesStatus": "O resultado da última verificação fica em /etc/cmux/agent-updates.state, e o log do atualizador em /var/log/cmux-agent-updates.log. Uma verificação com falha roda de novo na próxima conexão.",
+      "agentUpdatesToggle": "A janela New Machine ativa esta opção por padrão. Para mudar em uma máquina existente, clique com o botão direito na máquina e escolha Keep Agents Up to Date, ou execute cmux vm agent-updates. cmux vm new mantém as versões da imagem, a menos que você passe --agent-updates latest. Desativar as atualizações mantém as versões já instaladas.",
+      "agentUpdatesNetwork": "As atualizações usam apenas github.com, api.github.com, objects.githubusercontent.com e release-assets.githubusercontent.com. O cmux permite esses hosts em todos os modos de rede, incluindo Allowlist e No internet, então uma política de rede nunca bloqueia as atualizações.",
       "resizeTitle": "Redimensionar",
-      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 256 GB, a memória até 64 GB e a CPU até 32 vCPU. Seu plano define o máximo real.",
+      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 256 GB. A memória cresce até 32 GB e a CPU até 16 vCPU no Pro e no Team, ou até 64 GB e 32 vCPU no Max. Uma máquina maior usa mais do seu conjunto. Seu plano define o máximo real.",
       "pauseTitle": "Pausar e retomar",
       "pauseDesc": "cmux vm pause interrompe a computação da máquina. O disco, os espaços de trabalho e o histórico dos terminais permanecem. Os processos em execução param. cmux vm resume inicia a máquina novamente. Abrir uma máquina pausada ou executar um comando nela também a inicia.",
       "pauseIdle": "As máquinas não pausam sozinhas quando estão ociosas. Uma máquina continua rodando até você pausá-la ou excluí-la.",
@@ -2996,9 +3096,11 @@
       "errPlan": "As VMs do Cloud exigem um plano pago",
       "fixPlan": "Contas gratuitas não podem criar máquinas. Faça upgrade na página de preços.",
       "errSize": "Um tamanho exige um plano maior",
-      "fixSize": "Máquinas maiores que 24 GB exigem o cmux Max. Escolha um tamanho menor ou faça upgrade.",
+      "fixSize": "Máquinas maiores que 32 GB exigem o cmux Max. Escolha um tamanho menor ou faça upgrade.",
       "errLimit": "Limite de máquinas ativas atingido",
       "fixLimit": "Pause ou exclua uma máquina e tente de novo.",
+      "errPool": "Recursos de Cloud VM insuficientes",
+      "fixPool": "Suas máquinas ativas já usam as vCPUs ou a memória compartilhadas. Pause ou exclua uma máquina, escolha um tamanho menor ou faça upgrade para o Max.",
       "errLocked": "A máquina está bloqueada",
       "fixLocked": "Seu plano pago terminou e a máquina tem mais de 7 dias. Faça upgrade para se reconectar. Seus arquivos são mantidos.",
       "errAgentMissing": "claude ou codex: command not found",
@@ -5101,7 +5203,8 @@
   "pricing": {
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
-    "signedOutSignIn": "Entrar"
+    "signedOutSignIn": "Entrar",
+    "manageInAppStore": "Gerenciar na App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5243,7 +5346,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está ativo",
     "title": "Boas-vindas ao cmux Pro",
-    "body": "Os recursos Pro ainda estão em desenvolvimento. O acesso à nuvem chegará em breve, com créditos de uso acumulados a cada mês de assinatura. Hoje, o Pro inclui acesso ao cmux para iOS pelo TestFlight.",
+    "body": "O Pro inclui até 5 VMs Cloud compartilhando 20 vCPUs e 40 GB de RAM, além de acesso ao cmux iOS pelo TestFlight.",
     "done": "Ir para o painel",
     "steps": {
       "iosApp": {
@@ -5267,6 +5370,60 @@
     "signedOutTitle": "Entre para autorizar o coderouter",
     "signedOutBody": "Um aplicativo de linha de comando está aguardando você entrar. Entre com sua conta cmux para concluir a conexão deste terminal. Se você não iniciou esta solicitação, feche esta página.",
     "signInButton": "Entrar"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Entre no cmux",
+    "signInSubtitle": "Uma conta para o app, o cloud e o painel.",
+    "signUpTitle": "Crie sua conta cmux",
+    "signUpSubtitle": "Uma conta para o app, o cloud e o painel.",
+    "continueWithProvider": "Continuar com {provider}",
+    "signInWithPasskey": "Entrar com uma chave de acesso",
+    "orContinueWith": "Ou continuar com",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "voce@empresa.com",
+    "continueWithEmail": "Continuar com e-mail",
+    "emailCodeTab": "E-mail",
+    "emailPasswordTab": "E-mail e senha",
+    "passwordLabel": "Senha",
+    "repeatPasswordLabel": "Repita a senha",
+    "signInButton": "Entrar",
+    "createAccountButton": "Criar conta",
+    "forgotPassword": "Esqueceu a senha?",
+    "noAccount": "Não tem uma conta?",
+    "signUpLink": "Cadastre-se",
+    "haveAccount": "Já tem uma conta?",
+    "signInLink": "Entrar",
+    "checkEmailTitle": "Verifique seu e-mail",
+    "checkEmailBody": "Digite o código de 6 caracteres que enviamos para {email}.",
+    "codeLabel": "Código",
+    "back": "Voltar",
+    "resendCode": "Reenviar código",
+    "chooseAccountTitle": "Escolha uma conta",
+    "chooseAccountSubtitle": "para continuar no cmux",
+    "useAnotherAccount": "Usar outra conta",
+    "forgetAccount": "Remover {account} desta lista",
+    "signedOut": "Desconectado",
+    "signingInAs": "Entrando como {account}…",
+    "sessionEnded": "Esta conta foi desconectada. Entre novamente para continuar.",
+    "redirecting": "Entrando…",
+    "lastUsed": "último usado",
+    "legal": "Ao continuar, você concorda com os {terms} e a {privacy}.",
+    "termsOfService": "Termos de Serviço",
+    "privacyPolicy": "Política de Privacidade",
+    "signUpDisabled": "Não é possível criar novas contas no momento.",
+    "noMethods": "O login não está disponível agora. Tente novamente mais tarde.",
+    "embeddedDisabled": "Os botões de login ficam desativados em páginas incorporadas. Abra esta página em uma aba própria.",
+    "errorInvalidEmail": "Digite um e-mail válido.",
+    "errorPasswordRequired": "Digite sua senha.",
+    "errorPasswordTooShort": "Use pelo menos {min} caracteres.",
+    "errorPasswordTooLong": "Use no máximo {max} caracteres.",
+    "errorPasswordsDontMatch": "As senhas não coincidem.",
+    "errorWrongPassword": "E-mail ou senha incorretos.",
+    "errorInvalidCode": "Esse código não é válido. Verifique seu e-mail e tente novamente.",
+    "errorInvalidTotp": "Esse código de dois fatores não é válido.",
+    "errorSignUpNotAllowed": "Não é possível criar novas contas no momento.",
+    "errorPasskey": "O login com chave de acesso não foi concluído. Tente novamente ou use outro método.",
+    "errorGeneric": "Algo deu errado. Tente novamente."
   },
   "MobileRelease106": {
     "title": "Novidades da versão 1.0.6",

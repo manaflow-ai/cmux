@@ -42,7 +42,7 @@ struct AgentFeedInlineText: UIViewRepresentable {
 final class AgentFeedInlineTextView: UIView {
     private static let measurementCache: NSCache<NSString, AgentFeedInlineTextCacheEntry> = {
         let cache = NSCache<NSString, AgentFeedInlineTextCacheEntry>()
-        cache.countLimit = 256
+        cache.countLimit = 512
         return cache
     }()
 

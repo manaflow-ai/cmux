@@ -14,6 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FILTER_SCRIPT = REPO_ROOT / "ios/scripts/filter-ios-appstore-entitlements.py"
+UPLOAD_SCRIPT = REPO_ROOT / "ios/scripts/upload-testflight.sh"
 
 
 def load_filter_module():
@@ -26,6 +27,22 @@ def load_filter_module():
 
 
 class AppStoreEntitlementTests(unittest.TestCase):
+    def test_app_store_export_resigns_cloud_vpn_from_packet_tunnel_profile(self):
+        script = UPLOAD_SCRIPT.read_text()
+
+        self.assertIn("resign_cloud_vpn_extension()", script)
+        function_start = script.index("resign_cloud_vpn_extension()")
+        function_end = script.index("\n}\n\nverify_ipa_bundle_identity", function_start)
+        function = script[function_start:function_end]
+        self.assertIn('security cms -D -i "$extension/embedded.mobileprovision"', function)
+        self.assertIn('packet-tunnel-provider', function)
+        self.assertIn('codesign --force --sign "$identity" --entitlements "$merged_entitlements"', function)
+
+        call = script.index('resign_cloud_vpn_extension \\\n', function_end)
+        self.assertIn('if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]', script[call - 80:call])
+        host_resign = script.index('codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS"', call)
+        self.assertLess(call, host_resign)
+
     def test_profile_only_network_capabilities_are_removed(self):
         module = load_filter_module()
         source = {

@@ -92,7 +92,10 @@ public struct CustomSidebarTemplateCatalog: Sendable {
         }
         let installedSource = source
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//   cp Examples/CustomSidebars/") }
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return !(trimmed.hasPrefix("//") && trimmed.contains("cp Examples/CustomSidebars/"))
+            }
             .joined(separator: "\n")
         return CustomSidebarTemplate(descriptor: descriptor, source: installedSource)
     }

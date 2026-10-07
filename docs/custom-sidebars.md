@@ -35,7 +35,7 @@ cmux sidebar open agents-board
 
 `cmux sidebar try` creates a temporary preview file and prints the command to open and remove it. `cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
 
-Preview cards ship with the app bundle. Regenerate them after changing the curated set with `python3 scripts/generate-sidebar-template-previews.py`.
+Preview cards ship with the app bundle.
 
 ### Curated gallery
 
@@ -183,7 +183,8 @@ Rules of the runtime:
   instead of trailing padding where accessories float over the content)
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
   default 0.5, an overflowing title scrolls out and back; layout never
-  changes) `.onTap(fn)`. Any of them (except
+  changes) `.cursor("pointer")` (show a pointing-hand cursor while the view is
+  hovered) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
@@ -329,7 +330,28 @@ with:
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
-  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
+  (array of Int) + `portCount`, `unread` (Int notifications), `status`, `tabs` +
+  `tabCount`. `status` is the workspace's task-status lane, one of `todo`,
+  `working`, `needs-attention`, `review` or `done`. It is the resolved lane:
+  a manual pin set through `cmux workspace status set` or the sidebar menu
+  while that pin still holds, otherwise the lane cmux infers from live signals
+  (an agent waiting on input, a running agent, an open pull request, a dirty
+  working tree). An external tool that pins the lane through
+  `cmux workspace status set` shows up here too.
+
+  `status` is always reported, independently of whether the built-in status
+  glyph is visible. That glyph needs two further conditions the context does
+  not carry: the workspace-todo feature has to be on, which happens through the
+  beta toggle or through the remote feature flag, and the workspace's own
+  `statusHidden` has to be false. A workspace created in this session starts
+  hidden; one restored from a session snapshot that predates the field starts
+  visible. A custom sidebar therefore has to decide for itself whether to
+  render the lane, and it cannot read `statusHidden` from the context.
+
+  Note the two vocabularies differ: this lane uses `needs-attention`, while
+  `agents[j].status` uses `needs_input`. They are separate values from separate
+  sources and are not interchangeable.
+
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
@@ -357,8 +379,14 @@ with:
   record, stop closes the oldest running child (FIFO). The `agent_id` field is
   not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `hasUnread` (Bool, whether that surface
+  has an unread notification). It is named differently from the workspace-level
+  `unread`, which is a count, so that `w.unread > 0` and `t.hasUnread` cannot be
+  confused for one another. When available: `directory`, `branch` +
+  `dirty`, `ports` (array of Int), `latestPrompt` (the prompt last submitted in
+  that surface, not a pending state) + `latestAt` (epoch). Pair `latestPrompt`
+  with `hasUnread` to show which of a workspace's agents is waiting, instead of
+  collapsing every surface into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The

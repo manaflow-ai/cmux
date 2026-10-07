@@ -403,7 +403,7 @@ Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) a
 
 ## `automation.agentAutoResume`
 
-Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. When the error says when capacity returns, as Subrouter's `retry after <N>s` does once every pooled account is exhausted, the resume waits at least until then plus 30 seconds to 3 minutes, so machines sharing one pool do not all resume at once. The sidebar's **Auto-resumed ×N** marker clears once the agent finishes a turn on its own. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
 
 ```json
 {
@@ -414,6 +414,20 @@ Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstre
 ```
 
 Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
+
+## `agentMessages.enabled`
+
+The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
+
+```json
+{
+  "agentMessages": {
+    "enabled": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Agent Messages**. To turn messages off for one agent or workspace instead, see [Turning messages off](agent-messages.md#turning-messages-off).
 
 ## `diffViewer.defaultLayout`
 

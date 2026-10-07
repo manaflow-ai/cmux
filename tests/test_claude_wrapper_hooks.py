@@ -5,6 +5,7 @@ Regression tests for Resources/bin/claude wrapper hook injection.
 
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import os
@@ -22,6 +23,46 @@ from node_runtime import ensure_node_on_path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+_RETAINED_SETTINGS_FIXTURES: list[Path] = []
+
+
+def _cleanup_retained_settings_fixtures() -> None:
+    for root in _RETAINED_SETTINGS_FIXTURES:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+atexit.register(_cleanup_retained_settings_fixtures)
+
+
+def retain_settings_artifact_for_assertions(
+    home: Path,
+    real_argv: list[str],
+    original_directory_modes: dict[str, int] | None = None,
+) -> list[str]:
+    """Keep durable wrapper output readable after run_wrapper tears down its sandbox."""
+    if "--settings" not in real_argv:
+        return real_argv
+    index = real_argv.index("--settings")
+    if index + 1 >= len(real_argv):
+        return real_argv
+    source = Path(real_argv[index + 1])
+    durable_root = home / ".cmuxterm" / "claude-settings"
+    if not source.is_file() or source.parent != durable_root:
+        return real_argv
+    if original_directory_modes is not None:
+        original_directory_modes["cmuxterm"] = source.parent.parent.stat().st_mode & 0o777
+        original_directory_modes["claude-settings"] = source.parent.stat().st_mode & 0o777
+    fixture_root = Path(tempfile.mkdtemp(prefix="cmux-claude-wrapper-settings-fixture-"))
+    fixture_dir = fixture_root / ".cmuxterm" / "claude-settings"
+    fixture_dir.mkdir(parents=True)
+    fixture_root.joinpath(".cmuxterm").chmod(0o700)
+    fixture_dir.chmod(0o700)
+    target = fixture_dir / source.name
+    shutil.copy2(source, target)
+    _RETAINED_SETTINGS_FIXTURES.append(fixture_root)
+    retained = list(real_argv)
+    retained[index + 1] = str(target)
+    return retained
 
 
 def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
@@ -239,6 +280,7 @@ def run_wrapper(
     generated_hook_settings: str | None = None,
     help_output: str | None = None,
     help_behavior: str = "success",
+    original_settings_directory_modes: dict[str, int] | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -453,12 +495,17 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        real_argv = retain_settings_artifact_for_assertions(
+            Path(env["HOME"]),
+            read_lines(real_args_log),
+            original_settings_directory_modes,
+        )
         stderr = proc.stderr.strip()
         if timed_out:
             stderr = f"timed out after {process_timeout}s: {stderr}".strip()
         return (
             proc.returncode,
-            read_lines(real_args_log),
+            real_argv,
             read_lines(cmux_log),
             stderr,
             claudecode_value,
@@ -1489,6 +1536,84 @@ def test_large_settings_file_is_merged_without_argv_growth(failures: list[str]) 
     )
 
 
+def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
+    """Claude's persisted --settings path must live outside the purged TMPDIR."""
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-purge-") as td:
+        session_tmpdir = Path(td) / "session-tmp"
+        session_tmpdir.mkdir()
+        cases = (
+            ("generated", ["hello"]),
+            ("merged", ["--settings", '{"effortLevel":"max"}', "hello"]),
+        )
+        for label, argv in cases:
+            original_directory_modes: dict[str, int] = {}
+            code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+                socket_state="live",
+                argv=argv,
+                tmpdir=str(session_tmpdir),
+                original_settings_directory_modes=original_directory_modes,
+            )
+            expect(code == 0, f"{label} settings purge: wrapper exited {code}: {stderr}", failures)
+            if "--settings" not in real_argv:
+                failures.append(f"{label} settings purge: missing settings path: {real_argv}")
+                continue
+            settings_path = Path(real_argv[real_argv.index("--settings") + 1])
+            expect(
+                settings_path.is_absolute()
+                and settings_path.parent.name == "claude-settings"
+                and settings_path.parent.parent.name == ".cmuxterm"
+                and not str(settings_path).startswith(str(session_tmpdir) + os.sep),
+                f"{label} settings purge: path must be durable and outside TMPDIR, got {settings_path}",
+                failures,
+            )
+            expect(
+                settings_path.is_file(),
+                f"{label} settings purge: durable settings file is missing: {settings_path}",
+                failures,
+            )
+            expect(
+                original_directory_modes == {"cmuxterm": 0o700, "claude-settings": 0o700},
+                f"{label} settings purge: wrapper-created durable cache directories must remain private, got {original_directory_modes}",
+                failures,
+            )
+            if settings_path.is_file():
+                expect(
+                    settings_path.stat().st_mode & 0o777 == 0o600,
+                    f"{label} settings purge: durable settings file must remain private, got {settings_path}",
+                    failures,
+                )
+            expect(
+                not list(session_tmpdir.glob("cmux-claude-settings*")),
+                f"{label} settings purge: temporary settings files were not cleaned up",
+                failures,
+            )
+
+
+def test_settings_cache_rejects_symlinked_directory(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-link-") as td:
+        root = Path(td)
+        home = root / "home"
+        target = root / "target"
+        home.mkdir()
+        target.mkdir()
+        (home / ".cmuxterm").symlink_to(target, target_is_directory=True)
+
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            setup_sandbox=setup,
+        )
+    expect(code == 0, f"symlinked settings cache: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--settings" not in real_argv,
+        f"symlinked settings cache: expected hooks to fail closed, got {real_argv}",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -1983,7 +2108,6 @@ def expect_computer_use_env_scrubbed(
         "CMUX_CUA_DEFAULT_SESSION": "cmux-surface:test",
         "CMUX_CUA_MCP_FORCE_PROXY": "1",
         "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1",
-        "CMUX_CUA_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
         "CMUX_CUA_TELEMETRY_ENABLED": "false",
         "CMUX_CUA_UPDATE_CHECK": "false",
         "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -2054,6 +2178,12 @@ def expect_cmux_cua_config(
             f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
             failures,
         )
+    env = server.get("env", {})
+    expect(
+        "CMUX_CUA_SOCKET_AUTH_TOKEN" not in env,
+        f"{context}: socket credential must be inherited, never serialized into MCP argv config: {config}",
+        failures,
+    )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=bundled_client)
 
 
@@ -3575,6 +3705,8 @@ def main() -> int:
     test_large_settings_argument_is_rejected_without_hanging(failures)
     test_multibyte_settings_argument_uses_byte_limit(failures)
     test_large_settings_file_is_merged_without_argv_growth(failures)
+    test_settings_artifact_survives_tmpdir_purge(failures)
+    test_settings_cache_rejects_symlinked_directory(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)

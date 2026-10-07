@@ -13,6 +13,26 @@ import Foundation
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
 final class CloudTreeNode: NSObject {
+    struct CoderouterAccount: Equatable {
+        let id: String
+        let provider: CoderouterProvider
+        let label: String?
+        let state: String?
+        /// Percent of the current rate-limit window still available; nil when
+        /// the provider reports no window.
+        var remainingPercent: Int? = nil
+        /// The masked key CodeRouter reports for key and token accounts ("sk-ant-oat01-...JF1g").
+        var identifier: String? = nil
+
+        /// The label, else the type plus the key suffix `cr` prints ("Claude …JF1g").
+        var title: String {
+            if let label, !label.isEmpty { return label }
+            guard let identifier, let suffix = identifier.split(separator: ".").last, !suffix.isEmpty, suffix.count < identifier.count else {
+                return provider.title
+            }
+            return "\(provider.title) \u{2026}\(suffix)"
+        }
+    }
     // Box the payload once: machine/catalog snapshots otherwise enlarge every
     // case and every row-content copy by hundreds of bytes.
     indirect enum Kind: Equatable {
@@ -66,21 +86,46 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
+        /// The team's CodeRouter section: its account count and refresh icon.
+        case coderouterSection(count: Int, refresh: CloudTreeSectionRefresh)
+        /// One account type (Codex, Claude, OpenCode); its children are that
+        /// type's New Account row and accounts.
+        case coderouterProviderGroup(CoderouterProvider, count: Int)
+        case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
-        /// header stands alone; `usage` is the plan's machine count, nil until it loads.
-        case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil)
+        /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
+        case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil, refresh: CloudTreeSectionRefresh? = nil)
         case createAction(CloudTreeCreateAction)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
+        /// The tab row under a Cloud machine's workspaces (Ports, Terminals,
+        /// Resources); its children are the open tab's rows. Display only, see
+        /// `CloudTreeMachineDetailLayout`.
+        case machineDetailTabs(CloudTreeMachineDetailTabs)
+        /// The gap after a Cloud machine's last row, before the next machine.
+        case machineEndSpacer(machine: SurfaceMachineID)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
+        /// The identity glyph a top-level section header carries once for all of
+        /// its rows, so the machine and device rows under it show no repeated icon.
+        var sectionHeaderSymbol: String? {
+            switch self {
+            case .cloudMachinesSection: "cloud"
+            case .devicesSection: "desktopcomputer"
+            case .coderouterSection: "chevron.left.forwardslash.chevron.right"
+            default: nil
+            }
+        }
     }
     let id: String
     private(set) var kind: Kind
     var children: [CloudTreeNode]
     var isPinned = false
     var resourceSection: CloudTreeMachineResourceSection?
+    /// For a machine's tab row: every group it stands for (Ports, Terminals,
+    /// Resources), kept so the row can be rebuilt when another tab opens.
+    var detailPools: [CloudTreeNode] = []
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
     init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
@@ -125,9 +170,14 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
+        case .coderouterSection: return "coderouterSection"
+        case .coderouterProviderGroup: return "coderouterProviderGroup"
+        case .coderouterAccount: return "coderouterAccount"
         case .cloudMachinesSection: return "cloudMachinesSection"
         case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
+        case .machineDetailTabs: return "machineDetailTabs"
+        case .machineEndSpacer: return "machineEndSpacer"
         }
     }
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
@@ -139,9 +189,21 @@ final class CloudTreeNode: NSObject {
         isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
         resourceSection = other.resourceSection
+        detailPools = other.detailPools
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
         }
+    }
+    /// Replaces this node's values and children with another node's, keeping
+    /// this object. Used when a display-only regroup rebuilds a row the
+    /// outline already holds, so the outline never keeps a stale copy.
+    func take(from other: CloudTreeNode) {
+        kind = other.kind
+        children = other.children
+        isPinned = other.isPinned
+        explicitDragGroup = other.explicitDragGroup
+        resourceSection = other.resourceSection
+        detailPools = other.detailPools
     }
     var machine: SurfaceMachineID {
         switch kind {
@@ -165,8 +227,11 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
+        case .coderouterSection, .coderouterProviderGroup, .coderouterAccount: return .cloud("coderouter-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
         case .createAction(let action): return action.machine
+        case .machineDetailTabs(let tabs): return tabs.machine
+        case .machineEndSpacer(let machine): return machine
         }
     }
     var isMachineRow: Bool {
@@ -194,16 +259,20 @@ final class CloudTreeNode: NSObject {
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
-        case .port(let resource, let url, _):
-            return CloudTreePortPresentation(resource: resource, url: url).title
+        case .port(let resource, _, _):
+            return CloudTreePortPresentation(resource: resource).title
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
+        case .coderouterSection: return String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter")
+        case .coderouterProviderGroup(let provider, _): return provider.title
+        case .coderouterAccount(let account): return account.title
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .createAction(let action): return action.title
+        case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                ? String(localized: "devices.empty.title", defaultValue: "No other devices yet")
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
@@ -244,12 +313,16 @@ final class CloudTreeNode: NSObject {
         }
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
-    /// Whether a native drag may export a pane projection. Only terminals and
-    /// displays leave the tree; machine and descendant ordering admit internal-only row
-    /// drags without granting an external projection capability.
+    /// Whether a native drag may export a pane projection. Remote workspace rows
+    /// export their complete placement group; local workspace rows remain
+    /// reorder-only because their group refers to live panes that cannot be
+    /// materialized without moving them out of the source workspace.
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
+        case .workspace(let machine, _, _, _, _) where !machine.isLocal:
+            guard let group = dragGroup, !group.isEmpty else { return false }
+            return group.resources.allSatisfy { !$0.machine.isLocal }
         default: return false
         }
     }
@@ -260,7 +333,8 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .createAction:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup, .coderouterAccount, .createAction,
+             .machineDetailTabs, .machineEndSpacer:
             return nil
         }
     }
@@ -304,6 +378,9 @@ struct CloudTreeTerminalRow: Equatable {
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
     var hiddenTabCount: Int = 0
+    /// The workspaces showing this terminal, for a machine's Terminals tab;
+    /// nil elsewhere and for a terminal in no workspace.
+    var workspaceLabel: String? = nil
 
     /// Placement names override the shared process title only in their own workspace.
     var displayTitle: String {
@@ -831,8 +908,8 @@ enum CloudTreeNodeBuilder {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
-                    children: displays.isEmpty
-                        ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                    children: (displays.isEmpty
+                        ? (snapshot.pendingDisplayCreations?.contains(machine) == true ? [] : [CloudMachineSurfacePresentation.emptyDisplays(info: info)])
                         : displays.map {
                             CloudTreeNode(
                                 id: nodeID(resource: $0.id),
@@ -842,10 +919,10 @@ enum CloudTreeNodeBuilder {
                                     remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                                 )
                             )
-                        }
+                        }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
-            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+            if info.linkState == .connecting || info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
                 children.append(terminalsGroupNode(
                     machine: machine,
                     terminals: terminals,
@@ -861,6 +938,13 @@ enum CloudTreeNodeBuilder {
         // snapshot, so device rows carry no Resources group.
         if let machineSnapshot {
             children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        } else if info?.linkState == .connecting {
+            // Keep the stable Resources control while a machine reconnects.
+            // Telemetry is unavailable until the VM snapshot arrives, so the
+            // group is intentionally empty and does not imply stale readings.
+            let placeholder = MachineSnapshot(
+                id: machine.rawValue, provider: "", image: "", isDesktop: false, activity: .pending)
+            children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: placeholder, now: now))
         }
         return children
     }
@@ -877,7 +961,11 @@ enum CloudTreeNodeBuilder {
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
         }
-        for resource in snapshot.cloudWorkspaceResources(on: machine) {
+        // One list for both passes: the membership copies of member displays
+        // are what tell the local-pane pass a display is already listed. With
+        // the pool resources alone, a New Display pane showed as two rows.
+        let workspaceResources = snapshot.cloudWorkspaceResources(on: machine)
+        for resource in workspaceResources {
             for placement in remotePlacements(of: resource) {
                 var rows = byWorkspace[placement.workspace.id] ?? RemoteWorkspaceRows(workspace: placement.workspace)
                 switch resource.kind {
@@ -888,7 +976,7 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: workspaceResources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
             let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
             if member.resource.kind == .browser { rows.browsers.append(placement) }
@@ -1125,6 +1213,19 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
+    }
+
+    /// The optimistic row for a guest display creation still in flight.
+    private static func pendingDisplayRows(machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+        guard snapshot.pendingDisplayCreations?.contains(machine) == true else { return [] }
+        return [CloudTreeNode(
+            id: "\(nodeID(displaysPool: machine))/pending-display",
+            kind: .placeholder(machine: machine, CloudTreePlaceholder(
+                text: String(localized: "cloudTree.displays.starting", defaultValue: "Starting display…"),
+                style: .connecting,
+                opensMachine: false
+            ))
+        )]
     }
 
     private static func placeholder(
