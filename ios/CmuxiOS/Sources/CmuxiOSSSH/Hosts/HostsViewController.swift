@@ -200,10 +200,15 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
             done(true)
         }
         edit.backgroundColor = .systemGray
-        if case .ssh = row.record.kind, let browser {
-            return UISwipeActionsConfiguration(actions: [delete, edit, browser])
+        guard case .ssh = row.record.kind else { return UISwipeActionsConfiguration(actions: [delete, edit]) }
+        // Lane E5: the host's files over SFTP.
+        let files = feature.files == nil ? nil : UIContextualAction(style: .normal, title: SSHText.files) { [weak self] _, _, done in
+            guard let self else { return done(false) }
+            self.feature.openFiles(row.record, records: self.records, from: self)
+            done(true)
         }
-        return UISwipeActionsConfiguration(actions: [delete, edit])
+        files?.backgroundColor = .systemGray3
+        return UISwipeActionsConfiguration(actions: [delete, edit] + [browser, files].compactMap { $0 })
     }
 
     private func confirmDelete(_ host: HostRecord) {

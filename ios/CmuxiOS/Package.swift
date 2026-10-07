@@ -82,6 +82,7 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSSFTPCore",
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
@@ -388,9 +389,34 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The Hosts tab, host editor, keys, trust prompts and SSH terminal screen.
+        // Lane E5 (e5-extras.md section 1): SFTP for SSH hosts behind C4's
+        // FileTransfer and C13's viewer source.
+        .target(
+            name: "CmuxiOSSFTPCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSSSHCore",
+                "CmuxiOSViewersCore",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSFTPCoreTests",
+            dependencies: [
+                "CmuxiOSSFTPCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSViewersCore",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSSSH",
             dependencies: [
+                "CmuxiOSSFTPCore",
                 "CmuxiOSSSHCore",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSDesign",

@@ -49,6 +49,8 @@ enum ShellComposition {
                              appearance: container.terminalPreferences)
         // Lane C14: a host's localhost in the in-app browser (Hosts swipe action).
         ssh.browsers = WebComposition.screens(WebComposition.feature(clients: container.webClients))
+        // Lane E5: an SSH host's files over SFTP (Hosts swipe action).
+        ssh.files = container.sftp.screens
         // Lane C6: the Feed tab over the account's feed seam.
         let feedSource = sources.feed
         let feedIsMock = sources.resolved[.feed] != .real

@@ -75,6 +75,8 @@ final class AppContainer {
     let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane E5: SSH hosts' files over SFTP (sessions, transfers, viewers).
+    let sftp = SFTPComposition()
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()

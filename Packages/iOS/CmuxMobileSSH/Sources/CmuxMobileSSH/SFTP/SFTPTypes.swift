@@ -54,6 +54,12 @@ public struct SFTPEntry: Sendable, Equatable {
     public var longname: String
     public var attributes: SFTPAttributes
 
+    public init(name: String, longname: String = "", attributes: SFTPAttributes) {
+        self.name = name
+        self.longname = longname
+        self.attributes = attributes
+    }
+
     public var isDirectory: Bool { attributes.isDirectory }
     public var isSymlink: Bool { attributes.isSymlink }
 }
