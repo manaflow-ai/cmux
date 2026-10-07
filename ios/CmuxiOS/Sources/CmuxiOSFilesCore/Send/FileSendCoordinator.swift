@@ -12,6 +12,9 @@ public final class FileSendCoordinator {
     private let attachments: (any FileAttachmentSink)?
     private let stager: FileStager
     private var pending: [TransferID: (target: FileSendTarget, file: StagedFile)] = [:]
+    /// Per-upload completions (the terminal composer): the Mac path, or nil
+    /// when the upload ended without finishing.
+    private var completions: [TransferID: @MainActor (String?) -> Void] = [:]
 
     public init(model: TransferListModel, paster: (any TerminalPathPaster)?, attachments: (any FileAttachmentSink)?,
                 stager: FileStager = FileStager()) {
@@ -40,16 +43,35 @@ public final class FileSendCoordinator {
         }
     }
 
+    /// Uploads one file to the Mac's inbox (`dest.kind = composer`) and
+    /// calls `completion` once with its path there, or nil when it ended
+    /// without finishing. The staged copy is discarded either way.
+    @discardableResult
+    public func upload(_ file: StagedFile, host: HostID, completion: @escaping @MainActor (String?) -> Void) -> TransferID {
+        let id = send([file], to: .inbox, host: host)[0]
+        completions[id] = completion
+        return id
+    }
+
     /// Cancelled or failed for good: drop the staged copy.
     private func ended(_ item: TransferItem) {
         guard item.progress.state != .finished, let entry = pending.removeValue(forKey: item.id) else { return }
         stager.discard(entry.file)
+        completions.removeValue(forKey: item.id)?(nil)
     }
 
     private func finished(_ item: TransferItem) {
         guard let entry = pending.removeValue(forKey: item.id) else { return }
         stager.discard(entry.file)
-        guard let path = item.progress.remotePath else { return }
+        let completion = completions.removeValue(forKey: item.id)
+        guard let path = item.progress.remotePath else {
+            completion?(nil)
+            return
+        }
+        if let completion {
+            completion(path)
+            return
+        }
         let host = item.request.hostID
         switch entry.target {
         case .terminal(let id):

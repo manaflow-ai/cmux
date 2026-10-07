@@ -69,6 +69,8 @@ let package = Package(
                 "CmuxiOSViewers",
                 "CmuxiOSViewersCore",
                 "CmuxiOSFilesCore",
+                "CmuxiOSTerminalCompose",
+                "CmuxiOSTerminalComposeCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
                 "CmuxiOSPlatform",
@@ -311,6 +313,30 @@ let package = Package(
         .target(
             name: "CmuxiOSViewers",
             dependencies: ["CmuxiOSViewersCore", "CmuxiOSFiles", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane E4 (plans/cmux-next/ios-next/e4-compose.md): the terminal
+        // composer's drafts per terminal, sent history, send normalization,
+        // Return rules and the upload seam. No UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSTerminalComposeCore",
+            dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSTerminalComposeCoreTests",
+            dependencies: ["CmuxiOSTerminalComposeCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The composer bar over a terminal: text, attachments (C4 pickers,
+        // paste and drop), dictation (C8) and the send path.
+        .target(
+            name: "CmuxiOSTerminalCompose",
+            dependencies: [
+                "CmuxiOSTerminalComposeCore", "CmuxiOSTerminal", "CmuxiOSComposer", "CmuxiOSFiles",
+                "CmuxiOSFilesCore", "CmuxiOSFeatureKit", "CmuxiOSDesign",
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

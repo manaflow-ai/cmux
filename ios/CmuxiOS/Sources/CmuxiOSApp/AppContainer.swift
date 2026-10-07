@@ -21,6 +21,7 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSTerminalComposeCore
 import CmuxiOSTerminalLink
 import CmuxiOSViewers
 import CmuxiOSViewersCore
@@ -78,6 +79,9 @@ final class AppContainer {
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
+    /// Lane E4 (e4-compose.md): the terminal composer's drafts per terminal
+    /// and sent history on this device; cleared on sign-out.
+    let terminalCompose = TerminalComposeStore(persistence: FileTerminalComposePersistence.standard())
     let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
     /// C7 fills this with the push owner's per-device filter; nil keeps the
     /// notification preferences on this device.
@@ -568,6 +572,7 @@ final class AppContainer {
         home = nil
         homeAccount = nil
         dropFeatureSources()
+        terminalCompose.clearAll()
         accountLinks.stop()
         if let pairing { Task { await pairing.cache.reset() } }
     }

@@ -1,14 +1,15 @@
 @preconcurrency import AVFAudio
-import Foundation
+public import Foundation
 @preconcurrency import Speech
 
 /// Voice dictation into the prompt: Speech framework recognition, on-device
 /// when the recognizer supports it (no audio leaves the phone), else Apple's
 /// server recognition. Partial results stream to `onText`; `stop()` ends the
-/// session (Send, a second tap, or leaving the screen).
+/// session (Send, a second tap, or leaving the screen). Shared with the
+/// terminal composer (E4).
 @MainActor
-final class DictationController {
-    enum Failure: Error {
+public final class DictationController {
+    public enum Failure: Error {
         case denied
         case unavailable
     }
@@ -16,14 +17,16 @@ final class DictationController {
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    private(set) var isRunning = false
+    public private(set) var isRunning = false
     /// The transcription so far (replaces the previous partial).
-    var onText: ((String) -> Void)?
+    public var onText: ((String) -> Void)?
     /// Recognition ended (final result, error or `stop()`).
-    var onEnd: (() -> Void)?
+    public var onEnd: (() -> Void)?
 
     /// Asks for speech and microphone permission, then starts listening.
-    func start(locale: Locale = .current) async throws {
+    public init() {}
+
+    public func start(locale: Locale = .current) async throws {
         guard !isRunning else { return }
         guard await Self.speechAuthorized(), await AVAudioApplication.requestRecordPermission() else { throw Failure.denied }
         guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(), recognizer.isAvailable else {
@@ -55,7 +58,7 @@ final class DictationController {
         }
     }
 
-    func stop() {
+    public func stop() {
         guard isRunning else { return }
         isRunning = false
         engine.stop()
