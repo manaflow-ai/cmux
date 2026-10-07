@@ -9,6 +9,9 @@ import CmuxConversationCore
 final class MacConversationKeyboardState {
     var selectedRowID: String?
     weak var responderBeforeTapback: NSResponder?
+    /// Edit > Search > Find Next / Previous: the highlighted match and its query.
+    var findMatch: (rowID: String, range: NSRange)?
+    var findQuery: String?
 }
 
 /// Whether a focus change comes from the keyboard (Tab, arrows) rather
@@ -85,6 +88,7 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
         case #selector(tapbackMessage(_:)): return commandTarget(incoming: false) != nil
         case #selector(editLastMessage(_:)): return lastEditableIndex != nil
         case #selector(copyMessage(_:)), #selector(copy(_:)), #selector(delete(_:)): return selectedMessageIndex != nil
+        case #selector(toggleTextStyle(_:)), #selector(applyTextEffect(_:)): return composerIsFocused
         default: return true
         }
     }
@@ -92,6 +96,7 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return false }
         if action == #selector(toggleShowTimes(_:)) { menuItem.state = showsTimes ? .on : .off }
+        updateMenuState(menuItem)
         return canPerform(action)
     }
 

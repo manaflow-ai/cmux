@@ -85,7 +85,7 @@ extension MacComposerTextView {
         if !style.isEmpty { attributes[.conversationTextStyle] = style.rawValue }
         if let effect { attributes[.conversationTextEffect] = effect.rawValue }
         let probe = NSMutableAttributedString(string: "x", attributes: attributes)
-        ConversationRichTextStyler.applyDisplayAttributes(to: probe, baseFont: MacConversationTheme.bodyFont, lineHeight: MacConversationTheme.lineHeight)
+        ConversationRichTextStyler.applyDisplayAttributes(to: probe, baseFont: MacConversationTheme.composerFont, lineHeight: MacConversationTheme.composerLineHeight)
         return probe.attributes(at: 0, effectiveRange: nil)
     }
 
@@ -97,7 +97,7 @@ extension MacComposerTextView {
             let selection = selectedRanges
             let typing = typingAttributes
             storage.beginEditing()
-            ConversationRichTextStyler.applyDisplayAttributes(to: storage, baseFont: MacConversationTheme.bodyFont, lineHeight: MacConversationTheme.lineHeight)
+            ConversationRichTextStyler.applyDisplayAttributes(to: storage, baseFont: MacConversationTheme.composerFont, lineHeight: MacConversationTheme.composerLineHeight)
             decorateStorage?(storage)
             storage.endEditing()
             selectedRanges = selection
@@ -148,8 +148,10 @@ extension MacComposerTextView {
         let item = NSMenuItem(title: String(localized: "conversation.textEffects.title", defaultValue: "Text Effects", bundle: .module), action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         let active = activeEffect
-        for effect in ConversationTextEffect.allCases {
-            let entry = NSMenuItem(title: Self.effectName(effect), action: #selector(effectItemChosen(_:)), keyEquivalent: "")
+        for (index, effect) in ConversationTextEffect.allCases.enumerated() {
+            // Shows Messages' ⌥⌘1–8 (the window answers them, MacConversationCommands.textEffects).
+            let entry = NSMenuItem(title: Self.effectName(effect), action: #selector(effectItemChosen(_:)), keyEquivalent: "\(index + 1)")
+            entry.keyEquivalentModifierMask = [.command, .option]
             entry.target = self
             entry.representedObject = effect.rawValue
             entry.state = active == effect ? .on : .off

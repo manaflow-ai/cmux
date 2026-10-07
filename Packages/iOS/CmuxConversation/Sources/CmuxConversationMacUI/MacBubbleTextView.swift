@@ -16,10 +16,16 @@ final class MacBubbleTextView: NSTextView {
             guard let textStorage, !textStorage.isEqual(to: newValue) else { return }
             // New text (a reused row, an edit) drops any selection in the old.
             setSelectedRange(NSRange(location: 0, length: 0))
+            findHighlightRange = nil
             textStorage.setAttributedString(newValue)
             needsDisplay = true
             needsLayout = true
         }
+    }
+    /// Edit > Search > Find Next / Previous: the current match, painted in
+    /// the system find highlight color behind the text.
+    var findHighlightRange: NSRange? {
+        didSet { if findHighlightRange != oldValue { needsDisplay = true } }
     }
     /// Keys explode and jitter randomness to the message.
     var effectSeed: UInt64 = 0
@@ -120,6 +126,14 @@ final class MacBubbleTextView: NSTextView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if let find = findHighlightRange, NSMaxRange(find) <= (textStorage?.length ?? 0),
+           let manager = layoutManager, let container = textContainer {
+            let glyphs = manager.glyphRange(forCharacterRange: find, actualCharacterRange: nil)
+            NSColor.findHighlightColor.setFill()
+            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: glyphs, in: container) { rect, _ in
+                NSBezierPath(roundedRect: rect.insetBy(dx: -1, dy: 0), xRadius: 3, yRadius: 3).fill()
+            }
+        }
         let range = selectedRange()
         if range.length > 0, let manager = layoutManager, let container = textContainer {
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)

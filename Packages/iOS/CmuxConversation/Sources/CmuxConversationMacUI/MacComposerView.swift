@@ -203,7 +203,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     var maximumFieldHeight: CGFloat = 220
     /// Measured: the pill is 32 pt tall and sits 11 pt above the window bottom.
     private(set) var fieldHeight: CGFloat = 32
-    private let lineHeight = MacConversationTheme.lineHeight
+    private let lineHeight = MacConversationTheme.composerLineHeight
     private let minFieldHeight: CGFloat = 32
     private let attachmentHeight: CGFloat = 80
 
@@ -263,11 +263,11 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         textView.usesFontPanel = false
         textView.allowsUndo = true
         textView.drawsBackground = false
-        textView.font = MacConversationTheme.bodyFont
+        textView.font = MacConversationTheme.composerFont
         textView.baseTypingAttributes = [
-            .font: MacConversationTheme.bodyFont,
+            .font: MacConversationTheme.composerFont,
             .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: MacConversationTheme.bodyParagraph,
+            .paragraphStyle: MacConversationTheme.composerParagraph,
         ]
         textView.typingAttributes = textView.baseTypingAttributes
         textView.wantsLayer = true
@@ -297,7 +297,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         scrollView.verticalScrollElasticity = .none
         fieldContent.addSubview(scrollView)
 
-        placeholder.font = MacConversationTheme.bodyFont
+        placeholder.font = MacConversationTheme.composerFont
         placeholder.textColor = .tertiaryLabelColor
         fieldContent.addSubview(placeholder)
 
