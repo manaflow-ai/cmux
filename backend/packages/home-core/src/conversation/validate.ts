@@ -1,5 +1,6 @@
 import { cleanAttachmentPart } from "./attachments.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
+import { validateQuestion } from "./question.ts"
 import { fail } from "./reject.ts"
 import {
   MAX_DISPLAY_NAME_CHARS,
@@ -168,6 +169,8 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
         status: part.status as WorkStatus,
         ...(part.preview === undefined ? {} : { preview: part.preview as string })
       })
+    } else if (part.type === "question") {
+      out.push(validateQuestion(part))
     } else if (part.type === "attachment" && allowAttachments) {
       // Cloud heads only: a local head (the Rust crate) has no attachment parts.
       const clean = cleanAttachmentPart(part)

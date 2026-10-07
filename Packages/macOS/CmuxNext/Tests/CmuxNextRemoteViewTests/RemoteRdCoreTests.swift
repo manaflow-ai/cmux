@@ -101,6 +101,19 @@ struct RemoteRdCoreTests {
         #expect(Array(request[20..<24]) == Self.le(UInt32(900)))
     }
 
+    /// rd change C5: a bulk chunk (stream frame type 3: u64 transfer, u64
+    /// offset, bytes) comes out as a `.bulk` message, not as a datagram.
+    @Test func aBulkChunkOnTheStreamCarrierIsABulkMessage() throws {
+        let core = try #require(RemoteRdCore(carrier: .stream))
+        let chunk = Data(Self.le(UInt64(2)) + Self.le(UInt64(0)) + [UInt8](repeating: 3, count: 100))
+        var frame = Data([3])
+        frame += Data(Self.le(UInt32(chunk.count)))
+        frame += chunk
+        try core.push(streamBytes: frame, nowMicros: 1)
+        #expect(try core.popMessage() == .bulk(chunk))
+        #expect(try core.popMessage() == nil)
+    }
+
     @Test func streamCarrierYieldsControlMessagesAndFrames() throws {
         let core = try #require(RemoteRdCore(carrier: .stream))
         let control = Data(#"{"t":"started","session":7}"#.utf8)

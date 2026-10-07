@@ -100,6 +100,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
+    /// The user muted the workspace's notifications
+    /// (`notifications.mutedWorkspaces`); the row draws a quiet mark.
+    public var muted: Bool
+    /// False for a workspace no close path closes (the store's home
+    /// workspace, `home_not_closable`): the row offers no close button.
+    public var isClosable: Bool
 
     public init(
         id: WorkspaceID,
@@ -123,7 +129,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         agentBrand: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
-        rowState: SidebarRowState = .live
+        rowState: SidebarRowState = .live,
+        muted: Bool = false,
+        isClosable: Bool = true
     ) {
         self.id = id
         self.machineID = machineID
@@ -147,6 +155,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState
+        self.muted = muted
+        self.isClosable = isClosable
     }
 }
 

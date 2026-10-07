@@ -22,8 +22,10 @@ import Testing
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: Settings is the same item, back at the bottom (after Recents).
-        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 3)
+        // Moves keep item ids: the account is the same item, at the bottom
+        // (after Recents); Settings left with amendment 2 (it is in the profile menu).
+        #expect(migrated.locate(LayoutItemID("itm_account"))?.section == 3)
+        #expect(migrated.locate(LayoutItemID("itm_settings")) == nil)
     }
 
     /// Only the exact rail default migrates.

@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextAgentActivity
+import CmuxNextControl
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -34,6 +35,75 @@ import Testing
         try? await Task.sleep(for: .milliseconds(300))
         first.cancel()
         #expect(await first.value == nil)
+    }
+
+    /// A daemon that answers, but refuses `permissions_status` or answers
+    /// without the two grants, speaks another protocol version: the step
+    /// gets a visible mismatch, not silence.
+    @Test(arguments: [#"{"ok":false,"error":"unknown method: permissions_status"}"#,
+                      #"{"ok":true,"result":{"granted":true}}"#])
+    func aHelperOnAnotherProtocolIsAVersionMismatch(_ reply: String) async throws {
+        let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
+        defer { unlink(path) }
+        let listener = try #require(Self.bound(path))
+        defer { close(listener) }
+        listen(listener, 4)
+        Self.answerEachRequest(on: listener, with: reply)
+        let source = AppComputerUsePermissionSource(configuration: .init(socketPath: path, machineName: ""))
+        let stream = source.permissions()
+        let first = Task { () -> ComputerUsePermissions? in
+            for await value in stream { return value }
+            return nil
+        }
+        let deadline = Task { try? await Task.sleep(for: .seconds(5)); first.cancel() }
+        let value = await first.value
+        deadline.cancel()
+        #expect(value?.helperVersionMismatch == true)
+    }
+
+    /// Accepts connections on `listener` and answers each request line with
+    /// `reply`, until the listener closes.
+    static func answerEachRequest(on listener: Int32, with reply: String) {
+        Thread.detachNewThread {
+            while true {
+                let client = accept(listener, nil, nil)
+                guard client >= 0 else { return }
+                var byte: UInt8 = 0
+                while read(client, &byte, 1) == 1, byte != UInt8(ascii: "\n") {}
+                let line = Array((reply + "\n").utf8)
+                _ = line.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+                close(client)
+            }
+        }
+    }
+
+    /// The app strips every inherited CMUX* variable except CMUX_NEXT_* at
+    /// launch (LaunchIdentity), so the socket override and its tokens use
+    /// CMUX_NEXT_ names: a tagged app and its tests then reach their own
+    /// cmux-cua socket and never the shared default path.
+    @Test func theSocketOverrideSurvivesTheLaunchStrip() {
+        let launched = ["CMUX_NEXT_CUA_SOCKET": "/tmp/tag-scoped/cmux-cua.sock",
+                        "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "agent-token",
+                        "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-token",
+                        "CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock"]
+        let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: launched, bundledEnvironment: [:]))
+        let environment = launched.filter { !stripped.contains($0.key) }
+        let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "", environment: environment,
+                                                                            home: "/Users/someone")
+        #expect(configuration.socketPath == "/tmp/tag-scoped/cmux-cua.sock")
+        #expect(configuration.authToken == "agent-token")
+        #expect(configuration.hostAuthToken == "host-token")
+    }
+
+    /// Without the override the app reads cmux-cua's default socket, and an
+    /// old CMUX_CUA_SOCKET (a parent's, or the helper's own) is never used.
+    @Test func withoutTheOverrideTheDefaultSocketIsUsed() {
+        let configuration = AgentActivitySocketSource.Configuration.standard(
+            machineName: "", environment: ["CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock",
+                                           "CMUX_CUA_SOCKET_AUTH_TOKEN": "inherited"],
+            home: "/Users/someone")
+        #expect(configuration.socketPath == "/Users/someone/Library/Caches/cmux-cua/cmux-cua.sock")
+        #expect(configuration.authToken == nil)
     }
 
     @Test func onlyABoundAndListeningSocketCounts() throws {

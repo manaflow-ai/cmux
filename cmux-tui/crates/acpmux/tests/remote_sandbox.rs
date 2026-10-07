@@ -162,3 +162,24 @@ async fn a_remote_chain_cannot_write_outside_its_folders_or_reach_a_loopback_por
 fn dirs_home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").expect("HOME"))
 }
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_remote_chain_cannot_query_the_keychain() {
+    let d = dir("keychain");
+    let hub = hub(&d);
+    // The control: a local session's agent may.
+    let mut local = Client::new(&hub, Origin::Local);
+    let seen: Value = serde_json::from_str(
+        &local.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(seen, json!({"keychain": "allowed"}));
+    let mut web = Client::new(&hub, Origin::Web);
+    let seen: Value = serde_json::from_str(
+        &web.run(&d, "keychain-probe").await.unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(seen, json!({"keychain": "denied"}));
+    let _ = std::fs::remove_dir_all(&d);
+}

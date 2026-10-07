@@ -28,7 +28,10 @@ import Testing
     }
 
     static func validSamples(_ descriptor: SettingDescriptor) -> [JSONValue] {
-        switch descriptor.kind {
+        // Chat roots are stricter than a folder list (no `~/`, no protected
+        // folders); the export's samples for that row are the one source.
+        if descriptor.path == ChatSettings.rootsPath { return SettingsSchemaSamples.samples(for: descriptor).accept }
+        return switch descriptor.kind {
         case .choice(let choices): choices.map { .string($0.value) }
         case .choiceOrNumber(let choices, let number): choices.map { .string($0.value) } + [.number(number.range.upperBound)]
         case .toggle: [true, false]
@@ -51,7 +54,8 @@ import Testing
     }
 
     static func invalidSamples(_ descriptor: SettingDescriptor) -> [JSONValue] {
-        switch descriptor.kind {
+        if descriptor.path == ChatSettings.rootsPath { return SettingsSchemaSamples.samples(for: descriptor).refuse }
+        return switch descriptor.kind {
         case .choice: ["__not_a_choice__", 3]
         case .choiceOrNumber: ["__not_a_choice__", false]
         case .toggle: ["yes", 1]

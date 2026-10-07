@@ -93,6 +93,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnDockError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
+        .or_else(|| permanent_column_code(error))
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
@@ -103,4 +104,19 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
+}
+
+/// `permanent-dock-v1`: a close, move or undo the permanent-column guard
+/// refused (an `operation.failed` whose reason code names it).
+/// Read from the whole chain: a resource commit may carry the refusal as a
+/// cause under its own context ("close pane 3").
+fn permanent_column_code(error: &anyhow::Error) -> Option<String> {
+    let code = crate::mux::PERMANENT_COLUMN_CODE;
+    let refused = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<crate::resource::ResourceError>()
+            .is_some_and(|refusal| refusal.details["extra"]["reason_code"] == code)
+            || cause.to_string().starts_with(code)
+    });
+    refused.then(|| code.to_string())
 }

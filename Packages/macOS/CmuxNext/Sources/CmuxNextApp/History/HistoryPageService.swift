@@ -159,7 +159,7 @@ extension TabContentCache {
         let profile = browserProfile?(key) ?? .default
         let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
-            return swapPage(key, with: webKit.makeWebKitTab(config))
+            return swapPage(key, with: unproxiedWebKitPage(config))
         }
         // task-owner: one Chromium page creation; the tab swap is its only effect
         Task { [weak self] in
@@ -168,8 +168,15 @@ extension TabContentCache {
             if let page = try? await makeCEFTab(configured) {
                 swapPage(key, with: page)
             } else {
-                swapPage(key, with: webKit.makeWebKitTab(config))
+                swapPage(key, with: unproxiedWebKitPage(config))
             }
         }
+    }
+
+    /// A WebKit page for `config`; a proxied tab's page stays blank (its URL is a remote
+    /// machine's localhost, which WebKit would load from this Mac).
+    private func unproxiedWebKitPage(_ config: BrowserTabConfiguration) -> WebKitTab {
+        webKit.makeWebKitTab(id: config.id, profile: config.profile,
+                             initialURL: pageRequests.proxiedTabs.isProxied(config.id.rawValue) ? nil : config.initialURL)
     }
 }

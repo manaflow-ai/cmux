@@ -234,3 +234,104 @@ test("a backticked path whose file name holds a space is a chip, also from home"
   expect(container.querySelector("code")).toBeNull();
   await unmount();
 });
+
+/// The reply from Lawrence's screenshot (2026-10-06): the fleet status files in /tmp, outside the
+/// session's folders.
+const FLEET_REPLY = [
+  "Rendered the build fleet status: `/tmp/fleetviz/out/fleet.png` and `/tmp/fleetviz/out/fleet.html`.",
+  "",
+  "![Build fleet status](/tmp/fleetviz/out/fleet.png)",
+].join("\n");
+const FLEET_PATHS = {
+  "/tmp/fleetviz/out/fleet.png": { place: "outside", folder: false },
+  "/tmp/fleetviz/out/fleet.html": { place: "outside", folder: false },
+};
+
+test("the fleet reply: both backticked /tmp paths are outside chips (lock, bold name, full path on hover)", async () => {
+  const { container, calls, unmount } = await render(FLEET_REPLY, { paths: FLEET_PATHS });
+  const chips = [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")];
+  expect(chips.map((chip) => chip.dataset.path)).toEqual([
+    "/tmp/fleetviz/out/fleet.png",
+    "/tmp/fleetviz/out/fleet.html",
+  ]);
+  expect(chips.map((chip) => chip.querySelector(".cv-chip__label")?.textContent)).toEqual(["fleet.png", "fleet.html"]);
+  for (const chip of chips) {
+    expect(chip.classList.contains("is-outside")).toBe(true);
+    expect(chip.querySelector(".cv-chip__lock")).not.toBeNull();
+    expect(chip.title.startsWith(chip.dataset.path!)).toBe(true);
+  }
+  expect(container.querySelector("code")).toBeNull();
+  await act(async () => chips[1]!.click());
+  expect(calls.filter((call) => call.method === "link.openPath")).toEqual([
+    { method: "link.openPath", params: { path: "/tmp/fleetviz/out/fleet.html" } },
+  ]);
+  await unmount();
+});
+
+test("one path detector: prose, code spans and links chip the same forms (file URLs, folders, ./ paths)", async () => {
+  const reply = [
+    "Prose: file:///tmp/fleetviz/out/fleet.html, the folder /tmp/fleetviz/out/ and ./docs/notes.md.",
+    "Code: `file:///tmp/fleetviz/out/fleet.html`, `/tmp/fleetviz/out/` and `./docs/notes.md`.",
+    "Links: [page](file:///tmp/fleetviz/out/fleet.html), [out](/tmp/fleetviz/out/) and [notes](./docs/notes.md).",
+  ].join("\n");
+  const { container, unmount } = await render(reply);
+  const lines = [...container.querySelectorAll("p")].flatMap((p) => p.innerHTML.split("<br>"));
+  const paths = (html: string) => {
+    const div = dom.window.document.createElement("div");
+    div.innerHTML = html;
+    return [...div.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path);
+  };
+  const expected = ["/tmp/fleetviz/out/fleet.html", "/tmp/fleetviz/out/", "./docs/notes.md"];
+  expect(lines.map(paths)).toEqual([expected, expected, expected]);
+  expect(container.querySelector("code")).toBeNull();
+  expect(container.textContent).toContain("Prose: fleet.html, the folder out and notes.md.");
+  await unmount();
+});
+
+test("the fleet reply's /tmp image, outside the folders: its alt text, its file name and Open, never a broken image", async () => {
+  const { container, calls, unmount } = await render(FLEET_REPLY, { paths: FLEET_PATHS });
+  const card = container.querySelector<HTMLElement>(".cv-image-file")!;
+  expect(card).not.toBeNull();
+  expect(container.querySelector("img")).toBeNull();
+  expect(card.querySelector(".cv-image-file__alt")?.textContent).toBe("Build fleet status");
+  expect(card.querySelector(".cv-image-file__name")?.textContent).toBe("fleet.png");
+  expect(card.querySelector(".cv-chip__lock")).not.toBeNull();
+  expect(card.title).toBe("/tmp/fleetviz/out/fleet.png\nOutside this project");
+  // The host refuses a load outside the folders, so the page does not ask.
+  expect(calls.filter((call) => call.method === "image.load")).toEqual([]);
+  const open = card.querySelector<HTMLButtonElement>("button")!;
+  expect(open.textContent).toBe("Open");
+  await act(async () => open.click());
+  expect(calls).toEqual([{ method: "link.openPath", params: { path: "/tmp/fleetviz/out/fleet.png" } }]);
+  await unmount();
+});
+
+test("an outside image under outsideRoots text has no Open; a missing one says so; a denied one is plain text", async () => {
+  let { container, unmount } = await render(FLEET_REPLY, { paths: FLEET_PATHS, policy: { outsideRoots: "text" } });
+  expect(container.querySelector(".cv-image-file__name")?.textContent).toBe("fleet.png");
+  expect(container.querySelector(".cv-image-file button")).toBeNull();
+  await unmount();
+  ({ container, unmount } = await render("![chart](/Users/ada/repo/out/chart.png)", {
+    paths: { "/Users/ada/repo/out/chart.png": { place: "missing", folder: false } },
+  }));
+  expect(container.querySelector(".cv-image-file__note")?.textContent).toBe("Image unavailable");
+  expect(container.querySelector(".cv-image-file button")).toBeNull();
+  await unmount();
+  ({ container, unmount } = await render("![key](/Users/ada/certs/server.pem)"));
+  expect(container.querySelector(".cv-image-file")).toBeNull();
+  expect(container.querySelectorAll("button").length).toBe(0);
+  expect(container.textContent).toBe("key");
+  await unmount();
+});
+
+test("a local image the host will not load shows the same compact state with Open", async () => {
+  const { container, calls, unmount } = await render("![shot](/Users/ada/repo/shot.png)", {
+    paths: { "/Users/ada/repo/shot.png": { place: "root", folder: false } },
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(calls).toEqual([{ method: "image.load", params: { src: "/Users/ada/repo/shot.png" } }]);
+  expect(container.querySelector(".cv-image-file__name")?.textContent).toBe("shot.png");
+  expect(container.querySelector(".cv-image-file__note")?.textContent).toBe("Image unavailable");
+  expect(container.querySelector(".cv-image-file button")?.textContent).toBe("Open");
+  await unmount();
+});

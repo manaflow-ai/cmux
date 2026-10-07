@@ -17,9 +17,14 @@ public nonisolated struct CuaHelperIdentity: Sendable {
     public static let bundleIdentifier = "com.cmuxterm.cua"
     public static let teamIdentifier = "7WLXT3NR37"
     public static let appName = "cmux Computer Use.app"
-    /// The code requirement every usable helper satisfies. Also in
-    /// scripts/cmux-cua-helper-trust.sh (shell side of the same rule).
+    /// The code requirement every usable helper satisfies: the release
+    /// helper's designated requirement. The two certificate fields are the
+    /// Developer ID intermediate and leaf markers, so an Apple Development or
+    /// Apple Distribution signature of the same team does not pass either.
+    /// Also in scripts/cmux-cua-helper-trust.sh (shell side of the same rule).
     public static let requirement = "identifier \"\(bundleIdentifier)\" and anchor apple generic"
+        + " and certificate 1[field.1.2.840.113635.100.6.2.6]"
+        + " and certificate leaf[field.1.2.840.113635.100.6.1.13]"
         + " and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
 
     /// Why no helper is usable.

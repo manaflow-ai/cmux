@@ -28,7 +28,7 @@ export const THEMES_DIR = path.join(repoRoot, "Resources/ghostty/themes");
 const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
 const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
-export const galleryDir = path.join(webviewsRoot, "src/gallery");
+const galleryDir = path.join(webviewsRoot, "src/gallery");
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
 const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
@@ -143,24 +143,24 @@ export function readRevision(root = repoRoot): Revision {
   }
 }
 
-/** A stylesheet's relative @imports, rewritten to resolve from `dir` (where the virtual file sits). */
-function rebaseImports(css: string, file: string, dir: string): string {
-  return css.replace(/^@import\s+(["'])(\.{1,2}\/[^"']+)\1/gm, (_match, quote: string, relative: string) => {
-    const rebased = path
-      .relative(dir, path.resolve(path.dirname(file), relative))
-      .split(path.sep)
-      .join("/");
-    return `@import ${quote}${rebased.startsWith(".") ? rebased : `./${rebased}`}${quote}`;
-  });
-}
+function agentPaneCSS(): string {
+  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
+    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
+      if (!specifier.startsWith(".")) return statement;
+      const imported = path.resolve(path.dirname(file), specifier);
+      if (seen.has(imported)) return "";
+      seen.add(imported);
+      if (!fs.existsSync(imported)) return statement;
+      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
+    });
 
-/** The pane's stylesheets as one virtual file under the gallery (PANE_CSS_PATH). */
-export function agentPaneCSS(): string {
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
-      const body = file.endsWith("shared/styles.css") ? css.replace(/^@import .*$/gm, "") : css;
-      return `/* ${path.relative(webviewsRoot, file)} */\n${rebaseImports(body, file, galleryDir)}`;
+      const body = file.endsWith("shared/styles.css")
+        ? css.replace(/^@import .*$/gm, "")
+        : inlineRelativeImports(file, css);
+      return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
 }

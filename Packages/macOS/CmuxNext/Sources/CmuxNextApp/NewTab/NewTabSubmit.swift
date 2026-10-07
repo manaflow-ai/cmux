@@ -37,6 +37,17 @@ nonisolated enum NewTabSubmit: Equatable {
 }
 
 extension NewTabSubmit {
+    /// The `openBrowser` run that opens `url` for `invocation`: the same
+    /// target and origin, so openBrowser's guard (agents never open
+    /// Chromium's own pages, CLI/MCP/script tabs are agent-driven) covers
+    /// this action too.
+    static func browserInvocation(_ url: URL, from invocation: ActionInvocation) -> ActionInvocation? {
+        var open = ActionInvocation(target: invocation.target, arguments: ["url": .string(url.absoluteString)],
+                                    origin: invocation.origin, focusRequested: invocation.focusRequested)
+        open.keyContext = invocation.keyContext
+        return open
+    }
+
     /// Runs the action in the invocation's pane.
     @MainActor
     static func run(_ invocation: ActionInvocation, _ ctx: AppActionContext) {
@@ -54,8 +65,8 @@ extension NewTabSubmit {
             services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
-            services.newTabKinds.record(.browser(engine: nil), folder: cwd)
-            pane.newBrowserTab(url: url)
+            guard let open = browserInvocation(url, from: invocation) else { return }
+            TabLifecycle.newBrowser(ctx, open)
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))

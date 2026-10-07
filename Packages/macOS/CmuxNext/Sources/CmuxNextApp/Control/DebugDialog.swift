@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -14,6 +15,10 @@ import CmuxNextSettings
 ///   (default: the newest visible one).
 @MainActor
 enum DebugDialog {
+    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER) and the Enable
+    /// harness sheet (a folder's program would run with the user's rights).
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier]
+
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
         var result: [String: JSONValue] = [:]
@@ -28,9 +33,9 @@ enum DebugDialog {
         let target = params["id"]?.intValue ?? center.records.last(where: \.visible)?.id
         // Only the user answers a clipboard read (CLIPBOARD-READ-BROKER);
         // automation may dismiss it, which refuses the read.
-        if let target, center.record(target)?.spec.identifier == ClipboardReadStrings.identifier,
+        if let target, let identifier = center.record(target)?.spec.identifier, userOnly.contains(identifier),
            params["set"] != nil || params["key"] != nil || params["press"] != nil {
-            result["error"] = .string("clipboard-read dialogs answer only to the user")
+            result["error"] = .string("this dialog answers only to the user")
         } else if let target {
             if case .object(let fields)? = params["set"] {
                 for (field, value) in fields {

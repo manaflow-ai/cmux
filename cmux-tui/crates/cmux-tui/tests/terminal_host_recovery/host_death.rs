@@ -361,9 +361,10 @@ fn host_death_keeps_tab_under_running_daemon() {
     let harness = RecoveryHarness::start("running-host-sigkill-keeps-tab");
     let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "killed");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    // SAFETY: the record PID is the dedicated host process owned by this
-    // harness; killing it is the failure under test.
-    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    // The shell dies with its host, so nothing is left for a replacement
+    // host (host_replacement.rs) to serve: the host's death is the failure
+    // under test.
+    pty_custody::kill_shell_then_host(&record_path, &record);
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -397,3 +398,12 @@ fn host_death_keeps_tab_under_running_daemon() {
 
 #[path = "stray_signals.rs"]
 mod stray_signals;
+
+#[path = "pty_custody.rs"]
+mod pty_custody;
+
+#[path = "owner_idle_exit.rs"]
+mod owner_idle_exit;
+
+#[path = "host_replacement.rs"]
+mod host_replacement;

@@ -113,6 +113,8 @@ extension SidebarBridge {
             SidebarCardFeed.openUpdateLink(url, services: services)
         case .layout(let op):
             applyLayoutOp(op)
+        case .dropOnLayoutSection(let ids, let section, let index):
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
         case .setIcon, .setGroupPinned, .openGroup:
@@ -195,9 +197,9 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !usesMixedOrder
-        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
-                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                       selection: state.selection, newTabPages: services.agentTabs.pageTabs.ids)
+        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                       hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                       newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

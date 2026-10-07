@@ -4,15 +4,7 @@
 // pane's shipped stylesheet list) are found.
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
-import path from "node:path";
-import {
-  agentPaneCSS,
-  agentPaneStylesheets,
-  galleryDir,
-  readShippedThemes,
-  readWebThemeBootstrap,
-  THEMES_DIR,
-} from "../dev-server/galleryHost";
+import { agentPaneStylesheets, readShippedThemes, readWebThemeBootstrap, THEMES_DIR } from "../dev-server/galleryHost";
 import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
 import {
   contrast,
@@ -99,11 +91,4 @@ describe("gallery themes", () => {
     expect(files.some((file) => file.endsWith("acpmux/conversation/conversation.css"))).toBe(true);
     for (const file of files) expect(fs.existsSync(file)).toBe(true);
   });
-});
-
-test("the pane stylesheet's relative @imports resolve from the gallery folder, where its virtual file sits", () => {
-  // conversation.css imports ../../../markdown-task-checkbox.css, which is relative to its own folder.
-  const imports = [...agentPaneCSS().matchAll(/^@import\s+(["'])(\.{1,2}\/[^"']+)\1/gm)].map((match) => match[2]!);
-  expect(imports.length).toBeGreaterThan(0);
-  expect(imports.filter((relative) => !fs.existsSync(path.resolve(galleryDir, relative)))).toEqual([]);
 });

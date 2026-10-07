@@ -27,6 +27,10 @@ export interface TenantLimitsService {
   readonly begin: (tenantId: TenantId, key: string, fingerprint: string) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
   readonly advance: (tenantId: TenantId, key: string, progress: IdempotencyProgress) => Effect.Effect<void, LimitsUnavailable>;
   readonly abandon: (tenantId: TenantId, key: string) => Effect.Effect<void>;
+  /** Takes the tenant-scoped lock `key` for `holder` for `leaseMs`; false while another holder has it. */
+  readonly lock: (tenantId: TenantId, key: string, holder: string, leaseMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
+  /** Releases the lock if `holder` holds it; best effort (the lease ends it otherwise). */
+  readonly unlock: (tenantId: TenantId, key: string, holder: string) => Effect.Effect<void>;
 }
 
 export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimits, TenantLimitsService>() {}
@@ -39,6 +43,8 @@ interface LedgerHandle {
   begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin>;
   advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void>;
   abandon(key: string, nowMs: number): Promise<void>;
+  lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
+  unlock(key: string, holder: string): Promise<void>;
 }
 
 const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLimitsService => {
@@ -56,6 +62,8 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     advance: (tenantId, key, progress) => call((ledger, now) => ledger.advance(key, progress, now))(tenantId),
     // An unabandoned claim lapses after its lease.
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
+    lock: (tenantId, key, holder, leaseMs) => call((ledger, now) => ledger.lock(key, holder, leaseMs, now))(tenantId),
+    unlock: (tenantId, key, holder) => call((ledger) => ledger.unlock(key, holder))(tenantId).pipe(Effect.ignore),
   };
 };
 
@@ -84,6 +92,10 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         },
         abandon: async (key, nowMs) => {
           await stub.abandon(key, nowMs);
+        },
+        lock: (key, holder, leaseMs, nowMs) => decoded(Schema.Boolean)(stub.lock(key, holder, leaseMs, nowMs)),
+        unlock: async (key, holder) => {
+          await stub.unlock(key, holder);
         },
       };
     }),

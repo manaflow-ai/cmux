@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextOnboarding
+import os
+
+private let computerUseLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// The computer use step's grants from the cmux-cua daemon:
 /// `permissions_status` (AXIsProcessTrusted and
@@ -28,8 +31,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     /// A source over the default socket, or nil when no cmux-cua daemon
     /// listens there (onboarding then leaves the step out). A socket file
     /// left by a daemon that exited does not count.
-    static func local() -> AppComputerUsePermissionSource? {
-        let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+    static func local(_ configuration: AgentActivitySocketSource.Configuration
+                      = .standard(machineName: "")) -> AppComputerUsePermissionSource? {
         guard isListening(configuration.socketPath) else { return nil }
         return AppComputerUsePermissionSource(configuration: configuration)
     }
@@ -96,11 +99,26 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     }
 
     /// One `permissions_status`; nil when the daemon did not answer (the
-    /// rows keep what they showed).
+    /// rows keep what they showed). A daemon that answers but refuses the
+    /// request, or answers in another shape, runs a helper of another
+    /// protocol version: that is reported (and logged), never silent.
     private func read() async -> ComputerUsePermissions? {
         let client = CuaSocketClient(configuration: configuration)
-        guard let status = try? await client.send("permissions_status", deadline: .seconds(2)) else {
+        let status: [String: Any]
+        do {
+            status = try await client.send("permissions_status", deadline: .seconds(2))
+        } catch AgentActivitySourceError.refused(let reason) {
+            computerUseLogger.error("cmux-cua refused permissions_status (\(reason, privacy: .public)): helper version mismatch")
+            return .helperVersionMismatch
+        } catch AgentActivitySourceError.malformed {
+            computerUseLogger.error("cmux-cua answered permissions_status with a malformed reply: helper version mismatch")
+            return .helperVersionMismatch
+        } catch {
             return nil
+        }
+        guard status["accessibility"] is Bool, status["screen_recording"] is Bool else {
+            computerUseLogger.error("cmux-cua permissions_status reply lacks the grants: helper version mismatch")
+            return .helperVersionMismatch
         }
         var running: URL?
         if let pid = (status["source"] as? [String: Any])?["pid"] as? Int,
