@@ -2508,6 +2508,42 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-mode .acpmux-picker-button .acpmux-icon:last-child { display: none; }
 .acpmux-mode .acpmux-picker-button[aria-expanded="true"],
 .acpmux-mode .acpmux-picker-button:hover { color: var(--agent-text); }
+.acpmux-mode .acpmux-access-trigger {
+  width: 34px;
+  gap: 1px;
+  padding: 0 3px;
+}
+.acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: 12px; height: 12px; }
+.acpmux-access-trigger { color: var(--agent-muted); }
+.acpmux-access-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-access-menu {
+  width: min(286px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--acpmux-menu-bg);
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-access-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-access-item .ui-menu-check { order: 3; margin-inline-start: 4px; color: var(--agent-text); }
+.acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
+.acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
+.acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
+.acpmux-access-item .acpmux-menu-label { font-size: 13px; font-weight: 500; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: 11.5px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
@@ -2598,169 +2634,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--agent-muted);
   font-size: 12px;
   white-space: nowrap;
-}
-/* Cmd-K Search chats (reference prototype search.png): a 520px sheet centered over the pane,
-   theme tokens only, no accent color. */
-.acpmux-search-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-}
-.acpmux-search-scrim {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  padding: 0;
-  background: color-mix(in srgb, var(--agent-shadow, #000) 60%, transparent);
-  cursor: default;
-}
-.acpmux-search {
-  position: absolute;
-  left: 50%;
-  top: max(16px, 50% - 252px);
-  transform: translateX(-50%);
-  width: min(520px, 100% - 32px);
-  max-height: min(504px, 100% - 32px);
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  border-radius: 14px;
-  background: var(--agent-surface-elevated);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  box-shadow:
-    inset 0 0 0 0.5px var(--agent-border-strong),
-    0 12px 32px var(--agent-shadow);
-  color: var(--agent-text);
-  font-size: 13px;
-  overflow: hidden;
-}
-.acpmux-search-input {
-  flex: none;
-  height: 44px;
-  padding: 0 16px;
-  border: 0;
-  border-bottom: 0.5px solid var(--agent-border);
-  outline: none;
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  font-size: 14px;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-search-input::placeholder {
-  color: var(--agent-muted);
-}
-.acpmux-search-input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-search-results {
-  overflow-y: auto;
-  padding: 4px 6px 6px;
-}
-.acpmux-search-results ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.acpmux-search-section {
-  padding: 8px 10px 4px;
-  color: var(--agent-muted);
-  font-size: 12px;
-}
-.acpmux-search-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 32px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  text-align: left;
-  cursor: default;
-}
-.acpmux-search-row.is-active {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
-}
-.acpmux-search-row:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
-  outline-offset: -1px;
-}
-.acpmux-search-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-search-meta {
-  flex: none;
-  max-width: 35%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--agent-muted);
-}
-.acpmux-search-kbd {
-  flex: none;
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: 12px;
-}
-
-/* Open and close (R93): the scrim fades and the sheet fades and grows from the palette's open
-   scale (Motion.panelOpenScale), then shrinks slightly as it fades out, faster than it opened, as
-   the native command palette does. Only opacity and transform move, so the compositor runs it.
-   Durations are the host's motion tokens (ui.animationSpeed); with Reduce Motion nothing animates
-   and the app closes the sheet at once (searchAnimates). The closing layer lets clicks through. */
-.acpmux-search-layer {
-  --acpmux-search-open-scale: 0.97;
-  --acpmux-search-close-scale: 0.98;
-}
-.acpmux-search-layer.is-closing {
-  pointer-events: none;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-search-scrim {
-    animation: acpmux-search-fade-in var(--agent-motion-in) var(--agent-ease-out);
-  }
-  .acpmux-search {
-    animation: acpmux-search-in var(--agent-motion-in) var(--agent-ease-out);
-  }
-  .acpmux-search-layer.is-closing .acpmux-search-scrim {
-    animation: acpmux-search-fade-out var(--agent-motion-out) var(--agent-ease-out) forwards;
-  }
-  .acpmux-search-layer.is-closing .acpmux-search {
-    animation: acpmux-search-out var(--agent-motion-out) var(--agent-ease-out) forwards;
-  }
-}
-@keyframes acpmux-search-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes acpmux-search-fade-out {
-  to {
-    opacity: 0;
-  }
-}
-@keyframes acpmux-search-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) scale(var(--acpmux-search-open-scale));
-  }
-}
-@keyframes acpmux-search-out {
-  to {
-    opacity: 0;
-    transform: translateX(-50%) scale(var(--acpmux-search-close-scale));
-  }
 }
 /* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
    (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
@@ -3155,6 +3028,136 @@ fieldset.acpmux-permission-card {
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-none{color:var(--agent-muted)}
+/* Subagent groups (SubagentGroup.tsx), after the ChatGPT and T3 Code apps. Heights are fixed
+   and match model.ts: the group line is 48px with 8px above it, each listed subagent 48px, and
+   the list's last row adds 8px below. */
+.cv-subagents {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+}
+.cv-subagents:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.cv-subagents__stack {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.cv-subagents__stack > .cv-subagent-avatar + .cv-subagent-avatar {
+  margin-left: -8px;
+}
+.cv-subagents__more {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--cv-text-muted);
+}
+.cv-subagents__text,
+.cv-subagent__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 18px;
+}
+.cv-subagents__title,
+.cv-subagent__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.cv-subagents__status,
+.cv-subagent__state {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--cv-text-muted);
+}
+.cv-subagents__status[data-live] {
+  color: var(--agent-accent);
+}
+.cv-subagents__time,
+.cv-subagent__time {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-subagent-avatar {
+  position: relative;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cv-card-fill);
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text);
+}
+.cv-subagent-avatar__dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--cv-card-fill);
+  background: var(--cv-text-muted);
+}
+.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
+  background: var(--agent-accent);
+}
+.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
+  background: var(--agent-success, var(--cv-text-muted));
+}
+.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
+  background: var(--agent-danger);
+}
+/* A listed subagent: one 48px line inside the list's border. */
+.cv-subagent {
+  box-sizing: border-box;
+  height: 48px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  color: var(--cv-text);
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--cv-card-ring);
+  border-right: 1px solid var(--cv-card-ring);
+}
+.cv-subagent[data-edge="first"],
+.cv-subagent[data-edge="only"] {
+  border-top: 1px solid var(--cv-card-ring);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.cv-subagent[data-edge="last"],
+.cv-subagent[data-edge="only"] {
+  border-bottom: 1px solid var(--cv-card-ring);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  margin-bottom: 8px;
+}
 /* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool,.acpmux-header-changes{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
