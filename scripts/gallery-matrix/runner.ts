@@ -27,7 +27,7 @@ const DEFAULT_DEVICE_SCALE = 2;
 const FREESTYLE_IDLE_SECONDS = 300;
 /** Browsers run only inside a Freestyle VM (or CI), never on a developer laptop. */
 const IN_VM = process.env.CMUX_GALLERY_IN_VM === "1";
-const LEDGER_PATH = "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
+const LEDGER_PATH = process.env.CMUX_GALLERY_FREESTYLE_LEDGER ?? "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
 /** Published matrix runs (tailnet, every member): https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix/<run>/ */
 const PUBLISH_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
 const engines: Record<Engine, BrowserType> = { chromium, webkit };

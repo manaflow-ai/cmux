@@ -187,3 +187,14 @@ chat). Do not write those entries yourself.
 - Screenshots: `bun scripts/gallery/manifest.ts --entries <your id>` writes a manifest, and
   `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on Freestyle VMs. Never run a
   browser on a developer laptop.
+
+## Bridge page fixtures
+
+`bridgePageEntry` hosts Apps, Changelog, Cloud, CodeRouter, Editor, History, Icon Picker and
+Keyboard Shortcuts. Set `page` to the page directory, and give each variant `replies` keyed by
+the page's operation names. Use the owner's wire types (for example Apps `WireListing`), not
+the page's display rows. `streams` declares subscriptions; `initialEvents` delivers a session
+after its subscription is acknowledged. `pending` holds named replies for a loading state,
+`failures` sends typed host errors, and `hash` sets the page's real route. The frame installs
+the bridge before importing the page's own `main.tsx`. Use `play` for controls and readiness
+checks, including the editor's lazy syntax renderer.

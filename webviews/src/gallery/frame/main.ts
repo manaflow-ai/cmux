@@ -130,6 +130,8 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountSettingsPage(entry.variants[variantName]!, context);
     case "passwords-page":
       return (await import("./pages")).mountPasswordsPage(entry.variants[variantName]!, context);
+    case "bridge-page":
+      return (await import("./bridgePages")).mountBridgePage(entry, entry.variants[variantName]!, context);
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":

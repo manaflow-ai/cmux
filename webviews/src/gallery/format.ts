@@ -95,6 +95,30 @@ export type DiffPageVariant = VariantBase & {
   baseRef?: string;
 };
 
+/** A page on its cmuxPage request/reply and event inputs. No page state is injected. */
+export type BridgePageVariant = VariantBase & {
+  replies: Record<string, unknown>;
+  pending?: string[];
+  failures?: Record<string, { code: string; message: string }>;
+  streams?: string[];
+  initialEvents?: Record<string, unknown>;
+  hash?: string;
+};
+export type BridgePageName =
+  | "apps"
+  | "changelog"
+  | "cloud"
+  | "coderouter"
+  | "editor"
+  | "history"
+  | "icon-picker"
+  | "keybindings";
+export type BridgePageEntry = EntryBase<BridgePageVariant> & { host: "bridge-page"; page: BridgePageName };
+export const bridgePageEntry = (entry: Omit<BridgePageEntry, "host">): BridgePageEntry => ({
+  ...entry,
+  host: "bridge-page",
+});
+
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & { props: P };
 
@@ -144,6 +168,7 @@ export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
 export type SettingsPageEntry = EntryBase<SettingsPageVariant> & { host: "settings-page" };
 export type PasswordsPageEntry = EntryBase<PasswordsPageVariant> & { host: "passwords-page" };
 export type GalleryEntry =
+  | BridgePageEntry
   | AgentPaneEntry
   | MarkdownPageEntry
   | DiffPageEntry

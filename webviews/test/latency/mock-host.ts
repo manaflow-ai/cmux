@@ -28,7 +28,11 @@ export function hostDelay(): number {
   return Number.isFinite(value) && value >= 0 && new URLSearchParams(location.search).has("hostDelay") ? value : 40;
 }
 
-export function installMockHost(ops: Record<string, HostOp>, streamNames: readonly string[]): MockHost {
+export function installMockHost(
+  ops: Record<string, HostOp>,
+  streamNames: readonly string[],
+  initialEvents: Record<string, unknown> = {},
+): MockHost {
   const streams = new Map<string, number>();
   const seqs = new Map<number, number>();
   let nextSub = 1;
@@ -59,6 +63,11 @@ export function installMockHost(ops: Record<string, HostOp>, streamNames: readon
       }
       const sub = nextSub++;
       streams.set(message.stream, sub);
+      // Deliver after the subscription acknowledgement registers the page's listener.
+      if (Object.hasOwn(initialEvents, message.stream)) {
+        const stream = message.stream;
+        setTimeout(() => host.emit(stream, structuredClone(initialEvents[stream])), 0);
+      }
       return { t: "ok", id: message.id, value: { sub } };
     }
     if (message.t !== "call" || !message.op) return null;
