@@ -82,8 +82,37 @@ pub(crate) struct TerminalRespawns {
     delay: Option<Duration>,
     guard: Mutex<RespawnGuard>,
     /// Full argv of command terminals this daemon process launched; it is
-    /// never persisted, so a later daemon only names the program.
-    argv: Mutex<HashMap<String, Vec<String>>>,
+    /// never persisted, so a later daemon only names the program. Entries go
+    /// when their terminal is closed; [`ARGV_LIMIT`] bounds the rest.
+    argv: Mutex<ArgvMemory>,
+}
+
+/// At most this many command argvs are kept; the oldest goes first.
+pub(crate) const ARGV_LIMIT: usize = 512;
+
+#[derive(Debug, Default)]
+struct ArgvMemory {
+    by_terminal: HashMap<String, Vec<String>>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl ArgvMemory {
+    fn insert(&mut self, terminal_id: &str, argv: &[String]) {
+        if self.by_terminal.insert(terminal_id.to_string(), argv.to_vec()).is_none() {
+            self.order.push_back(terminal_id.to_string());
+        }
+        while self.order.len() > ARGV_LIMIT {
+            if let Some(oldest) = self.order.pop_front() {
+                self.by_terminal.remove(&oldest);
+            }
+        }
+    }
+
+    fn remove(&mut self, terminal_id: &str) {
+        if self.by_terminal.remove(terminal_id).is_some() {
+            self.order.retain(|id| id != terminal_id);
+        }
+    }
 }
 
 impl TerminalRespawns {
@@ -104,14 +133,21 @@ impl TerminalRespawns {
 
     /// Remember the argv of command terminal `terminal_id`.
     pub(crate) fn remember_argv(&self, terminal_id: &str, argv: &[String]) {
-        self.argv
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(terminal_id.to_string(), argv.to_vec());
+        self.argv.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id, argv);
+    }
+
+    /// Forget the argv of a closed terminal.
+    pub(crate) fn forget_argv(&self, terminal_id: &str) {
+        self.argv.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
     }
 
     pub(crate) fn argv(&self, terminal_id: &str) -> Option<Vec<String>> {
-        self.argv.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        self.argv
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .by_terminal
+            .get(terminal_id)
+            .cloned()
     }
 }
 
@@ -433,6 +469,24 @@ fn remove_dead_host_records(root: &Path, terminal_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {
+        let respawns = TerminalRespawns::from_env();
+        let argv = vec!["make".to_string(), "test".to_string()];
+        respawns.remember_argv("t1", &argv);
+        assert_eq!(respawns.argv("t1"), Some(argv.clone()));
+        respawns.forget_argv("t1");
+        assert_eq!(respawns.argv("t1"), None);
+        for index in 0..ARGV_LIMIT + 10 {
+            respawns.remember_argv(&format!("t{index}"), &argv);
+        }
+        assert_eq!(respawns.argv("t0"), None, "the oldest argv was not evicted");
+        assert_eq!(respawns.argv(&format!("t{}", ARGV_LIMIT + 9)), Some(argv));
+        let memory = respawns.argv.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(memory.by_terminal.len(), ARGV_LIMIT);
+        assert_eq!(memory.order.len(), ARGV_LIMIT);
+    }
 
     #[test]
     fn the_guard_allows_one_respawn_a_minute_and_three_in_ten_minutes() {

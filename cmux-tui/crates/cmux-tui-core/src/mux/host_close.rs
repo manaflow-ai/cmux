@@ -209,6 +209,9 @@ impl Mux {
     /// the host's termination receipt; a local runtime is killed inline.
     pub(super) fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
         let identity = self.resource_terminal_host_identity(runtime);
+        if let Some(identity) = identity.as_ref() {
+            self.terminal_respawns.forget_argv(&identity.terminal_id);
+        }
         #[cfg(unix)]
         {
             if !runtime.has_host_termination() {
@@ -249,6 +252,9 @@ impl Mux {
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
+                if let Some(identity) = identity.as_ref() {
+                    self.terminal_respawns.forget_argv(&identity.terminal_id);
+                }
                 self.terminal_host_closes.enqueue(PendingHostClose {
                     runtime,
                     step: HostCloseStep::Signal,
