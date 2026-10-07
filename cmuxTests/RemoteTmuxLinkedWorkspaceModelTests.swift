@@ -11,8 +11,8 @@ import Testing
     private typealias Model = RemoteTmuxLinkedWorkspaceModel
 
     @Test func aThousandMirrorsRecoverRenamesFromWindowIdentityBeforeSessionIDsArrive() {
-        let workspaces = (0..<1_000).map {
-            Model.Workspace(sessionName: "new-\($0)", windowIds: ["@\($0)"], sessionId: $0)
+        let workspaces = (0..<1_000).map { (index: Int) in
+            Model.Workspace(sessionName: "new-\(index)", windowIds: ["@\(index)"], sessionId: index)
         }
         let existing = (0..<1_000).map {
             RemoteTmuxMultiplexReconciler.ExistingMirror(
