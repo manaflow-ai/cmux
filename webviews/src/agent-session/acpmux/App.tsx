@@ -86,6 +86,7 @@ import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels 
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
 import { sessionLink } from "./links";
+import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -2129,7 +2130,7 @@ function AcpmuxPane() {
     );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell">
+      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || header.title}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
@@ -2178,10 +2179,7 @@ function AcpmuxPane() {
             <>
               <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
                 <header className="acpmux-header">
-                  <div>
-                    <strong className="acpmux-title">{header.title}</strong>
-                    {header.status && <span className="acpmux-status">{header.status}</span>}
-                  </div>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
                     {preview && (
                       <span

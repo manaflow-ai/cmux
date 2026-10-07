@@ -988,7 +988,7 @@ describe("acpmux host handshake", () => {
       },
     };
     const doc = dom.window.document;
-    const title = () => doc.querySelector(".acpmux-title")?.textContent;
+    const title = () => doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label");
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -1085,7 +1085,9 @@ describe("acpmux host handshake", () => {
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await waitFor(
-        () => Boolean(actions()?.["chat.new"]) && doc.querySelector(".acpmux-title")?.textContent === "Claude Code",
+        () =>
+          Boolean(actions()?.["chat.new"]) &&
+          doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label") === "Claude Code",
       );
       act(() => {
         void actions()["chat.new"]!({ harness: "gemini" });

@@ -45013,266 +45013,134 @@
         }
       }
     },
-    "header.connecting": {
-      "comment": "Agent pane",
+    "header.disconnected": {
+      "comment": "Agent pane header problem status. Details appear in a tooltip.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "جارٍ الاتصال"
+            "state": "translated",
+            "value": "غير متصل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Povezivanje"
+            "state": "translated",
+            "value": "Prekinuta veza"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Opretter forbindelse"
+            "state": "translated",
+            "value": "Afbrudt"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung wird hergestellt"
+            "state": "translated",
+            "value": "Getrennt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "Disconnected"
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectando"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Connexion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Connessione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "接続中"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងភ្ជាប់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "연결 중"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kobler til"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Łączenie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectando"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подключение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังเชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlanıyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Підключення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang kết nối"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在連線"
-          }
-        }
-      }
-    },
-    "header.mock": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تجريبي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Simulacija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mock"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mock"
-          }
-        },
-        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mock"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Simulado"
+            "value": "Desconectado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Simulation"
+            "state": "translated",
+            "value": "Déconnecté"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Simulato"
+            "state": "translated",
+            "value": "Disconnesso"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "モック"
+            "state": "translated",
+            "value": "切断"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ក្លែងធ្វើ"
+            "state": "translated",
+            "value": "បានផ្តាច់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "모의"
+            "state": "translated",
+            "value": "연결 끊김"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mock"
+            "state": "translated",
+            "value": "Frakoblet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Makieta"
+            "state": "translated",
+            "value": "Rozłączono"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Simulado"
+            "state": "translated",
+            "value": "Desconectado"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Макет"
+            "state": "translated",
+            "value": "Нет соединения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "จำลอง"
+            "state": "translated",
+            "value": "ขาดการเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sahte"
+            "state": "translated",
+            "value": "Bağlantı kesildi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Макет"
+            "state": "translated",
+            "value": "Немає з’єднання"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Giả lập"
+            "state": "translated",
+            "value": "Đã ngắt kết nối"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "模拟"
+            "state": "translated",
+            "value": "已断开连接"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "模擬"
+            "state": "translated",
+            "value": "已中斷連線"
           }
         }
       }
@@ -45409,134 +45277,134 @@
         }
       }
     },
-    "header.working": {
-      "comment": "Agent pane",
+    "header.failed": {
+      "comment": "Agent pane header problem status. Details appear in a tooltip.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "قيد العمل"
+            "state": "translated",
+            "value": "فشل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Radi"
+            "state": "translated",
+            "value": "Nije uspjelo"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arbejder"
+            "state": "translated",
+            "value": "Mislykkedes"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "In Arbeit"
+            "state": "translated",
+            "value": "Fehlgeschlagen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "Failed"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Trabajando"
+            "state": "translated",
+            "value": "Falló"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En cours"
+            "state": "translated",
+            "value": "Échec"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "In corso"
+            "state": "translated",
+            "value": "Non riuscito"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "作業中"
+            "state": "translated",
+            "value": "失敗"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងធ្វើការ"
+            "state": "translated",
+            "value": "បរាជ័យ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 중"
+            "state": "translated",
+            "value": "실패"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Jobber"
+            "state": "translated",
+            "value": "Mislyktes"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "W toku"
+            "state": "translated",
+            "value": "Niepowodzenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Trabalhando"
+            "state": "translated",
+            "value": "Falhou"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Работает"
+            "state": "translated",
+            "value": "Ошибка"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังทำงาน"
+            "state": "translated",
+            "value": "ล้มเหลว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışıyor"
+            "state": "translated",
+            "value": "Başarısız"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Працює"
+            "state": "translated",
+            "value": "Помилка"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang làm việc"
+            "state": "translated",
+            "value": "Thất bại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "工作中"
+            "state": "translated",
+            "value": "失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "處理中"
+            "state": "translated",
+            "value": "失敗"
           }
         }
       }
