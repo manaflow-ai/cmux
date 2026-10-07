@@ -50,12 +50,9 @@ final class SidebarListView: NSView {
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
     var springLoadClock: any Clock<Duration> = ContinuousClock()
-    /// A title click's collapse toggle waiting out the double-click interval.
-    var pendingGroupToggle: PendingGroupToggle?
-    /// How long a group title click waits for a second click.
-    var groupToggleDelay: Duration = .milliseconds(Int(NSEvent.doubleClickInterval * 1000))
-    /// Clock for the group toggle delay; tests inject a manual clock.
-    var clickClock: any Clock<Duration> = ContinuousClock()
+    /// The group header that holds keyboard focus (arrow keys stop on
+    /// headers; focus is not selection). Nil when a workspace has it.
+    var focusedGroup: GroupID?
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -76,7 +73,6 @@ final class SidebarListView: NSView {
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
-        pendingGroupToggle?.task.cancel()
         NotificationCenter.default.removeObserver(self)
     }
     // MARK: - Window occlusion
