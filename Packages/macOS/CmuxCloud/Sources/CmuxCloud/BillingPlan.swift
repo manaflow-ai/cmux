@@ -58,6 +58,12 @@ public struct BillingPlanDetails: Sendable, Equatable {
     }
 }
 
+/// Errors that carry entitlement-specific meaning to the account flow.
+public enum BillingPlanClientError: Error, Equatable, Sendable {
+    /// The endpoint returned its unauthenticated fallback payload.
+    case unauthenticated
+}
+
 /// Fetches a billing entitlement without requiring UI isolation.
 public struct BillingPlanClient: Sendable {
     /// Creates a client that uses the supplied URL session.
@@ -89,6 +95,12 @@ public struct BillingPlanClient: Sendable {
             throw URLError(.badServerResponse)
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
+        // The endpoint uses HTTP 200 for an unauthenticated request as well.
+        // Treat that response as an auth failure instead of interpreting its
+        // fallback free plan as a confirmed entitlement.
+        guard decoded.authenticated else {
+            throw BillingPlanClientError.unauthenticated
+        }
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
@@ -104,6 +116,7 @@ public struct BillingPlanClient: Sendable {
     private let session: URLSession
 
     private struct Response: Decodable {
+        let authenticated: Bool
         let isPro: Bool?
         let planId: String?
         let billingManagement: String?

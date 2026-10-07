@@ -334,6 +334,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
             guard isCurrentBillingRequest(requestID, scope: scope) else { return false }
+            if error is BillingPlanClientError {
+                // An explicit unauthenticated response invalidates the old
+                // entitlement. Unlike a transient transport failure, it must
+                // not leave a previously confirmed free plan eligible to show
+                // the upgrade affordance.
+                billingPlanState = .unknown
+                return false
+            }
             billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: teamID)
             return false
         }

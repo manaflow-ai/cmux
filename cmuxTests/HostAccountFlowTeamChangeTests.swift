@@ -64,6 +64,21 @@ struct HostAccountFlowTeamChangeTests {
     }
 
     @Test
+    func unauthenticatedBillingResponseClearsConfirmedPlan() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        _ = try await loadConfirmedFreePlan(flow)
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { _, _, _ in throw BillingPlanClientError.unauthenticated }
+        )
+
+        #expect(!refreshed)
+        #expect(flow.billingPlanState == .unknown)
+        #expect(!flow.hasLoadedBillingPlan)
+    }
+
+    @Test
     func confirmedFreePlanIsInvalidatedWhenTeamScopeChanges() async throws {
         let flow = try await makeFlow(client: TeamChangeAuthClient())
         _ = try await loadConfirmedFreePlan(flow)
