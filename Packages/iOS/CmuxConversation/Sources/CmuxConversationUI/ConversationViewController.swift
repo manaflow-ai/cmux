@@ -430,8 +430,6 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
             }
         }
-        let startOffsetY = collectionView.contentOffset.y
-        var scrollShift: CGFloat = 0
         if animateLive, wasAtBottom || sentByMe {
             // Pinned: insertions and the scroll to the new bottom share one spring.
             UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
@@ -440,7 +438,6 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
                 self.collectionView.contentOffset = self.bottomOffset
             }
-            scrollShift = collectionView.contentOffset.y - startOffsetY
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
             UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
@@ -459,7 +456,7 @@ public final class ConversationViewController: UIViewController {
             glideRegrouped(from: screenBefore)
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
-        popArrivals(scrollShift: scrollShift)
+        popArrivals()
     }
 
     private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
@@ -509,69 +506,37 @@ public final class ConversationViewController: UIViewController {
         #endif
     }
 
-    /// New incoming bubbles (and the typing indicator) appear at their final
-    /// place on screen, scaling from 0.8 at their tail corner with a fade
-    /// (Messages, criterion 8.1). Rows above move up by `scrollShift` on the
-    /// same spring; each new bubble is masked to the space those rows have
-    /// already vacated, so nothing overlaps in any frame and nothing slides up
-    /// from behind the composer. Bursts reveal bottom-up as one region.
-    private func popArrivals(scrollShift: CGFloat) {
+    /// New incoming bubbles appear at their final place in the transcript and
+    /// fade in while the transcript scrolls them up from under the composer,
+    /// as ChatKit's transcript layout does (its appearing attributes are the
+    /// final frame at alpha 0; balloon cells add no insertion transform). The
+    /// message replacing a typing indicator shows at full opacity at once.
+    /// A typing indicator runs its own staged grow.
+    private func popArrivals() {
         let ids = arrivingRowIDs
         arrivingRowIDs = []
         let handoff = typingHandoffRowID
         typingHandoffRowID = nil
-        let items = ids.compactMap { indexPath(for: $0)?.item }.sorted()
-        var runs: [[Int]] = []
-        for item in items {
-            if let last = runs.last?.last, last + 1 == item {
-                runs[runs.count - 1].append(item)
-            } else {
-                runs.append([item])
+        for id in ids {
+            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            if let cell = cell as? TypingCell {
+                UIView.performWithoutAnimation { cell.contentView.alpha = 1 }
+                cell.indicator.grow()
+                continue
             }
-        }
-        let startScale: CGFloat = 0.8
-        let shift = max(0, scrollShift)
-        for run in runs {
-            guard let runTop = run.compactMap({ layout.frame(at: $0)?.minY }).min() else { continue }
-            for item in run {
-                guard let cell = collectionView.cellForItem(at: IndexPath(item: item, section: 0)),
-                      let frame = layout.frame(at: item) else { continue }
-                let size = frame.size
-                var pivot = CGPoint(x: 0, y: size.height)
-                if let cell = cell as? MessageCell, let content = cell.cellLayout?.contentFrame {
-                    pivot = CGPoint(x: content.minX, y: content.maxY)
-                } else if let cell = cell as? TypingCell {
-                    pivot = CGPoint(x: cell.indicator.frame.minX, y: cell.indicator.frame.maxY)
-                }
-                let tx = (1 - startScale) * (pivot.x - size.width / 2)
-                let ty = (1 - startScale) * (pivot.y - size.height / 2) - shift
-                // Local y above which the cell is still covered by the rows
-                // moving up; it reaches the run top (<= 0 here) as they finish.
-                let coveredStart = runTop - frame.minY + shift
-                let coveredEnd = runTop - frame.minY
-                let maskHeight = size.height * 4 + 2 * shift
-                let mask = ArrivalRevealMask(frame: CGRect(x: -size.width, y: coveredStart, width: size.width * 3, height: maskHeight))
-                let isHandoff = rows[item].id == handoff
-                UIView.performWithoutAnimation {
-                    cell.contentView.mask = shift > 0 ? mask : nil
-                    cell.contentView.transform = CGAffineTransform(translationX: tx, y: ty).scaledBy(x: startScale, y: startScale)
-                    cell.contentView.alpha = isHandoff ? 1 : 0
-                }
-                // The same spring as the scroll, so reveal and scroll share progress.
-                UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                    cell.contentView.transform = .identity
-                    mask.frame.origin.y = coveredEnd
-                } completion: { _ in
-                    if cell.contentView.mask === mask { cell.contentView.mask = nil }
-                }
-                if !isHandoff {
-                    UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                        cell.contentView.alpha = 1
-                    }
-                }
+            guard id != handoff else {
+                UIView.performWithoutAnimation { cell.contentView.alpha = 1 }
+                continue
+            }
+            UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+            UIView.animate(withDuration: Self.arrivalFadeDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                cell.contentView.alpha = 1
             }
         }
     }
+
+    /// `CKUIBehavior.scrollInNewMessageAnimationDuration`.
+    static let arrivalFadeDuration: TimeInterval = 0.3
 
     private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {
         if case let .live(inserted, mine) = change { return mine && !inserted.isEmpty }
@@ -766,31 +731,4 @@ final class TranscriptCollectionView: UICollectionView {
     }
 }
 
-/// The arrival reveal edge: opaque below, with a short feather at its top so
-/// the edge that follows the rows moving up never reads as a hard cut.
-final class ArrivalRevealMask: UIView {
-    static let feather: CGFloat = 10
-
-    override class var layerClass: AnyClass { CAGradientLayer.self }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        let gradient = layer as! CAGradientLayer
-        gradient.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
-        updateStops()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateStops()
-    }
-
-    private func updateStops() {
-        let edge = bounds.height > 0 ? Self.feather / bounds.height : 0
-        (layer as! CAGradientLayer).locations = [0, NSNumber(value: Double(edge)), 1]
-    }
-}
 #endif

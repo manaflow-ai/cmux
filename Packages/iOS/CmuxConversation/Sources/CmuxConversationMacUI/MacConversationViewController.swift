@@ -55,6 +55,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var typingLink: CADisplayLink?
     private var typingAnimationStart: CFTimeInterval = 0
     private var typingAnimationFrom: CGFloat = 0
+    /// The next configured typing row runs ChatKit's staged grow.
+    private var typingShouldGrow = false
     #if DEBUG
     /// Lab `faketyping on|off`: a local typing indicator through the real row path.
     private var debugTyping = false
@@ -369,21 +371,27 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let anchor = captureAnchor()
         var sentByMe = false
         if case let .live(inserted, mine) = change { sentByMe = mine && !inserted.isEmpty }
-        if case .live = change {
-            for row in newRows where !oldIDs.contains(row.id) {
-                if case let .message(model) = row, !model.isOutgoing { arrivingRowIDs.insert(model.rowID) }
-            }
-        }
         // A typing indicator that stops without a message collapses first, so
         // the rows above glide down instead of jumping.
         let typingLeft = oldRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
         let typingNow = newRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
+        if case .live = change {
+            let arrivals = newRows.compactMap { row -> String? in
+                guard !oldIDs.contains(row.id), case let .message(model) = row, !model.isOutgoing else { return nil }
+                return model.rowID
+            }
+            // The message that replaces a typing indicator takes its place at
+            // full opacity, so the hand-off never passes through an empty frame.
+            let handoff = typingLeft && !typingNow ? arrivals.last : nil
+            for id in arrivals where id != handoff { arrivingRowIDs.insert(id) }
+        }
         let lastIsNew = newRows.last.map { !oldIDs.contains($0.id) } ?? false
         if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let typing = oldRows.last {
             newRows.append(typing)
             animateTyping(to: 0)
         } else if typingNow, !typingLeft {
             typingProgress = 0
+            typingShouldGrow = true
             animateTyping(to: 1)
         } else if typingNow {
             animateTyping(to: 1)
@@ -660,6 +668,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             view.avatar.initials = ids.first.flatMap { store.info?.participant($0)?.initials } ?? ""
             view.avatar.colorHex = ids.first.flatMap { store.info?.participant($0)?.colorHex }
             view.progress = typingProgress
+            if typingShouldGrow {
+                typingShouldGrow = false
+                view.grow()
+            }
         }
     }
 

@@ -156,31 +156,51 @@ final class ReactionBadgeView: UIView {
     }
 }
 
-/// Three dots pulsing in sequence inside an incoming bubble.
+/// Messages' typing indicator, built to ChatKit's `CKTypingIndicatorLayer`
+/// (iOS 26): a 57.5 x 35 capsule with two trailing circles at its tail
+/// corner and three dots that brighten in turn.
 final class TypingIndicatorView: UIView {
-    private let bubble = BubbleBackgroundView()
-    private let tailLarge = UIView()
-    private let tailSmall = UIView()
-    private var dots: [UIView] = []
+    /// Large bubble, medium and small tail circles, each pulsing on its own period.
+    private let bubble = UIView()
+    private let medium = UIView()
+    private let small = UIView()
+    private let dotsContainer = CALayer()
+    private let replicator = CAReplicatorLayer()
+    private let dot = CALayer()
 
-    static let bubbleSize = CGSize(width: 62, height: 42)
+    static let bubbleSize = CGSize(width: 57.5, height: 35)
+    // Circle frames relative to the bubble's origin (CKTypingIndicatorPunchOutLayer).
+    private static let mediumFrame = CGRect(x: -0.11, y: 26.55, width: 11.5, height: 11.5)
+    private static let smallFrame = CGRect(x: -4.95, y: 36.71, width: 5, height: 5)
+    private static let dotDiameter: CGFloat = 8.5
+    private static let dotSpacing: CGFloat = 12.5
+    /// The scale pivots ChatKit gives each part (`anchorPoint`).
+    private static let bubbleAnchor = CGPoint(x: 0.185, y: 0.28)
+    private static let mediumAnchor = CGPoint(x: 0.326, y: 0.37)
+    private static let smallAnchor = CGPoint(x: 0.318, y: 0.318)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        bubble.side = .leading
-        bubble.hasTail = false
-        bubble.fillColor = ConversationTheme.incomingBubble
-        addSubview(tailSmall)
-        addSubview(tailLarge)
-        addSubview(bubble)
-        for _ in 0..<3 {
-            let dot = UIView()
-            dot.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.62, alpha: 1) : UIColor(white: 0.55, alpha: 1) }
-            dot.layer.cornerRadius = 4.5
-            bubble.addSubview(dot)
-            dots.append(dot)
+        isUserInteractionEnabled = false
+        for view in [small, medium, bubble] {
+            view.backgroundColor = ConversationTheme.incomingBubble
+            view.layer.cornerCurve = .circular
+            addSubview(view)
         }
-        for view in [tailLarge, tailSmall] { view.backgroundColor = ConversationTheme.incomingBubble }
+        bubble.layer.anchorPoint = Self.bubbleAnchor
+        medium.layer.anchorPoint = Self.mediumAnchor
+        small.layer.anchorPoint = Self.smallAnchor
+        dot.bounds = CGRect(x: 0, y: 0, width: Self.dotDiameter, height: Self.dotDiameter)
+        dot.position = CGPoint(x: Self.dotDiameter / 2, y: Self.dotDiameter / 2)
+        dot.cornerRadius = Self.dotDiameter / 2
+        dot.opacity = 0.2
+        replicator.instanceCount = 3
+        replicator.instanceTransform = CATransform3DMakeTranslation(Self.dotSpacing, 0, 0)
+        replicator.instanceDelay = 0.25
+        replicator.addSublayer(dot)
+        dotsContainer.addSublayer(replicator)
+        bubble.layer.addSublayer(dotsContainer)
+        updateColors()
     }
 
     @available(*, unavailable)
@@ -188,16 +208,33 @@ final class TypingIndicatorView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let size = Self.bubbleSize
-        bubble.frame = CGRect(x: 0, y: 0, width: size.width + ConversationTheme.tailWidth, height: size.height)
-        let body = bubble.bounds.inset(by: UIEdgeInsets(top: 0, left: ConversationTheme.tailWidth, bottom: 0, right: 0))
-        for (index, dot) in dots.enumerated() {
-            dot.frame = CGRect(x: body.minX + 14 + CGFloat(index) * 13, y: body.midY - 4.5, width: 9, height: 9)
+        // The bubble's body starts at the tail column, like an incoming message.
+        let origin = CGPoint(x: ConversationTheme.tailWidth, y: 0)
+        func place(_ view: UIView, _ rect: CGRect) {
+            let frame = rect.offsetBy(dx: origin.x, dy: origin.y)
+            view.bounds = CGRect(origin: .zero, size: frame.size)
+            view.center = CGPoint(x: frame.minX + frame.width * view.layer.anchorPoint.x, y: frame.minY + frame.height * view.layer.anchorPoint.y)
+            view.layer.cornerRadius = min(frame.width, frame.height) / 2
         }
-        tailLarge.frame = CGRect(x: ConversationTheme.tailWidth - 2, y: size.height - 9, width: 12, height: 12)
-        tailLarge.layer.cornerRadius = 6
-        tailSmall.frame = CGRect(x: ConversationTheme.tailWidth - 6, y: size.height + 3, width: 6, height: 6)
-        tailSmall.layer.cornerRadius = 3
+        place(bubble, CGRect(origin: .zero, size: Self.bubbleSize))
+        place(medium, Self.mediumFrame)
+        place(small, Self.smallFrame)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dotsContainer.frame = bubble.bounds
+        // Three dots, centered in the bubble.
+        let dotsWidth = Self.dotDiameter + 2 * Self.dotSpacing
+        replicator.frame = CGRect(x: (Self.bubbleSize.width - dotsWidth) / 2, y: (Self.bubbleSize.height - Self.dotDiameter) / 2, width: dotsWidth, height: Self.dotDiameter)
+        CATransaction.commit()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateColors()
+    }
+
+    private func updateColors() {
+        dot.backgroundColor = UIColor.label.resolvedColor(with: traitCollection).cgColor
     }
 
     override func didMoveToWindow() {
@@ -205,37 +242,105 @@ final class TypingIndicatorView: UIView {
         window == nil ? stopAnimating() : startAnimating()
     }
 
+    private var parts: [(view: UIView, pulseScale: CGFloat, pulseDuration: CFTimeInterval, delay: CFTimeInterval, wobble: CGPoint)] {
+        [
+            (small, 1.15, 0.7, 0, CGPoint(x: 5.5, y: -2.5)),
+            (medium, 1.1, 0.9, Self.mediumDelay, CGPoint(x: 5, y: 3.5)),
+            (bubble, 1.03, 1.9, Self.bubbleDelay, CGPoint(x: 5, y: -6)),
+        ]
+    }
+
+    private static let mediumDelay: CFTimeInterval = 0.065
+    private static let bubbleDelay: CFTimeInterval = 0.12
+    /// Grow finishes (and the pulse takes over) at ChatKit's insertion time.
+    static let growDuration: CFTimeInterval = 0.52
+
+    /// Starts the dots and the breathing pulse; idempotent (cells call it on
+    /// every configure, and batch updates strip layer animations).
     func startAnimating() {
-        for (index, dot) in dots.enumerated() {
-            dot.layer.removeAllAnimations()
-            let pulse = CAKeyframeAnimation(keyPath: "opacity")
-            pulse.values = [0.35, 1.0, 0.35, 0.35]
-            pulse.keyTimes = [0, 0.22, 0.44, 1]
-            pulse.duration = 1.3
-            pulse.beginTime = CACurrentMediaTime() + Double(index) * 0.18
-            pulse.repeatCount = .infinity
-            dot.layer.add(pulse, forKey: "pulse")
-            let scale = CAKeyframeAnimation(keyPath: "transform.scale")
-            scale.values = [0.9, 1.08, 0.9, 0.9]
-            scale.keyTimes = [0, 0.22, 0.44, 1]
-            scale.duration = 1.3
-            scale.beginTime = pulse.beginTime
-            scale.repeatCount = .infinity
-            dot.layer.add(scale, forKey: "scale")
+        if dot.animation(forKey: "dot") == nil {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.2
+            fade.toValue = 0.45
+            fade.duration = 0.5
+            fade.autoreverses = true
+            fade.repeatCount = .infinity
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.757, 0.015, 0.58, 1)
+            fade.fillMode = .both
+            dot.add(fade, forKey: "dot")
         }
-        // The whole bubble breathes slightly, as in Messages.
-        let breathe = CABasicAnimation(keyPath: "transform.scale")
-        breathe.fromValue = 0.98
-        breathe.toValue = 1.02
-        breathe.duration = 1.1
-        breathe.autoreverses = true
-        breathe.repeatCount = .infinity
-        bubble.layer.add(breathe, forKey: "breathe")
+        guard !isGrowing else { return }
+        let now = CACurrentMediaTime()
+        for part in parts where part.view.layer.animation(forKey: "pulse") == nil {
+            let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
+            pulse.values = [1, part.pulseScale, 1]
+            pulse.calculationMode = .cubicPaced
+            pulse.duration = part.pulseDuration
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulse.beginTime = now + part.delay
+            pulse.fillMode = .forwards
+            part.view.layer.add(pulse, forKey: "pulse")
+        }
+    }
+
+    private var isGrowing = false
+
+    /// ChatKit's insertion: the small circle, then the medium, then the
+    /// bubble scale up from nothing at their tail-side pivots (0.25 s ease)
+    /// while each swings out along a short arc and back (0.4 s); the pulse
+    /// starts when the grow completes.
+    func grow() {
+        isGrowing = true
+        let now = CACurrentMediaTime()
+        let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        for part in parts {
+            let layer = part.view.layer
+            layer.removeAnimation(forKey: "pulse")
+            let scale = CABasicAnimation(keyPath: "transform.scale.xy")
+            scale.fromValue = 0
+            scale.toValue = 1
+            scale.duration = 0.25
+            scale.timingFunction = ease
+            let x = CAKeyframeAnimation(keyPath: "position.x")
+            x.values = [layer.position.x, layer.position.x + part.wobble.x, layer.position.x]
+            x.calculationMode = .cubicPaced
+            x.duration = 0.4
+            x.timingFunction = ease
+            let y = CAKeyframeAnimation(keyPath: "position.y")
+            y.values = [layer.position.y, layer.position.y + part.wobble.y, layer.position.y]
+            y.calculationMode = .cubicPaced
+            y.duration = 0.4
+            y.timingFunction = part.view === bubble
+                ? CAMediaTimingFunction(controlPoints: 0.209, 0.258, 0.561, 0.954)
+                : CAMediaTimingFunction(controlPoints: 0.332, 0.1, 0.561, 0.954)
+            let group = CAAnimationGroup()
+            group.animations = [scale, x, y]
+            group.duration = 0.4
+            group.beginTime = now + part.delay
+            group.fillMode = .backwards
+            layer.add(group, forKey: "grow")
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self else { return }
+            self.isGrowing = false
+            if self.window != nil { self.startAnimating() }
+        }
+        let marker = CABasicAnimation(keyPath: "opacity")
+        marker.fromValue = 1
+        marker.toValue = 1
+        marker.duration = Self.growDuration
+        layer.add(marker, forKey: "growClock")
+        CATransaction.commit()
     }
 
     func stopAnimating() {
-        dots.forEach { $0.layer.removeAllAnimations() }
-        bubble.layer.removeAllAnimations()
+        isGrowing = false
+        dot.removeAllAnimations()
+        for part in parts { part.view.layer.removeAllAnimations() }
+        layer.removeAnimation(forKey: "growClock")
     }
 }
 #endif
