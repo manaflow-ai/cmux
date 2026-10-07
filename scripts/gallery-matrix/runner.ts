@@ -174,6 +174,13 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       else if (action.kind === "type") await page.keyboard.type(action.text ?? "");
       else if (action.kind === "press") await page.keyboard.press(action.text ?? "");
     });
+    // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
+    const stills: { index: number; step: string; screenshot: string }[] = [];
+    await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
+      const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
+      await page.screenshot({ path: join(outputDir, name), fullPage: true });
+      stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+    });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
     await page.goto(url, { waitUntil: "networkidle" });
@@ -190,6 +197,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play };
+    if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
       if (existsSync(baselinePath)) {

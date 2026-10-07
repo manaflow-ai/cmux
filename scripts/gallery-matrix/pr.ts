@@ -41,7 +41,9 @@ if (import.meta.main) {
       "artifact-url": { type: "string" },
     },
   });
-  const required = values.outcomes ? (["out", "pr"] as const) : (["base", "head", "head-manifest", "out", "pr"] as const);
+  const required = values.outcomes
+    ? (["out", "pr"] as const)
+    : (["base", "head", "head-manifest", "out", "pr"] as const);
   for (const name of required) if (!values[name]) throw new Error(`--${name} is required`);
   const out = values.out!;
   mkdirSync(out, { recursive: true });
@@ -71,7 +73,12 @@ if (import.meta.main) {
   writeFileSync(join(out, "summary.json"), `${JSON.stringify(feedSummary(outcomes, meta), null, 2)}\n`);
   writeFileSync(join(out, "comment.md"), commentMarkdown(outcomes, meta));
   // thumbs.txt: the keys whose thumbnails the comment shows, for the publisher to upload.
-  writeFileSync(join(out, "thumbs.txt"), commentThumbs(outcomes, meta).map((o) => `${o.key}\n`).join(""));
+  writeFileSync(
+    join(out, "thumbs.txt"),
+    commentThumbs(outcomes, meta)
+      .map((o) => `${o.key}\n`)
+      .join(""),
+  );
   if (!values.outcomes) writeFileSync(join(out, "index.html"), diffPage(outcomes, meta));
   console.log(feedSummary(outcomes, meta).summary);
 }

@@ -44,6 +44,17 @@ export function stateLabel(outcome: Outcome, outcomes: Outcome[]): string {
   return `${outcome.entry}/${outcome.variant}${extra.length ? ` (${extra.join(", ")})` : ""}`;
 }
 
+/** The states whose play checks failed (play.ts: anchors, layout shift, long frames, or the play threw). */
+export const playFailures = (outcomes: Outcome[]) => outcomes.filter((o) => o.play?.status === "fail");
+
+/** Why one state's play failed: each failing step and its problems, else the error. */
+export function playFailureText(outcome: Outcome): string {
+  const steps = (outcome.frames ?? [])
+    .filter((frame) => frame.play?.status === "fail")
+    .map((frame) => `step ${frame.index + 1} ${frame.step}: ${frame.play!.problems.join("; ") || "failed"}`);
+  return [...steps, outcome.play?.error].filter(Boolean).join(" · ") || "failed";
+}
+
 /** "7 states changed: agent-pane.composer/streaming, ... · 1 new state", or that nothing changed. */
 export function summaryLine(outcomes: Outcome[]): string {
   const n = counts(outcomes);
@@ -54,6 +65,8 @@ export function summaryLine(outcomes: Outcome[]): string {
     ? `${plural(n.changed, "changed")}: ${names.slice(0, SUMMARY_STATES).join(", ")}${names.length > SUMMARY_STATES ? ", ..." : ""}`
     : "No state changed";
   const rest = (["new", "removed", "broken"] as const).filter((s) => n[s]).map((s) => plural(n[s], s));
+  const failed = new Set(playFailures(outcomes).map((o) => `${o.entry}/${o.variant}`)).size;
+  if (failed) rest.push(`${failed} play check${failed === 1 ? "" : "s"} failed`);
   return [head, ...rest].join(" · ");
 }
 
@@ -63,7 +76,7 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
     head: meta.head,
     base: meta.base,
     summary: summaryLine(outcomes),
-    counts: counts(outcomes),
+    counts: { ...counts(outcomes), playFailed: playFailures(outcomes).length },
     links: { diff: meta.links.diff, gallery: meta.links.gallery, matrix: meta.links.matrix },
     changed: outcomes
       .filter((o) => o.status === "changed")
@@ -75,7 +88,9 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
         engine: o.engine,
         ratio: o.ratio,
         thumb: thumbUrl(o, meta),
+        steps: o.frames?.length,
       })),
+    playFailed: playFailures(outcomes).map((o) => ({ state: stateLabel(o, outcomes), why: playFailureText(o) })),
   };
 }
 
@@ -99,7 +114,9 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
     meta.links.diff && `[Diff page](${meta.links.diff})`,
     meta.links.gallery && `[Gallery at this head](${meta.links.gallery})`,
     meta.links.matrix && `[Matrix](${meta.links.matrix})`,
-    !meta.links.diff && meta.links.artifact && `[Diff page and renders](${meta.links.artifact}) (the run's \`gallery-pr\` artifact)`,
+    !meta.links.diff &&
+      meta.links.artifact &&
+      `[Diff page and renders](${meta.links.artifact}) (the run's \`gallery-pr\` artifact)`,
   ].filter(Boolean);
   if (links.length) lines.push(links.join(" · "), "");
   const changed = outcomes.filter((o) => o.status === "changed" && thumbUrl(o, meta));
@@ -108,6 +125,17 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
     for (const o of commentThumbs(outcomes, meta))
       lines.push(`| ${escapeMd(stateLabel(o, outcomes))} | <img src="${thumbUrl(o, meta)}" width="480"> |`);
     if (changed.length > COMMENT_THUMBS) lines.push("", `${changed.length - COMMENT_THUMBS} more on the diff page.`);
+    lines.push("");
+  }
+  const failed = playFailures(outcomes);
+  if (failed.length) {
+    lines.push(
+      "**Play checks failed** (0 px anchor movement, 0 layout shift, no frame over 33 ms unless the entry gives a reason):",
+      "",
+    );
+    for (const o of failed.slice(0, COMMENT_THUMBS))
+      lines.push(`- ${escapeMd(stateLabel(o, outcomes))}: ${escapeMd(playFailureText(o))}`);
+    if (failed.length > COMMENT_THUMBS) lines.push(`- ${failed.length - COMMENT_THUMBS} more on the diff page`);
     lines.push("");
   }
   if (n.nondeterministic)
@@ -121,7 +149,10 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
 
 /** The diff page: plain HTML and a small script, images beside it (base/, head/, thumbs/). */
 export function diffPage(outcomes: Outcome[], meta: ReportMeta): string {
-  const data = JSON.stringify({ outcomes, labels: outcomes.map((o) => stateLabel(o, outcomes)) }).replace(/</g, "\\u003c");
+  const data = JSON.stringify({ outcomes, labels: outcomes.map((o) => stateLabel(o, outcomes)) }).replace(
+    /</g,
+    "\\u003c",
+  );
   const title = `PR #${meta.pr} gallery diff`;
   return `<!doctype html>
 <html lang="en">
@@ -152,6 +183,12 @@ article{background:var(--card);border-radius:10px;box-shadow:0 0 0 1px var(--edg
 .frame .over img{width:100%;height:100%;max-width:none}
 .box{position:absolute;outline:2px solid var(--box);outline-offset:1px;border-radius:2px;background:color-mix(in srgb,var(--box) 12%,transparent)}
 input[type=range]{width:min(420px,100%);margin:8px 0 0}
+.strip{display:flex;gap:8px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
+.frame-cell{flex:none;width:200px;display:flex;flex-direction:column;gap:4px;text-align:left;font:inherit;font-size:12px;color:var(--text);background:none;border:0;border-radius:8px;padding:6px;box-shadow:0 0 0 1px var(--edge);cursor:pointer}
+.frame-cell[aria-pressed=true]{box-shadow:0 0 0 2px var(--text)}
+.frame-cell img{width:100%;height:auto;border-radius:4px}
+.frame-label{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frame-metrics{color:var(--muted)}.frame-metrics.fail{color:var(--box)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .pair figure{margin:0}.pair figcaption{color:var(--muted);font-size:12px;margin-bottom:4px}
 details summary{cursor:pointer;color:var(--muted)}
@@ -184,28 +221,60 @@ function layered(o, mode) {
   range.addEventListener("input", apply); apply();
   return el("div", {}, frame, range);
 }
+function metricsText(m) {
+  if (!m) return "";
+  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
+}
+function picture(p, stage, buttons) {
+  const views = {highlight: () => highlight(p), slider: () => layered(p, "slider"), onion: () => layered(p, "onion")};
+  buttons.replaceChildren();
+  if (p.status === "changed") {
+    const show = (name) => { stage.replaceChildren(views[name]()); for (const b of buttons.children) b.setAttribute("aria-pressed", String(b.dataset.view === name)); };
+    for (const name of Object.keys(views)) { const b = el("button", {type: "button", "data-view": name}, name[0].toUpperCase() + name.slice(1)); b.onclick = () => show(name); buttons.append(b); }
+    show("highlight");
+  } else if (p.status === "nondeterministic") {
+    stage.replaceChildren(highlight(p));
+  } else {
+    const src = p.head || p.base;
+    stage.replaceChildren(...(src ? [img(src, p.status)] : []));
+  }
+}
 function card(o, i) {
-  const views = {highlight: () => highlight(o), slider: () => layered(o, "slider"), onion: () => layered(o, "onion")};
   const stage = el("div", {class: "stage"});
   const buttons = el("div", {class: "views"});
-  const show = (name) => { stage.replaceChildren(views[name]()); for (const b of buttons.children) b.setAttribute("aria-pressed", String(b.dataset.view === name)); };
   const meta = el("div", {class: "meta"}, el("strong", {}, labels[i]), el("span", {class: "tag " + o.status}, o.status));
-  if (o.status === "changed") {
-    meta.append(el("span", {class: "sub"}, (o.ratio * 100).toFixed(2) + "% of pixels · " + o.boxes.length + " region" + (o.boxes.length === 1 ? "" : "s")));
-    for (const name of Object.keys(views)) { const b = el("button", {type: "button", "data-view": name}, name[0].toUpperCase() + name.slice(1)); b.onclick = () => show(name); buttons.append(b); }
-    meta.append(buttons); show("highlight");
-  } else if (o.status === "nondeterministic") {
-    stage.append(highlight(o));
+  if (o.play && o.play.status === "fail") meta.append(el("span", {class: "tag broken"}, "play checks failed"));
+  if (o.status === "changed" && o.pixels) meta.append(el("span", {class: "sub"}, (o.ratio * 100).toFixed(2) + "% of pixels · " + o.boxes.length + " region" + (o.boxes.length === 1 ? "" : "s")));
+  meta.append(buttons);
+  const parts = [meta, stage];
+  if (o.frames && o.frames.length) {
+    // The filmstrip: the played steps in order, then the final still; a frame opens in the views above.
+    const strip = el("div", {class: "strip"});
+    const select = (p, cell) => { picture(p, stage, buttons); for (const c of strip.children) c.setAttribute("aria-pressed", String(c === cell)); };
+    const frames = [...o.frames.map((f) => ({...f, label: "Step " + (f.index + 1) + ": " + f.step})), {...o, label: "Final"}];
+    for (const f of frames) {
+      const src = f.head || f.base;
+      const cell = el("button", {type: "button", class: "frame-cell"}, ...(src ? [img(src, f.label)] : []), el("span", {class: "frame-label"}, f.label), el("span", {class: "tag " + f.status}, f.status));
+      if (f.play) cell.append(el("span", {class: "frame-metrics" + (f.play.status === "fail" ? " fail" : "")}, metricsText(f.play) + (f.play.problems.length ? " · " + f.play.problems.join("; ") : "")));
+      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
+      cell.onclick = () => select(f, cell);
+      strip.append(cell);
+    }
+    parts.push(strip);
+    const first = frames.find((f) => f.status !== "unchanged") || frames[frames.length - 1];
+    select(first, strip.children[frames.indexOf(first)]);
   } else {
-    const src = o.head || o.base;
-    if (src) stage.append(img(src, o.status));
+    picture(o, stage, buttons);
   }
-  return el("article", {id: o.key}, meta, stage);
+  if (o.play && o.play.error) parts.push(el("div", {class: "sub"}, "Play: " + o.play.error));
+  return el("article", {id: o.key}, ...parts);
 }
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
   if (status === "unchanged") {
+    const failed = list.filter(([o]) => o.play && o.play.status === "fail");
+    if (failed.length) main.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
     main.append(el("details", {}, el("summary", {}, list.length + " unchanged"), el("ul", {class: "plain"}, ...list.map(([, i]) => el("li", {}, labels[i])))));
     return;
   }

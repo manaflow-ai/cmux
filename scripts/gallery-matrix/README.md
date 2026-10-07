@@ -41,6 +41,8 @@ The Freestyle path installs the declared Bun dependencies and Playwright browser
 - `comment.md`: the sticky PR comment ("7 states changed: agent-pane.composer/streaming, ...") with before/after thumbnails of the changed regions.
 - `summary.json`: the same summary for the team feed's PR card.
 
+A variant with `play` steps (webviews/src/gallery/ENTRIES.md, "Play steps and checks") also gets a filmstrip. The stage calls the runner's `cmuxGalleryStep` once each step settles, and the runner keeps that still as `<case>-<engine>--step-NN.png`. Each step's still is compared like a state, so a state whose final picture holds but whose steps moved still counts as changed. The page shows each step with its layout shift and long frames, next to the base's when they differ. A failed play check is listed in the summary, the comment and the feed.
+
 A state whose head render differs from a second head render is nondeterministic (a clock or fixture leak). It is listed apart and never counted as a PR change.
 
 The render job runs the PR's code with no secrets. The publish job runs only the base branch's scripts: it rebuilds the comment from `outcomes.json`, puts the comment's thumbnails on the pr-media branch and updates the comment. The diff page, the PR's gallery and the matrix are in the run's `gallery-pr` artifact.
