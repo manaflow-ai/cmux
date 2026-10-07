@@ -6,7 +6,6 @@ import {
   FREE_PLAN_ID,
   MAX_PLAN_ID,
   GO_PLAN_ID,
-  PRO_PLAN_ID,
   type BillingManagementKind,
   type PersonalBillingSource,
 } from "../../services/billing/pro";
