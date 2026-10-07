@@ -803,10 +803,11 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod chats;
 pub mod local_app;
 pub mod peer_auth;
+mod peer_forward;
 mod redact;
 mod remote_guard;
 mod requests;
-mod trust_gate;
+pub(crate) mod trust_gate;
 mod wait;
 use requests::handle_notification;
 

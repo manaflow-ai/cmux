@@ -78,18 +78,17 @@ on:
         type: string
 
 concurrency:
-  # One group per feat-cmux-next push, per pushed branch otherwise (main, each
-  # cmux-tui-pin-*), per PR, and per commit for a manual dispatch.
-  # cancel-in-progress stays false, so a started run is never cancelled and no
-  # publish of immutable objects stops mid-upload. A shared group keeps one
-  # pending run that a newer run replaces, and that starved feat-cmux-next
-  # (2026-10-07 01:31-02:11: 13 of 14 base runs replaced before their
-  # preflight, so base trees went unpublished and every PR's same-tree wait
-  # timed out at 45 min). So every feat-cmux-next push runs: tree-preflight
-  # skips a complete tree, and tree-owner-wait and the per-run job groups keep
-  # one builder per tree key, so the macOS work is per tree, not per push.
-  # Main stays serialized because each main run also updates latest/.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*), per
+  # PR, and per commit for a manual dispatch. cancel-in-progress stays false:
+  # a started run is never cancelled, so no publish of immutable objects stops
+  # mid-upload, and a newer push replaces only the pending run. One group per
+  # feat-cmux-next push (#18175) left 67 runs queued at 05:30Z on 2026-10-07,
+  # each about 2 h behind the macOS builders, so the tip's tree and the
+  # nightly-next build that needs it waited behind every older push. PRs into
+  # feat-cmux-next are retired (direct pushes since 2026-10-03), so no PR
+  # same-tree wait needs an intermediate base tree. tree-preflight still skips
+  # a complete tree, and tree-owner-wait keeps one builder per tree key.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
