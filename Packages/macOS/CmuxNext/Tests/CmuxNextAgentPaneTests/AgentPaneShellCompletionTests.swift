@@ -43,7 +43,7 @@ import Testing
         #expect(C.escape("a$b(c)", word: "a") == #"a\$b\(c\)"#)
         #expect(C.escape("~/Documents/", word: "~/Doc") == "~/Documents/")
         #expect(C.escape("--color=auto", word: "--co") == "--color=auto")
-        #expect(C.escape("alpha file.txt", word: #""alp"#) == "alpha file.txt")
+        #expect(C.escape("alpha file.txt", word: #""alp"#) == #""alpha file.txt"#)
     }
 
     @Test func zshCompletesCommandsFromItsOwnCommandTable() async throws {

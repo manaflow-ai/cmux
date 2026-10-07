@@ -212,6 +212,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "shell.complete":
+            if let line = params?["line"] as? String, line.utf8.count <= AgentPaneShellCompletion.maximumLine {
+                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") && $0.utf8.count <= 4096 ? $0 : nil }
+                self = .shellComplete(line: line, cwd: cwd)
+            } else {
+                self = .unsupported(method)
+            }
         case "shell.stop":
             if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
         case "newTab.touched":
