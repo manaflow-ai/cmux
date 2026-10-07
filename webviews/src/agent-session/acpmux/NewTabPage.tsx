@@ -74,6 +74,7 @@ export const NEW_TAB_LABELS = {
 
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
+  inputToken?: string;
   tools?: { id: string; title: string; symbol: string; shortcut?: string; menu: string[] }[];
   hotkeys: Partial<Record<TabKind, string>>;
   initialKind: TabKind;
@@ -145,6 +146,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     layout: object.layout === "a" ? "a" : "b",
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
+    ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
   };
 }
 
@@ -198,6 +200,7 @@ type Props = {
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   tools?: NewTabHost["tools"];
+  inputToken?: string;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
   chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.

@@ -18,6 +18,7 @@ struct NewTabPageHandler {
     /// folder when the page picked one), a browser opens it as an address
     /// or searches it.
     var open: (String, AgentPaneOpenTab) -> Void
+    var inputReady: (String, String) -> Void = { _, _ in }
     /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, remembered on this Mac.
@@ -51,7 +52,7 @@ enum NewTabPage {
 
     /// The New Tab Tools cards are projections of the action catalog. The
     /// registry supplies both availability and the user-visible shortcut.
-    static func tools(_ services: AppServices) -> [AgentPaneNewTab.Tool] {
+    static func tools(_ services: AppServices, targetID: String? = nil) -> [AgentPaneNewTab.Tool] {
         let specs: [(ActionID, String, String, [ActionID])] = [
             ("openDiffViewer", "newTabPage.tool.changes", "plusminus", []),
             ("newSurface", "newTabPage.tool.terminal", "terminal", ["splitRight", "splitDown"]),
@@ -60,6 +61,10 @@ enum NewTabPage {
         ]
         return specs.compactMap { id, title, symbol, menu in
             guard services.registry.canPerform(id) else { return nil }
+            if let targetID {
+                let target = ActionTargetRef(kind: .tab, id: targetID)
+                guard ActionTargetReasons.canPerform(id, invocation: ActionInvocation(target: target), in: services.registry) else { return nil }
+            }
             return AgentPaneNewTab.Tool(id: id.rawValue, title: title, symbol: symbol,
                                         shortcut: services.registry.shortcutDisplay(for: id), menu: menu.map(\.rawValue))
         }
@@ -147,7 +152,7 @@ enum NewTabPage {
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory(), tools: tools(services)
+            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id)
         )
     }
 
@@ -262,18 +267,28 @@ extension NewTabPage {
     static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
         let start = ContinuousClock.now
         let services = pane.services
-        services.keyRouter.beginNewTabInput(for: pane.paneKey)
+        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+            services.agentTabs.view(for: key)?.focusLocation()
+            return
+        }
+        let inputToken = services.keyRouter.beginNewTabInput(for: pane)
         let cwd = pane.selectedTab?.cwd
-        let page = Self.page(services, selected: pane.selectedTab)
-        let handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
+        var page = Self.page(services, selected: pane.selectedTab)
+        page.inputToken = inputToken
+        var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
+        }
+        handler.inputReady = { [weak pane] _, token in
+            guard let pane else { return }
+            pane.services.keyRouter.acknowledgeNewTabInput(token, in: pane.view.window)
         }
         let spare = seed == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
-            services.keyRouter.cancelNewTabInput(for: pane.paneKey)
+            services.keyRouter.cancelNewTabInput(in: pane.view.window)
             return
         }
         // The adopted page is alive: show it this frame and give it the keyboard now, so the

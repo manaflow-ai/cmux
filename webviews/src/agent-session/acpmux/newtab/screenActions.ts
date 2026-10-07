@@ -13,6 +13,7 @@ export function newTabScreenActions(deps: {
   showAllChats(): void;
   /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
   runShell(command: string, cwd?: string): void;
+  inputReady?(token: string): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -43,5 +44,6 @@ export function newTabScreenActions(deps: {
     onShowAll: deps.showAllChats,
     onRunAction: (id) => ignore(callNative("action.run", { id })),
     onTouched: () => ignore(callNative("newTab.touched")),
+    onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
   };
 }

@@ -18,6 +18,7 @@ export type NewTabScreenActions = {
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
   onRunAction?(id: string): void;
+  onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
 };
@@ -30,6 +31,7 @@ type Props = NewTabScreenActions & {
   lastAgent?: string;
   home?: string;
   tools?: NewTabHost["tools"];
+  inputToken?: string;
   now?: number;
 };
 
@@ -38,7 +40,7 @@ type Props = NewTabScreenActions & {
 /// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
-  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [] } = props;
+  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -49,6 +51,8 @@ export function NewTabScreen(props: Props) {
   const wholeSelection = useRef(false);
   const composing = useRef(false);
   const inputReported = useRef(false);
+  const inputReadyReported = useRef<string | undefined>(undefined);
+  const { onInputReady } = props;
   const touch = () => {
     if (inputReported.current) return;
     inputReported.current = true;
@@ -74,10 +78,14 @@ export function NewTabScreen(props: Props) {
       field.current?.select();
     };
     focus();
+    if (inputToken && inputReadyReported.current !== inputToken) {
+      inputReadyReported.current = inputToken;
+      onInputReady?.(inputToken);
+    }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, []);
+  }, [inputToken, onInputReady]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {

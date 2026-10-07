@@ -2043,6 +2043,7 @@ function AcpmuxPane() {
               lastAgent={newTab.lastAgent}
               home={newTab.home}
               tools={newTab.tools}
+              inputToken={newTab.inputToken}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,

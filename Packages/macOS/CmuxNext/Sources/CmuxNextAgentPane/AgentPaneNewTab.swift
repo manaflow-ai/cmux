@@ -52,6 +52,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var home: String?
     /// Actions available from the New Tab page's Tools section.
     public var tools: [Tool]
+    /// Identifies the opening whose focused field must acknowledge readiness.
+    public var inputToken: String?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -70,6 +72,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.lastAgent = lastAgent
         self.home = home
         self.tools = tools
+        self.inputToken = nil
     }
 }
 

@@ -8,49 +8,6 @@ import CmuxNextTerminal
 // type-ahead queue of a page whose document has not focused its primary
 // input yet (`PageInputReadiness`). Shortcuts resolve before either.
 extension KeyRouter {
-    /// Starts the action-owned buffer before a cold New Tab view exists.
-    func beginNewTabInput(for pane: String) {
-        newTabInput[pane] = NewTabInputBuffer()
-    }
-
-    /// Abandons an action-owned buffer when opening the page was refused.
-    func cancelNewTabInput(for pane: String) {
-        newTabInput[pane] = nil
-    }
-
-    /// Captures a printable key while Cmd-T is presenting its page. This runs
-    /// before the old responder can see the key, so a cold page cannot lose it.
-    func captureNewTabInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, Self.isPrintable(event) else { return false }
-        let (controller, kind) = focus(for: window)
-        guard kind == .content, let controller,
-              let pane = controller.focus.state.resolved.pane, var buffer = newTabInput[pane] else { return false }
-        buffer.append(event.characters ?? "")
-        newTabInput[pane] = buffer
-        return true
-    }
-
-    /// Moves the action-owned text into the existing readiness queue once the
-    /// selected tab is the New Tab page. The readiness callback replays it in order.
-    func promoteNewTabInput(_ resolved: FocusState.Resolved, in window: NSWindow?) {
-        guard case .agentPage(let pane, let tab) = resolved, newTabInput[pane] != nil,
-              let window else { return }
-        let (controller, kind) = focus(for: window)
-        guard kind == .content, let controller,
-              let paneController = controller.content?.paneController(key: pane),
-              paneController.currentTabKey == tab, services?.agentTabs.isNewTabPage(tab) == true,
-              let readiness = paneController.currentContent?.inputReadiness,
-              var buffer = newTabInput.removeValue(forKey: pane), let text = buffer.take() else { return }
-        let surface = String(describing: ObjectIdentifier(readiness))
-        typeAhead.append(text, surface: surface, now: .now)
-        typeAheadFocus = resolved
-        readiness.onReady = { [weak self, weak readiness] in
-            guard let self, let readiness else { return }
-            self.flushTypeAhead(surface, into: readiness)
-        }
-        if readiness.isReady { flushTypeAhead(surface, into: readiness) }
-    }
-
     /// A printable key on a screen whose primary input should take it
     /// (R65): focus that input and type the key there. Typing in a terminal
     /// never looks up the window (typing-latency path).
