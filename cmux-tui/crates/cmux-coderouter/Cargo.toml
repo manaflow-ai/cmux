@@ -1,0 +1,27 @@
+[package]
+name = "cmux-coderouter"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The local CodeRouter: a loopback-only, key-gated model router that acpmux runs for the user's own Claude and Codex accounts"
+
+[lints]
+workspace = true
+
+[dependencies]
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+http.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+url.workspace = true
+zeroize.workspace = true
