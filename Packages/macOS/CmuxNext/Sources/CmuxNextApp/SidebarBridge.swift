@@ -272,7 +272,7 @@ final class SidebarBridge {
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: serverMachine(session, machines: machines), selectedTab: selectedTab)
+                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab)
         }
         return sections
     }

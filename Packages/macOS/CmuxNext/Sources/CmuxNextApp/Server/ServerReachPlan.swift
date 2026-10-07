@@ -24,7 +24,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// This Mac, when it may itself be the placed server: its short host name
     /// (pairing sends `hostname -s` as the server's default name) and the
     /// brain's daemon socket when one exists here.
-    struct LocalServer: Sendable, Equatable {
+    nonisolated struct LocalServer: Sendable, Equatable {
         var hostName: String
         var brainSocket: String
     }

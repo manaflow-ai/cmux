@@ -166,7 +166,7 @@ import Testing
                                    (.needsInstall(.missing), .unreachable), (.offline, .offline),
                                    (.authFailed("Permission denied"), .authFailed)] {
             link.linkStatus = status
-            #expect(SidebarBridge.serverMachine(session, machines: machines).status == expected, "\(status)")
+            #expect(session.sidebarMachine(machines: machines).status == expected, "\(status)")
         }
         #expect(link.machineID == session.machineID)
         #expect(session.daemon.machineID == session.machineID)
