@@ -11,6 +11,7 @@ struct SignInStep: View {
                 .font(.title.bold())
                 .foregroundStyle(OnboardingColors.primaryText)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("onboarding.signIn.title")
             Text(OnboardingText.signInBody)
                 .font(.body)
                 .foregroundStyle(OnboardingColors.secondaryText)

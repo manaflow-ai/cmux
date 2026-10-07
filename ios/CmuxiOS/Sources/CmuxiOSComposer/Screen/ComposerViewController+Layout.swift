@@ -52,6 +52,7 @@ extension ComposerViewController {
 
         mockLabel.text = ComposerText.mockData
         mockLabel.font = ShellTypography.chip
+        mockLabel.adjustsFontForContentSizeCategory = true
         mockLabel.textColor = ShellPalette.mockChipText
         mockLabel.isHidden = !feature.isMock
 

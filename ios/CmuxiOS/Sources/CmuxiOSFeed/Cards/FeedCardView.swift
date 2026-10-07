@@ -108,6 +108,7 @@ struct FeedCardView: View {
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("feed.resolution")
         }
     }
 }

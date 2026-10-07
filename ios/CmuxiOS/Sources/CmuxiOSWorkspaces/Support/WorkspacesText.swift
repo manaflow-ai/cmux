@@ -60,6 +60,9 @@ enum WorkspacesText {
 
     // Menu
     static var viewOptions: String { String(localized: "workspaces.menu.view", defaultValue: "View Options", bundle: .module) }
+    static var workspaceActions: String {
+        String(localized: "workspaces.menu.actions", defaultValue: "Workspace Actions", bundle: .module)
+    }
     static var filter: String { String(localized: "workspaces.menu.filter", defaultValue: "Filter", bundle: .module) }
     static var sort: String { String(localized: "workspaces.menu.sort", defaultValue: "Sort", bundle: .module) }
     static var grouping: String { String(localized: "workspaces.menu.grouping", defaultValue: "Group", bundle: .module) }

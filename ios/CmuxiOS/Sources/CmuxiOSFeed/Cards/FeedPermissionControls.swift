@@ -12,10 +12,12 @@ struct FeedPermissionControls: View {
         HStack(spacing: 8) {
             Button(FeedText.deny) { actions.answer(model.item.id, .permission(allow: false, scope: nil)) }
                 .buttonStyle(FeedButtonStyle(role: .destructive))
+                .accessibilityIdentifier("feed.action.deny")
             Button(scopes.count > 1 ? FeedText.allowScope(scopes[0]) : FeedText.allow) {
                 actions.answer(model.item.id, .permission(allow: true, scope: scopes[0]))
             }
             .buttonStyle(FeedButtonStyle(role: .primary))
+            .accessibilityIdentifier("feed.action.allow")
             if scopes.count > 1 {
                 Menu {
                     ForEach(scopes.dropFirst(), id: \.self) { scope in
@@ -28,6 +30,7 @@ struct FeedPermissionControls: View {
                         .accessibilityLabel(FeedText.allowOptions)
                 }
                 .buttonStyle(FeedButtonStyle())
+                .accessibilityIdentifier("feed.action.allowOptions")
             }
         }
         .disabled(!model.canAnswer)
