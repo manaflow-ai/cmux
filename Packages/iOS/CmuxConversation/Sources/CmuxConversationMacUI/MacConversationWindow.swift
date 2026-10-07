@@ -284,8 +284,10 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     /// The toolbar's New Message: a draft conversation at the top of the
     /// sidebar with the To: field across the transcript pane. Reopens the
     /// current draft if there is one.
+    /// File > New Message (⌘N) takes the same path.
     @objc func newMessage(_ sender: Any?) {
-        guard let directory = entries.lazy.compactMap(\.backend).first else { return }
+        if let handler = MacConversationLab.composeHandler { return handler(view.window) }
+        guard let directory = entries.lazy.compactMap(\.backend).first else { return NSSound.beep() }
         if draft == nil {
             let draft = MacComposeDraftController(directory: directory)
             draft.onOpenConversation = { [weak self] creation, message in
@@ -698,9 +700,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         switch filter {
         case .unread: return isUnread(entry)
         case .drafts: return entry.hasDraft
-        // Seam: scheduled messages arrive with feat-imsg-send-later; this
-        // lists conversations holding one once the store exposes them.
-        case .sendLater: return false
+        // Conversations holding a Send Later message.
+        case .sendLater: return !entry.store.scheduledMessages.isEmpty
         }
     }
 

@@ -3,11 +3,9 @@ import AppKit
 import CmuxConversationCore
 
 extension MacConversationLab {
-    /// File > New Message (⌘N) and the toolbar compose button.
-    ///
-    /// Seam: the New Message flow (recipient field, compose session) lands
-    /// with feat-imsg-compose-recipients, which installs itself here. Until
-    /// then nothing is installed and New Message is disabled.
+    /// File > New Message (⌘N) and the toolbar compose button open the
+    /// window's draft conversation (`newMessage(prefill:)`). A host with its
+    /// own New Message flow installs it here instead.
     @MainActor public static var composeHandler: (@MainActor (NSWindow?) -> Void)?
 }
 
@@ -27,7 +25,7 @@ extension MacConversationSplitController: MacConversationCommandValidating, NSMe
 
     func canPerform(_ action: Selector) -> Bool {
         switch action {
-        case #selector(newMessage(_:)): return MacConversationLab.composeHandler != nil
+        case #selector(newMessage(_:)): return MacConversationLab.composeHandler != nil || entries.contains { $0.backend != nil }
         case #selector(openConversationInNewWindow(_:)): return selected?.canReopen == true
         case #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)): return selected != nil && !sidebar.query.isEmpty
         case #selector(makeTextBigger(_:)): return MacConversationTextSize.canMakeBigger
@@ -59,12 +57,6 @@ extension MacConversationSplitController: MacConversationCommandValidating, NSMe
     }
 
     // MARK: File
-
-    /// File > New Message (⌘N).
-    @objc func newMessage(_ sender: Any?) {
-        guard let handler = MacConversationLab.composeHandler else { return NSSound.beep() }
-        handler(view.window)
-    }
 
     /// File > Open Conversation in New Window.
     @objc func openConversationInNewWindow(_ sender: Any?) {
