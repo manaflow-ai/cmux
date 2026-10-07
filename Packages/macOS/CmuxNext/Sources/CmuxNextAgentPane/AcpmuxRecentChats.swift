@@ -67,17 +67,9 @@ public nonisolated struct AcpmuxRecentChats: Sendable, Equatable {
         }
     }
 
-    /// At most `limit` chats, newest activity first; with `project`, only the
-    /// chats in that folder (the filter applies before the limit).
-    public func newest(_ limit: Int, in project: String? = nil) -> [AcpmuxRecentChat] {
-        let shown = project.map { cwd in chats.values.filter { $0.cwd == cwd } } ?? Array(chats.values)
-        return Array(shown.sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }.prefix(limit))
-    }
-
-    /// The chats' folders, newest activity first; a chat with no folder names none.
-    public var projects: [String] {
-        var seen = Set<String>()
-        return newest(chats.count).map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted }
+    /// At most `limit` chats, newest activity first.
+    public func newest(_ limit: Int) -> [AcpmuxRecentChat] {
+        Array(chats.values.sorted { ($0.updatedAt, $0.id) > ($1.updatedAt, $1.id) }.prefix(limit))
     }
 
     private mutating func upsert(_ summary: [String: Any]) {
