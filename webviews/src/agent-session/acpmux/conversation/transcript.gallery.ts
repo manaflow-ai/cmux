@@ -199,6 +199,19 @@ export default agentPaneEntry({
         summary(29, { status: "completed", durationMs: 41_000 }),
       ]),
     },
+    "github-references": {
+      note: "Issue and pull request references link in prose while code stays untouched.",
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Please review #18325 and manaflow-ai/cmux#18321", 3),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 12_000 }),
+      ]),
+    },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
