@@ -376,6 +376,20 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: PathBuf,
     },
+    /// Run a protocol = "terminal" harness (a CLI/TUI without ACP) in this
+    /// terminal with its profile env; `--tab` (cmux) opens it in a new tab.
+    Run {
+        id: String,
+        /// The folder to run in (default: the current folder).
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// The model for `${model}` (default: the profile's).
+        #[arg(long)]
+        model: Option<String>,
+        /// Open a new tab in the current pane (cmux only).
+        #[arg(long)]
+        tab: bool,
+    },
     /// Secrets for harness env keys, kept in the system secret store.
     #[command(subcommand)]
     Secret(SecretCmd),
