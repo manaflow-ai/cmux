@@ -97,12 +97,12 @@ public struct SSHSessionDiscovery: Sendable {
                     isAttached: trimmed.lowercased().contains("attached)"), activity: nil))
             case "@cmux-tui":
                 guard line.hasPrefix("C\t") else { continue }
-                let path = String(line.dropFirst(2))
-                guard path.hasSuffix(".sock"), let slash = path.lastIndex(of: "/") else { continue }
-                let stem = String(path[path.index(after: slash)...].dropLast(".sock".count))
-                guard let name = SSHSessionName(validating: stem), seenCmux.insert(stem).inserted else { continue }
+                guard let socket = SSHCmuxTUISocket(validatingPath: String(line.dropFirst(2))),
+                      seenCmux.insert(socket.session.rawValue).inserted else { continue }
+                // Keep the first runtime directory's socket, matching the
+                // server's precedence without deriving a path at attach time.
                 cmuxSessions.append(SSHDiscoveredSession(
-                    kind: .cmuxTUI, name: name, target: .cmuxTUI(binary: cmux, session: name), windows: [],
+                    kind: .cmuxTUI, name: socket.session, target: .cmuxTUI(binary: cmux, socket: socket), windows: [],
                     isAttached: false, activity: nil))
             default:
                 continue

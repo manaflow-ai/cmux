@@ -36,6 +36,7 @@ import Testing
         "/tmp/cmux-tui-501/./work.sock", "/tmp/not-cmux/work.sock",
         "/tmp/cmux-tui-evil/work.sock", "/tmp/cmux-tui-/work.sock",
         "/tmp/cmux-tui-501/-evil.sock", "/tmp/cmux-tui-501/.sock",
+        "/tmp/cmux-tui-501/..sock", "/tmp/cmux-tui-501/...sock", "/tmp/cmux-tui-501/work.sock/",
         "/tmp/\u{0}/cmux-tui-501/work.sock", "/tmp/\t/cmux-tui-501/work.sock",
     ])
     func malformedSocketPathsCannotBecomeAttachTargets(_ path: String) {

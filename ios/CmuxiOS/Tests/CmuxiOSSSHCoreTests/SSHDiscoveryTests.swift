@@ -33,7 +33,9 @@ import Testing
             == "exec '/usr/bin/tmux' attach-session -t '=work:2'")
         let screen = try #require(SSHSessionName(validating: "4242.build"))
         #expect(SSHSessionTarget.screen(binary: .screen, session: screen).attachCommand == "exec 'screen' -x '4242.build'")
-        #expect(SSHSessionTarget.cmuxTUI(binary: .cmuxTUI, session: name).attachCommand == "exec 'cmux-tui' --session 'work'")
+        let socket = try #require(SSHCmuxTUISocket(validatingPath: "/tmp/cmux-tui-501/work.sock"))
+        #expect(SSHSessionTarget.cmuxTUI(binary: .cmuxTUI, socket: socket).attachCommand
+            == "exec 'cmux-tui' attach --socket '/tmp/cmux-tui-501/work.sock'")
         #expect(SSHSessionTarget.tmux(binary: tmux, session: name, window: 2).surfaceID == "ssh:tmux:work:2")
     }
 
@@ -71,7 +73,7 @@ import Testing
         #expect(sessions[2].isAttached == false)
         #expect(sessions[3].isAttached)
         #expect(sessions[2].target.attachCommand == "exec '/usr/bin/screen' -x '4242.build'")
-        #expect(sessions[4].target.attachCommand == "exec '/home/u/.local/bin/cmux-tui' --session 'cmux-ios'")
+        #expect(sessions[4].target.attachCommand == "exec '/home/u/.local/bin/cmux-tui' attach --socket '/run/user/1000/cmux-tui-1000/cmux-ios.sock'")
     }
 
     @Test func noToolsMeansNoSessionsAndBadPathsFallBackToNames() {

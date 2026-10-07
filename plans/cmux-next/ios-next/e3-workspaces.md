@@ -86,8 +86,12 @@ daemon serves `profiles-v1` (shared `Tree.groups` otherwise), and performs: move
   `tmux list-sessions -F`, `tmux list-windows -a -F`, `screen -ls`, locate `cmux-tui` and list its
   session sockets) with a pure parser; `SSHChainDialer` shared by the shell connector, the new
   `SSHAttachConnector` (PTY + `exec <tmux> attach-session -t <id>`, `screen -x <id>`,
-  `<cmux-tui> --session <id>`) and `SSHCommandRunner`. No free text reaches a command: the target
-  comes only from `SSHSessionCatalog`, which holds what discovery returned.
+  `<cmux-tui> attach --socket <path>`) and `SSHCommandRunner`. cmux-tui keeps the first valid
+  named socket in runtime-directory order, validates its absolute path through `SSHCmuxTUISocket`,
+  and attaches to that exact owner. The `attach` verb fails if the owner has exited; it cannot
+  start a replacement session or derive a different socket from the SSH login's environment.
+  No free text reaches a command: the target comes only from `SSHSessionCatalog`, which holds
+  what discovery returned.
 - `CmuxiOSSSHWorkspacesCore` (new): `SSHHostDirectory` (SSH records of the `HostsStore` as `.ssh`
   descriptors), `SSHWorkspaceChannel` (a `WorkspaceControlChannel` whose snapshot is discovery
   projected to the workspace state: tmux session = workspace, window = terminal tab; screen and
@@ -132,3 +136,13 @@ adapter against a live home daemon (`workspace.place` index conversion, personal
 the move-workspace fallback index, cross-section drop detection, overlapping discovery runs, csh
 login shells) are fixed. Tagged build not attempted (lane rules: no tagged builds on
 this Mac).
+
+### SSH socket attachment follow-up (2026-10-07)
+
+`SSHCmuxTUIAttachTests` covers non-default runtime directories, duplicate-name precedence,
+invalid socket paths, and quoted directory names. `SSHWorkspacesTests` covers attachment using
+an updated catalog socket and refusal after the session disappears. Runtime Swift execution
+and a live stale-owner SSH check remain unverified: `nx-remote status` fails because this Mac
+cannot resolve `cmux-lawrence-2`. Swift syntax and scoped conventions checks are static evidence
+only. The existing connectivity soak uses Iroh and does not cover this SSH discovery/attach path;
+it needs a separate named-socket SSH workload before this change can claim live coverage.

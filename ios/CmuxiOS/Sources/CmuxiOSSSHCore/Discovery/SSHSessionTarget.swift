@@ -9,8 +9,8 @@ public enum SSHSessionTarget: Hashable, Sendable {
     case tmux(binary: SSHRemoteBinary, session: SSHSessionName, window: Int?)
     /// A GNU screen session (`<pid>.<name>`).
     case screen(binary: SSHRemoteBinary, session: SSHSessionName)
-    /// A cmux-tui session; attaching runs its TUI client.
-    case cmuxTUI(binary: SSHRemoteBinary, session: SSHSessionName)
+    /// An existing cmux-tui owner at the exact socket discovery found.
+    case cmuxTUI(binary: SSHRemoteBinary, socket: SSHCmuxTUISocket)
 
     /// The command the PTY runs (`exec`, so the session ends with the
     /// client). Every argument is quoted; no part comes from free text.
@@ -23,8 +23,10 @@ public enum SSHSessionTarget: Hashable, Sendable {
         case .screen(let binary, let session):
             // `-x` joins without detaching other clients.
             return "exec \(binary.quoted) -x \(session.rawValue.posixShellSingleQuoted)"
-        case .cmuxTUI(let binary, let session):
-            return "exec \(binary.quoted) --session \(session.rawValue.posixShellSingleQuoted)"
+        case .cmuxTUI(let binary, let socket):
+            // `attach` fails if the owner exited. Plain `--session` may
+            // create a replacement owner and derives its socket again.
+            return "exec \(binary.quoted) attach --socket \(socket.path.posixShellSingleQuoted)"
         }
     }
 
@@ -33,7 +35,7 @@ public enum SSHSessionTarget: Hashable, Sendable {
         switch self {
         case .tmux(_, let session, let window): "ssh:tmux:" + session.rawValue + (window.map { ":\($0)" } ?? "")
         case .screen(_, let session): "ssh:screen:" + session.rawValue
-        case .cmuxTUI(_, let session): "ssh:cmux-tui:" + session.rawValue
+        case .cmuxTUI(_, let socket): "ssh:cmux-tui:" + socket.session.rawValue
         }
     }
 }
