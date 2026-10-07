@@ -30,6 +30,14 @@ export class CodeRouterRefreshBusy extends Error {
 
 export class CodeRouterCredentialBroken extends Error {
   readonly _tag = "CodeRouterCredentialBroken";
+
+  constructor(
+    message: string,
+    /** True when the refresher already reported this failure. */
+    readonly reported = false,
+  ) {
+    super(message);
+  }
 }
 
 export type FreshCredentialInput = {
@@ -107,9 +115,15 @@ export function createCredentialRefresher(
       // refreshed and rotated the token immediately before this lease.
       const current = await dependencies.read(input.teamId, input.accountId, input.signal);
       throwIfAborted(input.signal);
+      // A forced refresh answers a token the provider rejected. If another
+      // request already rotated past that revision, use its token instead of
+      // spending another refresh-token rotation.
+      const rotatedSinceRejection = input.force === true &&
+        input.expectedRevision > 0 &&
+        current.envelope.credentialRevision > input.expectedRevision;
       if (
-        !input.force &&
-        credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS
+        rotatedSinceRejection ||
+        (!input.force && credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS)
       ) {
         await dependencies.release(input.accountId, leaseId, input.signal);
         throwIfAborted(input.signal);
@@ -146,23 +160,24 @@ export function createCredentialRefresher(
         throw error;
       }
       const terminal = dependencies.isTerminal(error);
-      // A terminal refresh means the provider revoked this sign-in (logout,
-      // password change, or the refresh token was rotated by another client).
-      // The account is marked broken below and the dashboard asks the team to
-      // reconnect it, so it is the tenant's state to fix, not an operator page.
+      const failureCode = dependencies.failureCode(error);
+      // A revoked sign-in (logout, password change, or a refresh token rotated
+      // by another client) is marked broken below and the dashboard asks the
+      // team to reconnect it: the tenant's state to fix, not an operator page.
+      // Other terminal codes, such as `invalid_client`, stay operator errors.
       (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
         provider: currentProvider(before.credential),
         terminal,
-      }, terminal ? { fault: "tenant" } : {});
+      }, terminal && isRevokedSignInCode(failureCode) ? { fault: "tenant" } : {});
       await dependencies.fail(
         input.accountId,
         leaseId,
         terminal,
-        dependencies.failureCode(error),
+        failureCode,
         input.signal,
       ).catch(() => undefined);
       if (terminal) {
-        throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
+        throw new CodeRouterCredentialBroken("provider refresh token is no longer usable", true);
       }
       throw error;
     }
@@ -341,6 +356,10 @@ export function isTerminalRefreshError(error: unknown): boolean {
   return error instanceof CodexOwnerMismatch || error instanceof ProviderRefreshError &&
     (error.status === 400 || error.status === 401) &&
     /invalid|expired|reused|revoked|not_found/i.test(error.code);
+}
+
+function isRevokedSignInCode(code: string): boolean {
+  return /invalid_grant|expired|reused|revoked|credential_owner_mismatch/i.test(code);
 }
 
 function refreshFailureCode(error: unknown): string {

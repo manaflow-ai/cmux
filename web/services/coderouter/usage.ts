@@ -84,11 +84,14 @@ async function accountUsage(
     if (credential.provider !== "codex") return account;
     let response = await dependencies.fetchUsage(credential);
     if (response.status === 401) {
+      // Release the rejected response's connection before the retry.
+      await response.body?.cancel().catch(() => undefined);
       const refreshed = await refreshRejectedCredential(dependencies, teamId, account, known);
       if (refreshed.provider !== "codex") return account;
       response = await dependencies.fetchUsage(refreshed);
     }
     if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
       dependencies.report(
         response.status === 429 ? "provider_rate_limit" : "provider_usage",
         new Error("provider usage request failed"),
@@ -108,7 +111,7 @@ async function accountUsage(
   } catch (error) {
     // The refresher already reported a revoked sign-in as a tenant fault and
     // marked the account broken; show that state now instead of next poll.
-    if (error instanceof CodeRouterCredentialBroken) {
+    if (error instanceof CodeRouterCredentialBroken && error.reported) {
       return { ...account, state: "broken", usageError: "credential_broken" };
     }
     // Another request holds the refresh lease and will settle this account.

@@ -114,7 +114,7 @@ describe("coderouter usage reads with a rejected credential", () => {
   test("a revoked sign-in is returned as broken and never reported as an operator error", async () => {
     const run = harness({
       credential: async (request) => {
-        if (request.force) throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
+        if (request.force) throw new CodeRouterCredentialBroken("provider refresh token is no longer usable", true);
         return codex("revoked");
       },
       usageStatus: () => 401,
@@ -200,6 +200,34 @@ describe("coderouter terminal refresh failures", () => {
     });
   });
 
+  test("an operator refresh misconfiguration stays an error", async () => {
+    const reported: Reported[] = [];
+    const refresh = createCredentialRefresher(refreshDependencies({
+      failureCode: () => "invalid_client",
+      report: (failure, _error, context = {}, options = {}) => {
+        reported.push({ failure, context, options });
+      },
+    }));
+    await expect(refresh({ teamId: "team-1", accountId: ACCOUNT_ID, expectedRevision: 3, force: true }))
+      .rejects.toBeInstanceOf(CodeRouterCredentialBroken);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.options.fault).toBeUndefined();
+  });
+
+  test("a forced refresh reuses a token another request already rotated", async () => {
+    let providerRefreshes = 0;
+    const refresh = createCredentialRefresher(refreshDependencies({
+      read: async () => ({ envelope: { ...envelope, credentialRevision: 4 }, credential: codex("rotated") }),
+      refresh: async () => {
+        providerRefreshes++;
+        return codex("again");
+      },
+    }));
+    const result = await refresh({ teamId: "team-1", accountId: ACCOUNT_ID, expectedRevision: 3, force: true });
+    expect(result.provider === "codex" ? result.accessToken : null).toBe("rotated");
+    expect(providerRefreshes).toBe(0);
+  });
+
   test("tenant faults are warnings in Sentry and PostHog; operator faults stay errors", () => {
     expect(coderouterFailureSeverity("provider_refresh", { fault: "tenant" })).toEqual({
       sentry: "warning",
@@ -215,3 +243,24 @@ describe("coderouter terminal refresh failures", () => {
     });
   });
 });
+
+function refreshDependencies(
+  overrides: Partial<CredentialRefreshDependencies> = {},
+): CredentialRefreshDependencies {
+  return {
+    read: async () => ({ envelope, credential: codex("old") }),
+    decrypt: async () => codex("old"),
+    claim: async () => "lease-1",
+    release: async () => {},
+    refresh: async () => {
+      throw new Error("rejected");
+    },
+    encrypt: async () => envelope,
+    complete: async () => {},
+    fail: async () => {},
+    isTerminal: () => true,
+    failureCode: () => "refresh_token_reused",
+    report: () => {},
+    ...overrides,
+  };
+}

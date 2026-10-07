@@ -506,7 +506,7 @@ async function proxyCodexRequestWith(
         });
         // The refresher already reported a revoked sign-in as a tenant fault
         // and marked the account broken; a second report would page for it.
-        if (!(error instanceof CodeRouterCredentialBroken)) {
+        if (!(error instanceof CodeRouterCredentialBroken && error.reported)) {
           reportCoderouterFailure("provider_refresh", error, {
             provider: "codex",
             forced: true,
