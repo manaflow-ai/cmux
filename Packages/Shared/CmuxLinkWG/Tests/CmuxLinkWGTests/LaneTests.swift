@@ -9,7 +9,8 @@ struct LaneTests {
         let frames: [LaneFrame] = [
             .reliable(lane: lane, seq: 7, first: true, last: false, payload: [1, 2, 3]),
             .message(lane: LaneID(kind: .partial, priority: .media), id: 9, index: 1, count: 3, lifetimeMillis: 50, payload: [4]),
-            .ack(lane: lane, next: 12, sack: 0b1011),
+            .ack(lane: lane, next: 12, sack: 0b1011, consumed: nil),
+            .ack(lane: lane, next: 12, sack: 0b1011, consumed: 9),
             .close,
             .closeAck,
         ]

@@ -60,10 +60,11 @@ extension WireGuardLinkTransport {
         switch frame {
         case let .reliable(lane, seq, first, last, payload):
             var receiver = receivers[lane] ?? ReliableReceiver(windowFragments: receiveWindowFragments)
-            let frames = receiver.receive(seq: seq, first: first, last: last, payload: payload)
+            let frames = receiver.receiveFrames(seq: seq, first: first, last: last, payload: payload)
             receivers[lane] = receiver
-            for bytes in frames {
-                emit(.frame(TransportFrame(lane: transportLane(lane), bytes: Data(bytes))))
+            for (bytes, end) in frames {
+                // The cost is the frame's end: credit advances to it on consumption.
+                emit(.frame(TransportFrame(lane: transportLane(lane), bytes: Data(bytes))), cost: Int(end))
             }
             ackDirty.insert(lane)
             wakePump()
@@ -74,8 +75,8 @@ extension WireGuardLinkTransport {
             if let message {
                 emit(.frame(TransportFrame(lane: transportLane(lane, lifetimeMillis: lifetime), bytes: Data(message))))
             }
-        case let .ack(lane, next, sack):
-            acknowledge(lane: lane, next: next, sack: sack)
+        case let .ack(lane, next, sack, consumed):
+            acknowledge(lane: lane, next: next, sack: sack, consumed: consumed)
         case .close:
             peerClosed()
         case .closeAck:
@@ -83,9 +84,9 @@ extension WireGuardLinkTransport {
         }
     }
 
-    private func acknowledge(lane: LaneID, next: UInt32, sack: UInt64) {
+    private func acknowledge(lane: LaneID, next: UInt32, sack: UInt64, consumed: UInt32?) {
         guard var sender = senders[lane] else { return }
-        let result = sender.acknowledge(next: next, sack: sack, now: clock.now, smoothedRTT: retransmit.smoothed)
+        let result = sender.acknowledge(next: next, sack: sack, consumed: consumed, now: clock.now, smoothedRTT: retransmit.smoothed)
         senders[lane] = sender
         if let rtt = result.rtt {
             retransmit.sample(rtt)

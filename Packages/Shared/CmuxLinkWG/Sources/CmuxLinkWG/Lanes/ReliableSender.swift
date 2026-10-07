@@ -19,12 +19,23 @@ struct ReliableSender {
     private var nextSeq: UInt32 = 0
     /// Lowest sequence not yet cumulatively acknowledged.
     private(set) var base: UInt32 = 0
+    /// The receiver's credit: the sequence after the last fragment its
+    /// consumer took (E1). Legacy acks move it with `next`.
+    private(set) var consumed: UInt32 = 0
 
     init(lane: LaneID) {
         self.lane = lane
     }
 
     var isDrained: Bool { fragments.isEmpty }
+
+    /// Fragments sent or queued that the receiver's consumer has not taken.
+    var uncredited: UInt32 { nextSeq - consumed }
+
+    /// Fragments `payload` becomes at `maxPayload` bytes each.
+    static func fragmentCount(_ bytes: Int, maxPayload: Int) -> UInt32 {
+        UInt32(max(1, (bytes + maxPayload - 1) / maxPayload))
+    }
 
     /// Splits `payload` into fragments of at most `maxPayload` bytes and
     /// returns their sequence numbers, in order, to queue.
@@ -64,10 +75,14 @@ struct ReliableSender {
 
     /// Applies an ack. Returns an RTT sample (a fragment sent once) and the
     /// fragments to retransmit at once (three later fragments arrived).
-    mutating func acknowledge(next: UInt32, sack: UInt64, now: Duration, smoothedRTT: Duration?) -> (rtt: Duration?, retransmit: [UInt32]) {
+    mutating func acknowledge(
+        next: UInt32, sack: UInt64, consumed peerConsumed: UInt32? = nil, now: Duration, smoothedRTT: Duration?
+    ) -> (rtt: Duration?, retransmit: [UInt32]) {
         var sample: Duration?
         // An ack beyond what was ever sent is a protocol error; ignore it.
         guard next <= nextSeq else { return (nil, []) }
+        let credit = min(peerConsumed ?? next, next)
+        if credit > consumed { consumed = credit }
         if next > base {
             for seq in base..<next {
                 guard let fragment = fragments.removeValue(forKey: seq) else { continue }
