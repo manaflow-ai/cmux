@@ -19,6 +19,7 @@ enum WebComposition {
 
     static func screens(_ web: WebFeature) -> SSHBrowserScreens {
         SSHBrowserScreens(mac: { host, name in web.makeMacScreen(host: host, name: name) },
+                          direct: { host, name in web.makeMacScreen(host: host, name: name) },
                           ssh: { host, name, opener in web.makeSSHScreen(host: host, name: name, opener: opener) })
     }
 }

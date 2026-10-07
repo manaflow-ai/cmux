@@ -148,7 +148,11 @@ public final class SSHFeature {
                 list.navigationController?.pushViewController(browsers.ssh(host.id, host.name, opener), animated: true)
             }
         case .direct:
-            break
+            // Direct hosts are admitted to AccountLinkDirectory by B4's
+            // saved endpoint stream. Reuse C14's tcp.forward route so a
+            // Tailscale/LAN/WireGuard address receives the same in-app
+            // browser as a paired Mac.
+            list.navigationController?.pushViewController(browsers.direct(host.id, host.name), animated: true)
         }
     }
 

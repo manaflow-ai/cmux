@@ -219,7 +219,7 @@ final class WebBrowserViewController: UIViewController, WKNavigationDelegate, UI
         guard let url = navigationAction.request.url, let scheme = url.scheme?.lowercased() else { return .cancel }
         if ["about", "blob", "data"].contains(scheme) { return .allow }
         if let local = url.port.flatMap({ UInt16(exactly: $0) }), localPorts[local] != nil,
-           url.host?.lowercased() == "localhost" || url.host == "127.0.0.1" {
+           let host = url.host, WebAddress.isLoopbackHost(host) {
             return .allow
         }
         let mainFrame = navigationAction.targetFrame?.isMainFrame ?? true
