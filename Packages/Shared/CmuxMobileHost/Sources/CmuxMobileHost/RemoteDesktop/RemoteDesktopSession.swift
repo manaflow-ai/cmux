@@ -150,23 +150,22 @@ actor RemoteDesktopSession {
         let consent = handler.consent
         let clock = handler.clock
         let timeout = handler.policy.consentTimeout
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { await consent.request(request) }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                    return false
-                } catch {
-                    return nil
-                }
-            }
-            defer { group.cancelAll() }
-            while let result = await group.next() {
-                if let result { return result && !Task.isCancelled }
-                if Task.isCancelled { return false }
-            }
-            return false
+        // The first of the answer, the timeout and cancellation decides; a
+        // panel that ignores cancellation cannot hold the session past it.
+        let verdict = OnceValue<Bool>()
+        let answer = Task { await verdict.settle(await consent.request(request)) }
+        let deadline = Task {
+            do { try await clock.sleep(for: timeout) } catch { return }
+            await verdict.settle(false)
         }
+        let granted = await withTaskCancellationHandler {
+            await verdict.value()
+        } onCancel: {
+            Task { await verdict.settle(false) }
+        }
+        answer.cancel()
+        deadline.cancel()
+        return granted && !Task.isCancelled
     }
 
     // MARK: Host to viewer
