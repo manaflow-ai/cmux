@@ -142,7 +142,8 @@ fn a_tile_stream_tops_off_the_latest_frame_of_its_surface() {
     let main = e.start(0).expect("main");
     send(&mut e, &main, 2_000, 0);
     // The source asks for a top-off after the surface went still.
-    let req = e.damage(TILES, Rect { x: 0, y: 0, width: 64, height: 32 }, 200_000).expect("tile request");
+    let req =
+        e.damage(TILES, Rect { x: 0, y: 0, width: 64, height: 32 }, 200_000).expect("tile request");
     assert_eq!(req.stream, TILES);
     let datagrams = send(&mut e, &req, 5_000, 200_000);
     for d in &datagrams {
@@ -151,8 +152,9 @@ fn a_tile_stream_tops_off_the_latest_frame_of_its_surface() {
         assert_ne!(h.flags & cmux_rd_proto::flags::TILE, 0);
         assert_eq!(h.flags & cmux_rd_proto::flags::KEYFRAME, 0, "tiles are not keyframes");
         if h.index == 0 {
-            let body = cmux_rd_proto::FrameBody::decode(payload).expect("body prefix");
-            assert_eq!(body.ref_frame, main.frame, "applies on top of the surface's frame");
+            // The frame body prefix: u32 au_len, u64 t_capture_us, u32 ref_frame.
+            let ref_frame = u32::from_le_bytes(payload[12..16].try_into().expect("prefix"));
+            assert_eq!(ref_frame, main.frame, "applies on top of the surface's frame");
         }
     }
 }
