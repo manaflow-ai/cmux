@@ -28,11 +28,6 @@ import Testing
         #expect(Progress(phase: .inTmux, quietFor: .seconds(30)).verdict(limits: limits) == .stalled)
     }
 
-    @Test func aSocketCallerOutwaitsTheLongestAttach() {
-        let longest = Progress.QuietLimits.standard.longest.asSeconds
-        #expect(RemoteTmuxController.attachSocketTimeoutSeconds > longest)
-    }
-
     @Test func theFailureSaysWhichThingHappened() {
         let host = "dev.example.test"
         func message(_ error: RemoteTmuxError) -> String { error.message }

@@ -22,10 +22,6 @@ struct RemoteTmuxAttachProgress: Equatable {
         var inTmux: Duration
 
         static let standard = QuietLimits(loggingIn: .seconds(300), inTmux: .seconds(30))
-
-        /// The longest an attach can take before it reports, for a caller that has to bound
-        /// its own wait on one.
-        var longest: Duration { loggingIn + inTmux }
     }
 
     enum Verdict: Equatable {

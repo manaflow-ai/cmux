@@ -116,7 +116,7 @@ struct RemoteTmuxMultiplexFuzzTests {
 
         // A deliberate drop has to carry its reason at the drop site, so the next reader sees why.
         let channelSource = try? String(
-            contentsOf: URL(fileURLWithPath: #filePath)
+            contentsOf: SwiftTestingAssertions.sourceURL(#fileID)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .appendingPathComponent("Sources/RemoteTmuxSessionChannel.swift"),

@@ -218,7 +218,7 @@ final class RemoteTmuxControlConnection {
     /// A `detach-client` cmux sent is still waiting for tmux's `%exit`. That exit is cmux's own
     /// doing, so it must not reach the exit observers as a session that ended remotely.
     private var awaitingDeliberateDetach = false
-    private var deliberateDetachBackstop: DispatchWorkItem?
+    private var deliberateDetachBackstop: Task<Void, Never>?
     /// How many times a `%exit` has been treated as a possible transport death and answered with a
     /// reattach. Reset by a successful attach, so it counts consecutive failures rather than a
     /// lifetime total.
@@ -956,7 +956,7 @@ final class RemoteTmuxControlConnection {
     @MainActor private final class ExitWait {
         var continuation: CheckedContinuation<Void, Never>?
         var token: ObserverToken?
-        var deadline: DispatchWorkItem?
+        var deadline: Task<Void, Never>?
         var finished = false
     }
 
@@ -988,12 +988,12 @@ final class RemoteTmuxControlConnection {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             wait.continuation = continuation
             wait.token = addObserver(onExit: { [weak self] in self?.finishExitWait(wait) })
-            let deadline = DispatchWorkItem { [weak self] in
+            wait.deadline = Task { @MainActor [weak self] in
+                await RemoteTmuxRetryDelay.wait(milliseconds: max(1, Int(timeout * 1_000)))
+                guard !Task.isCancelled else { return }
                 self?.record("detach-exit-not-acknowledged")
                 self?.finishExitWait(wait)
             }
-            wait.deadline = deadline
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
             detachThenStop(timeout: timeout)
             // The stop above can end the connection synchronously, before the observer was ever
             // going to fire; check once so that case is not left waiting out the deadline.
@@ -1023,18 +1023,17 @@ final class RemoteTmuxControlConnection {
         }
         record("detach-client-sent")
         awaitingDeliberateDetach = true
-        // Strong on purpose. Callers reach this through `removeCachedConnection(forKey:)?.detachThenStop()`,
-        // which drops the last reference in the same expression, so a weak capture could leave nobody
-        // alive to receive tmux's `%exit` or to run this backstop — the detach would then depend
-        // entirely on the enqueued bytes escaping a deallocating object. The queue holds this item for
-        // at most `timeout`, and `stop()` cancels it, so the retain is bounded either way.
-        let backstop = DispatchWorkItem {
-            guard self.awaitingDeliberateDetach else { return }
+        // Replacing the timeout must release the previous task before the new
+        // task captures this connection. Retain it until the bounded detach
+        // finishes, even when the caller has removed its last registry entry.
+        deliberateDetachBackstop?.cancel()
+        deliberateDetachBackstop = nil
+        deliberateDetachBackstop = Task { @MainActor in
+            await RemoteTmuxRetryDelay.wait(milliseconds: max(1, Int(timeout * 1_000)))
+            guard !Task.isCancelled, self.awaitingDeliberateDetach else { return }
             self.record("detach-client-unconfirmed")
             self.stop()
         }
-        deliberateDetachBackstop = backstop
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: backstop)
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote

@@ -178,12 +178,16 @@ extension RemoteTmuxController {
         }
     }
 
-    private func purgeDeadMirrors(for host: RemoteTmuxHost) {
+    func purgeDeadMirrors(for host: RemoteTmuxHost) {
         for (key, mirror) in sessionMirrors
         where mirror.host.connectionHash == host.connectionHash
             && mirror.mirroredWorkspaceId == nil {
-            sessionMirrors.removeValue(forKey: key)
-            mirror.detachObserver()
+            if isMultiplexed(mirror) {
+                teardownMultiplexedMirror(key: key)
+            } else {
+                sessionMirrors.removeValue(forKey: key)
+                mirror.detachObserver()
+            }
         }
     }
 
@@ -762,10 +766,10 @@ extension RemoteTmuxController {
     func noteLoginWorkspaceClosed(workspaceId: UUID) {
         guard let key = loginOffers.host(forOpenedWorkspace: workspaceId) else { return }
         guard let offer = loginOffers.openedWorkspace(host: key) else { return }
-        // No mirror left for this host means there is nothing to resume, so recording the decline
-        // is the whole job: it stops this outage from offering another login the user would have
-        // to dismiss again.
-        guard let host = sessionMirrors.values.first(where: { $0.host.connectionHash == key })?.host
+        // A shared view may be parked before its first session mirror exists.
+        // Resolve the transport owner as well as the projected workspaces.
+        guard let host = multiplexedViewsByHost[key]?.host
+            ?? sessionMirrors.values.first(where: { $0.host.connectionHash == key })?.host
         else {
             loginOffers.noteDeclined(host: key, generation: offer.generation)
             cancelAuthWait(host: key)

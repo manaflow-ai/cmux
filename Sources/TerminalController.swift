@@ -3917,7 +3917,7 @@ class TerminalController {
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
     nonisolated func v2VmCall(
         id: Any?,
-        timeoutSeconds: TimeInterval = 17 * 60,
+        timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
@@ -3931,13 +3931,18 @@ class TerminalController {
             }
             semaphore.signal()
         }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
+        if let timeoutSeconds {
+            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                task.cancel()
+                return v2Error(
+                    id: id,
+                    code: "timeout",
+                    message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                )
+            }
+        } else {
+            // Opt-in for operations that enforce their own lifecycle deadline.
+            semaphore.wait()
         }
         switch result {
         case .success(let payload):

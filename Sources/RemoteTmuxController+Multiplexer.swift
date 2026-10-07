@@ -25,12 +25,10 @@ extension RemoteTmuxController {
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
-    /// How long a socket caller waits for an attach before giving up on the app. Longer than the
-    /// longest an attach can take before it reports for itself, so the caller always gets the
-    /// attach's own answer and this only fires when the app is not answering at all.
-    nonisolated static var attachSocketTimeoutSeconds: TimeInterval {
-        RemoteTmuxAttachProgress.QuietLimits.standard.longest.asSeconds + 30
-    }
+    /// The attach owns its quiet-time deadline. Transport output can keep a
+    /// login active indefinitely, so an independent RPC wall-clock limit would
+    /// abandon an operation that is still making progress.
+    nonisolated static var attachSocketTimeoutSeconds: TimeInterval? { nil }
 
     /// A stable per-install owner id for cmux's hidden view sessions, persisted in
     /// UserDefaults so the same cmux reattaches its own views across relaunch and
@@ -53,7 +51,9 @@ extension RemoteTmuxController {
 
     /// Whether `host` still has any live session mirror (either transport).
     func hostHasLiveMirror(_ host: RemoteTmuxHost) -> Bool {
-        sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+        sessionMirrors.values.contains {
+            $0.host.connectionHash == host.connectionHash && $0.mirroredWorkspaceId != nil
+        }
     }
 
     /// A live dedicated-transport mirror on the host conflicts with the shared view
@@ -131,6 +131,7 @@ extension RemoteTmuxController {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
+        purgeDeadMirrors(for: host)
         if hostHasDedicatedMirror(host) {
             throw RemoteTmuxError.unreachable(
                 "host already mirrored by the per-session transport; detach it first")
@@ -449,6 +450,7 @@ extension RemoteTmuxController {
         workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace],
         shared: RemoteTmuxControlConnection
     ) {
+        purgeDeadMirrors(for: host)
         let hostHash = host.connectionHash
         updateMultiplexEpochIfNeeded(hostHash: hostHash, current: shared.sessionId)
         // No real sessions remain (e.g. the last was killed out-of-band): tear the

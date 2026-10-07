@@ -3235,7 +3235,8 @@ final class SocketClient {
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
+        deadline: Date? = nil,
+        waitUntilCompletion: Bool = false
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
         let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
@@ -3263,15 +3264,16 @@ final class SocketClient {
             }
         }
 
-        func boundedTimeout(_ timeout: TimeInterval) throws -> TimeInterval {
-            let remaining = operationDeadline.timeIntervalSinceNow
+        func boundedTimeout(_ timeout: TimeInterval, until limit: Date?) throws -> TimeInterval {
+            guard let limit else { return timeout }
+            let remaining = limit.timeIntervalSinceNow
             guard remaining > 0 else {
                 throw CLIError(message: "Command timed out")
             }
             return min(timeout, remaining)
         }
 
-        let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout)
+        let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout, until: operationDeadline)
         try configureResponseReceiveTimeout(initialResponseTimeout)
         _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
@@ -3298,9 +3300,14 @@ final class SocketClient {
         var sawNewline = false
         var receivedCompleteResponse = false
 
+        // Only operations with their own lifecycle deadline opt in. Connecting,
+        // authenticating and writing remain bounded, and an explicit deadline
+        // still caps the response wait.
+        let responseDeadline = waitUntilCompletion ? deadline : operationDeadline
+
         while true {
             let phaseTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
-            let currentTimeout = try boundedTimeout(phaseTimeout)
+            let currentTimeout = try boundedTimeout(phaseTimeout, until: responseDeadline)
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -3317,6 +3324,9 @@ final class SocketClient {
                     if sawNewline {
                         receivedCompleteResponse = true
                         break
+                    }
+                    if waitUntilCompletion {
+                        continue
                     }
                     throw CLIError(message: "Command timed out")
                 }
@@ -12303,9 +12313,9 @@ struct CMUXCLI {
                 result = try client.sendV2(
                     method: method,
                     params: params,
-                    // Longer than the app's own limit for an attach (RemoteTmuxController
-                    // .attachSocketTimeoutSeconds, 360 s), so the app's result or error always arrives first.
-                    responseTimeout: 375
+                    // Attach owns its inactivity deadline; ongoing login output
+                    // may legitimately keep it active without a wall-clock cap.
+                    waitUntilCompletion: true
                 )
             } catch {
                 progress?.stop()
