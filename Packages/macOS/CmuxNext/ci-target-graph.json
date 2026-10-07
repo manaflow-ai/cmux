@@ -157,6 +157,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/",
         "webviews/test/fixtures/agent-page-csp.txt"
       ]
     },
@@ -216,6 +217,7 @@
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemote",
+        "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteView",
         "CmuxNextResources",

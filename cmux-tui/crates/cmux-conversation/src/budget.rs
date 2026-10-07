@@ -27,7 +27,7 @@ pub fn check_agent_budget(
 ) -> Result<(), Reject> {
     let agent = ParticipantKind::Agent;
     let is_agent = |id: &str| head.participant(id).is_some_and(|p| p.kind == agent);
-    let has_text = |parts: &[Part]| parts.iter().any(|part| matches!(part, Part::Text { .. }));
+    let has_text = |parts: &[Part]| parts.iter().any(Part::counts_as_turn);
     if !is_agent(actor) || !has_text(parts) {
         return Ok(());
     }
@@ -59,7 +59,7 @@ pub fn check_agent_streak(
     now_ms: u64,
 ) -> Result<(), Reject> {
     let agent = head.participant(actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
-    if !agent || !parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+    if !agent || !parts.iter().any(Part::counts_as_turn) {
         return Ok(());
     }
     if head.agent_text_streak as usize >= MAX_AGENT_TURNS {

@@ -17177,7 +17177,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0,
+      "agent_text_streak": 1,
       "kind": "chief",
       "created_by": "user_alice",
       "state": "active",
@@ -17189,7 +17189,8 @@
        },
        "history_visible": "all"
       },
-      "invites": []
+      "invites": [],
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000001",
@@ -17318,7 +17319,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0,
+    "agent_text_streak": 1,
     "kind": "chief",
     "created_by": "user_alice",
     "state": "active",
@@ -17330,7 +17331,8 @@
      },
      "history_visible": "all"
     },
-    "invites": []
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
     "actor": "agent_alicechief",
@@ -17478,7 +17480,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0,
+    "agent_text_streak": 1,
     "kind": "chief",
     "created_by": "user_alice",
     "state": "active",
@@ -17490,7 +17492,8 @@
      },
      "history_visible": "all"
     },
-    "invites": []
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
     "actor": "user_alice",
@@ -17646,7 +17649,8 @@
        },
        "history_visible": "all"
       },
-      "invites": []
+      "invites": [],
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000001",
@@ -17817,7 +17821,8 @@
      },
      "history_visible": "all"
     },
-    "invites": []
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
     "actor": "user_alice",
