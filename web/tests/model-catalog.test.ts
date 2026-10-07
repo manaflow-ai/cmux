@@ -14,7 +14,7 @@ import { bundledSnapshot, CatalogStore, RECHECK_MS } from "../services/model-cat
 import { seedSql } from "../tools/model-catalog-seed-sql";
 import type { ModelCatalog } from "../services/model-catalog/types";
 import { fetchFeed } from "../services/model-catalog/upstream";
-import { BUNDLED_CATALOG_PATH, SNAPSHOT_PATH } from "../tools/model-catalog-paths";
+import { BUNDLED_CATALOG_PATH, SNAPSHOT_PATH, WEBVIEW_CATALOG_PATH } from "../tools/model-catalog-paths";
 
 const NOW = new Date("2026-10-06T18:00:00.000Z");
 
@@ -188,9 +188,10 @@ describe("the checked-in catalog", () => {
     expect(MAX_CATALOG_BYTES).toBeLessThan(2 * 1024 * 1024);
   });
 
-  test("acpmux bundles the same catalog", () => {
-    // Regenerate both with: bun tools/refresh-model-catalog-snapshot.ts
+  test("acpmux and the agent pane bundle the same catalog", () => {
+    // Regenerate all three with: bun tools/refresh-model-catalog-snapshot.ts
     expect(readFileSync(BUNDLED_CATALOG_PATH, "utf8")).toBe(readFileSync(SNAPSHOT_PATH, "utf8"));
+    expect(readFileSync(WEBVIEW_CATALOG_PATH, "utf8")).toBe(readFileSync(SNAPSHOT_PATH, "utf8"));
   });
 });
 
