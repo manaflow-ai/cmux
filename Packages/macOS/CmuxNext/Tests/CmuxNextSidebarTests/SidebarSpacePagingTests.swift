@@ -62,7 +62,12 @@ import Testing
         paging.scroll(.changed, deltaX: 20, time: 1.5)
         #expect(paging.neighbor?.index == 0)
         paging.scroll(.ended, deltaX: 0, time: 2.0)
-        try await Task.sleep(for: .milliseconds(800))
+        // The return ends in the settle animation's completion. Under a loaded
+        // `swift test` process that can come later than a fixed 800 ms, so
+        // wait (bounded) for the page to settle, then check that it returned.
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: .seconds(15))
+        while paging.neighbor != nil, intents.isEmpty, clock.now < end { try await clock.sleep(for: .milliseconds(10)) } // test-only wait
         #expect(intents.isEmpty)
         #expect(paging.neighbor == nil)
     }

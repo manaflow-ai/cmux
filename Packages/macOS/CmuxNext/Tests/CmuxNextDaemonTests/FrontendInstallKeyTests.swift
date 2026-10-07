@@ -47,6 +47,23 @@ import Testing
         #expect(store.loadOrCreate() == nil)
     }
 
+    /// A tag's first launch: its state directory does not exist yet when
+    /// the launcher asks for the key (`server ensure` makes it later). The
+    /// store still makes the key, in an owner-only directory, so the daemon
+    /// this launch starts gets it and the app's connection is verified
+    /// (nxdog46-v1: without it every verified-app feature, such as the
+    /// clipboard-read broker, was refused until the next launch).
+    @Test func aFreshTagsFirstLaunchStillGetsAKey() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fik-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let state = base.appendingPathComponent("tags/fresh/tui", isDirectory: true)
+        let store = FileFrontendInstallKeyStore(file: state.appendingPathComponent("frontend-install-key"))
+        let key = try #require(store.loadOrCreate(), "the first launch has a key")
+        #expect(store.loadOrCreate() == key)
+        let mode = try FileManager.default.attributesOfItem(atPath: state.path)[.posixPermissions] as? Int
+        #expect(mode == 0o700, "the state directory is owner-only, as server ensure makes it")
+    }
+
     @Test func ensureSendsTheKeyOnStdinOnly() async throws {
         var configuration = DaemonLauncher.Configuration(binary: URL(fileURLWithPath: "/bin/cat"), session: "s")
         #expect(!DaemonLauncher.ensureArguments(configuration).contains("--install-key-stdin"))
@@ -100,6 +117,53 @@ import Testing
         try await connection.start()
         await connection.close()
         #expect(proofs.withLock { $0 } == 0)
+    }
+}
+
+/// `user_origin_allowed` in the `client-hello` replies: the connection
+/// claims origin `user` only when the last hello reply allows it.
+@Suite(.timeLimit(.minutes(1))) struct ClientHelloUserOriginTests {
+    /// Starts a connection against a daemon whose step 1 answers `start`
+    /// and step 2 answers `proved` (nil = an error line); returns
+    /// `userOriginAllowed` after the handshake.
+    static func allowed(installKey: FrontendInstallKey?, start: String, proved: String?) async throws -> Bool {
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            guard request["cmd"]?.stringValue == "client-hello" else { return [] }
+            if request["proof"] == nil { return [#"{"id":\#(id),"ok":true,"data":\#(start)}"#] }
+            guard let proved else { return [#"{"id":\#(id),"ok":false,"error":"client-hello refused","error_code":"client_hello.refused"}"#] }
+            return [#"{"id":\#(id),"ok":true,"data":\#(proved)}"#]
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path),
+                                          configuration: .init(clientHello: ClientHelloIdentity(installKey: installKey)))
+        try await connection.start()
+        let allowed = await connection.userOriginAllowed
+        await connection.close()
+        return allowed
+    }
+
+    static let nonce = String(repeating: "a5", count: 32)
+
+    /// DEV build: step 1 is not yet proved; the step 2 value counts.
+    @Test func theProofReplyDecides() async throws {
+        let start = #"{"connection_id":"7","nonce":"\#(Self.nonce)","user_origin_allowed":false}"#
+        #expect(try await Self.allowed(installKey: FrontendInstallKeyTests.key, start: start,
+                                       proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7","user_origin_allowed":true}"#))
+        #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key, start: start, proved: nil))
+    }
+
+    /// Signed build: step 1 alone (no nonce, no proof) can allow it.
+    @Test func aSignedStepOneDecides() async throws {
+        #expect(try await Self.allowed(installKey: nil, start: #"{"connection_id":"7","user_origin_allowed":true}"#, proved: nil))
+        #expect(try await !Self.allowed(installKey: nil, start: #"{"connection_id":"7","user_origin_allowed":false}"#, proved: nil))
+    }
+
+    /// An older daemon sends no field: origin `user` is not allowed.
+    @Test func aMissingFieldIsFalse() async throws {
+        #expect(try await !Self.allowed(installKey: nil, start: #"{"connection_id":"7"}"#, proved: nil))
+        #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key,
+                                        start: #"{"connection_id":"7","nonce":"\#(Self.nonce)"}"#,
+                                        proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7"}"#))
     }
 }
 

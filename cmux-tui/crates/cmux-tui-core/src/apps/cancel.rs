@@ -142,8 +142,6 @@ impl Supervisor {
 
     /// `client` cancels its request `request` (`cancel-request`). An unknown
     /// or answered request changes nothing.
-    // The cancel-request frame calls it once it lands (needs a window).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn cancel_request(&self, client: u64, request: &Value) {
         let outs = {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);

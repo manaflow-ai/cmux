@@ -10,7 +10,6 @@ import CmuxNextSettings
 /// every step without synthetic input. Returns the state after the action.
 ///
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
-/// `role` (`role`), `describe` (`text`), `suggest_tasks` (`on`),
 /// `first_task` (`task`: note, chart),
 /// `toggle_project` (`path`), `add_project` (`path`),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
@@ -37,10 +36,7 @@ enum DebugOnboarding {
         case "back": model.back()
         case "skip": model.skipStep()
         case "close": model.finish(completed: false)
-        case "role": if let role = params["role"]?.stringValue.flatMap(OnboardingRole.init(rawValue:)) { model.role.select(role) }
-        case "describe": model.role.describe(params["text"]?.stringValue ?? "")
         case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
-        case "suggest_tasks": model.role.suggestTasks = params["on"]?.boolValue ?? !model.role.suggestTasks
         case "toggle_project":
             if let path = params["path"]?.stringValue, let project = model.projects.projects.first(where: { $0.id == path }) {
                 model.projects.toggle(project)
@@ -89,13 +85,6 @@ enum DebugOnboarding {
         result["key"] = .bool(controller.window?.isKeyWindow ?? false)
         result["step"] = .string(model.step.rawValue)
         result["steps"] = .array(model.steps.map { .string($0.rawValue) })
-        result["role"] = model.role.role.map { .string($0.rawValue) } ?? .null
-        result["other_role"] = .string(model.role.otherRole)
-        result["suggest_tasks"] = .bool(model.role.suggestTasks)
-        result["saved_profile"] = onboarding.profile.map { profile in
-            .object(["role": profile.role.map { .string($0.rawValue) } ?? .null, "other_role": profile.otherRole.map(JSONValue.string) ?? .null,
-                     "suggest_tasks": .bool(profile.suggestTasks)])
-        } ?? .null
         result["first_task"] = model.firstTask.task.map { .string($0.rawValue) } ?? .null
         result["first_task_folder"] = .string(model.firstTask.folder.url.path)
         result["first_task_outputs"] = .array(model.firstTask.outputs.map { .string($0.lastPathComponent) })

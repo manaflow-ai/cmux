@@ -58,6 +58,8 @@ struct Reopened {
     workspaces: Vec<String>,
     screens: Vec<String>,
     tabs: Vec<String>,
+    /// (closed workspace key, reopened workspace key) per reopened workspace.
+    placements: Vec<(String, String)>,
 }
 
 impl Reopened {
@@ -98,6 +100,7 @@ fn commit_reopen(
     closed_id: &str,
     restored: &[Value],
     reopened: &Reopened,
+    active_workspace: Option<&str>,
 ) -> anyhow::Result<StateChanges> {
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
@@ -110,14 +113,44 @@ fn commit_reopen(
         .collect::<Vec<_>>();
     let remaining = keep.len();
     let kind = record["kind"].as_str().unwrap_or_default().to_string();
+    // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
+    // so its reopened workspaces get their pins and groups back.
+    let room = record.get("room").filter(|room| room.is_object()).cloned();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
     };
-    let workspace =
-        reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
+    // A deleted space that had no workspace reopens no workspace: the
+    // result names the session's active one, which stays shown.
+    let workspace = reopened
+        .workspaces
+        .first()
+        .cloned()
+        .or_else(|| room.as_ref().and(active_workspace.map(str::to_string)))
+        .context("reopened item has no workspace")?;
+    let mut changes = vec![change];
+    let room_restored = match &room {
+        Some(room) => {
+            let local = crate::state::values::local_registry_id(transaction)?;
+            crate::workspace_registry::personal_mutations::room_archive::restore_room(
+                transaction,
+                room,
+                &local,
+                &reopened.placements,
+            )?
+        }
+        None => false,
+    };
+    for (closed_key, reopened_key) in &reopened.placements {
+        changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
+    }
+    if room_restored {
+        changes.extend(crate::state::personal::all_rooms(transaction)?);
+        changes.extend(crate::state::personal::all_groups(transaction)?);
+        changes.extend(crate::state::personal::all_placements(transaction)?);
+    }
     Ok(StateChanges::new(
         serde_json::json!({
             "closed_id": closed_id,
@@ -128,8 +161,46 @@ fn commit_reopen(
             "tab_ids": reopened.tabs,
             "remaining": remaining,
         }),
-        vec![change],
+        changes,
     ))
+}
+
+/// Give the reopened workspace the closed one's personal row: its group,
+/// its place in the personal sidebar order and its theme
+/// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
+fn restore_placement(
+    transaction: &rusqlite::Transaction<'_>,
+    closed_key: &str,
+    reopened_key: &str,
+) -> anyhow::Result<Vec<Value>> {
+    use crate::state::personal_state_store::{placement_id, placement_snapshot};
+    use rusqlite::{OptionalExtension, params};
+    let local = crate::state::values::local_registry_id(transaction)?;
+    let kept = transaction
+        .query_row(
+            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![local, closed_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !kept {
+        return Ok(Vec::new());
+    }
+    transaction.execute(
+        "DELETE FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+        params![local, reopened_key],
+    )?;
+    transaction.execute(
+        "UPDATE personal_workspaces SET workspace_key = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
+        params![local, closed_key, reopened_key],
+    )?;
+    crate::workspace_registry::personal_store::bump_personal_revision(transaction)?;
+    let placement = placement_snapshot(transaction, &local, reopened_key)?;
+    Ok(vec![
+        state_delete("workspace_placement", &placement_id(&local, closed_key)),
+        state_upsert("workspace_placement", &placement_id(&local, reopened_key), placement),
+    ])
 }
 
 impl Mux {
@@ -165,13 +236,21 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&closed_id, member, &mut reopened)?;
         }
+        let active = self.with_state(|state| {
+            state
+                .workspaces
+                .get(state.active_workspace)
+                .map(|workspace| workspace.public_id.to_string())
+        });
         self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
             expected_revision,
             StateEffects::EVENTS_ONLY,
-            |transaction, _| commit_reopen(transaction, &closed_id, &restore, &reopened),
+            |transaction, _| {
+                commit_reopen(transaction, &closed_id, &restore, &reopened, active.as_deref())
+            },
         )
     }
 
@@ -430,10 +509,15 @@ impl Mux {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
         let first = self.new_workspace(name, None)?;
-        let workspace = self
-            .with_state(|state| state.pane_of(first.id).and_then(|pane| state.screen_of(pane)))
-            .map(|(workspace, _)| self.with_state(|state| state.workspaces[workspace].id))
+        let (workspace, key) = self
+            .with_state(|state| {
+                let (index, _) = state.screen_of(state.pane_of(first.id)?)?;
+                Some((state.workspaces[index].id, state.workspaces[index].key.clone()))
+            })
             .context("reopened workspace is missing")?;
+        if let Some(closed_key) = record["workspace_key"].as_str() {
+            reopened.placements.push((closed_key.to_string(), key));
+        }
         for (index, screen) in screens.iter().enumerate() {
             let surface = if index == 0 {
                 first.clone()

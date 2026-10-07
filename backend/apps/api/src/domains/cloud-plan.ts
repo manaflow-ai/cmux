@@ -61,6 +61,8 @@ export const teamPlan = (config: CloudConfig, team: string | null | undefined) =
 export const parseAllowedTeams = (raw: string | undefined): ReadonlySet<string> => new Set((raw ?? "").split(",").map((t) => t.trim()).filter((t) => t.length > 0))
 
 export const DEFAULT_SIZE = { cpu: 2, disk_mb: 16384 } as const
+/** The memory a record assumes when it names none (the stub plan's smallest option). */
+export const DEFAULT_MEMORY_MB = 4096
 export const DEFAULT_IDLE_SECONDS = 1800
 
 /** Whether a memory size needs another plan: not offered, or offered but locked. */

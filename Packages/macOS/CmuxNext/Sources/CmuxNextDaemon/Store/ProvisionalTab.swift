@@ -32,4 +32,16 @@ public struct ProvisionalTab: Sendable, Hashable {
             store.withOverlayLifted(writer: "intent created") {}
         }
     }
+
+    /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event
+    /// can come before the reply): the provisional tab gives way to it in this apply, and the
+    /// store reports both ids (`DaemonStore.onTabCreated`, `onPageTabCreated` for a page tab).
+    @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
+        guard case .tabAdded(let delta) = event,
+              let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
+              case .createTab(_, let provisional) = entry.kind, let tab = store.tabsBySurface[delta.surface] else { return }
+        store.intentLog.noteCreated(transaction, surface: delta.surface)
+        let id = provisional.tabResourceID?.rawValue ?? ""
+        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+    }
 }

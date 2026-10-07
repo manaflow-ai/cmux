@@ -77,28 +77,23 @@ async fn a_prompt_during_a_slow_session_load_waits_for_the_load() {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() {
-    use std::os::unix::fs::PermissionsExt;
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let dir = std::env::temp_dir().join(format!("acpmux-npx-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("npx.log");
     let bin = dir.join("fake-acp");
-    std::fs::write(&bin, format!("#!/bin/sh\nexec python3 {fake}\n")).unwrap();
+    write_executable(&bin, format!("#!/bin/sh\nexec python3 {fake}\n"));
     // `npx -y -p PKG -c 'command -v fake-acp'` prints the bin; any other
     // use is a launch through npx.
     let npx = dir.join("npx");
-    std::fs::write(
+    write_executable(
         &npx,
         format!(
             "#!/bin/sh\ncase \" $* \" in *\" -c \"*) echo resolve >> {log}; echo {bin}; exit 0;; esac\necho run >> {log}\nexec python3 {fake}\n",
             log = log.display(),
             bin = bin.display(),
         ),
-    )
-    .unwrap();
-    for p in [&bin, &npx] {
-        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    );
     let mut agents = BTreeMap::new();
     agents.insert(
         "fake".to_owned(),
@@ -268,16 +263,18 @@ async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt()
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
 }
 
-/// Shutdown owns every child from its first step: once it started, the
-/// idle reaper never stops a harness again (a hosted one is handed off to
-/// the next daemon, not terminated).
+/// Shutdown owns every child from its first step: once it stopped the idle
+/// reaper, the reaper never stops a harness again (a hosted one is handed
+/// off to the next daemon, not terminated), even for a child published
+/// after that step. (Once the shutdown reads its plan no agent starts at
+/// all, `quit_spawn.rs`.)
 #[tokio::test]
 async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(Some(Duration::from_secs(300)));
-    hub.shutdown_all().await;
+    hub.stop_idle_reaper();
     let s = c
         .request(
             method::SESSION_NEW,
@@ -290,4 +287,28 @@ async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let session = hub.resolve("after-stop").unwrap();
     assert_eq!(hub.session_summary(&session)["status"], "ready", "reaped during shutdown");
+}
+
+/// Creates an executable (0755) script without this process ever holding a
+/// write descriptor for it.
+///
+/// Tests run on many threads. A sibling test that forks while this process
+/// holds such a descriptor hands a copy to its child until that child execs,
+/// and executing the script in that window fails with ETXTBSY ("Text file
+/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
+/// rename does not either (the child holds the same inode). A short-lived
+/// `sh` opens, writes, and closes the file in its own process, so no fork of
+/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let path = path.as_ref();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }

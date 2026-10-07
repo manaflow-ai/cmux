@@ -1,51 +1,52 @@
-export const checkpointStrings = {
-  title: "Repository checkpoint",
-  createCheckpoint: "Create checkpoint",
-  create: "Create",
-  cancel: "Cancel",
-  refresh: "Refresh",
-  loading: "Loading checkpoint options…",
-  creating: "Creating checkpoint…",
-  untracked: "Untracked files",
-  emptyUntracked: "No eligible untracked files",
-  included: "Included",
-  omitted: "Omitted",
-  unavailable: "Unavailable",
-  reference: "Reference",
-  base: "Base",
-  created: "Created",
-  expires: "Expires",
-  pinned: "Pinned",
-  complete: "Complete",
-  partial: "Partial checkpoint",
-  skipped: "Skipped files",
-  copyReference: "Copy reference",
-  copied: "Copied",
-  keep: "Keep checkpoint",
-  release: "Release pin",
-  manualRetention: "Use Keep checkpoint before sharing this reference in a manual handoff.",
-  failed: "Couldn’t complete this checkpoint request.",
-  retry: "Retry",
-  recovering: "Checking the saved checkpoint…",
-  ignored: "Ignored",
-  excluded: "Excluded",
-  tooLarge: "Over the file size limit",
-  notSelected: "Not selected",
-  unavailableFile: "Unavailable file",
-  bytes: "Bytes",
-  retained: "Retained",
-  offline: "Reconnect before creating a checkpoint.",
-  changed: "The repository changed. Refresh the checkpoint options.",
-  unsupported: "Repository checkpoints are unavailable for this session.",
-  noHead: "No commit yet",
-};
-export type CheckpointStrings = typeof checkpointStrings;
-export function localizedCheckpointStrings(value: unknown): CheckpointStrings {
-  const strings = { ...checkpointStrings };
-  if (value && typeof value === "object")
-    for (const key of Object.keys(strings) as (keyof CheckpointStrings)[]) {
-      const translated = (value as Record<string, unknown>)[key];
-      if (typeof translated === "string" && translated.trim()) strings[key] = translated;
-    }
-  return strings;
+// The checkpoint review's labels: keys of the pane's string table (checkpoint.*, acpmux/Localizable.xcstrings), in
+// every shipped language, so English is never a fallback the user sees.
+import { type StringKey, type Translate, translate } from "../i18n";
+
+const CHECKPOINT_KEYS = {
+  title: "checkpoint.title",
+  createCheckpoint: "checkpoint.createCheckpoint",
+  create: "checkpoint.create",
+  cancel: "checkpoint.cancel",
+  refresh: "checkpoint.refresh",
+  loading: "checkpoint.loading",
+  creating: "checkpoint.creating",
+  untracked: "checkpoint.untracked",
+  emptyUntracked: "checkpoint.emptyUntracked",
+  included: "checkpoint.included",
+  omitted: "checkpoint.omitted",
+  unavailable: "checkpoint.unavailable",
+  reference: "checkpoint.reference",
+  base: "checkpoint.base",
+  created: "checkpoint.created",
+  expires: "checkpoint.expires",
+  pinned: "checkpoint.pinned",
+  complete: "checkpoint.complete",
+  partial: "checkpoint.partial",
+  skipped: "checkpoint.skipped",
+  copyReference: "checkpoint.copyReference",
+  copied: "checkpoint.copied",
+  keep: "checkpoint.keep",
+  release: "checkpoint.release",
+  manualRetention: "checkpoint.manualRetention",
+  failed: "checkpoint.failed",
+  retry: "checkpoint.retry",
+  recovering: "checkpoint.recovering",
+  ignored: "checkpoint.ignored",
+  excluded: "checkpoint.excluded",
+  tooLarge: "checkpoint.tooLarge",
+  notSelected: "checkpoint.notSelected",
+  unavailableFile: "checkpoint.unavailableFile",
+  bytes: "checkpoint.bytes",
+  retained: "checkpoint.retained",
+  offline: "checkpoint.offline",
+  changed: "checkpoint.changed",
+  unsupported: "checkpoint.unsupported",
+  noHead: "checkpoint.noHead",
+} as const satisfies Record<string, StringKey>;
+
+export type CheckpointStrings = Record<keyof typeof CHECKPOINT_KEYS, string>;
+
+/** The labels in the pane's language (`t` from `useT()` in render; the current language otherwise). */
+export function checkpointStrings(t: Translate = translate): CheckpointStrings {
+  return Object.fromEntries(Object.entries(CHECKPOINT_KEYS).map(([name, key]) => [name, t(key)])) as CheckpointStrings;
 }

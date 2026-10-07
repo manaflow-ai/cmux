@@ -22,6 +22,8 @@ export default defineConfig({
   ...cmuxCheckConfig({
     fmtIgnorePatterns: [
       "src/diff/generated/**",
+      // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
+      "src/gallery/fixtures/markdown-showcase.md",
       // scripts/pane-protocol-codegen.ts --check owns these bytes.
       "src/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
@@ -35,6 +37,8 @@ export default defineConfig({
       "src/icon-picker/generated/**",
       // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
       "test/fixtures/markdown-roundtrip/**",
+      // Agent replies as an agent writes them (the transcript renderer's corpus).
+      "src/agent-session/acpmux/conversation/fixtures/**",
     ],
   }),
   define: {
@@ -193,6 +197,8 @@ const VIEWER_SHARED =
   /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/(ops\.ts|drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json))$/;
 
 function lazyChunkName(id: string): string | null {
+  const diffLocale = id.match(/\/pages\/diff\/generated\/locales\/([^/]+)\.json$/);
+  if (diffLocale && diffLocale[1] !== "en") return `diff-labels-${diffLocale[1]}`;
   const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
   if (shikiLanguage) {
     return `shiki-lang-${shikiLanguage[1]}`;

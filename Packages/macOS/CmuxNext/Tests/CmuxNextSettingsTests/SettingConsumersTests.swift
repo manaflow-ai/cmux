@@ -30,6 +30,29 @@ import Testing
         }
     }
 
+    /// A page-hidden key (raw workspace ids) stays in validation, the export and the agent policy,
+    /// but the Settings page and the palette leave it out; the sidebar row menu edits it.
+    @Test func aPageHiddenKeyIsWritableButNotOnTheSettingsPage() throws {
+        let muted = try #require(SettingsSchema.descriptor(for: ["notifications", "mutedWorkspaces"]))
+        #expect(muted.kind == .stringList)
+        #expect(muted.consumers == [.cmuxNext, .cmuxBrowser])
+        #expect(muted.isShownInCmuxNext && !muted.isShownOnSettingsPage)
+        #expect(!muted.isPaletteExposed)
+        #expect(!SettingsSchema.settings(in: muted.section).contains(muted))
+        #expect(SettingsSchema.agentSettableKeys.contains(muted.id))
+        #expect(muted.accepts(["ws-1", "ws-2"]) && !muted.accepts([""]) && !muted.accepts([1]))
+        let export = try SettingsSchemaExport().json(catalog: SettingsSchemaExportTests.catalog())
+        let document = try #require(try JSONSerialization.jsonObject(with: Data(export.utf8)) as? [String: Any])
+        let rows = try #require(document["rows"] as? [[String: Any]])
+        let row = try #require(rows.first { $0["key"] as? String == muted.id })
+        #expect(row["kind"] as? String == "string_list")
+        #expect(row["page_hidden"] as? Bool == true)
+        // Besides mutedWorkspaces only the per-kind row overrides (cmux.json only) are page-hidden.
+        let hidden = rows.filter { $0["page_hidden"] as? Bool == true }.compactMap { $0["key"] as? String }
+        let overrides = Set(WorkspaceRowKind.allCases.map { "sidebar.workspaceRow.\($0.rawValue)." })
+        #expect(hidden.filter { key in !overrides.contains { key.hasPrefix($0) } } == [muted.id])
+    }
+
     /// The export carries `consumers` and the two new kinds with their ranges.
     @Test func theExportCarriesConsumersAndTheNewKinds() throws {
         let export = try SettingsSchemaExport().json(catalog: SettingsSchemaExportTests.catalog())

@@ -7,7 +7,7 @@
   "description": { "en": "Notes in the command palette: search, preview, copy and create notes from the keyboard.", "ja": "コマンドパレットでノートを検索、プレビュー、コピー、作成します。" },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": { "symbol": "note.text" },
   "categories": ["productivity"],
   "engines": { "cmux": "^1.0" },

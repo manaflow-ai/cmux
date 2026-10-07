@@ -14,13 +14,13 @@ extension PaneController {
         case .select(let id):
             select(id)
         case .close(let id, _):
-            close([id])
+            CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
         case .closeToRight(let id):
             let ids = orderedIDs
             guard let index = ids.firstIndex(of: id) else { return }
-            close(Array(ids[(index + 1)...]))
+            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace):
@@ -39,8 +39,6 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .trailingButton(let id):
-            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -134,10 +132,12 @@ extension PaneController {
     /// page's Cmd-click) creates the tab without selecting it. `profile` is
     /// an explicit browser profile (else the workspace's, the room's or
     /// `default`); `notice` shows on the new page; `then` runs with the new
-    /// surface once the daemon made the tab.
+    /// surface once the daemon made the tab. `opener` is the tab of the page
+    /// that asked for it: the new tab goes next to it in Chrome's order
+    /// (`BrowserTabOpeners`); without it the tab goes to the end.
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
@@ -148,14 +148,17 @@ extension PaneController {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
-            let handle = pane.handle
+            let handle = pane.handle, model = pane
             let intent = background ? nil : workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
                     // adopted page (popup, extension tab) keeps its own.
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
-                    let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile, notice: notice)
+                    let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
+                                                                      browserTabs: browserTabs) { after in
+                        try await browserTabs.open(choice, in: handle, url: address, profile: profile, notice: notice, after: after)
+                    }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     then?(surface)
                     guard !background else { return nil }

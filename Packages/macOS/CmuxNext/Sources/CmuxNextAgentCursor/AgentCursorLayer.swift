@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import QuartzCore
 
 /// One agent's cursor: arrow, click ripple and the hidden-target indicator,
@@ -60,17 +61,11 @@ public final class AgentCursorLayer {
         }
     }
 
-    /// Click feedback: the ripple grows and fades in 0.25 s (cmux-cua timing).
+    /// Click feedback: the ripple grows and fades (`MotionFade.clickPulse`,
+    /// 0.25 s at the fast speed, cmux-cua timing). Reduce Motion keeps only
+    /// the fade; speed "off" shows no ripple.
     func pulse() {
-        let grow = CABasicAnimation(keyPath: "transform.scale")
-        grow.fromValue = 0.4
-        grow.toValue = 1.6
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0.9
-        fade.toValue = 0
-        let group = CAAnimationGroup()
-        group.animations = [grow, fade]
-        group.duration = 0.25
-        ripple.add(group, forKey: "agentCursor.pulse")
+        Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4)
+        Motion.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
     }
 }

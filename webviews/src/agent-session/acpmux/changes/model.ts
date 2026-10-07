@@ -4,6 +4,7 @@
 // resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
 // fixture. The wire is snake_case; the view's types are not.
 import type { DiffHunk, DiffLine, TurnFile } from "../diff";
+import type { StringKey } from "../i18n";
 
 export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";
 
@@ -81,14 +82,15 @@ export const SCOPE_ORDER: (ChangeScope | null)[] = [
   "branch",
 ];
 
-export const SCOPE_LABEL: Record<ChangeScope, string> = {
-  lastTurn: "Last turn",
-  uncommitted: "Uncommitted",
-  unstaged: "Unstaged",
-  staged: "Staged",
-  committed: "Committed",
-  branch: "Branch",
-};
+/// Each scope's label key in the pane's string table (render with `t(SCOPE_LABEL[scope])`).
+export const SCOPE_LABEL = {
+  lastTurn: "changes.scope.lastTurn",
+  uncommitted: "changes.scope.uncommitted",
+  unstaged: "changes.scope.unstaged",
+  staged: "changes.scope.staged",
+  committed: "changes.scope.committed",
+  branch: "changes.scope.branch",
+} as const satisfies Record<ChangeScope, StringKey>;
 
 const STATUSES = new Set<ChangedFile["status"]>(["added", "modified", "deleted", "renamed", "untracked"]);
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);

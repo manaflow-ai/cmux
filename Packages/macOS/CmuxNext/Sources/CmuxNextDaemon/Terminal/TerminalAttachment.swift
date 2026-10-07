@@ -1,5 +1,6 @@
 public import Foundation
 import Synchronization
+import CmuxNextWakeups
 import os
 
 /// One attached terminal view on its own connection (v12 has no stream
@@ -88,6 +89,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         claimGeometry: Bool,
         snapshotVersion: UInt16? = nil,
         localHistory: Bool = false,
+        images: Bool = false,
         clientName: String = "cmux-next-terminal"
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
@@ -96,7 +98,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      clientName: clientName)
+                                      images: images, clientName: clientName)
         } catch {
             transport.close()
             throw error
@@ -116,7 +118,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
-                      localHistory: Bool, clientName: String) async throws {
+                      localHistory: Bool, images: Bool, clientName: String) async throws {
         let queue = queue
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
@@ -133,6 +135,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
+                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
                     queue.push(event)
                 }
             },
@@ -163,7 +166,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
-            snapshotLocalHistory: localHistory && identity.supports(DaemonCapabilities.shared.terminalSnapshotLocalHistory)
+            snapshotLocalHistory: localHistory && identity.supports(DaemonCapabilities.shared.terminalSnapshotLocalHistory),
+            snapshotImages: images && identity.supports(DaemonCapabilities.shared.terminalSnapshotImages)
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
@@ -197,6 +201,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
             }
+            TypingLatencyProbe.shared.mark(.socketSubmit)
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

@@ -98,6 +98,11 @@ import Testing
     var settledSeen: Set<ClientTransactionID> = []
     var repliesDelivered: Set<ClientTransactionID> = []
     var echoesDelivered: Set<ClientTransactionID> = []
+    /// The daemon tab each accepted creation made (its reply names it).
+    var createdBy: [ClientTransactionID: SurfaceID] = [:]
+    /// Creations whose reply reached the store: their provisional tab shows only until the
+    /// confirmed records hold the created tab.
+    var createdKnown: [ClientTransactionID: SurfaceID] = [:]
     var trace: [String] = []
 
     init(seed: UInt64, template: DaemonTree) {
@@ -187,7 +192,7 @@ import Testing
         let surface = state.layout.allTabs.randomElement(using: &random)
         let key = state.workspaces.randomElement(using: &random)!.key
         let group = [nil, "g1", "g2"].randomElement(using: &random)!.map(WorkspaceGroupID.init(rawValue:))
-        switch Int.random(in: 0..<10, using: &random) {
+        switch Int.random(in: 0..<11, using: &random) {
         case 0..<3:
             return surface.map { .moveTab(surface: $0, toPane: RefLayout.panes.randomElement(using: &random)!, index: Int.random(in: 0...4, using: &random)) }
         case 3: return surface.map { .renameTab(surface: $0, name: ["a", "b", nil].randomElement(using: &random)!) }
@@ -197,6 +202,12 @@ import Testing
         case 7: return Bool.random(using: &random) ? .setWorkspaceGroup(key: key, group: group)
             : .placeWorkspace(key: key, group: group, index: Int.random(in: 0...3, using: &random))
         case 8: return .setWorkspaceGroupCollapsed(RefState.groups.randomElement(using: &random)!, collapsed: Bool.random(using: &random))
+        case 9:
+            // A tab the client creates (an agent chat tab): shown at once as a provisional tab.
+            guard let pane = state.layout.openPanes.randomElement(using: &random) else { return nil }
+            let provisional = ProvisionalTab()
+            return .createTab(pane: pane, provisional: TabSnapshot(surface: provisional.surface,
+                                                                  tabResourceID: ResourceID(rawValue: provisional.id)))
         default: return .setTabGroupCollapsed(RefState.tabGroup, collapsed: Bool.random(using: &random))
         }
     }
@@ -235,6 +246,10 @@ import Testing
         trace.append("reply \(reply.transaction) ok=\(reply.ok) barrier=\(reply.barrier)")
         repliesDelivered.insert(reply.transaction)
         if reply.ok {
+            if let real = createdBy[reply.transaction] {
+                ProvisionalTab.created(reply.transaction, surface: real, in: store)
+                createdKnown[reply.transaction] = real
+            }
             store.noteSettled(reply.transaction, at: reply.barrier)
         } else {
             store.rejectIntent(reply.transaction)

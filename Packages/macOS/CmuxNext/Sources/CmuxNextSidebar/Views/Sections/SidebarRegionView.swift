@@ -21,7 +21,6 @@ final class SidebarRegionView: NSView {
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
     /// An item's trailing control was pressed.
-    var onAccessory: ((LayoutItemID) -> Void)?
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
@@ -38,6 +37,10 @@ final class SidebarRegionView: NSView {
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
     var reorder: SidebarRegionDrag?
+    /// Where a drag's lifted card lives: a view above the band's scroll
+    /// view (the sidebar), so the card and its shadow are never clipped to
+    /// the band. Nil: the region itself (tests, a region on its own).
+    weak var liftHost: NSView?
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
@@ -78,7 +81,7 @@ final class SidebarRegionView: NSView {
         let shown = displayed(content)
         layoutResult = Self.layout(shown, width: width)
         guard animated else { return apply(shown) }
-        Motion.animate(.move) {
+        Motion.animate(.move, in: self) {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
@@ -139,12 +142,13 @@ final class SidebarRegionView: NSView {
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
-                // rests on the tile fill in every arrangement (R97).
+                // has no fill until hover in every arrangement (Lawrence
+                // 2026-10-05: "account icon should not have bg unless i hover").
                 case .tile:
                     switch SectionFlow.mode(section, look: content.look) {
                     case .tiles?: .favorite
-                    case .grid?: .tile
-                    default: item.ref.builtIn != nil ? .tile : .icon
+                    case .grid?: item.ref.builtIn != nil ? .icon : .tile
+                    default: .icon
                     }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
@@ -201,7 +205,6 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
-        view.onAccessory = { [weak self] in self?.onAccessory?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
@@ -231,7 +234,12 @@ final class SidebarRegionView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            for card in cardLayers { card.backgroundColor = Palette.hoverFill.cgColor }
+            // A tiles card takes the next tonal step so it reads as its own
+            // shelf above the session list, not one more card.
+            for (index, card) in cardLayers.enumerated() {
+                let fill = layoutResult.tiledCards.contains(index) ? Palette.selectionFill : Palette.hoverFill
+                card.backgroundColor = fill.cgColor
+            }
             let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
             for line in lineLayers { line.backgroundColor = lineColor.cgColor }
         }

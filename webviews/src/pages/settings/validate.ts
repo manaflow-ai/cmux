@@ -57,6 +57,19 @@ function inDomain(list: string[] | undefined, value: unknown): boolean {
   return !list || list.length === 0 || list.includes(value);
 }
 
+/**
+ * A custom search engine address (`browser.customSearchEngine.*`): empty, or a page address that
+ * marks where the typed text goes with %s or {searchTerms}. The Swift rule is
+ * `BrowserOmnibarSetting.isSearchTemplate`.
+ */
+export function isSearchTemplate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text === "") return true;
+  if (!text.includes("%s") && !text.includes("{searchTerms}")) return false;
+  return isPageURL(text.replaceAll("%s", "x").replaceAll("{searchTerms}", "x"));
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -64,6 +77,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     // A listed painting or a macOS wallpaper by absolute path (each Mac has its own set).
     if (typeof value === "string" && (choices.includes(value) || value.startsWith("system:/"))) return null;
     return "expected none, a listed painting or system:<absolute path>";
+  }
+  if (row.validation === "domain:search_template") {
+    return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
   }
   switch (row.kind) {
     case "toggle":
@@ -111,5 +127,15 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         Object.values(value).every((item) => typeof item === "string")
         ? null
         : "expected an object of strings";
+    case "string_list":
+      if (row.choices) {
+        const values = row.choices.map((choice) => choice.value);
+        return Array.isArray(value) && value.every((item) => typeof item === "string" && values.includes(item))
+          ? null
+          : `expected a list of ${values.map((item) => `"${item}"`).join(", ")}`;
+      }
+      return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
+        ? null
+        : "expected a list of non-empty strings";
   }
 }

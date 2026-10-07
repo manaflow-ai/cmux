@@ -209,6 +209,7 @@ impl Inner {
             "loadState": tab.load_state(),
             "viewport": {"width": tab.viewport.0, "height": tab.viewport.1},
             "deviceScaleFactor": tab.device_scale_factor,
+            "closedRoots": tab.closed_root_stats.to_json(),
         }))
     }
 

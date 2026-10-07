@@ -14,7 +14,7 @@ enum PageCommandHandlers {
                 guard let controller = services.windows.active, let router = services.keyRouter,
                       let page = router.focusedPage(in: controller), page.descriptor.commands.contains(command),
                       page.send(command: command) else {
-                    throw ActionFailure(message: MiscHandlerStrings.markdownViewer)
+                    throw ActionFailure(message: FilePageStrings.noFilePage)
                 }
             })
         }

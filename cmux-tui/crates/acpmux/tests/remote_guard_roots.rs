@@ -45,6 +45,7 @@ fn hub(t: &T, default_policy: &str) -> Arc<Hub> {
         "permissionPolicy": default_policy,
         "presets": {"loose": {"harness": "fake", "policy": "approve-all"}},
         "webRoots": [t.root],
+        "webAskingModes": {"fake": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;

@@ -42,6 +42,13 @@ export const CloudMachine = Schema.Struct({
   last_active_at: Schema.NullOr(Millis),
   idle_policy: Schema.Struct({ idle_seconds: Schema.Int }),
   error: Schema.NullOr(Schema.Struct({ code: Schema.String, message: Schema.String, at: Millis })),
+  /**
+   * Why cmux paused a machine by itself, for the app to show: idle (its reports showed it idle past its
+   * idle policy or 24 h), no_report (no report for 24 h after its last start or bind: the cost
+   * backstop), provider_stopped / provider_paused (the VM was found stopped or paused, e.g. a poweroff
+   * inside). Absent or null after a person's pause or a start.
+   */
+  pause_reason: Schema.optionalKey(Schema.NullOr(Schema.Literals(["idle", "no_report", "provider_stopped", "provider_paused"]))),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 
@@ -153,15 +160,15 @@ export const CloudMachineCreate = cloudMutation(
   true
 )
 export const CloudMachineRename = cloudMutation("cloud.machine.rename", "mutate-shared", Schema.Struct({ machine: MachineId, name: MachineName }), MachineResult, ["cloud.machine.not_found"], "Rename a machine.", "cloud machine rename")
-export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine: answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
+export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
 export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_running", ...LIMITED, ...PROVIDER], "Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine pause", true)
 export const CloudMachineResize = cloudMutation(
   "cloud.machine.resize",
   "money",
   Schema.Struct({ machine: MachineId, size: CloudMachineSize }),
   MachineResult,
-  ["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked", ...PROVIDER],
-  "Change a machine's size. A larger size may cost money." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY,
   "cloud machine resize",
   true
 )
@@ -181,7 +188,7 @@ export const CloudMachineIdlePolicySet = cloudMutation(
   Schema.Struct({ machine: MachineId, idle_seconds: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 604800 })) }),
   MachineResult,
   ["cloud.machine.not_found"],
-  "Set when an idle machine pauses; 0 = never.",
+  "Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.",
   "cloud machine idle-policy set"
 )
 export const CloudMachineConnectInfo = cloudRead(
@@ -244,8 +251,8 @@ export const CloudSnapshotCreate = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, name: Schema.optionalKey(MachineName) }),
   Schema.Struct({ snapshot: CloudSnapshot }),
-  ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER],
-  "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot create",
   true
 )
@@ -254,8 +261,8 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
-  "Create a new machine from a snapshot (plan checks as create)." + KEY,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER],
+  "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot restore",
   true
 )
@@ -264,8 +271,8 @@ export const CloudSnapshotDelete = cloudMutation(
   "destructive",
   Schema.Struct({ snapshot: SnapshotId }),
   Deleted,
-  ["cloud.snapshot.not_found", ...PROVIDER],
-  "Delete a snapshot." + KEY,
+  ["cloud.snapshot.not_found", "cloud.machine.busy", ...LIMITED, ...PROVIDER],
+  "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team." + KEY,
   "cloud snapshot delete",
   true
 )

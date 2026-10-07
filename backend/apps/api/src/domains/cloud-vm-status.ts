@@ -33,6 +33,8 @@ export const applyVmStatus = (state: CloudState, params: unknown, ctx: ReduceCon
     ...(daemonChanged ? { revision: String(rev) } : {})
   }
   const writes: Array<RowWrite> = [{ table: TABLE_MACHINE, op: "upsert", key: row.id, n: stored.n, row }]
-  if (!daemonChanged) return { ok: true, state, value: { applied: true }, writes, changed: false }
+  // An unchanged commit writes nothing (the engine drops its writes): the report's time and activity live in
+  // CloudDO's cloud_vm_status table; the row changes only with the public daemon fields.
+  if (!daemonChanged) return { ok: true, state, value: { applied: true }, changed: false }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { applied: true }, writes }
 }

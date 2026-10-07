@@ -11,14 +11,14 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusHistoryBack", title: t("action.history.back", "Go Back"),
                 keywords: ["history", "previous", "location", "jump", "back", "where"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control]),
                 category: .window, symbol: "chevron.backward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history back", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "focusHistoryForward", title: t("action.history.forward", "Go Forward"),
                 keywords: ["history", "next", "location", "jump", "forward"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.forward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history forward", mainMenu: .window
             ),
@@ -49,7 +49,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 keywords: ["history", "pages", "visited", "cmux://history", "timeline"], category: .window,
                 symbol: "clock.fill", surfaces: [.palette, .keyboard, .menu], cliName: "history show", mainMenu: .window
             ),
-            // Cmd-Y shows history in a page; elsewhere Cmd-Y stays New Cloud Machine.
+            // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
                 id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),

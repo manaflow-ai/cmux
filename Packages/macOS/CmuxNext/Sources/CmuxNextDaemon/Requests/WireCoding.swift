@@ -12,9 +12,18 @@ enum WireCoding {
         JSONDecoder()
     }
 
-    /// Encodes `{id, cmd, ...fields}` as one line (no newline).
+    /// Encodes `{id, cmd, ...fields}` as one line (no newline). The field
+    /// names go to snake case; a ``VerbatimFieldsRequest``'s verbatim fields
+    /// are added after that, unchanged (the snake case strategy also renames
+    /// the keys inside nested objects).
     static func encodeRequest<R: DaemonRequest>(_ request: R, id: UInt64?) throws -> Data {
-        try encoder().encode(RequestEnvelope(id: id, request: request))
+        let line = try encoder().encode(RequestEnvelope(id: id, request: request))
+        guard let verbatim = request as? any VerbatimFieldsRequest,
+              case .object(var fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return line }
+        for (name, value) in verbatim.verbatimFields { fields[name] = value }
+        let plain = JSONEncoder()
+        plain.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try plain.encode(JSONValue.object(fields))
     }
 
     /// Decodes the `data` of an `ok:true` response line.

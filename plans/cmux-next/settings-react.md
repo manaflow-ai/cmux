@@ -291,3 +291,92 @@ one file.
 Answered 2026-10-03: Q1 remove `appearance.tabBarBackground = darker` (every background matches);
 Q2 the catalog lane keeps the palette page and parity test and skips the Swift writer routing;
 Q3 delete the native window after one dogfood round of the web page.
+
+## 10. Pending schema rows (each lands with its reader)
+
+Decision (coordinator, SETTINGS-CONSUMERS): a key lands in the same change as the code that reads
+it. A documented key that does nothing makes people set it and see no effect. The rows below are
+specified so the owning lane copies them into `SettingsSchema` in the change that wires the reader;
+the settings lead reviews that change. Each row needs: the descriptor (section, group, title, help,
+kind, default, keywords), the `agentSettableKeys` or `agentRefusedKeys` entry, catalog keys in 21
+languages (en and ja translated, the rest `needs_review`), the regenerated export
+(`CMUX_UPDATE_ACTION_SURFACES=1`), and a test that a written value reaches the reader.
+
+### Editor lane (webviews/src/pages/editor, `cmux.editor.look` / `cmux.editor.setPreference`)
+
+Section `general`, group key `settings.group.editor` ("Editor"). Agent policy: agent-settable
+(looks and editing preferences). Title keys `settings.editor.<name>`; help keys
+`settings.editor.<name>.help` where a help text is given.
+
+| Key | Kind | Default | Title / help |
+| --- | --- | --- | --- |
+| `editor.fontFamily` | font_family | null (label "Terminal font", `settings.default.terminalFont`) | Font |
+| `editor.fontSize` | number 6...72 pt, step 1 | null (label "Terminal size") | Font Size |
+| `editor.fontWeight` | choice normal, bold, 100...900 | `"normal"` | Font Weight |
+| `editor.fontLigatures` | toggle | false | Font Ligatures |
+| `editor.lineHeight` | number 0...4 (0 = from the font size; a value under 8 is a multiple, else points), step 0.1 | 0 | Line Height / "0 follows the font size." |
+| `editor.tabSize` | number 1...16 count | 4 | Tab Size |
+| `editor.insertSpaces` | toggle | true | Insert Spaces |
+| `editor.detectIndentation` | toggle | true | Detect Indentation / "Tab size and spaces follow the file." |
+| `editor.wordWrap` | choice off, on, wordWrapColumn, bounded | `"off"` | Word Wrap |
+| `editor.wordWrapColumn` | number 20...400 count | 80 | Wrap Column |
+| `editor.minimap.enabled` | toggle | false | Minimap (the reader also accepts `editor.minimap: bool`) |
+| `editor.lineNumbers` | choice on, off, relative, interval | `"on"` | Line Numbers |
+| `editor.rulers` | number_list 1...400 count | `[]` | Rulers |
+| `editor.renderWhitespace` | choice none, boundary, selection, trailing, all | `"selection"` | Show Whitespace |
+| `editor.cursorStyle` | choice line, block, underline, line-thin, block-outline, underline-thin | `"line"` | Cursor Style |
+| `editor.cursorBlinking` | choice blink, smooth, phase, expand, solid | `"blink"` | Cursor Blinking |
+| `editor.smoothScrolling` | toggle | false | Smooth Scrolling |
+| `editor.bracketPairColorization.enabled` | toggle | true | Bracket Pair Colors |
+| `editor.stickyScroll.enabled` | toggle | true | Sticky Scroll |
+| `editor.folding` | toggle | true | Folding |
+| `editor.guides.indentation` | toggle | true | Indent Guides |
+| `editor.renderLineHighlight` | choice none, gutter, line, all | `"line"` | Current Line Highlight |
+| `editor.scrollBeyondLastLine` | toggle | false | Scroll Past the Last Line |
+| `editor.autoClosingBrackets` | choice always, languageDefined, beforeWhitespace, never (the reader also accepts true/false) | `"languageDefined"` | Close Brackets |
+| `editor.formatOnSave` | toggle | false | Format on Save / "Runs the registered formatter." |
+| `editor.autoSave` | choice off, afterDelay | `"afterDelay"` | Auto Save / "Off saves only with Cmd-S and when the app asks." |
+| `editor.autoSaveDelay` | number 100...60000 ms (unit seconds ×1000 or a new `milliseconds` unit) | 1000 | Auto Save Delay |
+| `editor.largeFileThreshold` | number 0...1073741824 bytes, step 1048576 | 8388608 | Large File Threshold / "From this size a file opens as plain text without highlighting. 0 turns this off." |
+| `editor.accessibilitySupport` | choice auto, on, off | `"auto"` | Screen Reader Support |
+| `editor.toolbar` | toggle | true | Toolbar |
+| `editor.statusBar` | toggle | true | Status Bar |
+
+The README default for `editor.autoClosingBrackets` is `true`; Monaco's own value set is the choice
+above. The editor lane decides between the boolean and the choice in its change and states it.
+`editor.languages.<id>` (per language `tabSize`, `insertSpaces`, `detectIndentation`, `wordWrap`,
+`rulers`, `formatOnSave`) is an object keyed by language id; it needs a new kind (a map of objects)
+or stays outside the schema. The editor lane proposes which in its change. Units: a byte size and
+milliseconds are not `SettingNumber.Unit` cases today; add them in the same change, with their page
+formatting.
+
+### Markdown lane
+
+| Key | Kind | Default | Section / group | Title / help | Agent policy |
+| --- | --- | --- | --- | --- | --- |
+| `markdown.remoteImages` | toggle | true | `browser` / `settings.group.markdown` ("Markdown") | Load Remote Images / "Markdown previews load images from the web. Off shows a placeholder." (`settings.markdown.remoteImages`, `.help`) | agent-refused, `privacy` (remote loads reveal reading) |
+
+### Files lane
+
+| Key | Kind | Default | Section / group | Title / help | Agent policy |
+| --- | --- | --- | --- | --- | --- |
+| `files.roots` | folder_list | `[]` | `general` / `settings.group.files` ("Files") | File Roots / "Folders the file browser and file search start from." (`settings.files.roots`, `.help`) | agent-refused, `userOnly` (like `picker.pinned`: which folders an agent may list) |
+
+The React page already edits folder lists (`cmux.settings.folders.add` uses the cmux picker), so
+`files.roots` needs no page change.
+
+### Reopen Closed lane (R102, plans/cmux-next/reopen-closed.md "Retention" and 5.x)
+
+Rows land with the daemon's retention pass and the closing flow that read them. Section `general`,
+group `settings.group.closedHistory` ("Recently Closed"), except `closing.confirmRunningWork`
+(group `settings.group.closing`, "Closing").
+
+| Key | Kind | Default | Title / help | Agent policy |
+| --- | --- | --- | --- | --- |
+| `history.closed.maxGroups` | number 0...100000 count, step 1 | 0 | Keep Closed Items / "How many closed tabs, panes and workspaces to keep. 0 keeps all." | agent-settable |
+| `history.closed.maxAgeDays` | number 0...3650 count (days; or a new `days` unit), step 1 | 0 | Keep For / "Days to keep closed items. 0 keeps them forever." | agent-settable |
+| `history.closed.blobBudgetMB` | number 64...20480 count (MB; or a new `megabytes` unit), step 64 | 2048 | Scrollback Storage / "Disk space for the scrollback of closed terminals. The oldest goes first; a reopened terminal then starts without it." | agent-settable |
+| `closing.confirmRunningWork` | choice always, bulkOnly, never | `bulkOnly` (confirm with the lane; reopen-closed.md 5.x names the choices only) | Confirm Closing Running Work | agent-refused, `userOnly` (an agent must not turn off its own close confirmations) |
+
+Keys `history.closed.*` deletions are hard deletes, so the help text names what is lost. Catalog keys
+follow `settings.history.closed.<name>` and `settings.closing.confirmRunningWork`.

@@ -30,6 +30,8 @@ const MINI_RUNTIME: &str = r#"
 "#;
 
 struct FakeHost {
+    /// Cells whose fetches the VM cancelled.
+    cancelled: Mutex<Vec<u64>>,
     calls: Mutex<Vec<(String, Value)>>,
     natives: Mutex<Vec<(String, Value)>>,
 }
@@ -61,6 +63,10 @@ impl VmHost for FakeHost {
         self.driver_call(method, params).map(crate::driver::Reply::Value)
     }
 
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancelled.lock().unwrap().push(cell);
+    }
+
     fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let text = String::from_utf8_lossy(bytes).replace("SECRET", "<s>");
         text.into_bytes()
@@ -81,8 +87,11 @@ impl VmHost for FakeHost {
 const ORDERED: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":3}]}}"#;
 
 fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
-    let host =
-        Arc::new(FakeHost { calls: Mutex::new(Vec::new()), natives: Mutex::new(Vec::new()) });
+    let host = Arc::new(FakeHost {
+        cancelled: Mutex::new(Vec::new()),
+        calls: Mutex::new(Vec::new()),
+        natives: Mutex::new(Vec::new()),
+    });
     let config = VmConfig {
         session_id: "t".into(),
         cwd: std::env::temp_dir()
@@ -229,6 +238,39 @@ fn fs_is_sandboxed_to_the_session_root() {
     );
     assert_eq!(out.error, None, "{out:?}");
     assert_eq!(lines(&out), vec![r#"["aGk=",["a.txt:file"],true,"EACCES","EACCES"]"#]);
+}
+
+/// A file the driver reported through `download.finished` is readable
+/// (driver-protocol.md, native fs contract); its neighbours and writes to it
+/// stay outside the session's files.
+#[test]
+fn reported_downloads_are_readable_and_nothing_else_outside() {
+    let dir = std::env::temp_dir().join(format!("vm-download-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("guid-1");
+    let other = dir.join("guid-2");
+    std::fs::write(&file, "report body").unwrap();
+    std::fs::write(&other, "not reported").unwrap();
+    let (vm, _) = session(0);
+    let script = format!(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         return [fs('readFile', {{path: {file:?}}}).ok || fs('readFile', {{path: {file:?}}}).error.code,\n\
+         fs('readFile', {{path: {other:?}}}).error.code,\n\
+         fs('writeFile', {{path: {file:?}, base64: ''}}).error.code];",
+        file = file.display().to_string(),
+        other = other.display().to_string(),
+    );
+    let before = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(lines(&before), vec![r#"["EACCES","EACCES","EACCES"]"#]);
+    vm.event(
+        "download.finished",
+        json!({"targetId": "T", "downloadId": "guid-1", "path": file.display().to_string()}),
+    );
+    let after = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(after.error, None, "{after:?}");
+    assert_eq!(lines(&after), vec![r#"["cmVwb3J0IGJvZHk=","EACCES","EACCES"]"#]);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "report body");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -386,4 +428,26 @@ fn script_values_keep_the_page_key_order() {
     );
     assert_eq!(out.error, None);
     assert_eq!(lines(&out), vec!["\"title,url,snippet,nested|z,a|y,b\""]);
+}
+
+/// Classic main: a cell's timeout cancels the fetches that cell started; the
+/// VM names the cell on each fetch it sends.
+#[test]
+fn a_cell_timeout_cancels_the_fetches_it_started() {
+    let (vm, host) = session(0);
+    let out = vm.eval(
+        "testNative.fetch(1, JSON.stringify({url: 'https://a.test/x'})); await new Promise(() => {});",
+        Duration::from_millis(300),
+    );
+    assert!(out.error.as_deref().is_some_and(|e| e.contains("timed out")), "{:?}", out.error);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.cancelled.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "the cell's fetches were not cancelled");
+        std::thread::yield_now();
+    }
+    let calls = host.calls.lock().unwrap();
+    let fetch = calls.iter().find(|(m, _)| m == "net.fetch").expect("the fetch ran");
+    let cell = fetch.1["cell"].as_u64().expect("the VM names the fetch's cell");
+    assert!(cell > 0);
+    assert_eq!(*host.cancelled.lock().unwrap(), vec![cell]);
 }

@@ -45,10 +45,39 @@ import Testing
         #expect(value["cwd"] as? String == "/tmp/worktree")
     }
 
+    /// The location row names this Mac on every pane, the new tab page included, even when the
+    /// pane handshakes before the App's read of the name finishes (tabs restored at launch).
+    @Test func theHandshakeWaitsForThisMacsName() async throws {
+        AgentPaneModel.localMachineName = Task {
+            await Task.yield()
+            return "Studio"
+        }
+        defer { AgentPaneModel.localMachineName = nil }
+        let value = try #require(await AgentPaneModel(host: MockAgentPaneHost(), newTab: page).respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["machineName"] as? String == "Studio")
+    }
+
     @Test func aPlainChatHasNoNewTabPage() async throws {
         let reply = await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .ready)
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["newTab"] == nil)
+    }
+
+    /// A new workspace's first tab can be shown before the store's reply names
+    /// it a new tab page: the chat it was made as becomes the page.
+    @Test func aChatWithoutASessionBecomesTheNewTabPage() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.becomeNewTab(page)
+        #expect(model.newTab == page)
+        let reply = await model.respond(to: .ready)
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["newTab"] != nil)
+    }
+
+    @Test func aChatWithASessionStaysAChat() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), sessionId: "s-1")
+        model.becomeNewTab(page)
+        #expect(model.newTab == nil)
     }
 
     /// Once the page became a chat, a reload shows the chat, not the page.
@@ -63,6 +92,22 @@ import Testing
         model.onOpenTab = { _ in opened += 1 }
         #expect(await model.respond(to: .openTab(.terminal, text: "ls"))["ok"] as? Bool == false)
         #expect(opened == 0)
+    }
+
+    @Test func aDirectBlankChatCanConvertWithoutAChooserPage() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        var opened: AgentPaneOpenTab?
+        var typed: String?
+        model.onOpenTab = { opened = $0 }
+        model.onTypeAhead = { typed = $0 }
+        #expect(await model.respond(to: .openTab(.terminal, text: "", cwd: "/src/app", run: false))["ok"] as? Bool == true)
+        #expect(opened?.cwd == "/src/app")
+        #expect(opened?.run == false)
+        _ = await model.respond(to: .persistSession("blank-project-session"))
+        #expect(await model.respond(to: .typeAhead("git status"))["ok"] as? Bool == true)
+        #expect(typed == "git status")
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["newTab"] == nil)
     }
 
     @Test func pickingTerminalOrBrowserReachesTheApp() async {
@@ -169,6 +214,17 @@ import Testing
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
         #expect(actions == ["palette.welcomeChecklist"])
+    }
+
+    /// A blank chat's generic New opens the New Tab page; a chat runs no other app action.
+    @Test func aChatCanOpenTheNewTabPageAndNothingElse() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var actions: [String] = []
+        model.onRunAction = { actions.append($0) }
+        #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
+        #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
+        #expect(actions == ["newTab.page"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a

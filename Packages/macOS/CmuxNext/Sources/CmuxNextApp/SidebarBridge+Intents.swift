@@ -103,11 +103,14 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .activateItemAccessory(let id):
-            // One click on the update badge installs the staged update (R114).
-            if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
-                services.updater.installClicked()
-            }
+        case .installUpdate:
+            // The update card's button: install the staged update and
+            // relaunch; the relaunch keeps every session (UPDATE-CARD).
+            services.updater.installClicked()
+        case .setAutomaticUpdates(let on):
+            services.updater.setAutomaticUpdates(on)
+        case .openUpdateLink(let url):
+            SidebarCardFeed.openUpdateLink(url, services: services)
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:
@@ -191,8 +194,10 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
+        model.ungroupedFirst = !usesMixedOrder
         model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
-                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
+                                       selection: state.selection, newTabPages: services.agentTabs.pageTabs.ids)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

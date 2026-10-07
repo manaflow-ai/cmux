@@ -21,6 +21,8 @@ struct Daemon {
     home: PathBuf,
     socket: PathBuf,
     debounce_ms: u64,
+    /// The readiness line of the current run (it has the `webUrl`).
+    ready: String,
 }
 
 fn profile(tag: &str) -> Value {
@@ -33,12 +35,23 @@ fn profile(tag: &str) -> Value {
 
 impl Daemon {
     fn new(tag: &str, debounce_ms: u64) -> Self {
+        Self::with_fakeb(tag, debounce_ms, &profile("b"))
+    }
+
+    /// `new` with another `fakeb` profile, written before the first start.
+    fn with_fakeb(tag: &str, debounce_ms: u64, fakeb: &Value) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
-        let mut daemon = Self { child: None, socket: home.join("s.sock"), home, debounce_ms };
-        daemon.write_config(&profile("b"));
+        let mut daemon = Self {
+            child: None,
+            socket: home.join("s.sock"),
+            home,
+            debounce_ms,
+            ready: String::new(),
+        };
+        daemon.write_config(fakeb);
         daemon.start();
         daemon
     }
@@ -75,6 +88,7 @@ impl Daemon {
         let mut ready = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
         assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
+        self.ready = ready;
         self.child = Some(child);
     }
 
@@ -439,4 +453,178 @@ async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
     assert_eq!(second, pooled, "the next switch takes the same entry");
     assert!(taken(&daemon, &second));
     assert!(warm < Duration::from_millis(300), "{warm:?}");
+}
+
+/// ACP-REMOTE-GUARD B1: a pool claim writes the pooled session's mode
+/// through the one setter; a session claimed in a mode that does not ask
+/// (the fake's `normal`; its family has no asking modes) refuses a Web prompt.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let daemon = Daemon::new("webpool", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    // A Web connection (the dashboard token only).
+    let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
+    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
+        "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
+    ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
+    let reply = loop {
+        let frame = tokio::time::timeout(Duration::from_secs(20), ws.next())
+            .await
+            .expect("a reply")
+            .expect("open")
+            .unwrap();
+        let Frame::Text(t) = frame else { continue };
+        let v: Value = serde_json::from_str(&t).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["error"]["data"]["reason"], "remote.mode_not_asking", "{reply}");
+    assert_eq!(reply["error"]["data"]["mode"], "normal", "{reply}");
+    // The unix socket keeps control of it.
+    let local = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": claimed, "prompt": [{"type": "text", "text": "local"}]}),
+        )
+        .await;
+    assert_eq!(local["stopReason"], "end_turn", "{local}");
+}
+
+/// ACP-REMOTE-GUARD B1, the Claude backend's claim path (`claude_state`):
+/// a pooled Claude session whose profile pins `--permission-mode
+/// bypassPermissions` (the fake reports the pinned mode, as Claude Code
+/// does) is claimed in that mode, and a Web prompt is refused (D13 refuses
+/// any Claude session the Mac started).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude, "--permission-mode", "bypassPermissions"],
+    });
+    let daemon = Daemon::with_fakeb("claudepool", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
+    assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
+    let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
+    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
+        "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
+    ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
+    let reply = loop {
+        let frame = tokio::time::timeout(Duration::from_secs(20), ws.next())
+            .await
+            .expect("a reply")
+            .expect("open")
+            .unwrap();
+        let Frame::Text(t) = frame else { continue };
+        let v: Value = serde_json::from_str(&t).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            break v;
+        }
+    };
+    // A Claude session the Mac started is never Web-controlled (D13); its
+    // mode does not ask either (above).
+    assert_eq!(reply["error"]["data"]["reason"], "remote.local_claude_session", "{reply}");
+}
+
+/// LAUNCH-NO-TCC-PROMPTS: an agent nobody asked for (a prewarm, a warm) never
+/// starts without a folder or in `/`, and a session without a folder is
+/// refused instead of running in the home folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_agent_starts_unasked_in_root_or_without_a_folder() {
+    let daemon = Daemon::new("guard", 0);
+    let mut rpc = daemon.rpc().await;
+    let none = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "wait": true})).await;
+    assert_eq!(none["accepted"], false, "{none}");
+    let root =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": "/", "wait": true})).await;
+    assert_eq!(root["accepted"], false, "{root}");
+    assert!(daemon.pool_records().is_empty(), "nothing was pooled");
+
+    let refused = rpc.call_err("session/new", json!({"mcpServers": []})).await;
+    assert!(refused.contains("no folder"), "{refused}");
+
+    // A person may name `/`; a later warm still leaves it alone.
+    let made = rpc.call("session/new", json!({"cwd": "/", "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let warmed = rpc.call("_acpmux/warm", json!({"sessionIds": [id], "limit": 3})).await;
+    assert_eq!(warmed["warmed"], json!([]), "{warmed}");
+}
+
+/// `acpmux daemon shutdown` (the CLI, as rollback scripts run it) stops the
+/// daemon and every agent host it owns: the user session's host and the
+/// pooled one. It returns only after they all exited and reports the counts.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
+    let mut daemon = Daemon::new("cli", 0);
+    let home = daemon.home.clone();
+    let mut rpc = daemon.rpc().await;
+    let (session, _) = new_session(&mut rpc, &home, "fake").await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    drop(rpc);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !daemon.host_records().iter().any(|r| r["session_id"] == session.as_str()) {
+        assert!(Instant::now() < deadline, "the session never got an agent host");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let records: Vec<Value> =
+        daemon.host_records().into_iter().chain(daemon.pool_records()).collect();
+    assert!(records.len() >= 2, "a session host and a pooled host: {records:#?}");
+    let pids: Vec<i64> = records
+        .iter()
+        .flat_map(|r| [r["host_pid"].as_i64(), r["harness_pid"].as_i64()])
+        .flatten()
+        .collect();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["--json", "daemon", "shutdown"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux daemon shutdown");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "shutdown failed: {stdout} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    daemon.wait_exit();
+    for pid in pids {
+        // The command returned after every host exited; only a zombie's
+        // reaping may still be in flight.
+        assert!(
+            gone_within(pid, Duration::from_secs(2)),
+            "pid {pid} outlived `daemon shutdown`: {stdout}"
+        );
+    }
+    let report: Value = serde_json::from_str(stdout.trim()).expect("JSON report");
+    assert_eq!(report["stopped"], true, "{report}");
+    assert_eq!(report["endAgents"], true, "{report}");
+    assert!(report["agentHosts"]["before"].as_u64().unwrap() >= 2, "{report}");
+    assert_eq!(report["agentHosts"]["left"], json!([]), "{report}");
 }

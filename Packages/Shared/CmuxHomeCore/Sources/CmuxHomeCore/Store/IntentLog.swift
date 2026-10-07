@@ -60,6 +60,16 @@ public struct IntentLog: Hashable, Sendable {
         return true
     }
 
+    /// A send the client's cache kept across a relaunch: unconfirmed (resent
+    /// under its key at the first connection), or Not Delivered when it had
+    /// failed (the owner may have committed it, so a retry keeps the key).
+    mutating func restore(_ intent: HomeIntent, failed: Bool) {
+        guard !entries.contains(where: { $0.intent.key == intent.key }) else { return }
+        var entry = PendingIntent(intent: intent, state: failed ? .failed(.indeterminate) : .unconfirmed)
+        entry.mayHaveBeenDelivered = failed
+        entries.append(entry)
+    }
+
     public mutating func acknowledge(_ key: IdempotencyKey, rev: Revision) {
         update(key) { $0.state = .acknowledged(rev: rev) }
     }
@@ -158,6 +168,19 @@ public struct IntentLog: Hashable, Sendable {
             return true
         }
         return dropped
+    }
+
+    /// Drops intents the owner will never apply (`HomeEvent.intentsRevoked`),
+    /// whatever their state. Returns the ops that left.
+    @discardableResult
+    public mutating func revoke(_ keys: Set<IdempotencyKey>) -> [HomeOp] {
+        var revoked: [HomeOp] = []
+        entries.removeAll { entry in
+            guard keys.contains(entry.intent.key) else { return false }
+            revoked.append(entry.intent.op)
+            return true
+        }
+        return revoked
     }
 
     /// On disconnect: everything still in flight becomes unconfirmed.

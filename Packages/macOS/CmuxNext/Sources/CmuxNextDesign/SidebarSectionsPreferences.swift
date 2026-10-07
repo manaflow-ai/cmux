@@ -1,7 +1,7 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
-/// `sidebar.pinnedBandsScroll` and `sidebar.showWorkspaceTabs`;
-/// plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
+/// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -38,9 +38,16 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var pinnedBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
+    /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
+    /// the name, the user's icon and the unread/attention mark only
+    /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
+    /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
+    /// `sidebar.stepping`, `sidebar.steppingWraps`).
+    public var navigation = SidebarNavigationSettings.defaults
     /// The bottom launcher strip exploration. Off is intentionally the default.
     public var launcherMode: SidebarLauncherMode
 

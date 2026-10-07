@@ -46,6 +46,11 @@ extension WorkspaceContentController {
     func focusRememberedPane(on screen: LayoutScreenID) {
         guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes,
               let pane = FocusNavigation.mostRecent(panes, recency: recentPanes) ?? panes.first else { return }
+        // Keep the layout model's shown screen and pane in sync immediately.
+        // The focus coordinator may not have this newly mirrored pane in its
+        // topology yet, so waiting for its effect would let a later topology
+        // echo restore the previously shown screen.
+        layoutModel.focus(pane, notify: false)
         focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
@@ -65,7 +70,8 @@ extension WorkspaceContentController {
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.
-        tab.agentSession != nil ? .agent : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+        // A page tab is a conversation tab with a page source; its content is the internal page.
+        tab.agentSession != nil ? .agent : tab.page != nil ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
     }
 
     static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {

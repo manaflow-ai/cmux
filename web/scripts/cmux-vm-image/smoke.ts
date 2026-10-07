@@ -2,7 +2,7 @@
  * Smoke test for a cmux VM image snapshot (plans/cmux-next/vm-image.md 4.11).
  *
  * Usage (from web/):
- *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5]
+ *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
@@ -12,7 +12,10 @@
  * (devboxIdleWakeupCheckCommand) and idle CPU-s/min; every program in the
  * lock runs from /opt/cmux/current/bin; `cr capabilities --json`; Postgres
  * binaries present with no cluster; docker.socket active and docker.service
- * inactive; no secret patterns (paths and pattern kinds only); /tmp empty.
+ * inactive; no secret patterns (paths and pattern kinds only); /tmp empty;
+ * sshd trusts only the bound CA on loopback (empty CA refuses, throwaway CA
+ * cert login + scp pass, KRL refuses); display and first-use roles are off and
+ * CJK fonts are present (cloud-automation.md 2 and 5).
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
@@ -23,7 +26,10 @@ import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/wo
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
 import { GUEST_DIR, TMP_LEFTOVERS } from "./bake";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
-import { CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, sq } from "./lock";
+import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { browserRoleProbe } from "./browser-probe";
+import { agentBindProbe, resizeProbe } from "./probes";
+import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
 const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
 const MACHINE_SECRETS = `${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/machine-id ${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/resource-effect-pepper`;
@@ -63,7 +69,7 @@ export function secretScanCommand(): string {
 /** One login-shell run per command name as the work user; prints `name exit path :: output`. */
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const invoke = p.versionArgs.length > 0 ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
       // type -P: the path lookup, not an alias or function the login shell defines.
@@ -77,7 +83,7 @@ export function programChecksCommand(lock: InputsLock): string {
 export function programProblems(lock: InputsLock, stdout: string): string[] {
   const problems: string[] = [];
   const lines = new Map(stdout.trim().split("\n").map((line) => [line.split(" ")[0], line] as const));
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const line = lines.get(command);
       if (!line) {
@@ -197,6 +203,21 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "daemon-from-store", env.code === 0 && env.stdout.includes(CURRENT_BIN), env.stdout.trim());
 }
 
+/** sshd trust (LINK-FILES) and roles that stay off (cloud-automation.md 5 and 2). Runs after the secret scan: the cert smoke makes a temp CA. */
+async function automationChecks(vm: Vm, report: Report): Promise<void> {
+  const effective = await run(vm, `sshd -T -C user=${DEVBOX_WORK_USER},host=localhost,addr=127.0.0.1`);
+  const listen = await run(vm, "ss -Hltn");
+  const sshd = [...sshdPolicyProblems(effective.stdout, DEVBOX_WORK_USER), ...sshdListenProblems(listen.stdout)];
+  check(report, "sshd-ca-only-loopback", effective.code === 0 && sshd.length === 0, sshd.join("\n") || "policy and loopback listen ok");
+  const cert = await run(vm, sshdCertSmokeCommand(DEVBOX_WORK_USER), 120_000);
+  check(report, "sshd-cert-login", cert.code === 0, cert.stdout.trim() || cert.stderr.slice(-300));
+  const probe = await run(vm, `/usr/local/bin/bun /opt/cmux/guest/vm-agent.ts --probe-activity`, 60_000);
+  const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
+  check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
+  const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);
+  check(report, "roles-off-fonts-on", roles.code === 0, roles.stdout.trim() || roles.stderr.slice(-300));
+}
+
 function summarize(rows: Array<Record<string, number | string>>): Record<string, unknown> {
   const pick = (key: string) => rows.map((r) => Number(r[key])).filter((v) => v >= 0 && Number.isFinite(v));
   const stat = (key: string) => {
@@ -206,7 +227,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -234,7 +255,23 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     report.machineIdShared = ids[0]?.machineid === ids[1]?.machineid;
     console.log(`INFO machine-id ${report.machineIdShared ? "SHARED (regenerated by the bind agent, pending)" : "differs"}`);
     await functionalChecks(kept[1].vm, lock, report);
+    await automationChecks(kept[1].vm, report);
+    if (options.agentProbe) {
+      const probe = await agentBindProbe(kept[1].vm);
+      check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
+    }
+    if (options.browserProbe) {
+      // After the roles-off checks: the probe installs the browser role on this clone.
+      const browser = await browserRoleProbe(kept[1].vm, { lockPath: options.lockPath });
+      report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
+      for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
+    }
     await idlePhase(kept[0].vm, report, options.idleSeconds);
+    if (options.resizeProbe) {
+      report.resize = await resizeProbe(kept[0].vm);
+      const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
+      check(report, "resize-sm-to-md", after.cpu >= 4 && after.memoryMb >= 7000 && after.rootMb >= 32768 * 0.85, JSON.stringify(report.resize));
+    }
   } catch (error) {
     report.error = String(error);
     console.error(`SMOKE FAILED: ${report.error}`);
@@ -259,6 +296,9 @@ export async function main(argv = process.argv): Promise<number> {
     idleSeconds: Number(argValue("--idle-seconds", argv) ?? 120),
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
+    agentProbe: argv.includes("--agent-probe"),
+    resizeProbe: argv.includes("--resize-probe"),
+    browserProbe: argv.includes("--browser-probe"),
   });
   return report.passed ? 0 : 1;
 }

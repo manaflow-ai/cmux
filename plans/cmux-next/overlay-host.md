@@ -21,7 +21,7 @@ host panel, a page window or a presenter still listed for migration.
 | Sidebar | CmuxNextApp/WindowRootView.swift | occluder of the host (`setOccluder`) | done |
 | Hover cards (tabs, workspaces) | CmuxNextDesign/HoverCards/HoverCardPanel.swift | own child panel, reordered above pages by the host | `.window` presentation |
 | Palette | CmuxNextPalette/PaletteController.swift | own key child panel | `.window` presentation that takes the keyboard |
-| Omnibox suggestions | CmuxNextBrowser/UI/OmniboxSuggestionPanel.swift (`SuggestionWindow`) | own child panel | `.pane` presentation (R110 lead) |
+| Omnibox suggestions | CmuxNextBrowser/UI/OmniboxSuggestionPanel.swift | on the host (`.pane`, `.attached` under the bar) | done |
 | Page info | CmuxNextBrowser/PageInfo/UI/PageInfoController.swift | own key child panel | `.window` popover |
 | Tab group editor | CmuxNextTabs/Groups/Editor/TabGroupEditorPanel.swift | own key child panel | `.window` popover |
 | Appearance studio | removed (R82 commit 6: Customize Appearance opens Settings > Appearance) | none | none |

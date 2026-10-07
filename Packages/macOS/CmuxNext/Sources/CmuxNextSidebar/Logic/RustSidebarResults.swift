@@ -1,8 +1,17 @@
 import Foundation
 
 nonisolated struct RustTarget: Decodable {
-    var kind: String; var section: RustSectionID?; var group: String?; var index: Int?
-    var swiftValue: DropTarget? { switch kind { case "position": guard let section = section?.swiftValue, let index else { return nil }; return .position(DropPosition(section: section, group: group.map(GroupID.init), index: index)); case "into_group": return group.map(GroupID.init).map(DropTarget.intoGroup); default: return nil } }
+    var kind: String; var section: RustSectionID?; var group: String?; var index: Int?; var workspace: String?
+    var swiftValue: DropTarget? {
+        switch kind {
+        case "position":
+            guard let section = section?.swiftValue, let index else { return nil }
+            return .position(DropPosition(section: section, group: group.map(GroupID.init), index: index))
+        case "into_group": return group.map(GroupID.init).map(DropTarget.intoGroup)
+        case "onto_workspace": return workspace.map(WorkspaceID.init).map(DropTarget.ontoWorkspace)
+        default: return nil
+        }
+    }
 }
 
 nonisolated struct RustTabDrop: Decodable {

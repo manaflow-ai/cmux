@@ -2,6 +2,7 @@ import { rowsInSection, sections } from "../schema";
 import { text } from "../strings";
 import { GroupList } from "./GroupList";
 import { AccountsSection } from "./AccountsSection";
+import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { AdvancedInfo, Backdrops, TerminalInfo, ThemeLevels } from "./HostCards";
 import { MachinesSection, RoomsSection } from "./HostSections";
 import { SectionActions } from "./SectionActions";
@@ -17,6 +18,7 @@ export function SectionView({ section, focus }: { section: string; focus: string
       {rows.length > 0 && <GroupList rows={rows} focus={focus} />}
       {section === "appearance" && <Backdrops />}
       {section === "terminal" && <TerminalInfo />}
+      {section === "terminal" && <GhosttyDiagnostics />}
       {section === "rooms" && <RoomsSection />}
       {section === "machines" && <MachinesSection />}
       {section === "accounts" && <AccountsSection />}

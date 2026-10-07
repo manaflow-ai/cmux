@@ -13,7 +13,9 @@ let dom: JSDOM;
 let root: Root;
 
 beforeEach(() => {
-  dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", { url: "http://localhost/changelog/" });
+  dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "http://localhost/changelog/",
+  });
   for (const name of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
     saved[name] = (globalThis as any)[name];
   (globalThis as any).window = dom.window;

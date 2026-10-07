@@ -3,7 +3,10 @@
  * records as created and not yet deleted. Never lists or deletes anything
  * else on the account.
  *
- * Usage (from web/): bun ../images/cmux-vm/cleanup.ts --ledger <out-dir>/resources.tsv
+ * Usage (from web/): bun ../images/cmux-vm/cleanup.ts --ledger <out-dir>/resources.tsv [--keep-snapshot]
+ *
+ * --keep-snapshot: the run's snapshot is recorded as kept (a dev channel candidate) and only
+ * its VMs (builder, smoke clones) are deleted. Prints KEPT_SNAPSHOT <id> <name>.
  */
 import path from "node:path";
 import { argValue, freestyleClient, Ledger } from "./guest";
@@ -12,6 +15,12 @@ export async function main(argv = process.argv): Promise<number> {
   const file = argValue("--ledger", argv);
   if (!file) throw new Error("usage: cleanup.ts --ledger <resources.tsv>");
   const ledger = new Ledger(path.resolve(file));
+  if (argv.includes("--keep-snapshot")) {
+    for (const row of ledger.live().filter((r) => r.kind === "snapshot")) {
+      ledger.record(row.id, row.kind, row.name, "kept");
+      console.log(`KEPT_SNAPSHOT ${row.id} ${row.name}`);
+    }
+  }
   const live = ledger.live();
   if (live.length === 0) {
     console.log("nothing to delete");

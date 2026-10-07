@@ -1,3 +1,4 @@
+import { translate } from "./i18n";
 /** A native bridge error keeps the resource owner's answer distinct from a lost reply. */
 
 /// Who failed a native request: the session host answered with a resource error, or the request
@@ -24,7 +25,7 @@ export class NativeError extends Error {
   readonly details?: unknown;
   readonly retryable?: boolean;
   readonly origin?: NativeErrorOrigin;
-  constructor(reply?: NativeErrorReply, fallbackMessage = "Request failed") {
+  constructor(reply?: NativeErrorReply, fallbackMessage = translate("error.requestFailed")) {
     super(typeof reply?.userMessage === "string" ? reply.userMessage : fallbackMessage);
     this.name = "NativeError";
     this.code = typeof reply?.code === "string" ? reply.code : undefined;

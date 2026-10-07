@@ -23,7 +23,7 @@ public struct MobileAgentFeedListResponse: Decodable, Equatable, Sendable {
     /// Macs may emit rows this client cannot represent; the feed stays
     /// usable on the rows it can.
     public static func decode(_ data: Data) throws -> MobileAgentFeedListResponse {
-        try JSONDecoder().decode(Self.self, from: data)
+        try MobileRPCISO8601DateParser().decoder().decode(Self.self, from: data)
     }
 
     public init(from decoder: any Decoder) throws {
@@ -205,8 +205,9 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         source = try container.decode(String.self, forKey: .source)
         kind = try container.decode(String.self, forKey: .kind)
         status = try container.decode(String.self, forKey: .status)
-        createdAt = try Self.date(from: container, forKey: .createdAt)
-        updatedAt = try Self.date(from: container, forKey: .updatedAt)
+        let dateParser = MobileRPCISO8601DateParser(injectedInto: decoder)
+        createdAt = try Self.date(from: container, forKey: .createdAt, parser: dateParser)
+        updatedAt = try Self.date(from: container, forKey: .updatedAt, parser: dateParser)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         requestID = try container.decodeIfPresent(String.self, forKey: .requestID)
@@ -234,15 +235,16 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         replyText = try container.decodeIfPresent(String.self, forKey: .replyText)
     }
 
-    /// The wire carries ISO8601 timestamps (the Mac side encodes with
-    /// `ISO8601DateFormatter`); tolerate epoch seconds for forward
-    /// compatibility with hosts that switch to numeric dates.
+    /// The wire carries ISO8601 timestamps, with or without fractional
+    /// seconds; tolerate epoch seconds for forward compatibility with hosts
+    /// that switch to numeric dates.
     private static func date(
         from container: KeyedDecodingContainer<CodingKeys>,
-        forKey key: CodingKeys
+        forKey key: CodingKeys,
+        parser: MobileRPCISO8601DateParser
     ) throws -> Date {
         if let raw = try? container.decode(String.self, forKey: key) {
-            if let date = mobileAgentFeedISO8601Formatter.date(from: raw) {
+            if let date = parser.date(from: raw) {
                 return date
             }
             throw DecodingError.dataCorruptedError(
@@ -255,10 +257,6 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         return Date(timeIntervalSince1970: seconds)
     }
 }
-
-/// `NSISO8601DateFormatter` is documented thread-safe; the annotation only
-/// silences the strict-concurrency diagnostic for this immutable global.
-nonisolated(unsafe) private let mobileAgentFeedISO8601Formatter = ISO8601DateFormatter()
 
 /// One question prompt attached to a question item.
 public struct MobileAgentFeedListQuestion: Decodable, Equatable, Sendable {

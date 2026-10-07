@@ -20,6 +20,8 @@ final class ClosedTabTracker {
     /// Replaces the daemon path for reopening terminal tabs (tests). Nil
     /// uses the owning machine's daemon (`ClosedTerminalRestorer.live`).
     var restorer: ClosedTerminalRestorer?
+    /// Undo toasts for the tabs the user closes (REOPEN-CLOSED).
+    let undoToasts: CloseUndoToasts
     private var history = ClosedTabHistory()
     private var lastSeen: [String: TabModel] = [:]
     private var generations: [String: String] = [:]
@@ -38,6 +40,7 @@ final class ClosedTabTracker {
 
     init(services: AppServices) {
         self.services = services
+        undoToasts = CloseUndoToasts(services: services)
         let machines = services.machines
         observation = Task { [weak self] in
             for await structure in Observations({ Self.structure(of: machines.daemons) }) {
@@ -104,6 +107,7 @@ final class ClosedTabTracker {
         generations = structure.generations
         if restarted { history.resetBaseline() }
         let previous = lastSeen
+        var recorded: [ClosedTabHistory.Record] = []
         history.observe(structure.tabs.map(\.record), liveWorkspaces: structure.live) { [weak self] record in
             var record = record
             if let workspace = Self.split(record.workspaceID)?.id, self?.services.windows.isIncognito(workspace: workspace) == true {
@@ -115,8 +119,10 @@ final class ClosedTabTracker {
             record.terminalResourceID = previous[record.tabID]?.terminalResourceID?.rawValue
             record.title = previous[record.tabID].map(\.displayTitle).flatMap { $0.isEmpty ? nil : $0 }
             record.closedAt = Date()
+            recorded.append(record)
             return record
         }
+        for record in recorded { undoToasts.trackerRecorded(record) }
         lastSeen = Dictionary(structure.tabs.map { ($0.record.tabID, $0.tab) }, uniquingKeysWith: { first, _ in first })
         changes.bump()
     }

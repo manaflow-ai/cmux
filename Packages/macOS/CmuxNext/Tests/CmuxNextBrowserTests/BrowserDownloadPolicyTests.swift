@@ -18,15 +18,15 @@ import Testing
         let next = BrowserDownloadPolicy.destination(chosen: nil, suggestedFilename: "a.txt", directory: downloads) {
             taken.contains($0.path(percentEncoded: false))
         }
-        #expect(next.path(percentEncoded: false) == "/Users/me/Downloads/a (2).txt")
+        #expect(next?.path(percentEncoded: false) == "/Users/me/Downloads/a (2).txt")
     }
 
     /// A page-supplied name never leaves the Downloads folder and carries no
     /// path separators, leading dots, control or format characters.
     @Test func pageNamesAreSanitized() {
         func name(_ raw: String) -> String {
-            BrowserDownloadPolicy.destination(chosen: nil, suggestedFilename: raw, directory: downloads) { _ in false }
-                .path(percentEncoded: false)
+            BrowserDownloadPolicy.destination(chosen: nil, suggestedFilename: raw, directory: downloads) { _ in false }?
+                .path(percentEncoded: false) ?? ""
         }
         #expect(name("/etc/passwd") == "/Users/me/Downloads/passwd")
         #expect(name("../../.ssh/authorized_keys") == "/Users/me/Downloads/authorized_keys")

@@ -41,7 +41,7 @@ import Testing
         {
           "ui": { "animationSpeed": "off", "surfaceTabBar": { "buttons": [] } },
           "layout": { "paneBorder": "none" },
-          "shortcuts": { "showModifierHoldHints": false, "bindings": { "newTab": "cmd+t" }, "splitRight": "cmd+\\\\" },
+          "shortcuts": { "tiers": { "newTab": "global" }, "showModifierHoldHints": false, "bindings": { "newTab": "cmd+t" }, "splitRight": "cmd+\\\\" },
           "actions": { "hello": { "command": "echo hi" } }
         }
         """)
@@ -52,7 +52,10 @@ import Testing
         #expect(root["layout"] == nil)
         #expect(root.value(at: ["shortcuts", "bindings"]) == nil)
         #expect(root.value(at: ["shortcuts", "splitRight"]) == nil)
-        #expect(root.value(at: ["shortcuts", "showModifierHoldHints"]) == false)
+        // `shortcuts.tiers` has no schema row and is not a shortcut override: it stays.
+        #expect(root.value(at: ["shortcuts", "tiers", "newTab"]) == "global")
+        // The hint toggle has a schema row (#17276): Reset All resets it.
+        #expect(root.value(at: ["shortcuts", "showModifierHoldHints"]) == nil)
         #expect(root["actions"] != nil)
     }
 

@@ -21,7 +21,16 @@ extension IntentWorld {
             replies.append(Reply(transaction: request.transaction, ok: false, barrier: sequence))
             return
         }
-        if owner.apply(request.intent) { emitChange(request.intent, transaction: request.transaction) }
+        if case .createTab(let pane, _) = request.intent {
+            // The daemon creates its own tab (its own surface) at the end of the pane.
+            let surface = newSurface()
+            let index = owner.layout.tabs[pane]!.count
+            owner.layout.tabs[pane]!.append(surface)
+            createdBy[request.transaction] = surface
+            emit(.tabAdded(TabDelta(workspace: 1, screen: 5, pane: pane, surface: surface, index: index, entity: tabSnapshot(surface))))
+        } else if owner.apply(request.intent) {
+            emitChange(request.intent, transaction: request.transaction)
+        }
         trace.append("serve \(request.transaction) -> \(owner)")
         served[request.transaction] = (true, sequence, connection)
         replies.append(Reply(transaction: request.transaction, ok: true, barrier: sequence))
@@ -43,7 +52,7 @@ extension IntentWorld {
         case .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             if Int.random(in: 0..<4, using: &random) == 0 { emit(.treeChanged(transaction: nil)) }
             emit(.workspaceMoved(workspaceDelta(key, index: owner.index(of: key))))
-        case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab:
+        case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab, .bindAgentSession:
             emit(.treeChanged(transaction: nil))
         }
     }
@@ -53,7 +62,9 @@ extension IntentWorld {
         switch Int.random(in: 0..<7, using: &random) {
         case 0:
             // Any change another client can make with the same commands.
-            guard let intent = randomIntent(in: owner), owner.apply(intent) else { return }
+            guard let intent = randomIntent(in: owner) else { return }
+            if case .createTab = intent { return } // another client's creation is case 4
+            guard owner.apply(intent) else { return }
             emitChange(intent, transaction: nil)
         case 1:
             // A close keeps every pane non-empty here (the store's pane
@@ -156,7 +167,8 @@ extension IntentWorld {
         let shown = visible()
         // Conservation.
         try require(shown.layout.allTabs.count == Set(shown.layout.allTabs).count, "duplicated tab in \(shown)")
-        try require(Set(shown.layout.allTabs) == Set(confirmed.layout.allTabs), "visible \(shown) lost or gained tabs vs confirmed \(confirmed)")
+        let daemonTabs = Set(shown.layout.allTabs.filter { !Self.isProvisional($0) })
+        try require(daemonTabs == Set(confirmed.layout.allTabs), "visible \(shown) lost or gained tabs vs confirmed \(confirmed)")
         // No intent settles twice, and none before the store could know
         // its outcome (its echo, its rejection, or its reply plus every
         // event up to the reply's barrier).
@@ -182,7 +194,11 @@ extension IntentWorld {
         }
         // Visible = confirmed + pending intents in order, exactly.
         var expected = confirmed
-        for (_, intent) in pending { _ = expected.apply(intent) }
+        for (transaction, intent) in pending {
+            // A created tab the confirmed records hold replaces its provisional one.
+            if case .createTab = intent, let real = createdKnown[transaction], confirmed.layout.pane(of: real) != nil { continue }
+            _ = expected.apply(intent)
+        }
         try require(shown == expected, "visible \(shown) != confirmed \(confirmed) + intents = \(expected)")
         // Convergence.
         if pending.isEmpty, !resyncPending {
@@ -193,6 +209,8 @@ extension IntentWorld {
             try require(confirmed == atSequence, "confirmed \(confirmed) != owner at \(mirrorSequence) \(atSequence)")
         }
     }
+
+    static func isProvisional(_ surface: SurfaceID) -> Bool { surface.rawValue >= 1 << 62 }
 
     // MARK: Projection
 

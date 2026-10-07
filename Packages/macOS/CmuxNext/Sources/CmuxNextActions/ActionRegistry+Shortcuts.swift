@@ -99,6 +99,7 @@ extension ActionRegistry {
                     index.chords[chord.first, default: [:]][chord.second, default: []].append(id)
                 }
             }
+
         }
         shortcutIndex = index
         return index

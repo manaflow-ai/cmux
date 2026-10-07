@@ -17,6 +17,8 @@ export interface PaletteRankEntry {
   queryPrefix?: string | null;
   hidesWhenTyping?: boolean;
   sectionIndex?: number;
+  /** The row enters a palette scope (`PaletteItem.enters`). */
+  entersScope?: boolean;
 }
 
 export interface PaletteFrecencyEntry {
@@ -64,6 +66,10 @@ const keywordWeight = 80;
 const subtitleWeight = 65;
 const accessoryWeight = 50;
 const maximumBoost = 60;
+/** A row whose whole title is the query comes first (above any frecency boost or keyword match). */
+const wholeTitleBonus = 500;
+/** A scope row with a keyword that is the whole query ("settings" for the settings scope) comes next. */
+const wholeKeywordBonus = 250;
 const defaultHalfLife = 3 * 24 * 60 * 60;
 
 let cachedVersion: number | undefined;
@@ -488,6 +494,9 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     const match = scoreEntry(entry, query, prepared[index]);
     if (!match) return;
     let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
+    if (titleIsQuery(entry.title, query.raw)) score += wholeTitleBonus;
+    else if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
+      score += wholeKeywordBonus;
     if (entry.isEnabled === false) score -= disabledPenalty;
     scored.push({ index, score, highlights: match.highlights });
   });
@@ -527,6 +536,18 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   });
   if (request.keepsSectionOrder) sectionOrder(order, request.sectionOrders ?? []);
   return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));
+}
+
+/** Whether `title` (or a keyword) is the whole query, ignoring case, surrounding space and a trailing ellipsis. */
+function titleIsQuery(title: string, raw: string): boolean {
+  const normalize = (text: string) =>
+    text
+      .trim()
+      .replace(/(\u2026|\.\.\.)$/u, "")
+      .trim()
+      .toLocaleLowerCase();
+  const query = normalize(raw);
+  return query !== "" && normalize(title) === query;
 }
 
 export function rankPaletteRequest(request: PaletteRankRequest): PaletteRankedSection[] {

@@ -2,7 +2,6 @@
 //! UDP datagrams, or one TCP stream that carries control messages and datagrams as frames
 //! `u8 type (1 control JSON, 2 datagram)`, `u32 len`, payload.
 
-use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
 
@@ -10,64 +9,7 @@ pub const FRAME_CONTROL: u8 = 1;
 pub const FRAME_DATAGRAM: u8 = 2;
 const MAX_FRAME: usize = 1 << 20;
 
-/// Control messages (JSON) on the stream.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "snake_case")]
-pub enum Control {
-    /// Client to host, first message. Phase 1: the claims are trusted because the host
-    /// listens only on the private VPC or overlay address; the link `hello` token replaces them.
-    Hello {
-        user: String,
-        install: String,
-        class: String,
-        interactive: bool,
-        udp_port: Option<u16>,
-        max_datagram: usize,
-        /// The per-launch session token (64 hex characters); see `token.rs`.
-        #[serde(default)]
-        token: Option<SecretHex>,
-    },
-    Start {
-        key: String,
-        mode: String,
-    },
-    Stop,
-    Welcome {
-        encoder: String,
-        width: u32,
-        height: u32,
-        max_datagram: usize,
-        carrier: String,
-    },
-    Started {
-        session: u64,
-    },
-    Refused {
-        reason: String,
-    },
-    Ended {
-        reason: String,
-    },
-    Stats {
-        kbps: u32,
-        frames: u64,
-        keyframes: u64,
-        cpu_pct: f64,
-        encode_ms_p50: f64,
-        loss_pct: f64,
-    },
-}
-
-/// A secret in a message; Debug never prints it.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct SecretHex(pub String);
-
-impl std::fmt::Debug for SecretHex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("<redacted>")
-    }
-}
+pub use cmux_rd_proto::control::Control;
 
 /// Accumulates bytes from a non-blocking stream and yields complete frames.
 #[derive(Default)]
@@ -248,6 +190,33 @@ mod tests {
         let client = TcpStream::connect(listener.local_addr().expect("addr")).expect("connect");
         let (server, _) = listener.accept().expect("accept");
         (client, server)
+    }
+
+    #[test]
+    fn a_hello_without_service_or_caps_is_a_desktop_hello() {
+        let json = br#"{"t":"hello","user":"u","install":"i","class":"user","interactive":true,"udp_port":null,"max_datagram":1152}"#;
+        let Control::Hello { service, caps, .. } = serde_json::from_slice(json).expect("hello")
+        else {
+            panic!("not a hello");
+        };
+        assert_eq!(service, "desktop");
+        assert!(caps.is_empty());
+    }
+
+    #[test]
+    fn welcome_echoes_the_service_and_the_accepted_caps() {
+        let welcome = Control::Welcome {
+            encoder: "x264".into(),
+            width: 1,
+            height: 1,
+            max_datagram: 1152,
+            carrier: "stream".into(),
+            service: "desktop".into(),
+            caps: vec!["stream.open".into()],
+        };
+        let json = serde_json::to_value(&welcome).expect("json");
+        assert_eq!(json["service"], "desktop");
+        assert_eq!(json["caps"][0], "stream.open");
     }
 
     #[test]

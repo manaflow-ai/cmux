@@ -18,7 +18,14 @@ In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
 `unsupported`, `invalid`, `closed`, `blocked`, `hibernated` and `crashed`
-(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)).
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)), and the
+host's `cancelled` (FETCH-CANCEL-CODE, 2026-10-05): a fetch the host stopped,
+because the cell that started it timed out (message, classic's text: "fetch:
+cancelled because the cell that started it timed out") or its session ended
+("fetch: the session ended"). Compatibility: readers treat a code they do not
+know as an error with that code and its message (the runtime compares code
+strings; the Rust `ErrorCode` decodes an unknown code as `Unknown`), so an
+older reader of `cancelled` still reports the error and its message.
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
@@ -27,21 +34,21 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, incognito? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
-| `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
+| `tabs.open` | `{ url?, background?, dataStore?, incognito? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid`. With `incognito: true`, the tab opens in a store that keeps nothing (see "Incognito"); a driver without one fails with `unsupported` and opens nothing |
 | `tabs.close` | `{ targetId, runBeforeUnload?, timeoutMs?, reason? }` | `reason` is `"session_end"` only when the browser host closes a tab at the session's end (with `timeoutMs`); the app then closes it with raw `close-tabs {reason: "session_end"}` (`close-reason-v1`), so the close is not in Reopen Closed. An agent's own `tabs.close` carries no reason (the host removes one an agent sends); the app provider closes no tab for it (tabs belong to the person's layout) |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId?, closedRoots?, unroutedEvents? }`; `unroutedEvents` (shared headless, user origin only) lists the host's log entries of the tab's events no session took (D2); `closedRoots: { walks, walkMs, roots, domEvents }` (CDP engines) is the cost of finding closed shadow roots in the tab, for the perf bench. Measured on the Testbox (2026-10-06): one walk about 250 ms on cards-50k and table-10k, 58 ms on list-5k, 19 ms on wikipedia and github, 9 ms per out-of-process frame. After a walk the DOM domain stays on until 12,000 DOM events or the first event more than 30 s after the walk (DOM_EVENT_BUDGET, DOM_IDLE_AFTER_READ; a churning page sends about 6,400 events/s); review a change of either constant against these numbers |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
 | `tab.handleEvents` | `{ targetId, events: ["dialog"\|"filechooser"\|"download"] }` | Replaces the events this session has a handler for in the tab. See below. |
 | `session.name` | `{ name }` | |
-| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
+| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy?, incognito? }`, each key replacing its value (`null` clears) | `{ proxy, incognito }`: whether tabs opened from now on use the proxy, and whether they open incognito. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends
@@ -78,6 +85,134 @@ chooser, the session whose call the page is handling. Only that session gets
 and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
 leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
+cmux-next shared headless browser (D2, ff 2026-10-06): headless has no user
+UI, so an event no session takes is answered by the host (a dialog is
+dismissed, `beforeunload` keeps the page; a chooser is cancelled; a download
+is cancelled) and logged. The entry `{ url, reason, blocked: "unrouted",
+event, targetId, action, at }` (no page text) goes to the policy log
+(`policy log`, `session.blockedNavigations()`) of the session that opened the
+tab, also after it kept the tab (a popup counts as its opener's tab), while
+that session is attached; and to the host's own log of the newest 64
+entries, which only the person (user origin) reads, as `tab.info
+unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
+events named `host.policyLog` are dropped: only the host writes that log.
+
+cmux-next shared headless browser, clipboard (item 19): Copy, Cut and Paste
+never use the browser's clipboard (the system's, or the X11 one of a headful
+browser on Xvfb). The driver records the shortcut's `keydown` (a prevented
+one runs no command), then sends the page a `copy`, `cut` or `paste` event
+with a `DataTransfer` in the focused frame and does the default action
+itself: the selection's text to the tab's clipboard, a cut's deletion, a
+paste's `text/plain` through `Input.insertText` (trusted `input`). These
+clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
+design. A Copy or Cut the page has not finished within 5 s fails with
+`timeout` and its late result is dropped; the tab's web content process is
+not ended, because no clipboard outside the tab can be written (an
+intentional cmux-next difference from WebKit). Page script never reaches
+the browser's clipboard either: the page clipboard guard
+(`js/page-clipboard.js`, through the page-world binding `__cmuxPageClipboard`,
+which it removes before any page script runs) is installed at document start
+in every frame, script-made `about:blank` frames included, so the page's
+`navigator.clipboard` and `execCommand("copy" | "cut")` write the tab's
+clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
+`clipboard-write`, sanitized or not) in every store, for a document or world
+the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
+with a copy, cut or paste editing command.
+
+cmux-next shared headless browser, background tabs (chief, 2026-10-06): a tab
+an agent session drove (any call on it) or opened in the last 30 s runs at
+full rate; every other tab (kept tabs, tabs of sessions that went quiet) is
+throttled with `Emulation.setCPUThrottlingRate` 4 (Chromium's low-end
+setting), and its next call puts it back to full rate first. The host has no
+timer for this (zero idle work): tabs cool down at the next call on any tab.
+The parity runner closes the tabs each scenario leaves open, so a host reused
+across scenarios does not pile them up.
+
+cmux-next shared browser, file choosers (items 10/11): a headless browser
+intercepts the file choosers of every tab (no person can see an Open panel),
+so D2 applies to all of them. A headful browser (`CMUX_BROWSER_HOST_HEADLESS=0`,
+for example on Xvfb, which a person may use) intercepts only the tabs a
+session created or drives, from the session's first call on the tab until
+the last session leaves it; a person's own tab keeps the browser's Open
+panel and is never cancelled. Interception is turned on after a tab's or
+frame's setup has resumed it, so a chooser the page opens in the first
+moments of a new document (before that call lands) can still reach the
+browser's own panel (headless: none is shown; headful: the person's panel).
+A popup of a session's tab on a headful browser intercepts from the first
+session call on it.
+
+cmux-next shared headless browser, `session.configure` (item 4d): the user
+agent and extra headers are set per tab before its first request (a popup
+starts with its opener's) on the tabs the session created and did not keep;
+`tab.keep` and the session's end restore the browser's own. `proxy` opens a
+private browser context (its own cookie jar, starting with a one-way copy of
+the profile's cookies, like every store a session makes) for the tabs the
+session opens afterwards, popups included. Its tabs list the dataStore
+`<profile>/proxy-<n>` (stable while the store is open); the session's
+`cookies.*` without `targetId` use it, and with `targetId` the tab's own
+store. It closes at the session's end unless a tab in it (a popup too) was
+kept, then at host exit. Known gap: proxy credentials answer `unsupported`
+(they need `Fetch.authRequired`). Range rule (the gate, every engine;
+browser-egress.md 7.3): a proxied response reports the PROXY's address
+(Chromium 143, measured), so the after-the-fact rebinding check cannot see
+where the proxy went, and a page behind it loads and is readable before a
+stop. So a remote (relay) session's `proxy` is `forbidden`; a proxy's own
+address meets the range rule, by literal and by this machine's resolver
+(link-local and metadata refused to every session; a `proxyServer` the gate
+cannot read is refused); and while a session's new tabs use a proxy, a
+navigation or fetch URL whose name this machine resolves into a refused range
+is refused before dispatch. A name that resolves only at the proxy is the
+proxy's to check (cmux exits will enforce the rule at the exit; vendor exits
+are an accepted risk). Page-made requests in a proxied tab and kept proxied
+tabs another session drives are not checked by name (known gap until the
+exit enforces it). `permissions` (chief, 2026-10-06, option
+2): CDP grants per browser context, never per tab, so the session's new tabs
+open in a private store (`<profile>/private-<n>`, or its proxy store) that
+holds the grants; no grant reaches a person's tab. A private store starts
+with a one-way copy of the profile's cookies (never written back), and closes
+like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
+drops the grants and new tabs open in the profile again (a proxy store keeps
+them). A proxy set after permissions gets the same grants and the same cookie
+copy.
+
+Incognito (private data P1, ff 2026-10-06). `tabs.open {incognito: true}`,
+and every `tabs.open` of a session after `session.configure {incognito:
+true}` (the app sets it for an incognito workspace), opens the tab in the
+session's incognito store. On the shared headless browser that is an
+in-memory browser context (Chromium keeps contexts it creates off the
+record: no disk cache, no persistent cookies) with no cookie of the profile
+(no copy in, nothing written back), named `<profile>/incognito-<n>`; its
+tabs and their popups list `incognito: true`. An incognito tab is never
+kept (`tab.keep` fails with `forbidden`) and never restored; the store
+closes when the session ends. No page visit of an incognito tab is recorded
+in history. In an incognito session `tabs.open {incognito: false}` fails
+with `forbidden`, tab-less `cookies.*` use the incognito store, and a
+tab-less `net.fetch` fails with `unsupported` (its hidden shell runs in the
+profile's store). Known gap: incognito with a proxy or permission grants is
+`unsupported`. App tabs (CEF, WebKit) answer `unsupported` until the app
+opens them in its non-persistent store; never a persistent tab.
+
+Permission names are Playwright's. The classic column is what the classic
+WebKit backend (the dev driver's Playwright WebKit) accepts; a name not known
+to work there is `unsupported` on WebKit.
+
+| Name | Headless Chromium (CDP) | Classic WebKit |
+| --- | --- | --- |
+| `geolocation` | `geolocation` | supported |
+| `notifications` | `notifications` | supported |
+| `camera` | `videoCapture` | unsupported |
+| `microphone` | `audioCapture` | unsupported |
+| `midi`, `midi-sysex` | `midi`, `midiSysex` | unsupported |
+| `background-sync` | `backgroundSync` | unsupported |
+| `ambient-light-sensor`, `accelerometer`, `gyroscope`, `magnetometer` | `sensors` | unsupported |
+| `payment-handler` | `paymentHandler` | unsupported |
+| `storage-access` | `storageAccess` | unsupported |
+| `local-fonts` | `localFonts` | unsupported |
+| `idle-detection` | `idleDetection` | unsupported |
+| `window-management` | `windowManagement` | unsupported |
+| `screen-wake-lock` | `wakeLockScreen` | unsupported |
+| `clipboard-read`, `clipboard-write` | refused (`forbidden`) | unsupported |
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
@@ -139,6 +274,7 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 | `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
+| `frame.focused` | `{ targetId }` | `{ frameId, url }` of the frame that holds keyboard focus, or `null`; host only (the gate refuses it from sessions). The host asks it when its focus probe for secret typing cannot look into a cross-origin frame; a driver without it answers an error and the secret is refused |
 
 `world: "agent"` runs in an isolated content world where the driver has
 already installed the page agent (`cmux-tui/crates/cmux-browser-host/js/page-agent.js`) and
@@ -157,6 +293,15 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window gets the private pasteboard too |
 
+On Chromium (CDP driver) `input.drag` turns on drag interception
+(`Input.setInterceptDrags`) for the call: the press and the moves are
+trusted mouse events; when the page starts a drag, Chromium hands its data
+to the driver (`Input.dragIntercepted`) instead of the system, and the
+driver sends `dragenter`, `dragover` at each further point and `drop` at
+the last one (`Input.dispatchDragEvent`). The drag's data never reaches a
+system pasteboard. After a drop the page gets no `mouseup`, as with a drag
+the system runs; a path that starts no drag ends with a plain release.
+
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
@@ -172,6 +317,16 @@ naming the session that holds the mouse.
 | --- | --- | --- |
 | `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
+
+Captures of one tab run one at a time; a capture waits for the tab's
+other capture within its own timeout. Chromium answers overlapping
+`Page.captureScreenshot` calls of one page with the wrong region (a
+clipped capture changes the page's emulation while it runs). The host's
+secret mask hides the fields that hold a secret before a capture and
+checks them after it. The check uses the secrets the tab has after the
+capture, so a secret that another session types into the tab during the
+capture (it is recorded for the tab before its input is sent) refuses the
+capture.
 
 ## Files, dialogs, popups, downloads
 
@@ -208,7 +363,9 @@ Every event carries `targetId`.
 | Method | Params |
 | --- | --- |
 | `cookies.get` / `cookies.set` | `{ urls?, targetId? }`, `{ cookies, targetId? }`. They use the store of the target tab (a private tab's, or the session's proxy store, is not the user's profile), which the runtime names on every call a page makes; without `targetId`, the session's `session.configure({ proxy })` store, else the active tab's. A URL the domain policy blocks fails with `blocked`; `cookies.get` leaves out the cookies of blocked sites and `cookies.set` refuses one, and also refuses a cookie with a Domain attribute (`.example.com`) unless an allowed pattern covers every subdomain it reaches (`*.example.com`) and no prohibited host is among them (see "Guards") |
-| `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (without `targetId`, the store `cookies.get` uses) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared |
+| `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (without `targetId`, the store `cookies.get` uses) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared. Answers `{ cleared, restoreId }`: on the host's own browsers (headless) every clear is undoable (private data P2; Lawrence via ff, 2026-10-07). The cookies it deletes are written first to `<state>/cookie-backups/<id>.bin` (mode 0600, directory 0700; `<state>` = `$CMUX_BROWSER_HOST_STATE_DIR`, else `$XDG_STATE_HOME/cmux/browser-host`, `~/.local/state/cmux/browser-host`, or `~/Library/Application Support/cmux/browser-host` on macOS), encrypted with XChaCha20-Poly1305 under a 32-byte key in the separate 0600 file `<state>/cookie-backup.key`, the id as associated data; no backup, no clear. `restoreId` is `host:<32 hex>` (`null` when nothing matched). A backup is kept until it is restored, the person purges it, or every cookie in it has passed its own expiry (checked lazily at each clear, restore and listing; a session cookie keeps it). Engines that keep no backup (CEF and WebKit providers until the app's profile owner does) answer no `restoreId`. The host also answers `site`. Bound: at most 50 backups or 64 MiB of backup files per state directory, whichever comes first; a clear that would pass it fails with `forbidden` ("cookie backups are full ...; restore a backup ... or ask the person to purge backups") before any cookie is deleted, and no older backup is ever dropped to make room. The key file sits next to the backups, so the encryption protects a backup copied away alone, not against a local attacker running as the same user; an OS-held key (Keychain, Secret Service) is a later choice for the app's profile owner (bead cx-pp5). Logging: every clear and restore that succeeds gets one entry `{ op, site, cookies, restoreId, targetId?, at }` (restore adds `kept`, `expired`; never a cookie value) in the session's policy log (policy op `log`; `session.blockedNavigations()` shows only entries with `blocked`), one `browser.privateData` session event (`{ v: 1, session_id, ...entry }`, the `browser.*` kind of the Agent activity event schema; the app does not read it yet) and the host's private-data log with `session` (newest 1,000), which `browser.cookieBackups.list` answers as `log` |
+| `cookies.restore` | `{ restoreId }`. Puts the backed-up cookies back in the store they came from (`invalid` when that store is closed or the backup is gone). A cookie set since the clear with the same name, domain and path is kept, not overwritten; a cookie past its expiry is left out. Answers `{ restored, kept, expired }` and deletes the backup. The REPL's `context.clearCookies()` returns `{ restoreIds }` and `context.restoreCookies(idOrIdsOrResult)` undoes it |
+| `browser.cookieBackups.list` / `browser.cookieBackups.purge` (host catalog ops, not driver methods) | User origin only (the origin comes from the connection); every other origin gets `forbidden` ("only the person (user origin) manages cookie backups"), so an agent cannot delete the undo of what it cleared. `list` answers `{ backups: [{ restoreId, site, cookies, createdAt }] }` with no cookie values. `purge { restoreId } | { all: true }` without `confirm` deletes nothing and answers `{ confirm, backups, deleted: 0 }`: a one-time token for exactly that request, valid for two minutes; the same request with `confirm` deletes and answers `{ deleted }`. A token for another request, a used or an expired one is `invalid`. A purge that deletes writes `{ op: "cookieBackups.purge", restoreIds, deleted, actor, origin, at }` to the host's private-data log (a purge has no session, so this log only the person reads is its only record); `list` also answers `log`, that log's entries |
 | `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. They run only in tabs a session created: in a user's tab `input.key` refuses them with `unsupported` before any key reaches the page. Until the engine reports the command done, a JavaScript dialog in that tab is answered as an unhandled one is (`dialog.respond` with `accept: false`) and reported with `dismissedDuring`, never held. On WebKit, which has no per-view pasteboard, the general-pasteboard lookups WebKit itself makes (its pasteboard IPC answered through WebCore) get a private pasteboard from the start of one command until WebKit reports it done or 5 s pass; lookups by any other code, `NSPasteboard.general` included, get the system pasteboard. The tab's clipboard takes the private pasteboard only when the command finished in time. At 5 s the driver ends the tab's web content process (`tab.crashed`) in the same main-thread turn that ends the redirect, and the call fails with `timeout`: WebKit handles no message from that process afterwards, so a Copy or Cut the page would finish late never writes the system clipboard. It ends the process only when every other tab in it was created by the same session and no popup window of cmux's shares it (popups share their opener's process); otherwise the shortcut falls back to script (the selection's text, or inserting the clipboard's text, without clipboard events). A session that detaches, or a tab that closes, during the command does not change that. If another tab or a popup window joins the process during a command, the private pasteboard stays until WebKit finishes or 5 s more pass, when the driver ends the process anyway (its pages crash). A caller that stops waiting shortens none of these times. A Paste also runs through WebKit only while the private pasteboard's change count is below the system's, so WebKit's read grant, which compares change counts, can never cover the system clipboard; otherwise it falls back to inserting text. Commands run one at a time across all tabs, because WebKit's pasteboard requests do not say which web view they serve, so two tabs' commands at once would share one private pasteboard. For the same reason a copy in another web view during a command (a person's, or a page's in a user's tab) reaches the private pasteboard; WebKit's own Copy or Cut writes it at most once and a Paste never, so a command whose pasteboard was written more often fails with `stale` and leaves the tab's clipboard unchanged (the one copy it cannot tell apart is the only write of a Copy or Cut whose page cancelled the event and set no data). A person's paste in another web view during a command still reads the private pasteboard. Items that name a local file (a file URL, also a `file:` URL as `text/uri-list` or another URL type, a filename list, an alias, a Finder node or a file promise) are left out when the tab's clipboard is put on the private pasteboard for a Paste, so WebKit never hands the page a local file. A command waits up to 5 s for the one before it, which ends by then (10 s when its process could not be ended at once), then gets its own 5 s; one that cannot start fails with `timeout`, names the tab it waited for, and does not run. While a command runs, another web view's paste or copy uses the private pasteboard too. Writes a page's own scripts make (the asynchronous Clipboard API, `execCommand("copy")`) are outside this redirect; the page clipboard guard (see "Guards") sends them to this clipboard |
 
 ## Guards
@@ -432,7 +589,8 @@ agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
 narrows (the host intersects with the user's layer); `policy site` answers
 from a compact suffix list until the host has a Public Suffix List (D6);
 `policy log` returns the host's own log of navigations it blocked before
-their request; `secrets load` keys come back in sorted order. The host keeps
+their request, plus the session's tabs' unrouted events (`blocked:
+"unrouted"`, see "Sessions and tabs"); `secrets load` keys come back in sorted order. The host keeps
 the runtime's entry points and removes them and `__cmuxNative` before the
 first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 

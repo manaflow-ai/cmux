@@ -13,6 +13,11 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// The chip's secondary text after the model: the chosen effort, when it is not the default.
+  detail?: string;
+  /// The name of the model the agent's default resolves to, when known: the "Default" row draws
+  /// as that model with a "Default" hint.
+  resolvedDefault?: string;
   efforts: Choice[];
   effort?: string;
   /// The viewer's recent combos, newest first (any harness; the picker keeps this harness's).

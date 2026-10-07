@@ -13,7 +13,7 @@ import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./edi
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
 import { CodeHighlighter, codeThemes } from "./highlight";
-import { MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
+import { MARKDOWN_FLUSH_OP, MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
 import { LinkResolver, type ResolvedLink } from "./links";
@@ -68,7 +68,7 @@ function editorHost(
     const base = config()?.libBase;
     return base ? `${base}${name}.js` : null;
   });
-  const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase);
+  const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase, config()?.remoteImageBase);
   return {
     openLink: follow,
     links: {
@@ -163,6 +163,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "link") editor?.openLinkPopover();
       },
     });
+    // The host asks before it closes the tab or quits: pending edits are written first.
+    client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
   }
   // Leaving the page (tab closed, app quit) writes pending edits.
   addEventListener("pagehide", () => void store.save());

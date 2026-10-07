@@ -36,7 +36,8 @@
     "lifecycle": { "start": "onDemand" },
     "scopes": {
       "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token.",
-      "op:cmux.host.link.get": "Ask cmux which link program, network hub and folders to use for the private link to your Cloud machines, and get told when they change."
+      "op:cmux.host.link.get": "Ask cmux which link program, network hub and folders to use for the private link to your Cloud machines, and get told when they change.",
+      "op:cmux.terminal.connector.open": "Open the terminal link to a Cloud machine after you ask to connect to it. Each link needs your action."
     }
   },
   "implements": {
@@ -45,7 +46,11 @@
       "title": { "en": "Cloud", "ja": "クラウド" },
       "symbol": "cloud"
     },
-    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
+    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] },
+    "cmux.terminal.connector/1": {
+      "server": true,
+      "options": { "kinds": ["cloud-vm"], "openOps": ["cloud.machine.connect"] }
+    }
   },
   "consumes": {
     "ops": [
@@ -74,6 +79,9 @@
     "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
     "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
     "fs:write": "Write and make files on your Cloud machines. Removing a file and copying files to or from this Mac always need you."
+  },
+  "optionalScopes": {
+    "terminal:backend": "Open terminals on your Cloud machines."
   },
   "files": ["catalog/"]
 }

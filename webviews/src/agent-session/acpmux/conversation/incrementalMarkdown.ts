@@ -10,10 +10,13 @@ const LIST_START = /^(\s*)([-*+]|\d+[.)])\s+/;
 const FENCE = /^\s*```/;
 const DISPLAY_OPEN = /^\s*\\\[/;
 const DISPLAY_CLOSE = /\\\]\s*$/;
+/// A line opening a `$$` display that does not close on it (Markdown.tsx displayMath).
+const DOLLARS_OPEN = /^\s*\$\$(?!.*\$\$)/;
+const DOLLARS_CLOSE = /\$\$/;
 
 /**
  * Parses a growing Markdown text the way `parseMarkdown` parses it whole. A boundary is the start
- * of a complete line that follows a blank line, outside a code fence and an open `\[` display, and
+ * of a complete line that follows a blank line, outside a code fence and an open `\[` or `$$` display, and
  * starts a block on its own (no indent, no list marker that would continue the list above). The
  * parser never joins blocks across such a line, so the text before it parses the same alone.
  * A block's key is its index in the message: blocks only ever append, and the blocks before a
@@ -70,12 +73,13 @@ export class IncrementalMarkdown {
 
 /// The last block boundary of `source` after `from` (itself a boundary, or 0), or `from` when
 /// there is none: the start of a complete line after a blank line, outside a code fence and an
-/// open `\[` display, that starts a block on its own. Text before it parses the same alone, in
+/// open `\[` or `$$` display, that starts a block on its own. Text before it parses the same alone, in
 /// this renderer and in the estimator's lexer.
 export function lastBlockBoundary(source: string, from: number): number {
   let boundary = from;
   let fenced = false;
   let display = false;
+  let closer = DISPLAY_CLOSE;
   // The closed end always follows a blank line.
   let previousBlank = true;
   let start = from;
@@ -87,8 +91,10 @@ export function lastBlockBoundary(source: string, from: number): number {
       boundary = start;
     if (FENCE.test(line) && !display) fenced = !fenced;
     else if (!fenced) {
-      if (display) display = !DISPLAY_CLOSE.test(line);
-      else if (DISPLAY_OPEN.test(line)) display = !DISPLAY_CLOSE.test(line.replace(DISPLAY_OPEN, ""));
+      if (display) display = !closer.test(line);
+      else if (DOLLARS_OPEN.test(line)) [display, closer] = [true, DOLLARS_CLOSE];
+      else if (DISPLAY_OPEN.test(line))
+        [display, closer] = [!DISPLAY_CLOSE.test(line.replace(DISPLAY_OPEN, "")), DISPLAY_CLOSE];
     }
     previousBlank = !line.trim();
     start = newline + 1;

@@ -6,6 +6,7 @@ import { ageLabel, recentSessions } from "../NewTabPage";
 import { matchScore, type OmnibarContext } from "../omnibar";
 import { sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { type Translate, translate } from "../i18n";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -89,16 +90,16 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
 }
 
 /// `!` typed into an empty field (or over a wholly selected one, a location the page put
-/// there): the tab becomes a terminal now, with the rest of the edit as its first command.
-/// Anything else stays as typed.
-export function terminalConversion(
+/// there): shell mode, with the rest of the edit as the command typed so far. Anything else
+/// stays as typed.
+export function shellEntry(
   previous: string,
   next: string,
   previousWasSelected: boolean,
 ): { command: string } | undefined {
   if (previous !== "" && !previousWasSelected) return undefined;
   if (!next.startsWith(TERMINAL_PREFIX)) return undefined;
-  return { command: next.slice(TERMINAL_PREFIX.length).trim() };
+  return { command: next.slice(TERMINAL_PREFIX.length).replace(/^\s+/, "") };
 }
 
 export type ChatCard = {
@@ -111,12 +112,16 @@ export type ChatCard = {
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card.
-export function recentChatCards(sessions: AcpmuxSnapshot["sessions"], now = Date.now()): ChatCard[] {
+export function recentChatCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now = Date.now(),
+  t: Translate = translate,
+): ChatCard[] {
   return recentSessions(sessions, CHAT_CARD_COUNT).map((session) => ({
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(session.updatedAt, now),
+    age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: sessionMark(session, false) ?? "idle",
   }));

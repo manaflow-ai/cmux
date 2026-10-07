@@ -4,8 +4,9 @@ name: Cloud VM image bake
 # it (plans/cmux-next/vm-image.md 4.11), or bakes twice and diffs the SBOMs and
 # file hashes (mode: repro). Branch bakes only: every VM and snapshot is named
 # cmuxnp-dev-vmimg-<run>, recorded in a ledger the moment it exists, and
-# deleted by id at the end, also when a step fails. No promotion and no image
-# manifest change happens here.
+# deleted by id at the end, also when a step fails (keep_snapshot keeps only the
+# snapshot, as the dev channel candidate). No promotion and no image manifest
+# change happens here.
 on:
   workflow_dispatch:
     inputs:
@@ -18,10 +19,20 @@ on:
           - bake
           - repro
       clones:
-        description: Smoke clones (latency sample size)
+        description: Smoke clones (latency sample size; at least 2 for the identity checks)
         required: false
         default: "5"
         type: string
+      keep_snapshot:
+        description: Keep the baked snapshot as the dev channel candidate (VMs are still deleted)
+        required: false
+        default: false
+        type: boolean
+      probes:
+        description: Also run the VM agent bind probe (dev API) and the sm->md resize probe
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,8 +44,9 @@ concurrency:
 jobs:
   bake:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Same environment and secret as the image reachability check; no new secret.
-    environment: cloud-vm-image-checks
+    # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
+    # The environment allows only feat-cmux-next.
+    environment: cmux-next-vm-image-dev
     timeout-minutes: 60
     defaults:
       run:
@@ -74,11 +86,30 @@ jobs:
 
       - name: Smoke
         if: inputs.mode == 'bake'
+        id: smoke
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
           CLONES: ${{ inputs.clones }}
-        run: bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" | tee "$OUT_DIR/smoke.out"
+          PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES | tee "$OUT_DIR/smoke.out"
+
+      - name: Dev channel candidate
+        if: inputs.mode == 'bake' && inputs.keep_snapshot
+        env:
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          bake_json="$(find "$OUT_DIR" -maxdepth 1 -name 'bake-*.json' | head -1)"
+          jq -n --slurpfile b "$bake_json" --arg id "$SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" \
+            '{schema: 1, env: "dev", snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate)}' \
+            > "$OUT_DIR/channel-dev.json"
+          cat "$OUT_DIR/channel-dev.json"
 
       - name: Reproducibility
         if: inputs.mode == 'repro'
@@ -95,9 +126,12 @@ jobs:
         if: always()
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          # Keep the snapshot only when its smoke passed; a failed bake leaves nothing behind.
+          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && '--keep-snapshot' || '' }}
         run: |
           if [ -f "$OUT_DIR/resources.tsv" ]; then
-            bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv"
+            # shellcheck disable=SC2086
+            bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
           else
             echo "no ledger; nothing was created"
           fi

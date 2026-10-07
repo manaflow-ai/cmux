@@ -10,6 +10,7 @@ import { machineTitle } from "./model";
 import { AccountOps, ACTION_RUN, CloudOps } from "./ops";
 import { CloudStore } from "./store";
 import type { MachineLayout } from "./model";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
 
 const saved: Record<string, unknown> = {};
 let dom: JSDOM;
@@ -19,19 +20,35 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://localhost/cloud/",
   });
-  for (const name of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const name of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved[name] = (globalThis as any)[name];
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  (globalThis as any).Node = dom.window.Node;
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(Date.now());
+    return 0;
+  };
+  (globalThis as any).cancelAnimationFrame = () => undefined;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
   Object.assign(dom.window.HTMLElement.prototype, { attachEvent: () => undefined, detachEvent: () => undefined });
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [name, value] of Object.entries(saved)) (globalThis as any)[name] = value;
 });
 
@@ -39,7 +56,12 @@ async function render(provider: MockCloudProvider | null, { language = "en", lay
   let keys = 0;
   const store = new CloudStore(provider, { newKey: () => `k${++keys}`, layout });
   await act(async () => {
-    root.render(<CloudPage store={store} strings={createStrings(table, [language])} />);
+    const strings = createStrings(table, [language]);
+    root.render(
+      <UiProvider container={dom.window.document.getElementById("root")} dir={languageDirection(strings.language)}>
+        <CloudPage store={store} strings={strings} />
+      </UiProvider>,
+    );
   });
   await act(async () => {
     await store.start();
@@ -174,7 +196,7 @@ describe("CloudPage", () => {
     // The create sheet's fields ignore chords too.
     await act(async () => $(".cloud-create-button")!.click());
     for (const chord of chords)
-      for (const name of ["Enter", "Escape"]) await act(async () => key($(".cloud-create-name")!, name, chord));
+      for (const name of ["Enter", "Escape"]) await act(async () => key(dom.window.document.body, name, chord));
     expect(provider.calls.filter((call) => call.op === CloudOps.machineCreate)).toEqual([]);
     expect(store.getSnapshot().create).toBeDefined();
   });
@@ -453,5 +475,33 @@ describe("CloudPage", () => {
     expect($(".cloud-create-blocked")?.textContent).toBe(expected);
     expect($(".cloud-error")).toBeNull();
     expect($(".cloud-see-plans")).toBeNull();
+  });
+
+  test("the backend's machine and size refusals show localized sentences, not the backend text", async () => {
+    const english: Record<string, string> = {
+      "cmux.cloud.not_running": "The machine is not running. Start it first.",
+      "cmux.cloud.not_paused": "The machine is not paused, so it cannot start.",
+      "cmux.cloud.machine_busy": "The machine is busy with another change. Try again in a moment.",
+      "cmux.cloud.size_grow_only": "A machine can only grow. Choose a larger size.",
+      "cmux.cloud.link_install_refused": "This app cannot open a link to a Cloud machine.",
+    };
+    const target = sampleMachines().find((machine) => machine.status === "running" && !machine.classic)!;
+    for (const [code, sentence] of Object.entries(english)) {
+      const provider = new MockCloudProvider();
+      const store = await render(provider);
+      provider.failNext = CloudOps.machinePause;
+      provider.failCode = code;
+      await act(async () => store.pause(target.id));
+      expect($(".cloud-error-detail")?.textContent).toBe(sentence);
+      expect(document.body.textContent).not.toContain("raw backend text");
+    }
+    const provider = new MockCloudProvider();
+    const store = await render(provider, { language: "ja" });
+    provider.failNext = CloudOps.machinePause;
+    provider.failCode = "cmux.cloud.machine_busy";
+    await act(async () => store.pause(target.id));
+    expect($(".cloud-error-detail")?.textContent).toBe(
+      "マシンは別の変更を処理中です。少し待ってからもう一度お試しください。",
+    );
   });
 });

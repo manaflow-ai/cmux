@@ -183,6 +183,45 @@ agents resume from their saved session exactly as routine Agent Hibernation does
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux settings set terminal.agentHibernation.enabled true`.
 
+## `navigation.history.scope`
+
+What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--, the palette, `cmux history back` / `forward`).
+
+```json
+{
+  "navigation": {
+    "history": { "scope": "workspaces" }
+  }
+}
+```
+
+- `workspaces` (default): a step is a workspace or a top page (Home, the App Store). Focus changes inside a workspace are not steps; going back to a workspace returns to the tab and pane it last had focused.
+- `everything`: every tab, pane and page focus is a step, as in earlier builds.
+
+A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
+
+## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
+
+How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
+
+```json
+{
+  "sidebar": {
+    "numbering": "allItems",
+    "cmd9": "last",
+    "stepping": "allItems",
+    "steppingWraps": true
+  }
+}
+```
+
+- `numbering`: `allItems` counts every item (Home = ⌘1, App Store = ⌘2, the first workspace = ⌘3); `workspacesOnly` numbers only the rows (the first workspace = ⌘1, as in classic cmux). Default: `allItems`.
+- `cmd9`: `last` makes ⌘9 the last item, as in browsers; `ninth` makes it the ninth. Default: `last`.
+- `stepping`: what ⌘⌃] and ⌘⌃[ step through, `allItems` or `workspacesOnly`. Default: `allItems`.
+- `steppingWraps`: past the last item the next one is the first again. Default: `true`.
+
+Change them in **Settings > Appearance > Sidebar** or with `cmux settings set sidebar.numbering workspacesOnly`.
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders.
@@ -415,7 +454,7 @@ Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) a
 
 ## `automation.agentAutoResume`
 
-Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. When the error says when capacity returns, as Subrouter's `retry after <N>s` does once every pooled account is exhausted, the resume waits at least until then plus 30 seconds to 3 minutes, so machines sharing one pool do not all resume at once. The sidebar's **Auto-resumed ×N** marker clears once the agent finishes a turn on its own. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
 
 ```json
 {
@@ -426,6 +465,20 @@ Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstre
 ```
 
 Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
+
+## `agentMessages.enabled`
+
+The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
+
+```json
+{
+  "agentMessages": {
+    "enabled": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Agent Messages**. To turn messages off for one agent or workspace instead, see [Turning messages off](agent-messages.md#turning-messages-off).
 
 ## `diffViewer.defaultLayout`
 
@@ -473,6 +526,15 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## `mcp.enabled` and agent sessions
+
+Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
+and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+`"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
+To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
+daemon (or in one acpmux profile's `env`). A Claude profile that passes
+`--strict-mcp-config` opts out too and keeps only the MCP servers it names.
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
@@ -507,3 +569,47 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
+
+## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
+
+The address bar's search engine and suggestions. Settings > Browser > Address Bar
+shows the same keys.
+
+```jsonc
+{
+  "browser": {
+    "searchEngine": "google",
+    "customSearchEngine": {
+      "search": "https://example.com/search?q=%s",
+      "suggest": "https://example.com/suggest?q=%s"
+    },
+    "omnibar": {
+      "remoteSuggestions": true,
+      "inlineAutocomplete": true,
+      "maxRows": 8,
+      "calculator": true
+    }
+  }
+}
+```
+
+- `searchEngine`: `google` (default), `duckduckgo`, `bing`, `brave`, `kagi` or `custom`.
+  Each built-in engine also gives search suggestions.
+- `customSearchEngine.search`: the search address used when `searchEngine` is `custom`.
+  Put `%s` or `{searchTerms}` where the typed text goes. Without one, cmux uses Google.
+- `customSearchEngine.suggest`: optional suggest address that answers in the OpenSearch
+  suggestions format (`["query", ["suggestion", ...]]`), with the same placeholder.
+- `omnibar.remoteSuggestions`: send what you type to the search engine for suggestions.
+  Default: `true`. cmux never sends text that reads as an address, a file path, an IP
+  address, `localhost` or a `host:port`, or text longer than 2,048 characters. Requests
+  start 40 ms after the last keystroke and stop after 800 ms. Private (incognito) windows
+  follow this setting over an ephemeral session that keeps no cookies or cache.
+- `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
+  when the text is the start of the host and you typed that address before or visited it
+  at least 4 times. Default: `true`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
+  parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
+engine and remote suggestions decide what leaves the Mac, so only you change them.

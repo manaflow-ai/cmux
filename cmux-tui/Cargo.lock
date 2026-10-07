@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-chat-index",
  "cmux-local-auth",
  "cmux-unix-socket",
  "crossterm",
@@ -16,6 +17,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libc",
+ "notify",
  "pulldown-cmark",
  "ratatui",
  "regex",
@@ -601,6 +603,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex 2.0.1",
 ]
 
@@ -695,6 +699,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "time",
  "tokio",
  "tokio-tungstenite",
@@ -808,6 +813,8 @@ dependencies = [
 name = "cmux-browser-host"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
+ "getrandom 0.3.4",
  "hmac",
  "libc",
  "rquickjs",
@@ -815,6 +822,16 @@ dependencies = [
  "serde_json",
  "sha1",
  "url",
+]
+
+[[package]]
+name = "cmux-chat-index"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -851,9 +868,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-encode"
+version = "0.1.0"
+dependencies = [
+ "openh264-sys2",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "icu_normalizer",
  "proptest",
  "rusqlite",
@@ -941,10 +967,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1011,6 +1047,14 @@ dependencies = [
  "uuid",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-remote-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1092,10 +1136,12 @@ dependencies = [
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
+ "cmux-wg",
  "getrandom 0.3.4",
  "ghostty-vt",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "url",
  "zeroize",
@@ -1140,6 +1186,7 @@ dependencies = [
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
  "glob",
@@ -1158,6 +1205,7 @@ dependencies = [
  "terminput",
  "terminput-crossterm",
  "tokio",
+ "tokio-tungstenite",
  "toml",
  "toml_edit 0.22.27",
  "unicode-segmentation",
@@ -3135,6 +3183,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3492,6 +3550,15 @@ dependencies = [
  "derive_more",
  "n0-error",
  "n0-future",
+]
+
+[[package]]
+name = "nasm-rs"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "706bf8a5e8c8ddb99128c3291d31bd21f4bcde17f0f4c20ec678d85c74faa149"
+dependencies = [
+ "log",
 ]
 
 [[package]]
@@ -4117,6 +4184,19 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "openh264-sys2"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ada29a4cadc13d4d326737af87c13e224210d7d99fe47594e9f3f9b0102fd70"
+dependencies = [
+ "cc",
+ "libloading",
+ "nasm-rs",
+ "sha2 0.10.9",
+ "walkdir",
+]
 
 [[package]]
 name = "openssl-probe"

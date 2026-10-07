@@ -34,6 +34,9 @@ fn sections() -> Vec<Section> {
                     machine: Some("local".into()),
                     workspaces: vec![workspace("h1", "local"), workspace("h2", "local")],
                 },
+                // The drag origin remains in the authoritative tree even when
+                // its row is excluded from the drop layout.
+                Node::Workspace { workspace: workspace("c", "local") },
             ],
         },
         Section {
@@ -230,6 +233,8 @@ fn request(y: f64, payload: Payload) -> Request {
         group_edge_fraction: GROUP_EDGE_FRACTION,
         group_exit_fraction: GROUP_EXIT_FRACTION,
         section_top_fraction: SECTION_TOP_FRACTION,
+        workspace_onto_start: 0.0,
+        workspace_onto_end: 0.0,
     }
 }
 
@@ -455,7 +460,8 @@ fn drop_math_covers_headers_sections_and_clamping() {
     );
     assert_eq!(
         resolve_at(row_y(RowKey::Group { id: "g1".into() }, 0.2)),
-        Some(Target::Position { section: machine("local"), group: None, index: 1 })
+        // The layout excludes a, so g1 is the first top-level node.
+        Some(Target::Position { section: machine("local"), group: None, index: 0 })
     );
     assert_eq!(
         resolve_at(row_y(RowKey::Group { id: "g1".into() }, 0.7)),
@@ -590,7 +596,7 @@ fn ungrouped_first_remaps_only_top_level_slots() {
             },
         ],
     }];
-    let mut rows = vec![
+    let rows = vec![
         row(
             RowKey::Section { id: machine("local") },
             0.0,
@@ -658,14 +664,13 @@ fn ungrouped_first_remaps_only_top_level_slots() {
         resolve(&request),
         Some(Target::Position { section: machine("local"), group: None, index: 1 })
     );
-    let g1_row = rows.remove(2);
+    let g1_row = rows.iter().find(|row| row.key == RowKey::Workspace { id: "g1".into() }).unwrap();
     let mut into = request_with_rows(
         g1_row.y + 1.0,
         Payload::Workspaces { ids: vec!["a".into()] },
         rows.clone(),
         sections.clone(),
     );
-    into.rows.insert(2, g1_row);
     into.ungrouped_first = true;
     assert_eq!(
         resolve(&into),
@@ -740,4 +745,117 @@ fn empty_group_machine_is_optional_in_the_wire_shape() {
     let json = serde_json::to_string(&section).unwrap();
     let decoded: Section = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, section);
+}
+
+/// Swift `previousExpandedSection` takes the section header right above and
+/// answers nil when it is collapsed; it never skips past a collapsed section
+/// to an expanded one further up.
+#[test]
+fn a_collapsed_previous_section_is_not_skipped_for_the_one_above_it() {
+    let mut rows: Vec<Row> = rows()
+        .into_iter()
+        .filter(|row| row.section != machine("local") || matches!(row.key, RowKey::Section { .. }))
+        .collect();
+    for row in &mut rows {
+        if row.key == (RowKey::Section { id: machine("local") }) {
+            row.is_collapsed = true;
+        }
+    }
+    let mut y = 0.0;
+    for row in &mut rows {
+        row.y = y;
+        y += row.height + 2.0;
+    }
+    let cloud =
+        rows.iter().find(|row| row.key == RowKey::Section { id: machine("cloud") }).unwrap();
+    let request = request_with_rows(
+        cloud.y + cloud.height * 0.1,
+        Payload::Workspaces { ids: vec!["y".into()] },
+        rows,
+        sections(),
+    );
+    assert_eq!(
+        resolve(&request),
+        Some(Target::Position { section: machine("cloud"), group: None, index: 0 })
+    );
+}
+
+/// Swift expandedGroupHeaderZones and sectionHeaderTargetsTopOrPreviousSectionEnd
+/// (ec4d1034372^) drag c: a stays at index 0, so the expanded G1 header is
+/// index 1, and the top of the local header is the end of pinned.
+#[test]
+fn expanded_group_header_zones_while_dragging_c_match_swift() {
+    let rows = rows_without(&["c"], None);
+    let resolve_c = |key: RowKey, fraction: f64| {
+        let row = rows.iter().find(|row| row.key == key).unwrap();
+        resolve(&request_with_rows(
+            row.y + row.height * fraction,
+            Payload::Workspaces { ids: vec!["c".into()] },
+            rows.clone(),
+            sections(),
+        ))
+    };
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.2),
+        Some(Target::Position { section: machine("local"), group: None, index: 1 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.7),
+        Some(Target::Position { section: machine("local"), group: Some("g1".into()), index: 0 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Section { id: machine("local") }, 0.1),
+        Some(Target::Position { section: SectionId::Pinned, group: None, index: 1 })
+    );
+}
+
+/// Drop onto a row's middle (Lawrence 2026-10-05, the Arc/Dia sidebar): a
+/// workspace dragged onto the middle band of an ungrouped workspace row makes
+/// a group of the two; the band's edges keep the reorder gap. Rows here: b at
+/// y 96..106 (loose, local), g2 at 72..82 (in group g1), x at 132..142 (cloud),
+/// p1 at 12..22 (pinned).
+fn onto(y: f64, ids: &[&str]) -> Option<Target> {
+    let mut request =
+        request(y, Payload::Workspaces { ids: ids.iter().map(|id| (*id).to_string()).collect() });
+    request.workspace_onto_start = 0.3;
+    request.workspace_onto_end = 0.7;
+    resolve(&request)
+}
+
+#[test]
+fn a_workspace_dropped_on_a_loose_rows_middle_targets_that_row() {
+    assert_eq!(onto(101.0, &["a"]), Some(Target::OntoWorkspace { workspace: "b".into() }));
+    assert_eq!(onto(101.0, &["a", "c"]), Some(Target::OntoWorkspace { workspace: "b".into() }));
+}
+
+#[test]
+fn the_band_edges_keep_the_reorder_gap() {
+    assert_eq!(
+        onto(97.0, &["a"]),
+        Some(Target::Position { section: machine("local"), group: None, index: 2 })
+    );
+    assert_eq!(
+        onto(105.0, &["a"]),
+        Some(Target::Position { section: machine("local"), group: None, index: 3 })
+    );
+}
+
+#[test]
+fn no_onto_target_for_grouped_pinned_other_machine_or_itself() {
+    // A row inside a group keeps the in-group gap.
+    assert!(!matches!(onto(77.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // A pinned row is no group anchor.
+    assert!(!matches!(onto(17.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // Another machine's row refuses a local workspace.
+    assert!(!matches!(onto(137.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // The row itself (its own drag) is no target.
+    assert!(!matches!(onto(101.0, &["b"]), Some(Target::OntoWorkspace { .. })));
+}
+
+#[test]
+fn without_the_band_the_middle_of_a_row_is_a_gap() {
+    assert_eq!(
+        resolve(&request(101.0, Payload::Workspaces { ids: vec!["a".into()] })),
+        Some(Target::Position { section: machine("local"), group: None, index: 3 })
+    );
 }

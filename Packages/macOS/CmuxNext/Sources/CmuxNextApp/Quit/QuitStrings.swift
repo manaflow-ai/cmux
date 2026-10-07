@@ -15,6 +15,12 @@ enum QuitStrings {
         String(localized: "quit.programsRunning", defaultValue: "\(count) programs are running.", table: "Quit", bundle: .module)
     }
 
+    /// Agents in a turn are not warned about: they keep working and reattach.
+    static func agentsKeepWorking(_ count: Int) -> String {
+        String(localized: "quit.agentsKeepWorking", defaultValue: "Agents still working: \(count). They keep running and reattach when you reopen cmux.",
+               table: "Quit", bundle: .module)
+    }
+
     static var incognitoCloses: String {
         String(localized: "quit.incognitoCloses", defaultValue: "Incognito windows close, and their programs end.",
                table: "Quit", bundle: .module)
@@ -37,20 +43,8 @@ enum QuitStrings {
         String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
     }
 
-    static var quitEverythingEllipsis: String {
-        String(localized: "quit.button.quitEverythingEllipsis", defaultValue: "Quit Everything…", table: "Quit", bundle: .module)
-    }
-
     static var quitEverything: String {
         String(localized: "quit.button.quitEverything", defaultValue: "Quit Everything", table: "Quit", bundle: .module)
-    }
-
-    static var endTitle: String {
-        String(localized: "quit.end.title", defaultValue: "End all terminals?", table: "Quit", bundle: .module)
-    }
-
-    static var endEverythingDeletes: String {
-        String(localized: "quit.end.body", defaultValue: "End Everything also deletes your workspaces.", table: "Quit", bundle: .module)
     }
 
     static var endEverything: String {

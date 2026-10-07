@@ -23,8 +23,9 @@
 //! Warnings name the dropped key only; a caller value is never logged.
 
 /// Keys the daemon always owns. A caller value for one of them is dropped.
-pub const DAEMON_OWNED_ENV_KEYS: [&str; 11] = [
+pub const DAEMON_OWNED_ENV_KEYS: [&str; 12] = [
     "CMUX_TUI_SOCKET",
+    "CMUX_BROWSER_HOST_SOCKET",
     "CMUX_MUX_SOCKET",
     "CMUX_TUI_HOOK",
     "CMUX_TUI_TERMINAL_ID",
@@ -46,6 +47,17 @@ pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 5] = [
     "GHOSTTY_BASH_UNEXPORT_HISTFILE",
     "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
 ];
+
+/// The daemon's socket keys for every terminal it creates: `CMUX_TUI_SOCKET`
+/// and `CMUX_MUX_SOCKET` (the daemon socket), and `CMUX_BROWSER_HOST_SOCKET`
+/// when the daemon runs a browser host (`browser_host::terminal_env`).
+pub fn add_daemon_socket_env(socket_path: &std::path::Path, options: &mut crate::SurfaceOptions) {
+    let socket = socket_path.display().to_string();
+    options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket.clone()));
+    options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket));
+    let has_host = crate::browser_host::host_binary_exists();
+    options.extra_env.extend(crate::browser_host::terminal_env(socket_path, has_host));
+}
 
 /// Whether two environment keys name the same variable. Windows env keys
 /// ignore case (the child gets one value for `Path` and `PATH`), so a caller

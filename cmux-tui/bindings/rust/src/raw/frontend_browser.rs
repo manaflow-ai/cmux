@@ -137,6 +137,8 @@ impl CmuxClient {
             idempotency_key: Optional::Value(create.idempotency_key),
             cols: optional(cols),
             rows: optional(rows),
+            activate: None,
+            after: Optional::Missing,
         })?;
         let created = || -> Option<FrontendBrowserTabCreated> {
             Some(FrontendBrowserTabCreated {

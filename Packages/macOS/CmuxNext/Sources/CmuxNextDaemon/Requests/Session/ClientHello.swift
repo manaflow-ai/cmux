@@ -18,10 +18,15 @@ public struct ClientHelloRequest: DaemonRequest {
         public var connectionId: String
         /// Present when the daemon expects step 2 (role main with an install id).
         public var nonce: String?
+        /// Whether the daemon accepts origin `user` on this connection now
+        /// (the verified app, not bound to an agent). Nil from an older
+        /// daemon, which counts as false.
+        public var userOriginAllowed: Bool?
 
         enum CodingKeys: String, CodingKey {
             case connectionId = "connection_id"
             case nonce
+            case userOriginAllowed = "user_origin_allowed"
         }
     }
 
@@ -59,6 +64,13 @@ public struct ClientHelloProofRequest: DaemonRequest {
 
     public struct Response: Decodable, Sendable, Equatable {
         public var verified: Bool
+        /// As in step 1; after step 2 this value counts.
+        public var userOriginAllowed: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case verified
+            case userOriginAllowed = "user_origin_allowed"
+        }
     }
 }
 

@@ -87,7 +87,7 @@ extension CloudHandlers {
             "last error: \(cloud.lastError ?? "none")",
         ]
         for session in context.services.machines.cloud {
-            let pid = await session.link.pid.map(String.init) ?? "none"
+            let pid = await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server")
             lines.append("\(session.machineID) \(session.machine.title): \(session.machine.status.rawValue), "
                 + "daemon \(session.daemon.store.connectionState), link pid \(pid), workspaces \(session.daemon.store.workspaces.count)")
             if let compat = context.services.machines.compatibility(of: session.daemon) {

@@ -22,8 +22,8 @@ import Testing
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: Settings is the same item, back at the bottom.
-        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 2)
+        // Moves keep item ids: Settings is the same item, back at the bottom (after Recents).
+        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 3)
     }
 
     /// Only the exact rail default migrates.
@@ -49,12 +49,29 @@ import Testing
         #expect(once.layoutMigrationOps.isEmpty)
         #expect(once.layoutMigration == once)
     }
+
+    /// Lawrence 2026-10-05: plain rows are the default top again. A stored
+    /// plain-row top section (with CodeRouter after it or not) stays rows;
+    /// no migration turns it into the large tiles.
+    @Test func aPlainRowTopSectionStaysRows() {
+        let rows = [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                    LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]
+        let coderouter = LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))
+        for items in [rows, rows + [coderouter]] {
+            var stored = SidebarLayoutDocument.defaults
+            stored.revision = 3
+            stored.sections[0] = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: items)
+            #expect(stored.layoutMigrationOps.isEmpty)
+            #expect(stored.layoutMigration.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
+        }
+    }
 }
 
-/// R53: the sections default before the grid bottom row (one inline line)
-/// moves to the grid row through ordinary ops; a customized one is kept.
+/// The sections defaults before SIDEBAR-FOOTER-MINIMAL (one inline line,
+/// then R53's grid row with the Settings label) move to the minimal footer
+/// (the avatar, then the gear) through ordinary ops; a customized one is kept.
 @Suite struct SidebarGridBottomMigrationTests {
-    @Test func theInlineBottomDefaultBecomesTheGridRow() {
+    @Test func theInlineBottomDefaultBecomesTheMinimalFooter() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         #expect(stored.layoutMigration.layoutMigrationOps.isEmpty)
@@ -63,6 +80,27 @@ import Testing
     @Test func aCustomizedInlineBottomIsKept() throws {
         let custom = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.inlineBottomDefaults,
                                                      .itemRemove(LayoutItemID("itm_account"))).get()
+        #expect(custom.sectionsMigrationOps.isEmpty)
+    }
+
+    /// R53's grid bottom row, stored untouched, becomes the minimal footer
+    /// whatever the top holds; the item ids stay.
+    @Test func theGridBottomRowBecomesTheMinimalFooter() throws {
+        var stored = SidebarLayoutDocument.defaults
+        stored.revision = 9
+        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
+        stored.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
+        let migrated = stored.layoutMigration
+        #expect(migrated.section(SidebarLayoutDocument.bottomSectionID) == SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
+        #expect(migrated.section(SidebarLayoutDocument.topSectionID) == stored.section(SidebarLayoutDocument.topSectionID), "the top is kept")
+        #expect(migrated.revision > stored.revision)
+        #expect(migrated.layoutMigrationOps.isEmpty, "once")
+    }
+
+    @Test func aCustomizedGridBottomIsKept() throws {
+        var stored = SidebarLayoutDocument.defaults
+        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
+        let custom = try SidebarLayoutReducer.reduce(stored, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true)).get()
         #expect(custom.sectionsMigrationOps.isEmpty)
     }
 }

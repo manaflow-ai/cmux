@@ -263,19 +263,16 @@ impl Mux {
             terminal_snapshot["tab_id"] = Value::Null;
             terminal_snapshot["tab_ids"] = serde_json::json!([]);
         }
-        let topology =
-            detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
-        let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
-            terminal_id,
-            incarnation,
-            exit,
-            terminal_snapshot,
-            topology,
-        )?;
+        let topology = detach_projection.as_ref().map(|projection| {
+            (&projection.patch, &projection.changes, projection.workspace_close.as_ref())
+        });
+        let (_, terminal_revision, resource_revision, replayed, workspace_revision) = registry
+            .commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot, topology)?;
         let mut detach_effects = None;
         if !replayed {
             if let Some(projection) = detach_projection {
-                detach_effects = Some(projection.install(&mut state, resource_revision));
+                detach_effects =
+                    Some(projection.install(&mut state, resource_revision, workspace_revision));
             } else {
                 state.resource_revision = resource_revision;
             }
@@ -304,6 +301,17 @@ impl Mux {
                          {snapshot_terminal_id}: {error:#}"
                     );
                 }
+            }
+            // A host loss is logged once, with the signals its host recorded
+            // (cx-6so.49); best effort, after the exit latch.
+            #[cfg(unix)]
+            if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
+                crate::terminal_loss_log::record_host_loss(
+                    &root.join(format!("{terminal_id}.json")),
+                    terminal_id,
+                    incarnation,
+                    end,
+                );
             }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);
@@ -417,17 +425,42 @@ impl Mux {
             "terminal":terminal_public_id,
             "tabs":projection.tab_ids,
         });
-        let commit = registry.commit_resource_patch(
-            &mutation,
-            "terminal.exit.detach",
-            &fingerprint,
-            None,
-            Some(state.resource_revision),
-            &projection.patch,
-            &json!({}),
-            &projection.changes,
-        )?;
-        let effects = projection.install(&mut state, commit.revision);
+        // A detach that empties a workspace closes it in the same commit
+        // (LAST-TAB-CLOSES-WORKSPACE); the topology close commits both.
+        let (revision, workspace_revision) = match projection.workspace_close.as_ref() {
+            Some(close) => {
+                let commit = registry.commit_topology_close(
+                    &mutation,
+                    "terminal.exit.detach",
+                    &fingerprint,
+                    None,
+                    None,
+                    &projection.patch,
+                    &json!({}),
+                    &projection.changes,
+                    &[],
+                    Some(close),
+                    None,
+                    false,
+                    None,
+                )?;
+                (commit.resource.revision, commit.workspace_revision)
+            }
+            None => {
+                let commit = registry.commit_resource_patch(
+                    &mutation,
+                    "terminal.exit.detach",
+                    &fingerprint,
+                    None,
+                    Some(state.resource_revision),
+                    &projection.patch,
+                    &json!({}),
+                    &projection.changes,
+                )?;
+                (commit.revision, None)
+            }
+        };
+        let effects = projection.install(&mut state, revision, workspace_revision);
         drop(state);
         drop(registry);
         self.publish_resource_event();

@@ -3,11 +3,11 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// The flat sidebar: each workspace row starts with its type glyph, a custom
-/// icon replaces that glyph without changing the title column, and the resize
-/// edge stays hidden until hover.
+/// The flat sidebar: a workspace row draws no icon unless the user chose one
+/// (WORKSPACE-ROWS-NO-DEFAULT-ICON); a chosen icon takes the leading slot and
+/// moves the title past it. The resize edge stays hidden until hover.
 @MainActor @Suite struct FlatSidebarTests {
-    @Test func rowsReserveTheTypeIconColumnAndKeepCustomIconsAligned() throws {
+    @Test func onlyAChosenIconTakesTheLeadingSlot() throws {
         var sections = fixture()
         sections[1].nodes[0] = .workspace(SidebarWorkspace(id: id("a"), title: "a", icon: .symbol("hammer")))
         let h = MinimalChromeTests.Harness(sections: sections)
@@ -15,14 +15,12 @@ import Testing
         let iconned = try #require(h.sidebar.list.rowViews[.workspace(id("a"))] as? WorkspaceRowView)
         plain.layoutSubtreeIfNeeded()
         iconned.layoutSubtreeIfNeeded()
-        // A row without a user icon still shows its terminal type glyph.
-        #expect(plain.titleFrame.minX > SidebarStyle.horizontalInset)
-        // Replacing the type glyph with a custom symbol does not move the
-        // title column or create a second, blank leading gap.
-        #expect(iconned.titleFrame.minX == plain.titleFrame.minX)
-        let icons = plain.subviews.compactMap { $0 as? SidebarIconView }
-        #expect(icons.count == 1)
-        #expect(icons.allSatisfy { !$0.isHidden })
+        // A row without a user icon starts its title at the leading inset.
+        #expect(plain.titleFrame.minX == SidebarStyle.titleLeading)
+        #expect(plain.subviews.compactMap { $0 as? SidebarIconView }.allSatisfy { $0.isHidden })
+        // A chosen icon draws and the title follows it.
+        #expect(iconned.titleFrame.minX > plain.titleFrame.minX)
+        #expect(iconned.subviews.compactMap { $0 as? SidebarIconView }.contains { !$0.isHidden })
     }
 
     @Test func onlyAChosenIconTakesRoom() {
@@ -48,12 +46,12 @@ import Testing
         let h = MinimalChromeTests.Harness(sections: fixture())
         let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
-        // The name aligns with workspace titles (a loose row's title, both
-        // in their row's coordinates); the chevron trails.
+        // S1: the caret leads at the workspace titles' inset (a loose row's
+        // title, both in their row's coordinates) and the name follows it.
         let row = try #require(h.sidebar.list.rowViews[.workspace(id("b"))] as? WorkspaceRowView)
         row.layoutSubtreeIfNeeded()
-        #expect(abs(header.titleFrame.minX - row.titleFrame.minX) < 0.5, "header \(header.titleFrame.minX) row \(row.titleFrame.minX)")
-        #expect(header.disclosureFrame.midX > header.bounds.midX)
+        #expect(header.titleFrame.minX > row.titleFrame.minX, "header \(header.titleFrame.minX) row \(row.titleFrame.minX)")
+        #expect(header.disclosureFrame.midX < header.titleFrame.minX)
         #expect(header.titleFont == SidebarStyle.headerFont)
     }
 }

@@ -392,7 +392,7 @@ tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
 terminal list
-terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
+terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
@@ -402,6 +402,7 @@ terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
+browser open <url> | --url <url> [OPTIONS]
 browser list
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
@@ -440,8 +441,8 @@ provider authority install
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most
 512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
-`--clear`, `--surface`, `--workspace`, `--json`; `--window` and `--id-format`
-are accepted and ignored. The target defaults to the caller's own terminal
+`--clear`, `--surface`, `--workspace`, `--json`; `--window`, `--id-format`, and
+`--desktop` (validated as `true|false`) are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.
@@ -590,7 +591,15 @@ private protocol's ids or public `tab_...` and `pane_...` ids.
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
 `workspace.place` with a workspace selector (`--workspace <ws>`). The shared
-workspace group commands are no longer used by the CLI.
+workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
+puts a group right before the personal workspace at placement index `<n>`;
+`--clear-top-index` puts it after every loose workspace
+(`personal-mixed-order-v1`). `workspace list --order personal` lists the
+workspaces in the sidebar order. `workspace list` without `--order` (or with
+`--order session`) lists the session's workspace order, the same order as
+`topology.workspaces`: creation order unless a workspace was moved, not the
+sidebar order. The app's `snapshot.get` `windows[].workspaces` lists the order
+each window shows.
 
 ## Raw access
 

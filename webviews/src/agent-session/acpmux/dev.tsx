@@ -3,17 +3,23 @@
 // serves them with hot reload.
 import "../shared/styles.css";
 import "./styles.css";
+import "katex/dist/katex.min.css";
 import "./conversation/conversation.css";
+import "./chips/chips.css";
+import "./previewCard/previewCard.css";
 import "./changes/changes.css";
+import "./turnChanges/turnChanges.css";
 import "./summary/summary.css";
+import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";
+import "./composerLocation.css";
 import "./searchChats.css";
 import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
-import { devHostParams, installDevHost } from "./devHost";
+import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
@@ -26,4 +32,6 @@ if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
+// The dev server has no locales/<code>.js: install the whole string table before the pane loads.
+globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 await import("./main");

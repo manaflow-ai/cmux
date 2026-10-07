@@ -662,7 +662,7 @@ impl Session {
             CreateWorkspaceOptions {
                 name,
                 initial_content: InitialContent::Terminal,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::unique()?,
         )
@@ -673,7 +673,7 @@ impl Session {
             CreateWorkspaceOptions {
                 name,
                 initial_content: InitialContent::Empty,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::unique()?,
         )

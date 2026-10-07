@@ -96,8 +96,8 @@ fn a_cancelled_pull_stops_emits_one_cancelled_event_and_leaves_no_file() {
     lines.extend(after);
     let events = changed(&lines);
     assert_eq!(events.len(), 1, "exactly one changed event: {events:?}");
-    assert_eq!(events[0]["transfer"], id);
-    assert_eq!(events[0]["state"], "cancelled", "{}", events[0]);
+    assert_eq!(events[0]["data"]["transfer"], id);
+    assert_eq!(events[0]["data"]["state"], "cancelled", "{}", events[0]);
     assert_eq!(transfer.log().cancelled, 1, "the copy saw its cancel");
     assert!(entries(&dir).is_empty(), "a cancelled pull leaves nothing: {:?}", entries(&dir));
     // A second cancel of the same transfer (a new key) changes nothing.
@@ -130,7 +130,7 @@ fn a_cancel_of_an_ended_transfer_answers_ended_and_emits_nothing() {
             break;
         }
     }
-    assert_eq!(done.map(|d| d["state"].clone()), Some(json!("done")));
+    assert_eq!(done.map(|d| d["data"]["state"].clone()), Some(json!("done")));
     op(&host, "2", "cloud.file.transfer.cancel", json!({ "transfer": id }), Some("c-1"));
     let (lines, answer) = until_result(&mut host, "2");
     let answer = answer.expect("the cancel answers");

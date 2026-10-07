@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Foundation
@@ -26,7 +27,12 @@ final class AgentTabFixture {
     /// Runs inside each creation before the store answers (a test holds the answer back).
     var holdCreate: (@MainActor () async -> Void)?
 
-    init(registry: ActionRegistry = .standard(), linkScheme: String? = nil, tree: [String] = []) throws {
+    /// The folder of the pane's terminal tab: the workspace's only local folder.
+    let terminalCwd: String
+
+    init(registry: ActionRegistry = .standard(), linkScheme: String? = nil, tree: [String] = [],
+         terminalCwd: String = "/tmp") throws {
+        self.terminalCwd = terminalCwd
         tabs = AgentTabStore(tag: nil, registry: registry, environment: Self.mock, linkScheme: linkScheme)
         tabs.localHost = Self.host
         tabs.holdsTabs = { _ in true }
@@ -38,7 +44,7 @@ final class AgentTabFixture {
         tabs.listTabs = {
             daemon.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
         }
-        tabs.create = { [unowned self] _, _, record, key in
+        tabs.create = { [unowned self] _, _, record, key, _ in
             await holdCreate?()
             if let index = creations.firstIndex(where: { $0.idempotencyKey == key }) {
                 return (AgentTabCreated(key: keys[index], surface: SurfaceID(rawValue: UInt64(index + 100))), 0)
@@ -52,10 +58,13 @@ final class AgentTabFixture {
             // Sequence 0: the tree already has the tab, so the provisional one settles at once.
             return (AgentTabCreated(key: id, surface: SurfaceID(rawValue: UInt64(surface))), 0)
         }
-        tabs.bind = { [unowned self] key, expected, session, done in
+        tabs.bind = { [unowned self] key, _, expected, session in
             binds.append((key, session))
             bindExpectations.append(expected)
-            done(bindAnswer)
+            guard bindAnswer == .taken else { return (bindAnswer, nil) }
+            // The daemon's record takes the session before its reply (sequence 0: applied).
+            try? setSession(session, of: key)
+            return (.taken, 0)
         }
     }
 
@@ -66,7 +75,16 @@ final class AgentTabFixture {
 
     /// A terminal tab and the tabs created so far, in one pane.
     func apply() throws {
-        daemon.apply(snapshot: try ReopenClosedTabTests.tree([ReopenClosedTabTests.tab(1, "a", cwd: "/tmp")] + tabJSON))
+        daemon.apply(snapshot: try ReopenClosedTabTests.tree([ReopenClosedTabTests.tab(1, "a", cwd: terminalCwd)] + tabJSON))
+    }
+
+    /// The daemon's record of tab `key` now names `session`.
+    func setSession(_ session: String, of key: String) throws {
+        guard let index = tabJSON.firstIndex(where: { $0.contains("\"\(key)\"") }) else { return }
+        let entry = tabJSON[index]
+        guard let range = entry.range(of: #""session":(null|"[^"]*")"#, options: .regularExpression) else { return }
+        tabJSON[index] = entry.replacingCharacters(in: range, with: "\"session\":\"\(session)\"")
+        try apply()
     }
 
     /// Drops agent tab `key` from the tree, as a close by another client would.
@@ -75,8 +93,9 @@ final class AgentTabFixture {
         try apply()
     }
 
-    func open(session: String? = nil, linked: Bool = false, key: String = UUID().uuidString) async throws -> String {
-        try await tabs.open(in: 3, of: service, session: session, linked: linked, idempotencyKey: key).value().key
+    func open(session: String? = nil, seed: AgentPaneSeedSource? = nil, linked: Bool = false,
+              key: String = UUID().uuidString) async throws -> String {
+        try await tabs.open(in: 3, of: service, session: session, seed: seed, linked: linked, idempotencyKey: key).value().key
     }
 
     nonisolated static func tab(_ surface: Int, _ id: String, _ record: AgentSessionRef) -> String {

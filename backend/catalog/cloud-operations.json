@@ -361,6 +361,25 @@
         }
       }
     },
+    "ChiefBrainPlace": {
+      "kind": "object",
+      "fields": {
+        "host": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HostId"
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        }
+      }
+    },
     "ChiefId": {
       "kind": "primitive",
       "name": "string",
@@ -709,6 +728,21 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "pause_reason": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "enum",
+              "values": [
+                "idle",
+                "no_report",
+                "provider_stopped",
+                "provider_paused"
+              ]
             }
           }
         },
@@ -2342,6 +2376,16 @@
             ]
           }
         },
+        "brain_place": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "ChiefBrainPlace"
+            }
+          }
+        },
         "main_conversation": {
           "required": true,
           "type": {
@@ -3674,6 +3718,16 @@
             "name": "string",
             "pattern": "^vm_[a-z0-9]{20}$"
           }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ServerCapability"
+            }
+          }
         }
       }
     },
@@ -3840,6 +3894,16 @@
             "kind": "primitive",
             "name": "string",
             "max_length": 40
+          }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ServerCapability"
+            }
           }
         }
       }
@@ -4309,6 +4373,11 @@
         "skipped",
         "dead"
       ]
+    },
+    "ServerCapability": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
     },
     "SnapshotId": {
       "kind": "primitive",
@@ -13573,6 +13642,32 @@
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
           "ConversationId": {
             "type": "string",
             "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
@@ -13603,6 +13698,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -13701,6 +13806,13 @@
               "name": "boolean"
             }
           },
+          "brain_place": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefBrainPlace"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13752,7 +13864,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
+      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -13764,10 +13876,40 @@
           },
           "is_default": {
             "type": "boolean"
+          },
+          "brain_place": {
+            "$ref": "#/$defs/ChiefBrainPlace"
           }
         },
         "additionalProperties": true,
-        "$defs": {}
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          }
+        }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
@@ -13775,6 +13917,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           },
           "ConversationId": {
             "type": "string",
@@ -13806,6 +13974,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -14026,6 +14204,32 @@
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
           "ConversationId": {
             "type": "string",
             "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
@@ -14056,6 +14260,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -14203,6 +14417,16 @@
               ]
             }
           },
+          "brain_place": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "ref",
+                "name": "ChiefBrainPlace"
+              }
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14257,7 +14481,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
+      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -14307,6 +14531,16 @@
             "enum": [
               false
             ]
+          },
+          "brain_place": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ChiefBrainPlace"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -14318,6 +14552,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           }
         }
       },
@@ -14327,6 +14587,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           },
           "ConversationId": {
             "type": "string",
@@ -14358,6 +14644,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -15169,6 +15465,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -15577,6 +15889,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -15689,7 +16017,7 @@
         "expose": "opt_in",
         "group": "cloud"
       },
-      "docs": "Set when an idle machine pauses; 0 = never.",
+      "docs": "Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -15901,6 +16229,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -16454,6 +16798,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -16769,6 +17129,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -17107,6 +17483,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -17190,9 +17582,13 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.machine.busy",
         "cloud.machine.not_found",
+        "cloud.machine.not_running",
+        "cloud.plan.required",
         "cloud.provider.unavailable",
-        "cloud.quota.exceeded",
+        "cloud.rate_limited",
+        "cloud.size.grow_only",
         "cloud.size.locked",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -17223,7 +17619,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Change a machine's size. A larger size may cost money. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -17461,6 +17857,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -17537,6 +17949,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.machine.not_bound",
         "cloud.machine.not_found",
         "cloud.machine.not_paused",
         "cloud.plan.required",
@@ -17572,7 +17985,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Start (resume) a paused machine: answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -17778,6 +18191,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -18099,6 +18528,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -18738,8 +19183,11 @@
         "auth.unauthenticated",
         "client.too_old",
         "cloud.machine.not_found",
+        "cloud.machine.not_running",
+        "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -18769,7 +19217,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -18929,7 +19377,9 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.machine.busy",
         "cloud.provider.unavailable",
+        "cloud.rate_limited",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -18960,7 +19410,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a snapshot. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19232,6 +19682,7 @@
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
@@ -19263,7 +19714,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19474,6 +19925,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -19927,6 +20394,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -35764,6 +36247,10 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -35820,6 +36307,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36249,6 +36743,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -36305,6 +36803,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36509,6 +37014,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -36565,6 +37074,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36753,6 +37269,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -36809,6 +37329,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36976,6 +37503,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -37032,6 +37563,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -43230,6 +43768,10 @@
               "web"
             ]
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "PairingInfo": {
             "type": "object",
             "properties": {
@@ -43255,6 +43797,13 @@
               "cmux_version": {
                 "type": "string",
                 "maxLength": 40
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [

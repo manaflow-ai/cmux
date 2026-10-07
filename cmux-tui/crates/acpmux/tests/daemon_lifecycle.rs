@@ -62,12 +62,10 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     .unwrap();
     // A login shell that takes 4 s and exports one variable.
     let shell = dir.join("slowsh");
-    std::fs::write(&shell, "#!/bin/sh\nsleep 4\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n")
-        .unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_executable(
+        &shell,
+        "#!/bin/sh\nsleep 4\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
+    );
     let socket = dir.join("s.sock");
     let started = Instant::now();
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
@@ -286,4 +284,28 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
         assert!(!alive, "agent {k} outlived the daemon");
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Creates an executable (0755) script without this process ever holding a
+/// write descriptor for it.
+///
+/// Tests run on many threads. A sibling test that forks while this process
+/// holds such a descriptor hands a copy to its child until that child execs,
+/// and executing the script in that window fails with ETXTBSY ("Text file
+/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
+/// rename does not either (the child holds the same inode). A short-lived
+/// `sh` opens, writes, and closes the file in its own process, so no fork of
+/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let path = path.as_ref();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }

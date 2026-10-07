@@ -15,7 +15,7 @@ public final class ImportBookmarksRequest implements WireValue {
     private final String browserProfileId;
     private final Field<UInt64> index;
     private final Field<String> mutationId;
-    private final List<Object> nodes;
+    private final List<BookmarkImportNode> nodes;
     private final Field<String> origin;
     private final String parent;
     private final Field<Boolean> replace;
@@ -40,7 +40,7 @@ public final class ImportBookmarksRequest implements WireValue {
     public String browserProfileId() { return browserProfileId; }
     public Field<UInt64> index() { return index; }
     public Field<String> mutationId() { return mutationId; }
-    public List<Object> nodes() { return nodes; }
+    public List<BookmarkImportNode> nodes() { return nodes; }
     public Field<String> origin() { return origin; }
     public String parent() { return parent; }
     public Field<Boolean> replace() { return replace; }
@@ -60,7 +60,7 @@ public final class ImportBookmarksRequest implements WireValue {
             builder.mutationId(rawMutationId == null ? null : Wire.string(rawMutationId, "ImportBookmarksRequest.mutation_id"));
         }
         Object rawNodes = Wire.required(object, "nodes");
-        builder.nodes(Wire.array(rawNodes, "ImportBookmarksRequest.nodes", item -> Wire.immutableJson(item)));
+        builder.nodes(Wire.array(rawNodes, "ImportBookmarksRequest.nodes", item -> BookmarkImportNode.fromWire(item)));
         Object rawOrigin = Wire.optional(object, "origin");
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "ImportBookmarksRequest.origin"));
@@ -109,7 +109,7 @@ public final class ImportBookmarksRequest implements WireValue {
         private boolean browserProfileIdSet;
         private Field<UInt64> index = Field.omitted();
         private Field<String> mutationId = Field.omitted();
-        private List<Object> nodes;
+        private List<BookmarkImportNode> nodes;
         private boolean nodesSet;
         private Field<String> origin = Field.omitted();
         private String parent;
@@ -130,7 +130,7 @@ public final class ImportBookmarksRequest implements WireValue {
             this.mutationId = Field.ofNullable(value);
             return this;
         }
-        public Builder nodes(List<Object> value) {
+        public Builder nodes(List<BookmarkImportNode> value) {
             this.nodes = value;
             this.nodesSet = true;
             return this;

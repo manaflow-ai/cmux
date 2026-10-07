@@ -4,6 +4,9 @@
 
 use super::*;
 
+#[cfg(unix)]
+mod dev_orphan_exit;
+
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
@@ -14,7 +17,7 @@ where
 {
     crate::client_log::stderr_log!(
         "startup",
-        "cmux-tui: headless, control socket at {}",
+        "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
     // The daemon is ready: apps with an `always` server start off this path.
@@ -44,10 +47,19 @@ where
             wake_headless();
         });
     }
+    // DEV builds only: stop an orphaned app owner; its terminals keep
+    // running (dev_orphan_exit.rs).
+    #[cfg(unix)]
+    let orphan_exit = dev_orphan_exit::start_for_owner(mux);
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
         generation = wake.wait(generation).unwrap();
+    }
+    drop(generation);
+    #[cfg(unix)]
+    if let Some(orphan_exit) = orphan_exit {
+        orphan_exit.stop();
     }
     Ok(())
 }

@@ -49,10 +49,10 @@ pub struct ProviderDriver {
     leases: Leases,
     /// Each session's request filter and the CEF tabs it applies to
     /// (`crate::provider_engine`), by subscription id.
-    pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_engine::SessionFilter>>,
+    pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_source::SessionFilter>>,
 }
 
-pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
+pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 type Relays = Arc<Mutex<HashMap<String, Arc<CdpConnection>>>>;
@@ -76,10 +76,22 @@ impl ProviderDriver {
     /// Starts the reader thread on an accepted connection. `tabs` are the
     /// tabs the app announced in `hello`.
     pub fn start(
+        reader: impl Read + Send + 'static,
+        writer: impl Write + Send + 'static,
+        events: EventSink,
+        tabs: Vec<TabAnnounce>,
+    ) -> std::io::Result<Arc<ProviderDriver>> {
+        Self::start_notifying(reader, writer, events, tabs, Arc::new(|| {}))
+    }
+
+    /// [`ProviderDriver::start`], and `on_close` runs once on the reader
+    /// thread after the connection closed (the supervised host's idle stop).
+    pub fn start_notifying(
         mut reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
         events: EventSink,
         tabs: Vec<TabAnnounce>,
+        on_close: Arc<dyn Fn() + Send + Sync>,
     ) -> std::io::Result<Arc<ProviderDriver>> {
         let waiters: Waiters = Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(Mutex::new(None));
@@ -208,6 +220,7 @@ impl ProviderDriver {
             {
                 let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
             }
+            on_close();
         })?;
         Ok(Arc::new(ProviderDriver {
             writer,

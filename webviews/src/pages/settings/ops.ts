@@ -36,6 +36,16 @@ export type SnapshotResult = {
   domains?: Partial<PublishedDomains> | null;
 };
 
+/** One Ghostty config key, keybind action or unreadable line cmux does not apply (R92). */
+export type GhosttyDiagnostic = {
+  kind: "key" | "keybind-action" | "invalid";
+  name: string;
+  file: string | null;
+  line: number | null;
+  reason: "superseded" | "not-applicable" | "later" | null;
+  replacement: string | null;
+};
+
 /** One space or machine row (`cmux.settings.host.lists`). */
 export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
 
@@ -58,6 +68,8 @@ export type HostLists = {
   /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
   theme?: { levels: string[]; current: Record<string, string | null> };
   terminal?: { ghostty_config: string; shell_integration: string | null };
+  /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
+  ghostty_diagnostics?: GhosttyDiagnostic[] | null;
   settings_file?: string | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
@@ -83,7 +95,6 @@ export type AccountsRow = {
   statusKind: "success" | "attention" | "neutral" | "quiet";
   busy: boolean;
   buttons: AccountsButton[];
-  unsupported: string | null;
   linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
   note: string | null;
   outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
@@ -93,11 +104,10 @@ export type AccountsRow = {
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
-  intro: string;
   refresh: string;
   refreshing: boolean;
-  signIn: { text: string; confirm: string } | null;
-  problem: string | null;
+  /** The Sign In to cmux button's title when cmux is signed out. */
+  signIn: string | null;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };

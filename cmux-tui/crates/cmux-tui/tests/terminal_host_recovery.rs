@@ -17,8 +17,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
@@ -342,19 +343,11 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
 fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
     let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
     let marker = format!("fast-journal-marker-{}", std::process::id());
-    let created = resource_request(
+    let workspace = &create_empty_workspace(
         &harness.socket,
         "journal-initial-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Journal initial output",
-            "initial_content":"empty",
-        }),
-        Some("journal-initial-workspace"),
+        "Journal initial output",
     );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
     let run = resource_request(
         &harness.socket,
         "journal-initial-run",
@@ -465,19 +458,7 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
 fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart() {
     let mut harness = RecoveryHarness::start("keep-on-exit");
     let marker = format!("keep-on-exit-marker-{}", std::process::id());
-    let created = resource_request(
-        &harness.socket,
-        "keep-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Keep on exit",
-            "initial_content":"empty",
-        }),
-        Some("keep-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace = &create_empty_workspace(&harness.socket, "keep-workspace", "Keep on exit");
 
     // The catalog constrains on_exit to its supported enum values.
     let unsupported = request_response(
@@ -906,19 +887,8 @@ fn output_read(
 #[test]
 fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     let harness = RecoveryHarness::start("output-read");
-    let created = resource_request(
-        &harness.socket,
-        "output-read-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Output read",
-            "initial_content":"empty",
-        }),
-        Some("output-read-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-workspace", "Output read");
 
     // The command prints colored output, waits for one input line so the
     // live window is observable, then prints more colored output and exits
@@ -1055,6 +1025,12 @@ fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     assert_eq!(drained["start_offset"], stream_end.to_string());
     assert_eq!(drained["next_offset"], stream_end.to_string());
     assert_eq!(drained["complete"], true);
+
+    // The close policy took the workspace's only tab, so the workspace
+    // closed with it (LAST-TAB-CLOSES-WORKSPACE): the keep-policy run gets
+    // a new one.
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-kept-workspace", "Output read kept");
 
     // Keep policy: the exited terminal retains its views, and the same read
     // serves its output without escapes.
@@ -1647,7 +1623,7 @@ fn cleared_history_stays_cleared_after_daemon_reconnect() {
     let host_pid = records[0].1.host_pid as libc::pid_t;
     // SAFETY: the durable record identifies this harness's live terminal host.
     assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until_stopped(host_pid);
     let resume_host = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(250));
         // SAFETY: this resumes the same host stopped immediately above.
@@ -3340,6 +3316,118 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
 }
 
 #[test]
+fn viewer_size_priority_renderer_wins_until_it_releases_or_disconnects() {
+    let harness = RecoveryHarness::start("viewer-size-priority");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let connect = |id: u64, flags: u32| {
+        let grant = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":id,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            }),
+        );
+        assert_eq!(grant["supports_viewer_size_priority"], true, "{grant}");
+        let connection = connect_host_detailed_with_flags(
+            grant["endpoint"].as_str().unwrap(),
+            grant["terminal_id"].as_str().unwrap(),
+            grant["token"].as_str().unwrap(),
+            ClientRole::Renderer,
+            CapabilityRights::RENDERER,
+            flags,
+        )
+        .unwrap();
+        connection.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        connection
+    };
+    let mut legacy = connect(2, FLAG_VIEWER_SIZE_ACKS);
+    assert_eq!(legacy.hello_flags, FLAG_VIEWER_SIZE_ACKS);
+    let mut preferred = connect(3, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+    assert_eq!(preferred.hello_flags, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+
+    // The larger preferred size wins instead of the 80x24 legacy reservation.
+    send_viewer_size(&mut preferred, 61, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 61, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // A legacy report no longer reduces the grid; its ack carries the winner.
+    send_viewer_size(&mut legacy, 51, 80, 24);
+    expect_resize_ack(&mut legacy, 51, 120, 40, false);
+
+    // Releasing hands the grid back to the legacy minimum.
+    write_frame(&mut preferred.stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new()))
+        .unwrap();
+    expect_resized_pair(&mut preferred, 80, 24);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    // Priority belongs to the connection, so a new report wins again.
+    send_viewer_size(&mut preferred, 62, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 62, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // Disconnecting the preferred renderer restores the legacy size.
+    drop(preferred);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    close_terminal_surface(&harness.socket, surface, 4);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+fn send_viewer_size(connection: &mut DirectHostConnection, request_id: u64, cols: u16, rows: u16) {
+    let mut frame = Frame::new(MessageKind::ViewerSize, Vec::new());
+    frame.request_id = request_id;
+    frame.payload.extend_from_slice(&cols.to_le_bytes());
+    frame.payload.extend_from_slice(&rows.to_le_bytes());
+    write_frame(&mut connection.stream, &frame).unwrap();
+}
+
+/// Reads the sequenced Resized + Colors pair of one canonical grid change.
+fn expect_resized_pair(connection: &mut DirectHostConnection, cols: u16, rows: u16) {
+    let resized = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(resized.request_id, 0);
+    assert_eq!(resized.sequence, connection.next_sequence);
+    assert_eq!(&resized.payload[..2], &cols.to_le_bytes());
+    assert_eq!(&resized.payload[2..4], &rows.to_le_bytes());
+    let colors = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.sequence, connection.next_sequence.wrapping_add(1));
+    connection.next_sequence = connection.next_sequence.wrapping_add(2);
+}
+
+fn expect_resize_ack(
+    connection: &mut DirectHostConnection,
+    request_id: u64,
+    cols: u16,
+    rows: u16,
+    changed: bool,
+) {
+    let ack = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::ResizeAck);
+    assert_eq!(ack.request_id, request_id);
+    assert_eq!(ack.sequence, 0);
+    let flags = if changed { RESIZE_ACK_CANONICAL_CHANGED } else { 0 };
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&cols.to_le_bytes());
+    payload.extend_from_slice(&rows.to_le_bytes());
+    payload.extend_from_slice(&flags.to_le_bytes());
+    assert_eq!(ack.payload, payload);
+}
+
+#[test]
 fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-crash", 2_000);
     let stream = transport::connect(&harness.socket).unwrap();
@@ -4094,185 +4182,6 @@ fn shutdown_daemon_with_end_terminals_leaves_no_terminal_host() {
     wait_for_no_host_records(&harness.host_root());
 }
 
-/// `shutdown-daemon` with `end_terminals` and `keep_layout` ends every host
-/// but keeps each placed terminal's tab: the next owner shows the same
-/// screens, splits, ratios and tab identities, each tab dead so a frontend
-/// can start a new shell in it. A terminal without a tab still ends
-/// outright.
-#[test]
-fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
-    let mut harness = RecoveryHarness::start("shutdown-keep-layout");
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "kept",
-        }),
-    );
-    let kept_workspace = |tree: &serde_json::Value| {
-        tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|workspace| workspace["name"] == "kept")
-            .cloned()
-            .expect("the kept workspace is missing")
-    };
-    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
-    let pane = kept_workspace(&tree)["screens"][0]["panes"][0]["id"].as_u64().unwrap();
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "split", "pane": pane, "dir": "right"}),
-    );
-    let (detached, _) = run_cat_workspace(&harness.socket, 4, "detached");
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 5, "cmd": "set-terminal-keep", "terminal_id": detached, "keep": true}),
-    );
-    let tree = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "list-workspaces"}));
-    let detached_surface = tree["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["name"] == "detached")
-        .and_then(first_tab)
-        .and_then(|tab| tab["surface"].as_u64())
-        .unwrap();
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 7, "cmd": "close-surface", "surface": detached_surface}),
-    );
-    wait_for_host_records(&harness.host_root(), 3);
-    let tree = request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
-    let before = kept_workspace(&tree);
-    // Numeric pane and split handles are per owner; compare durable ids and
-    // the split shape (direction and ratio).
-    let layout = |workspace: &serde_json::Value| {
-        workspace["screens"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|screen| {
-                let shape = serde_json::json!({
-                    "type": screen["layout"]["type"],
-                    "dir": screen["layout"]["dir"],
-                    "ratio": screen["layout"]["ratio"],
-                });
-                let tabs = screen["panes"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|pane| {
-                        (
-                            pane["resource_id"].clone(),
-                            pane["tabs"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|tab| tab["tab_resource_id"].clone())
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                (screen["resource_id"].clone(), shape, tabs)
-            })
-            .collect::<Vec<_>>()
-    };
-    let expected = layout(&before);
-    assert_eq!(expected[0].2.len(), 2, "the split did not make a second pane: {before}");
-
-    let identify = request(&harness.socket, serde_json::json!({"id": 9, "cmd": "identify"}));
-    assert!(
-        identify["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|capability| capability == "end-terminals-keep-layout-v1"),
-        "{identify}"
-    );
-    let accepted = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 10,
-            "cmd": "shutdown-daemon",
-            "pid": identify["pid"],
-            "generation": identify["generation"],
-            "end_terminals": true,
-            "keep_layout": true,
-        }),
-    );
-    assert_eq!(accepted["accepted"], true);
-    assert_eq!(accepted["ended_terminals"], 3);
-    let mut daemon = harness.child.take().unwrap();
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while daemon.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    wait_for_no_host_records(&harness.host_root());
-
-    harness.restart();
-    let tree = request(&harness.socket, serde_json::json!({"id": 11, "cmd": "list-workspaces"}));
-    let after = kept_workspace(&tree);
-    assert_eq!(after["resource_id"], before["resource_id"]);
-    assert_eq!(layout(&after), expected, "the layout changed across the restart: {after}");
-    for screen in after["screens"].as_array().unwrap() {
-        for pane in screen["panes"].as_array().unwrap() {
-            for tab in pane["tabs"].as_array().unwrap() {
-                assert_eq!(tab["dead"], true, "a kept tab came back live: {tab}");
-                // The workspace store's keep-layout record, with the shell's
-                // directory recorded by the session host before it ended.
-                assert!(
-                    tab["relaunch"]["cwd"].is_string(),
-                    "a kept tab has no relaunch record: {tab}"
-                );
-            }
-        }
-    }
-    // A frontend restarts a kept tab by opening a new tab next to it and
-    // closing the dead one, which has no runtime surface after the restart.
-    let kept_surface = after["screens"][0]["panes"][1]["tabs"][0]["surface"].as_u64().unwrap();
-    let pane = after["screens"][0]["panes"][1]["id"].as_u64().unwrap();
-    request(&harness.socket, serde_json::json!({"id": 13, "cmd": "new-tab", "pane": pane}));
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 14, "cmd": "close-surface", "surface": kept_surface}),
-    );
-    let tree = request(&harness.socket, serde_json::json!({"id": 15, "cmd": "list-workspaces"}));
-    let tabs = kept_workspace(&tree)["screens"][0]["panes"][1]["tabs"].clone();
-    assert_eq!(tabs.as_array().unwrap().len(), 1, "{tabs}");
-    assert_eq!(tabs[0]["dead"], false, "{tabs}");
-    assert!(tabs[0]["relaunch"].is_null(), "a new tab carries a relaunch record: {tabs}");
-    let resolved = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 12, "cmd": "resolve-terminal", "terminal_id": detached}),
-    );
-    assert_ne!(
-        resolved["data"]["lifecycle"], "running",
-        "the unplaced terminal survived: {resolved}"
-    );
-}
-
-/// Without `end_terminals`, `keep_layout` is refused: it only describes how
-/// terminals end.
-#[test]
-fn shutdown_daemon_keep_layout_requires_end_terminals() {
-    let harness = RecoveryHarness::start("shutdown-keep-layout-alone");
-    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
-    let response = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id": 2,
-            "cmd": "shutdown-daemon",
-            "pid": identify["pid"],
-            "generation": identify["generation"],
-            "keep_layout": true,
-        }),
-    );
-    assert_eq!(response["ok"], false, "{response}");
-    let ping = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "ping"}));
-    assert_eq!(ping["ok"], true);
-}
-
 #[test]
 fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
     let harness = RecoveryHarness::start("ctrl-d-exit");
@@ -4311,9 +4220,9 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .expect("Ctrl-D removed the workspace identity");
-    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id));
+    // Its only tab went, so the workspace closed too (LAST-TAB-CLOSES-WORKSPACE).
+    assert!(workspace.is_none(), "Ctrl-D left an empty workspace behind: {tree}");
 }
 
 #[test]
@@ -5489,19 +5398,8 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
     harness.child = Some(command.spawn().unwrap());
     wait_for_socket(&harness.socket);
-    let created = resource_request(
-        &harness.socket,
-        "ack-backlog-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Input ack backlog",
-            "initial_content":"empty",
-        }),
-        Some("ack-backlog-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "ack-backlog-workspace", "Input ack backlog");
     // Twenty separate output bursts (8 s of delayed apply), then a reader.
     let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
                   echo bursts-done; read line; echo got-$line";
@@ -5571,3 +5469,6 @@ use process_support::*;
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
+
+#[path = "terminal_host_recovery/keep_layout.rs"]
+mod keep_layout;

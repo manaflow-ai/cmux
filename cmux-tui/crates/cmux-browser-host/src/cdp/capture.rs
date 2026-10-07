@@ -5,10 +5,46 @@ use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
 use std::time::Instant;
 
+/// A tab's turn to capture: one screenshot or PDF of a tab at a time.
+/// Chromium answers overlapping `Page.captureScreenshot` calls of one page
+/// with the wrong region (a clipped capture changes the page's emulation
+/// while it runs; parity 32 got another part of the page). The turn ends
+/// when this is dropped.
+pub(super) struct CaptureTurn<'a> {
+    inner: &'a Inner,
+    target_id: String,
+}
+
+impl Drop for CaptureTurn<'_> {
+    fn drop(&mut self) {
+        if let Some(tab) = self.inner.lock().tabs.get_mut(&self.target_id) {
+            tab.capturing = false;
+        }
+        self.inner.changed.notify_all();
+    }
+}
+
 impl Inner {
+    /// Waits (until `deadline`) for the tab's other capture to end, then
+    /// takes the turn.
+    pub(super) fn capture_turn(
+        &self,
+        target_id: &str,
+        deadline: Instant,
+    ) -> Result<CaptureTurn<'_>, DriverError> {
+        self.wait_for_mut(target_id, deadline, "the tab's other capture", |tab| {
+            (!tab.capturing).then(|| {
+                tab.capturing = true;
+                Ok(())
+            })
+        })?;
+        Ok(CaptureTurn { inner: self, target_id: target_id.to_owned() })
+    }
+
     pub(super) fn screenshot(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
+        let _turn = self.capture_turn(&session.target_id, deadline)?;
         let format = match params.get("format").and_then(Value::as_str) {
             None | Some("png") => "png",
             Some("jpeg") => "jpeg",

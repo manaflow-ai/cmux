@@ -32,7 +32,9 @@ export type PageHandler = (params: unknown) => unknown | Promise<unknown>;
 export interface PageCallOptions {
   /** Pane-protocol decision 31: the intent's operation id; the owner applies it once and echoes it on events. */
   opid?: string;
-  /** An aborted call rejects with `cmux.protocol.cancelled` (the bridge cannot recall a posted call). */
+  /** Aborting (navigation, tab close, the caller gives up) sends `{t:"cancel", id}` so the host
+   * cancels the op, and rejects at once with `cmux.op.cancelled`. A cancelled mutation may or may
+   * not have applied: retry it with the SAME opid (the owner's idempotency key). */
   signal?: AbortSignal;
 }
 
@@ -61,7 +63,8 @@ type Envelope =
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
   | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string }
-  | { t: "unsub"; sub: number };
+  | { t: "unsub"; sub: number }
+  | { t: "cancel"; id: number };
 
 /** A reply-capable message handler (`WKScriptMessageHandlerWithReply`). */
 export interface ReplyHandler {
@@ -89,14 +92,38 @@ export class BridgePageClient implements PageClient {
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
     const signal = options?.signal;
-    if (signal?.aborted) throw pageError("cmux.protocol.cancelled", "cancelled");
+    const cancelled = () =>
+      pageError(
+        "cmux.op.cancelled",
+        "the caller cancelled the op",
+        true,
+        options?.opid ? { opid: options.opid } : undefined,
+      );
+    if (signal?.aborted) throw cancelled();
     const envelope: Envelope & { id: number } =
       options?.opid === undefined
         ? { t: "call", id: this.nextId++, op, params }
         : { t: "call", id: this.nextId++, op, params, opid: options.opid };
-    const reply = await this.post(envelope);
-    if (signal?.aborted) throw pageError("cmux.protocol.cancelled", "cancelled");
-    return reply as R;
+    const reply = this.post(envelope);
+    if (!signal) return (await reply) as R;
+    return await new Promise<R>((resolve, reject) => {
+      const onAbort = () => {
+        // The host cancels the op; its late answer for this id is ignored.
+        void this.handler.postMessage({ t: "cancel", id: envelope.id } satisfies Envelope).catch(() => undefined);
+        reject(cancelled());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      reply.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          if (!signal.aborted) resolve(value as R);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          if (!signal.aborted) reject(error);
+        },
+      );
+    });
   }
 
   async subscribe<E>(

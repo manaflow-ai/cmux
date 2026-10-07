@@ -11,6 +11,8 @@ public final class BrowserDownload: Identifiable {
         case finished
         case failed(String)
         case cancelled
+        /// Refused before it started; the text says why (localized).
+        case blocked(String)
     }
 
     public let id = UUID()
@@ -26,7 +28,13 @@ public final class BrowserDownload: Identifiable {
     public internal(set) var bytesPerSecond: Int64?
     public internal(set) var isPaused = false
     public internal(set) var status: Status = .inProgress
+    /// The site (origin) whose automatic-downloads setting blocked this
+    /// download; its Site settings change the choice. Nil otherwise.
+    public internal(set) var blockedSite: String?
 
+    /// Where the file is written and lands (`BrowserDownloadPlacement`).
+    @ObservationIgnored
+    var placement: BrowserDownloadPlacement?
     @ObservationIgnored
     var cancelHandler: (() -> Void)?
     /// Pause and resume, when the engine can (Chromium).
@@ -38,6 +46,16 @@ public final class BrowserDownload: Identifiable {
     public init(sourceURL: URL?, filename: String) {
         self.sourceURL = sourceURL
         self.filename = filename
+    }
+
+    /// A download refused before it started, listed blocked: `reason`
+    /// says why, `site` is the site whose setting blocked it. Both engines
+    /// list their refused automatic downloads through this.
+    static func blocked(sourceURL: URL?, suggestedName: String, site: String?, reason: String) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: DownloadDestination.sanitizedFilename(suggestedName))
+        item.blockedSite = site
+        item.complete(.blocked(reason))
+        return item
     }
 
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }
@@ -69,11 +87,28 @@ public final class BrowserDownload: Identifiable {
         fraction = total.flatMap { $0 > 0 ? min(Double(received) / Double($0), 1) : nil }
     }
 
-    /// The download ended. Both engines end every download here, so the
-    /// completion steps of `BrowserDownloadPolicy` (quarantine) run for
-    /// each finished file, and only the first end counts.
+    /// The download ended. Both engines end every download here, so a
+    /// finished file moves from its temporary name into place
+    /// (`BrowserDownloadPlacement.finish`; a failed move fails the
+    /// download), the completion steps of `BrowserDownloadPolicy`
+    /// (quarantine) run on the file where it landed, a failed or cancelled
+    /// download leaves no file, and only the first end counts.
     func complete(_ end: Status) {
         guard status == .inProgress, end != .inProgress else { return }
+        var end = end
+        if let placement {
+            if end == .finished {
+                do {
+                    let landed = try placement.finish()
+                    destination = landed
+                    filename = landed.lastPathComponent
+                } catch {
+                    end = .failed(error.localizedDescription)
+                }
+            } else {
+                placement.discard()
+            }
+        }
         if end == .finished {
             fraction = 1
             BrowserDownloadPolicy.runCompletionSteps(for: self)

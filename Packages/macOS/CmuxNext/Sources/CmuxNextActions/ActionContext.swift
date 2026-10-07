@@ -43,6 +43,14 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// (Cmd-Return: open in a new tab) need it, so they beat the actions
     /// that share those chords elsewhere (Toggle Pane Zoom).
     public static let omnibarFocused = ActionContext(rawValue: 1 << 17)
+    /// The code editor page (Monaco, `cmux.editor`) has the keyboard: its
+    /// editing chords win over the app chords that share them (R127).
+    public static let codeEditorFocused = ActionContext(rawValue: 1 << 18)
+
+    /// Contexts whose page owns bare keys (no Command, Control or Option):
+    /// only while one holds, and no text field has the keyboard, may a
+    /// binding of a bare key run (the diff viewer's j, k, G, /).
+    public static let bareKeyOwners: ActionContext = [.diffViewerFocused]
 }
 
 extension ActionContext {

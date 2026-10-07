@@ -72,6 +72,7 @@ fn a_push_answers_before_the_copy_ends_and_its_end_is_an_event() {
         }
     }
     let changed = changed.expect("a cloud.file.transfer.changed line after the release");
+    let changed = &changed["data"];
     assert_eq!(changed["transfer"], id);
     assert_eq!(changed["state"], "done", "{changed}");
     assert_eq!(changed["machine"], "vm-alpha01");
@@ -132,7 +133,7 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
     let mut ended = false;
     while let Some(line) = host.next() {
         if line["event"] == "cloud.file.transfer.changed" {
-            assert_eq!(line["state"], "done", "{line}");
+            assert_eq!(line["data"]["state"], "done", "{line}");
             ended = true;
             break;
         }

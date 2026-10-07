@@ -31,14 +31,21 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         directorySource?.cancel()
     }
 
-    /// Arms the watch, then reports one change so the consumer reads the
-    /// file after the watch exists (a save between the consumer's first
-    /// read and arming would otherwise be missed).
+    /// Arms the watch, then optionally reports one change so the consumer
+    /// reads the file after the watch exists. A consumer that already has a
+    /// current snapshot can disable that initial notification and react only
+    /// to subsequent edits.
     public func start() {
-        queue.async { [self] in
+        start(reportInitialChange: true)
+    }
+
+    public func start(reportInitialChange: Bool = true) {
+        // Arm before returning so a caller that just read a snapshot cannot
+        // lose a save in the gap between that read and the watcher setup.
+        queue.sync { [self] in
             isStopped = false
             rearm()
-            onChange()
+            if reportInitialChange { onChange() }
         }
     }
 

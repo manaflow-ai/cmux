@@ -32,4 +32,9 @@ cp "$src/backend/catalog/cloud-relay-operations.json" "$code_mode/cloud-relay-op
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-macos-profile" "$bin/cmux-code-mode-macos-profile"
 
+# Rust and Zig standard library notices for every bundled binary that links
+# them (cmux-tui/build-support/notices/toolchains; check_bundle_notices.py
+# rust-std and zig-std). Fails when a stored text does not match its sha256.
+python3 "$src/cmux-tui/build-support/notices/toolchains/toolchain_notices.py" install --resources "$dest"
+
 echo "bundled CLI resources into $dest"

@@ -1,12 +1,14 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextPages
+import Observation
 import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
-/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The page
-/// connects to acpmux itself after the handshake; this view only answers
+/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The model's
+/// ``AgentPaneTransport`` owns the acpmux socket and relays its frames to the
+/// page (the page never holds an endpoint or a token); this view answers
 /// host requests, keeps the page on its source, and applies the theme
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
@@ -54,9 +56,13 @@ public final class AgentPaneView: NSView {
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
+    private var uiScaleObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
-
+    /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
+    private var gestureMonitor: Any?
+    /// Paces the transport's pushes (stopped when the pane closes).
+    var transportPacer: AgentPaneFramePacer?
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -127,6 +133,7 @@ public final class AgentPaneView: NSView {
                 AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
             )
         }
+        SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
@@ -148,6 +155,15 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A frame that grants needs a real gesture in this pane; page script cannot make one.
+        gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
+            guard Thread.isMainThread else { return event }
+            // crash-allow: guarded by Thread.isMainThread above, so it cannot trap; the decision must read the window's focus and the web view's bounds at event time, before AppKit dispatches the event, which a hop would read too late
+            MainActor.assumeIsolated { self?.monitored(event) }
+            return event
+        }
+        installTransport()
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -156,6 +172,7 @@ public final class AgentPaneView: NSView {
         }
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
+        observeUIScale()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -181,6 +198,21 @@ public final class AgentPaneView: NSView {
             forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyTheme() }
         }
+    }
+
+    private func observeUIScale() {
+        guard page == nil else { return }
+        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+        uiScaleObservation = Task { [weak self] in
+            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+                guard let self else { return }
+                self.webView.pageZoom = Double(DesignSettings.shared.uiScale)
+            }
+        }
+    }
+
+    deinit {
+        uiScaleObservation?.cancel()
     }
 
     @available(*, unavailable)
@@ -226,40 +258,15 @@ public final class AgentPaneView: NSView {
     lazy var snapshotPage: () async -> NSImage? = { [weak self] in
         try? await self?.webView.takeSnapshot(configuration: nil)
     }
-    /// Waits out the re-apply's steps (tests set it).
-    // wakeup-allow: one-shot steps of a render-rate change (33 ms hidden, 50 ms covered), injected for tests
-    var pause: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    /// Times the re-apply's steps (tests set it).
+    var clock: any Clock<Duration> = ContinuousClock()
 
-    /// WebKit reads the rate only when the page's visibility changes, so the
-    /// web view is hidden for a moment and shown again. A snapshot of the
-    /// page covers it meanwhile; the adaptive rate changes only after a
-    /// scroll settles, so the snapshot matches what is on screen. Without a
-    /// snapshot the rate waits for the next visibility change instead of
-    /// blinking the page.
+    /// WebKit reads the rate only when the page's visibility changes: the
+    /// shared re-show hides the web view for a moment under a snapshot of
+    /// the page. The adaptive rate changes only after a scroll settles, so
+    /// the snapshot matches what is on screen.
     private func reapplyRenderRate() {
-        let previous = rateReapply
-        rateReapply = Task { [weak self] in
-            await previous?.value
-            guard let self, let image = await self.snapshotPage() else { return }
-            let cover = NSImageView(frame: self.webView.frame)
-            cover.image = image
-            cover.imageScaling = .scaleAxesIndependently
-            cover.autoresizingMask = [.width, .height]
-            self.addSubview(cover, positioned: .above, relativeTo: self.webView)
-            let focused = (self.window?.firstResponder as? NSView)?.isDescendant(of: self.webView) == true
-            self.webView.isHidden = true
-            // Hiding hands keyboard focus to the next key view; take it back
-            // unless the user moved it meanwhile.
-            let handedTo = self.window?.firstResponder
-            await self.pause(.milliseconds(33))
-            self.webView.isHidden = false
-            if focused, let window = self.window, window.firstResponder === handedTo {
-                window.makeFirstResponder(self.webView)
-            }
-            // The shown page paints its first frame under the cover.
-            await self.pause(.milliseconds(50))
-            cover.removeFromSuperview()
-        }
+        rateReapply = WebKitRenderRate.reshow(webView, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
     }
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
@@ -294,6 +301,8 @@ public final class AgentPaneView: NSView {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
+        // The user pressed the app's permission shortcut: that is the gesture its answer uses.
+        model.transport.gestures.record()
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
@@ -307,13 +316,19 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
         if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
-        reduceMotionObserver = nil
-        reduceMotionOverrideObserver = nil
+        (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
         dictation.close()
+        model.shell.terminateAll()
+        if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
+        gestureMonitor = nil
+        if let connection = model.transport.connection { model.transport.close(connection: connection) }
+        model.transport.deliver = nil
+        transportPacer?.stop()
         if let page {
             page.close()
         } else {
@@ -343,7 +358,6 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
-
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
         self?.webView.evaluateJavaScript(script, completionHandler: nil)
@@ -353,20 +367,6 @@ public final class AgentPaneView: NSView {
     /// selects its text, wherever focus was on the page.
     public func focusLocation() {
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
-    }
-
-    /// Pushes ``customization`` to the page, even an empty one (it clears
-    /// what removed files left behind).
-    func applyCustomization() {
-        deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
-    }
-
-    /// Re-pushes a non-empty ``customization`` to a page that may not have
-    /// had its bridge yet (a load finishing, the page asking for the
-    /// handshake once its bridge exists).
-    func replayCustomization() {
-        guard !customization.isEmpty else { return }
-        applyCustomization()
     }
 
     /// The page's surface for overrides (R55): new tab page until a chat starts.

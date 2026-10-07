@@ -18,12 +18,11 @@ import Testing
         return services
     }
 
-    @Test func theStepFollowsRoleOnlyWhenTheAppCanRunAChat() {
+    @Test func theStepOpensAloneOnlyWhenTheAppCanRunAChat() {
         #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.firstTask))
-        let model = OnboardingModel(services: services())
-        #expect(model.steps == [.role, .firstTask, .projects, .chats, .defaultBrowser, .importData, .theme])
-        model.next()
-        #expect(model.step == .firstTask)
+        #expect(!OnboardingModel(services: MockOnboardingServices(), start: .firstTask).steps.contains(.firstTask))
+        #expect(!OnboardingModel(services: services()).steps.contains(.firstTask), "the first run has no first task")
+        #expect(OnboardingModel(services: services(), start: .firstTask).steps == [.firstTask])
     }
 
     @Test func theChartTaskGetsTheSampleSheetAndTheChatItsFolderAndPrompt() async throws {
@@ -72,9 +71,10 @@ import Testing
     }
 
     @Test func theNoteTaskWritesNothingAndSkipCreatesNoFolder() async {
-        let skipped = OnboardingModel(services: services(), start: .firstTask)
+        let skipping = services()
+        let skipped = OnboardingModel(services: skipping, start: .firstTask)
         skipped.skipStep()
-        #expect(skipped.step == .projects)
+        #expect(skipping.ended == true)
         #expect(!FileManager.default.fileExists(atPath: skipped.firstTask.folder.url.path))
 
         let model = OnboardingModel(services: services(), start: .firstTask)

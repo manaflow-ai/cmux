@@ -76,6 +76,11 @@ pub(crate) use supervisor::{ApiError, Supervisor};
 /// The capability string; advertised only when the app host binary exists.
 pub const CAPABILITY: &str = "apps-v1";
 
+/// The `identify` capability of a daemon that takes the caller cancel
+/// `{"cmd":"cancel-request","target":<the apps-run id>}` (spec/cli.md);
+/// advertised with [`CAPABILITY`].
+pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {
@@ -113,6 +118,15 @@ impl AppsSlot {
             .clone()
     }
 
+    /// `client` cancels its own request `target` (`cancel-request`). Before
+    /// the first `apps-*` command no run exists, so there is nothing to do.
+    #[cfg(unix)]
+    pub(crate) fn cancel_request(&self, client: u64, target: &serde_json::Value) {
+        if let Some(supervisor) = self.supervisor.get() {
+            supervisor.cancel_request(client, target);
+        }
+    }
+
     pub(crate) fn disconnect(&self, client: u64) {
         #[cfg(unix)]
         if let Some(supervisor) = self.supervisor.get() {
@@ -121,6 +135,16 @@ impl AppsSlot {
         #[cfg(not(unix))]
         let _ = (client, &self.supervisor);
     }
+}
+
+/// The capabilities `identify` advertises for apps: `apps-v1` and
+/// `cancel-request-v1` when this build can run apps here, else none.
+pub(crate) fn advertised_capabilities() -> Vec<&'static str> {
+    advertised_with(advertised().is_some())
+}
+
+pub(crate) fn advertised_with(app_host: bool) -> Vec<&'static str> {
+    if app_host { vec![CAPABILITY, CANCEL_REQUEST_CAPABILITY] } else { Vec::new() }
 }
 
 /// The capability to advertise, if this build can run apps here.

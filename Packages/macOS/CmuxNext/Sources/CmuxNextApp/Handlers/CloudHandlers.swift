@@ -16,6 +16,7 @@ enum CloudHandlers {
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
+        bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
@@ -44,6 +45,13 @@ enum CloudHandlers {
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
         if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
+    }
+
+    /// The origin of a connect an invocation starts: `user` only for the
+    /// user's own gesture in this app (click, menu, palette, key); the CLI,
+    /// MCP, a script, another client or a page connects as `script`.
+    static func connectOrigin(for invocation: ActionInvocation) -> CloudLinkOrigin {
+        invocation.origin == .user ? .user : .script
     }
 
     /// The active cmux window (sheets attach there, never to a helper panel).

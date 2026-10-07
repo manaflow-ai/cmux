@@ -148,6 +148,8 @@ pub struct PrewarmRequest {
     pub wait: bool,
     /// Asked over a remote-origin connection: refused.
     pub remote: bool,
+    /// Whether the request came from a gated LocalApp/Web path.
+    pub trust_gate: bool,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -257,9 +259,14 @@ impl Hub {
     ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, None, false)?
+            self.resolve_new(&cfg, harness, &preset, None, false, None)?
         };
         let family = crate::config::derive_family(&r.agent, &r.profile);
+        // A pooled agent starts before anyone asks for it: never in the home
+        // folder, `/` or a privacy-protected folder.
+        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+            return Err(RpcError::invalid_params(reason));
+        }
         let cwd = super::adoption::session_cwd(Some(cwd), None, &family)?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
@@ -289,20 +296,20 @@ impl Hub {
         if !self.pool_enabled().await {
             return Ok(json!({"accepted": false, "reason": "the session pool is off"}));
         }
-        let cwd = match req.cwd.clone() {
-            Some(c) => c,
-            None => self
-                .sessions()
-                .into_iter()
-                .find(|s| !s.meta().remote_origin)
-                .map(|s| s.meta().cwd)
-                .or_else(dirs::home_dir)
-                .unwrap_or_else(|| PathBuf::from("/")),
+        // No folder named, no pooled agent: never the home folder or `/` by
+        // default (LAUNCH-NO-TCC-PROMPTS).
+        let Some(cwd) = req.cwd.clone().or_else(|| {
+            self.sessions().into_iter().find(|s| !s.meta().remote_origin).map(|s| s.meta().cwd)
+        }) else {
+            return Ok(json!({"accepted": false, "reason": "no folder to prewarm in"}));
         };
+        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+            return Ok(json!({"accepted": false, "reason": reason}));
+        }
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -314,6 +321,17 @@ impl Hub {
             }
             hub.wait_startup().await;
             let spec = hub.pool_spec(harness, preset, cwd).await?;
+            if trust_gate && let Some(paths) = hub.trust_gate() {
+                let folder = spec.draft.cwd.to_string_lossy().into_owned();
+                let family =
+                    spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
+                if !hub.folder_trusted_cwd(paths, folder, family).await {
+                    return Err(RpcError::invalid_params(
+                        "trust.pending: answer the trust question for the folder first",
+                    )
+                    .with_data(json!({"reason": "trust.pending"})));
+                }
+            }
             let key = spec.key.clone();
             hub.pool_want(Role::Hinted, spec).await;
             Ok::<_, RpcError>(Some(key))
@@ -538,7 +556,7 @@ impl Hub {
             } else {
                 Some(
                     child
-                        .request(method::SESSION_NEW, json!({"cwd": draft.cwd, "mcpServers": []}))
+                        .request(method::SESSION_NEW, self.acp_params(draft, &spec.spawn, None))
                         .await?,
                 )
             };
@@ -720,8 +738,11 @@ impl Hub {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_session_id = state.session_id;
-            m.modes = Some(state.modes);
-            m.config_options = Some(state.config_options);
+            drop(m);
+            self.write_mode_state(
+                session,
+                [ModeWrite::Modes(state.modes), ModeWrite::ConfigOptions(state.config_options)],
+            );
         } else if let Some(res) = &p.new_result {
             let sid = res.get("sessionId").and_then(Value::as_str).map(str::to_owned);
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = sid;

@@ -61,18 +61,28 @@ nonisolated enum UpdaterStrings {
 
     static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
 
-    // R114 card
+    /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
+    /// the relaunch keeps terminals and agents (browser pages reload).
+    static var restartKeepsSessions: String {
+        text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
+    }
+
+    // The update card (UPDATE-CARD)
+    static func cardReady(_ version: String) -> String { format("updater.card.ready", "cmux %@ is ready", version) }
+    static var cardReadyNoVersion: String { text("updater.card.readyNoVersion", "An update is ready") }
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
-    static func cardReadyDetail(_ version: String) -> String { format("updater.card.readyDetail", "cmux %@ is ready", version) }
-    static var cardReadyDetailNoVersion: String { text("updater.card.readyDetailNoVersion", "A new version is ready") }
-    static func cardAvailableDetail(_ version: String) -> String {
-        format("updater.card.availableDetail", "Click to download and install cmux %@", version)
+    static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
+    static func downloadedHeadline(_ version: String) -> String {
+        format("updater.card.downloaded", "Update %@ downloaded. Click to restart and install.", version)
     }
-    static var cardWaitingTitle: String { text("updater.card.waitingTitle", "Update Waits for Agents") }
-    static func cardWaitingDetail(_ count: Int) -> String {
-        format("updater.card.waitingDetail", "Installs when the running agents finish (%ld)", count)
+    static var downloadedHeadlineNoVersion: String {
+        text("updater.card.downloadedNoVersion", "Update downloaded. Click to restart and install.")
     }
-    static var installNow: String { text("updater.button.installNow", "Install Now") }
+    static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
+    static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
+    static func moreChanges(_ count: Int) -> String {
+        count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
+    }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

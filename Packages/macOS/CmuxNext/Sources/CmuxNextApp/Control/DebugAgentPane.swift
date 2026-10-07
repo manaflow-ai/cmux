@@ -26,7 +26,8 @@ import WebKit
 /// `select_session` (`session`), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
-/// `pid` (the WebContent process, for profiling), or
+/// `readiness` (page body, transcript and composer metrics), `click` (`selector`
+/// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
@@ -47,14 +48,22 @@ enum DebugAgentPane {
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
-        const debug = window.cmuxAcpmuxDebug;
+        let debug = window.cmuxAcpmuxDebug;
+        for (let frame = 0; !debug && frame < 120; frame += 1) {
+            await new Promise(requestAnimationFrame);
+            debug = window.cmuxAcpmuxDebug;
+        }
         if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });
         return JSON.stringify((await debug[fn](...args)) ?? null);
         """
 
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
-        guard let services, let (pane, view) = agentPane(params, services: services) else {
-            return .object(["error": .string("no agent tab in the given or focused pane")])
+        guard let services else { return .object(["error": .string("no app services")]) }
+        let pane: String
+        let view: AgentPaneView
+        switch agentPane(params, services: services) {
+        case let .success(target): (pane, view) = target
+        case let .failure(failure): return .object(["error": .string(failure.message), "agent_panes": .array(failure.panes.map(JSONValue.string))])
         }
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
@@ -66,12 +75,25 @@ enum DebugAgentPane {
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
         }
+        if action == "gesture_state" {
+            // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
+            let state = view.model.transport.gestures.debugState
+            var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
+            fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            return .object(fields)
+        }
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
+        if action == "readiness" {
+            return await readiness(pane: pane, view: view)
+        }
+        if action == "click" {
+            return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate or gesture_state")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -83,6 +105,37 @@ enum DebugAgentPane {
                 return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
             }
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
+            members["pane"] = .string(pane)
+            return .object(members)
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        }
+    }
+
+    private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
+        let script = """
+        const bodyText = (document.body?.innerText || '').trim();
+        const composer = document.querySelector('.acpmux-composer');
+        const composerRect = composer?.getBoundingClientRect();
+        const debug = window.cmuxAcpmuxDebug;
+        const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
+        const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        return JSON.stringify({
+          body_text_length: bodyText.length,
+          transcript_rows: transcriptRows,
+          composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
+          composer_text_length: (composer?.innerText || '').trim().length,
+          document_ready: document.readyState === 'complete'
+        });
+        """
+        do {
+            let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            guard let text = result as? String,
+                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let value = JSONValue(foundation: object),
+                  case .object(var members) = value else {
+                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
+            }
             members["pane"] = .string(pane)
             return .object(members)
         } catch {
@@ -139,24 +192,46 @@ enum DebugAgentPane {
         }
     }
 
-    /// The agent page shown in `pane`, or in the first window whose focused
-    /// pane shows one.
-    private static func agentPane(_ params: [String: JSONValue], services: AppServices) -> (String, AgentPaneView)? {
+    /// Why `debug.agent_pane` found no target, and the panes that show an agent tab.
+    struct TargetFailure: Error {
+        let message: String
+        let panes: [String]
+    }
+
+    /// The agent page shown in `pane`. Untargeted: the agent tab in a window's focused pane, else
+    /// the only pane that shows one (a new agent tab that took no focus, as an untargeted
+    /// `palette.newAgentChat` in a window that is not key makes). With several such panes and
+    /// none focused it fails and names them, so the caller passes `pane` instead of a guess.
+    static func agentPane(_ params: [String: JSONValue], services: AppServices) -> Result<(String, AgentPaneView), TargetFailure> {
         let requested = params["pane"]?.stringValue
+        func shown(_ pane: PaneController?) -> (String, AgentPaneView)? {
+            guard let pane, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) else { return nil }
+            return (pane.paneKey, view)
+        }
+        var showing: [(String, AgentPaneView)] = []
         for controller in services.windows.controllers {
             guard let content = controller.content else { continue }
-            let candidate: PaneController?
             if let requested {
-                candidate = content.paneController(key: requested)
-            } else {
-                candidate = content.focusedPane
+                if let target = shown(content.paneController(key: requested)) { return .success(target) }
+                continue
             }
-            guard let paneController = candidate,
-                  let key = paneController.currentTabKey,
-                  let view = services.agentTabs.existingView(key) else { continue }
-            return (paneController.paneKey, view)
+            if let target = shown(content.focusedPane) { return .success(target) }
+            // Layout order, so the report is deterministic.
+            for id in content.layoutModel.screens.flatMap(\.layout.panes) {
+                if let target = shown(content.panes[id]) { showing.append(target) }
+            }
         }
-        return nil
+        if let requested {
+            return .failure(TargetFailure(message: "pane \(requested) shows no agent tab", panes: []))
+        }
+        if showing.count == 1, let only = showing.first { return .success(only) }
+        let panes = showing.map(\.0)
+        return .failure(TargetFailure(
+            message: panes.isEmpty
+                ? "no pane shows an agent tab"
+                : "no focused pane shows an agent tab and \(panes.count) panes do; pass \"pane\"",
+            panes: panes
+        ))
     }
 }
 #endif

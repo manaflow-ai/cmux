@@ -191,3 +191,32 @@ fn link_token_vectors_mint_a_fresh_token_per_call() {
         }
     }
 }
+
+/// Every code a backend Cloud op declares maps to a typed client code: a
+/// person sees why (not running, busy, grow only, ...), never a bare
+/// `upstream_error`. Only `owner.unreachable` is an upstream failure by
+/// meaning.
+#[test]
+fn every_declared_backend_code_maps_to_a_typed_client_code() {
+    let mut untyped = Vec::new();
+    for op in cmux_cloud::ops::backend_ops() {
+        for code in cmux_cloud::ops::declared_errors(op).expect("declared") {
+            if *code == "owner.unreachable" {
+                continue;
+            }
+            let error = cmux_cloud::WireError {
+                code: (*code).to_owned(),
+                message: "vector".into(),
+                details: None,
+                retryable: false,
+            };
+            let mapped = CloudError::from_wire_for(op, &error);
+            if mapped.code == "cmux.cloud.upstream_error" {
+                untyped.push(format!("{op}: {code}"));
+            }
+        }
+    }
+    untyped.sort();
+    untyped.dedup();
+    assert!(untyped.is_empty(), "codes with no typed client code: {untyped:#?}");
+}

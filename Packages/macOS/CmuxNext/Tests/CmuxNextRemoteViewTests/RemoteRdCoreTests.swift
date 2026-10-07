@@ -1,4 +1,3 @@
-#if CMUX_RD_FFI
 import CCmuxRdFFI
 import Foundation
 import Testing
@@ -163,4 +162,3 @@ struct RemoteRdCoreTests {
         #expect(stats.needRecovery)
     }
 }
-#endif

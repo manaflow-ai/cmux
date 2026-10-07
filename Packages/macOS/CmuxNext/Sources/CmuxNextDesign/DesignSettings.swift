@@ -24,7 +24,12 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
+    public var showModifierHoldHints = true
     public var density: Density = .compact
+    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// Terminal content deliberately remains owned by Ghostty's font size.
+    public var uiScale: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast
     /// Per-metric overrides in points, clamped by `setOverride`.
@@ -130,5 +135,10 @@ public final class DesignSettings {
         case .chromeFontSize: 10...16
         case .titlebarHeight: 24...56
         }
+    }
+
+    /// Clamps the app-wide interface scale to the supported range.
+    public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.85), 1.5)
     }
 }

@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextDaemon
+import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
 /// focused terminal (`TabModel.agent`, from `list-agents` state) and start
@@ -26,6 +28,11 @@ enum AgentHandlers {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        AgentSessionWorkspace.bind(into: registry, context: context)
+        ChiefInspectorHandlers.bind(into: registry, context: context)
+        registry.bind("home.toggleChiefSettings", run: { _ in
+            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
+        })
         // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
         // The panel takes the keyboard from the frontmost app, so automation
         // cannot open it unless it asks for focus.
@@ -37,9 +44,32 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
-            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
-            if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
-            pane.newAgentTab()
+            if let pane = context.scope(invocation).pane {
+                openNewAgentChat(in: pane, invocation: invocation, context: context)
+                return
+            }
+            // Cmd-I is also the entry point while a workspace is settling and
+            // has no mounted pane yet. Reuse Cmd-T's shared path to repair or
+            // create the active workspace's first usable pane, then wait for
+            // its controller before opening the agent tab. Explicit targets
+            // still fail normally instead of silently switching panes.
+            guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
+            guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
+            _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+            context.registry.track(Task { @MainActor in
+                let pane = try? await ControlDeadline.shared.run(
+                    method: "agent-pane.mount",
+                    deadline: .now + .seconds(10)
+                ) { @MainActor in
+                    await Self.waitForPaneController(in: workspace, context: context)
+                }
+                guard let pane else {
+                    context.refuse(MiscHandlerStrings.noPane)
+                    return ActionWorkFailure(MiscHandlerStrings.noPane)
+                }
+                openNewAgentChat(in: pane, invocation: invocation, context: context)
+                return nil
+            })
         }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
@@ -53,13 +83,13 @@ enum AgentHandlers {
             }
             view.toggleDictation()
         })
-        // Cmd-K in an agent chat: the page's "Search chats" palette over its sessions.
-        registry.bind("agentPane.searchChats", run: { invocation in
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
-                return context.refuse(MiscHandlerStrings.noAgentChat)
-            }
-            view.showSearchChats()
+        // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
+        context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
+            services.map { AgentChatsPalettePage(services: $0).page() }
+        }
+        registry.bind("agentPane.searchChats", run: { _ in
+            context.services.palette.show(page: AgentChatsPalettePage(services: context.services).page(),
+                                          relativeTo: context.activeWindow?.window)
         })
         let permissionCommands: [(ActionID, String)] = [
             ("agentPane.permission.allowOnce", "permissionAllowOnce"),
@@ -108,6 +138,28 @@ enum AgentHandlers {
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
         )
+    }
+
+    @MainActor
+    private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
+        // The store's panes are observable; mounted controllers are not, so
+        // the mount generation stands in for them (`PaneMounts`).
+        let services = context.services
+        func mounted() -> PaneController? {
+            workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
+        }
+        for await isMounted in Observations({ () -> Bool in
+            _ = services.paneMounts.generation
+            return mounted() != nil
+        }) where isMounted {
+            return mounted()
+        }
+        return nil
+    }
+
+    private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+        if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
+        pane.newAgentTab()
     }
 
     /// The shell line that forks `session`, or nil for agents without fork
@@ -167,11 +219,22 @@ enum AgentHandlers {
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
         // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
-        guard !path.isEmpty else { return ViewerHandlers.openFilePicker(invocation, context: context) }
+        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
         // The palette and the control socket accept only the catalog's choices;
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
+        // run), so the tab check for WebKit page types no longer applies.
+        if target == .tab {
+            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
+            guard let pane = context.paneController(invocation) else { return }
+            let opener = context.services.viewers.fileOpener
+            let reason = (opener as? FilePageOpener)?.open(url, in: pane, userChose: invocation.origin == .user) ?? opener.open(url, in: pane)
+            if let reason { throw ActionFailure(message: reason) }
+            return
+        }
         let opening: AgentPaneFileOpening
         do {
             opening = try AgentPaneFileOpening.plan(path: path, target: target)
@@ -186,8 +249,6 @@ enum AgentHandlers {
         }
         if let editor = opening.editor {
             NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
-        } else if let pane = context.paneController(invocation) {
-            pane.newBrowserTab(url: opening.url)
         }
     }
 

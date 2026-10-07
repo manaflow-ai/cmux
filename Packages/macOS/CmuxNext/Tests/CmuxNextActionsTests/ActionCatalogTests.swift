@@ -99,7 +99,9 @@ import Testing
         for descriptor in ActionCatalog.all {
             #expect(!descriptor.title.isEmpty, "\(descriptor.id)")
             #expect(!descriptor.symbol.isEmpty, "\(descriptor.id)")
-            #expect(!descriptor.surfaces.isEmpty, "\(descriptor.id)")
+            // An automation-only action (agent.openSessionWorkspace) has no
+            // human surface; its surface plan names why the palette omits it.
+            #expect(!descriptor.surfaces.isEmpty || descriptor.surfacePlan.palette.exemption != nil, "\(descriptor.id)")
         }
     }
 
@@ -118,6 +120,21 @@ import Testing
     @Test func standardCatalogHasNoUnresolvableShortcutConflicts() {
         let registry = ActionRegistry.standard()
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
+    }
+
+    @Test func browserHistoryOwnsCmdYAndRightSidebarHasNoDigitDefaults() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let browserHistory = try #require(byID["browserShowHistory"])
+        #expect(browserHistory.defaultShortcut == Shortcut("y", modifiers: [.command]))
+        #expect(browserHistory.requires.contains(.browserFocused))
+        #expect(byID["newCloudMachine"]?.defaultShortcut != Shortcut("y", modifiers: [.command]))
+
+        for id: ActionID in [
+            "switchRightSidebarToFiles", "switchRightSidebarToFind", "switchRightSidebarToSessions",
+            "switchRightSidebarToFeed", "switchRightSidebarToDock", "switchRightSidebarToMachines",
+        ] {
+            #expect(byID[id]?.defaultShortcut == nil, "\(id) must not claim a default shortcut")
+        }
     }
 
     @Test func legacyAliasesPointAtCatalogIDs() {

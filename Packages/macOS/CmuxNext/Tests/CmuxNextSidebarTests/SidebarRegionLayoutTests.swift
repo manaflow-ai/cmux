@@ -21,15 +21,15 @@ import Testing
 
     @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref)
-            == [.app("cmux/home"), .app("cmux/app-store"), .builtIn(.newWorkspace), .builtIn(.importSync)])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
         let moved = try SidebarLayoutReducer.reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .bottom, index: 1)).get()
         let bands = moved.bands(room: nil)
-        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
+        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.recentsSectionID,
+                                           SidebarLayoutDocument.bottomSectionID])
         #expect(bands.below.isEmpty)
     }
 
@@ -163,7 +163,7 @@ import Testing
         let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
         let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
         let list = try #require(view.list.enclosingScrollView?.superview).frame
-        #expect(list.minY == aboveBottom && list.maxY == belowTop)
+        #expect(list.minY == aboveBottom && list.maxY == belowTop - SidebarStyle.footerHeight)
 
         model.layout = try SidebarLayoutReducer.reduce(model.layout, .sectionRemove(SidebarLayoutDocument.topSectionID)).get()
         view.needsLayout = true

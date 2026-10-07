@@ -189,12 +189,118 @@ class CheckBundleNoticesTest(unittest.TestCase):
         present = set(checker.MARKER.findall((ROOT / "THIRD_PARTY_LICENSES.md").read_text()))
         self.assertEqual(sorted(needed - present), [])
 
+    # Rust and Zig standard libraries ------------------------------------------
+
+    RUST_BINARIES = (
+        "Contents/Resources/bin/cmux",
+        "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/cmux-app-host",
+        "Contents/Resources/bin/cmux-cloud",
+        "Contents/Resources/bin/cmux-diff-sidecar",
+        # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
+        # app binary; Iroh.framework/Iroh is then a stub without Rust code.
+        "Contents/MacOS/cmux",
+    )
+    ZIG_BINARIES = (
+        "Contents/MacOS/cmux",  # GhosttyNextKit (static)
+        "Contents/Resources/bin/cmux",  # libghostty-vt
+        "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/ghostty",
+    )
+    STD_SECTION = "section:manual-rust-and-zig-standard-libraries"
+
+    def test_every_binary_that_links_a_standard_library_needs_its_notice(self) -> None:
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        notices = {e["path"]: e["notices"] for e in bundle_map["entries"]}
+        for path in self.RUST_BINARIES:
+            self.assertIn("rust-std", notices[path], path)
+            self.assertIn(self.STD_SECTION, notices[path], path)
+        for path in self.ZIG_BINARIES:
+            self.assertIn("zig-std", notices[path], path)
+            self.assertIn(self.STD_SECTION, notices[path], path)
+
+    def std_app(self, rustc_commit: str) -> dict:
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        manifest = toolchain_notices.load()
+        toolchain_notices.install(manifest, self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").write_bytes(THIN + b"/rustc/" + rustc_commit.encode() + b"/library/std/src/lib.rs")
+        return {"entries": [{"path": "Contents/MacOS/app", "notices": ["rust-std", "zig-std"]}]}
+
+    def test_rust_std_requirement_reads_the_rustc_commit_of_the_binary(self) -> None:
+        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")  # 1.95.0
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+        bundle_map = self.std_app("c" * 40)
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("Contents/MacOS/app: missing notice rust-std", errors[0])
+        self.assertIn("c" * 40, errors[0])
+
+    def test_a_binary_with_rust_code_needs_rust_std_in_its_entry(self) -> None:
+        self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        self.assertEqual(
+            checker.check(self.app, MAP),
+            ["Contents/MacOS/app: links the Rust standard library of rustc 59807616e1fa2540724bfbac14d7976d7e4a3860, "
+             "but no bundle-map entry for it requires rust-std"],
+        )
+
+    def test_zig_std_requirement_needs_the_bundled_zig_license(self) -> None:
+        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        (self.app / "Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE").unlink()
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("Contents/MacOS/app: missing notice zig-std", errors[0])
+
+    def test_the_std_section_names_every_bundled_toolchain_text(self) -> None:
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        manifest = toolchain_notices.load()
+        text = (HERE / "hand-written.md").read_text()
+        section = text.split("## Rust and Zig Standard Libraries\n", 1)[1].split("\n## ", 1)[0]
+        for entry in manifest.texts():
+            self.assertIn(f"`{manifest.bundle_dir}/{entry.file}`", section)
+        for zig in manifest.zig:
+            self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
+
+    # cmux-browser-host (bundled beside bin/cmux since d75d38ec229) -------------
+
+    BROWSER_HOST = "Contents/Resources/bin/cmux-browser-host"
+    BROWSER_HOST_SECTIONS = ("rust-cmux-browser-host", "manual-cmux-browser-host-runtime-javascript")
+
+    def browser_host_app(self) -> dict:
+        """The fake bundle: bin/cmux-browser-host (Rust, rustc 1.95.0 std), the
+        reviewed toolchain texts, and the committed THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        binary = self.app / self.BROWSER_HOST
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(THIN + b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/lib.rs")
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        notices.write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_bundled_browser_host_passes_with_the_committed_map_and_notices(self) -> None:
+        self.assertEqual(checker.check(self.app, self.browser_host_app()), [])
+
+    def test_bundled_browser_host_fails_without_its_notice_sections(self) -> None:
+        bundle_map = self.browser_host_app()
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        text = notices.read_text()
+        for section in self.BROWSER_HOST_SECTIONS:
+            text = text.replace(f"<!-- notices-section: {section} -->\n", "")
+        notices.write_text(text)
+        errors = checker.check(self.app, bundle_map)
+        for section in self.BROWSER_HOST_SECTIONS:
+            self.assertIn(f"{self.BROWSER_HOST}: missing notice section:{section}", errors)
+
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for entry in bundle_map["entries"] + bundle_map.get("resources", []):
             self.assertTrue(entry["notices"], entry["path"])
             for need in entry["notices"]:
-                self.assertRegex(need, r"^(first-party|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
+                self.assertRegex(need, r"^(first-party|rust-std|zig-std|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
             self.assertFalse(re.search(r"/Versions/[A-Z]/", entry["path"]), "match Versions with *, not a fixed letter")
 
 

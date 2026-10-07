@@ -178,6 +178,39 @@ for placement in session.workspace_placements()? {
 # }
 ```
 
+Tab groups, saved tab groups, and closed history have typed calls on the
+session: `tab_groups`, `tab_groups_in_pane`, `tab_group`, `create_tab_group`,
+`update_tab_group`, `add_tabs_to_tab_group`, `remove_tabs_from_tab_groups`,
+`move_tab_group`, `ungroup_tab_group`, `close_tab_group`; `saved_tab_groups`,
+`save_tab_group`, `delete_saved_tab_group`, `reopen_saved_tab_group`;
+`closed_items` and `reopen_closed`. Every mutation has a `_with` variant that
+takes `MutationOptions` (idempotency key, expected revision). Their snapshots
+decode forward-compatibly: colors and kinds are strings with documented known
+values, and unknown fields stay in `additional`.
+`CreateWorkspaceOptions::ephemeral` creates an ephemeral (incognito)
+workspace: the daemon closes it at its next start, closes inside it leave no
+closed history, and `workspace.update` never changes the flag.
+
+```rust,no_run
+use cmux::{ClosedListOptions, ClosedReopenOptions, TabGroupCreateOptions};
+# fn tab_groups(session: cmux::Session, tab: cmux::TabId) -> cmux::Result<()> {
+let group = session.create_tab_group(TabGroupCreateOptions::new(vec![tab]))?.value;
+session.close_tab_group(&group.id)?;
+let newest = &session.closed_items(ClosedListOptions::default())?[0];
+session.reopen_closed(ClosedReopenOptions { closed: Some(newest.id.clone()), ..Default::default() })?;
+# Ok(())
+# }
+```
+
+Errors: `Error::error_code()` returns the daemon's machine-readable code of a
+failure, so a client never parses a message: a raw command's `error_code`
+(kept on `Error::Command` with `error_details`), a protocol/2 error's `code`,
+or `confirmation.required`. The raw `bookmarks-v1` commands return typed
+results (`Bookmark`, `BookmarkChangeResult`, ...), and `import-bookmarks`
+takes typed, nested `BookmarkImportNode`s. The raw `*-tab-group` commands
+return typed results too (`TabGroupOutcome`, `TabGroupRun`,
+`SavedTabGroupRecord`, ...) in the protocol-12 shapes of spec/commands.md.
+
 All eight creation option types expose `correlation_key`. Values contain 1 to
 128 UTF-8 bytes and remain stable across creation attempts.
 

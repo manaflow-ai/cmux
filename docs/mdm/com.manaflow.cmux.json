@@ -1,6 +1,28 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
   "properties" : {
+    "agentPane.images.remote" : {
+      "default" : "click",
+      "description" : "A web image loads from its site, which then sees that you read the reply.",
+      "enum" : [
+        "click",
+        "never",
+        "always"
+      ],
+      "title" : "Web Images in Replies",
+      "type" : "string"
+    },
+    "agentPane.links.outsideRoots" : {
+      "default" : "confirm",
+      "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
+      "enum" : [
+        "confirm",
+        "text",
+        "open"
+      ],
+      "title" : "Files Outside the Project",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -26,6 +48,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.globalHotKey" : {
+      "default" : false,
+      "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
+      "title" : "Global Hot Key",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -37,6 +65,26 @@
       ],
       "title" : "When Quitting",
       "type" : "string"
+    },
+    "app.uiScale" : {
+      "default" : 1,
+      "description" : "app.uiScale",
+      "maximum" : 1.5,
+      "minimum" : 0.85,
+      "title" : "Interface Scale",
+      "type" : "number"
+    },
+    "app.warnBeforeClosingAgentSession" : {
+      "default" : true,
+      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "title" : "Warn Before Closing a Working Agent",
+      "type" : "boolean"
+    },
+    "app.warnBeforeClosingTab" : {
+      "default" : true,
+      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "title" : "Warn Before Closing a Running Program",
+      "type" : "boolean"
     },
     "appearance.backdropArt" : {
       "default" : "none",
@@ -262,6 +310,18 @@
       "title" : "Docked Columns Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.editor.color" : {
+      "description" : "appearance.surfaces.editor.color",
+      "title" : "Code Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.editor.opacity" : {
+      "description" : "appearance.surfaces.editor.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Code Editor Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.home.color" : {
       "description" : "appearance.surfaces.home.color",
       "title" : "Home Color",
@@ -284,6 +344,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.markdown.color" : {
+      "description" : "appearance.surfaces.markdown.color",
+      "title" : "Markdown Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.markdown.opacity" : {
+      "description" : "appearance.surfaces.markdown.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Markdown Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
@@ -361,6 +433,18 @@
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.search" : {
+      "default" : "",
+      "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
+      "title" : "Custom Search Address",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.suggest" : {
+      "default" : "",
+      "description" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.",
+      "title" : "Custom Suggestions Address",
       "type" : "string"
     },
     "browser.defaultEngine" : {
@@ -472,16 +556,107 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.calculator" : {
+      "default" : true,
+      "description" : "Shows the answer to arithmetic you type. Return copies it.",
+      "title" : "Calculator Answers",
+      "type" : "boolean"
+    },
+    "browser.omnibar.inlineAutocomplete" : {
+      "default" : true,
+      "description" : "Completes a site you typed before or visit often.",
+      "title" : "Complete Addresses Inline",
+      "type" : "boolean"
+    },
+    "browser.omnibar.maxRows" : {
+      "default" : 8,
+      "description" : "browser.omnibar.maxRows",
+      "maximum" : 15,
+      "minimum" : 3,
+      "title" : "Suggestions Shown",
+      "type" : "number"
+    },
+    "browser.omnibar.remoteSuggestions" : {
+      "default" : true,
+      "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
+      "title" : "Search Suggestions",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
     },
+    "browser.searchEngine" : {
+      "default" : "google",
+      "description" : "The address bar searches here and asks it for suggestions.",
+      "enum" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "title" : "Search Engine",
+      "type" : "string"
+    },
     "browser.showBookmarksBar" : {
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "diff.diffIndicators" : {
+      "default" : "bars",
+      "description" : "diff.diffIndicators",
+      "enum" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "title" : "Change Markers",
+      "type" : "string"
+    },
+    "diff.expandUnchanged" : {
+      "default" : false,
+      "description" : "diff.expandUnchanged",
+      "title" : "Expand Unchanged Lines",
+      "type" : "boolean"
+    },
+    "diff.layout" : {
+      "default" : "unified",
+      "description" : "diff.layout",
+      "enum" : [
+        "split",
+        "unified"
+      ],
+      "title" : "Layout",
+      "type" : "string"
+    },
+    "diff.lineNumbers" : {
+      "default" : true,
+      "description" : "diff.lineNumbers",
+      "title" : "Line Numbers",
+      "type" : "boolean"
+    },
+    "diff.showBackgrounds" : {
+      "default" : true,
+      "description" : "diff.showBackgrounds",
+      "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.wordDiffs" : {
+      "default" : false,
+      "description" : "diff.wordDiffs",
+      "title" : "Highlight Word Changes",
+      "type" : "boolean"
+    },
+    "diff.wordWrap" : {
+      "default" : false,
+      "description" : "diff.wordWrap",
+      "title" : "Wrap Lines",
       "type" : "boolean"
     },
     "DisableAutoUpdate" : {
@@ -603,6 +778,12 @@
       "default" : false,
       "description" : "Lists finished shell commands in History. Command lines can contain secrets.",
       "title" : "Record Terminal Commands",
+      "type" : "boolean"
+    },
+    "home.attachments.keepLocation" : {
+      "default" : false,
+      "description" : "When off, location data is removed from photos and videos before they are attached.",
+      "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -785,6 +966,16 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "navigation.history.scope" : {
+      "default" : "workspaces",
+      "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",
+      "enum" : [
+        "workspaces",
+        "everything"
+      ],
+      "title" : "Back and Forward Steps",
+      "type" : "string"
+    },
     "navigation.historyScope" : {
       "default" : "workspace",
       "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
@@ -892,6 +1083,17 @@
       "description" : "notifications.dockBadge",
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
+    },
+    "notifications.mutedWorkspaces" : {
+      "default" : [
+
+      ],
+      "description" : "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Muted Workspaces",
+      "type" : "array"
     },
     "notifications.quietHours" : {
       "description" : "No banners or sounds between these times.",
@@ -1120,6 +1322,12 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "shortcuts.showModifierHoldHints" : {
+      "default" : true,
+      "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
+      "title" : "Show Shortcuts When Holding a Modifier",
+      "type" : "boolean"
+    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
@@ -1141,6 +1349,27 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cmd9" : {
+      "default" : "last",
+      "description" : "Goes to the last item, as in browsers, or to the ninth.",
+      "enum" : [
+        "last",
+        "ninth"
+      ],
+      "title" : "Command-9",
+      "type" : "string"
+    },
+    "sidebar.launcherMode" : {
+      "default" : "off",
+      "description" : "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window.",
+      "enum" : [
+        "off",
+        "reserved",
+        "overlay"
+      ],
+      "title" : "Launcher Strip",
+      "type" : "string"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
@@ -1151,6 +1380,16 @@
         "both"
       ],
       "title" : "Minimal Mode",
+      "type" : "string"
+    },
+    "sidebar.numbering" : {
+      "default" : "allItems",
+      "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
+      "enum" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "title" : "Command-Number Shortcuts",
       "type" : "string"
     },
     "sidebar.pinnedBandsScroll" : {
@@ -1198,6 +1437,22 @@
       "title" : "Spaces Position",
       "type" : "string"
     },
+    "sidebar.stepping" : {
+      "default" : "allItems",
+      "description" : "What Command-Control-] and Command-Control-[ step through.",
+      "enum" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "title" : "Next and Previous Item",
+      "type" : "string"
+    },
+    "sidebar.steppingWraps" : {
+      "default" : true,
+      "description" : "Past the last item, the next item is the first again.",
+      "title" : "Wrap Around",
+      "type" : "boolean"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
@@ -1205,6 +1460,380 @@
       "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
+    },
+    "sidebar.workspaceRow.agent.agentStatus" : {
+      "description" : "sidebar.workspaceRow.agent.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.branch" : {
+      "description" : "sidebar.workspaceRow.agent.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.directory" : {
+      "description" : "sidebar.workspaceRow.agent.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.icon" : {
+      "description" : "sidebar.workspaceRow.agent.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.lastActivity" : {
+      "description" : "sidebar.workspaceRow.agent.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.ports" : {
+      "description" : "sidebar.workspaceRow.agent.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.process" : {
+      "description" : "sidebar.workspaceRow.agent.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.progress" : {
+      "description" : "sidebar.workspaceRow.agent.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.pullRequest" : {
+      "description" : "sidebar.workspaceRow.agent.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.agent.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.agent.tabCount" : {
+      "description" : "sidebar.workspaceRow.agent.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.working" : {
+      "description" : "sidebar.workspaceRow.agent.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agentStatus" : {
+      "default" : false,
+      "description" : "The status line agents and hooks report.",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.branch" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.agentStatus" : {
+      "description" : "sidebar.workspaceRow.browser.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.branch" : {
+      "description" : "sidebar.workspaceRow.browser.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.directory" : {
+      "description" : "sidebar.workspaceRow.browser.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.icon" : {
+      "description" : "sidebar.workspaceRow.browser.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.lastActivity" : {
+      "description" : "sidebar.workspaceRow.browser.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.ports" : {
+      "description" : "sidebar.workspaceRow.browser.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.process" : {
+      "description" : "sidebar.workspaceRow.browser.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.progress" : {
+      "description" : "sidebar.workspaceRow.browser.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.pullRequest" : {
+      "description" : "sidebar.workspaceRow.browser.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.browser.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.browser.tabCount" : {
+      "description" : "sidebar.workspaceRow.browser.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.working" : {
+      "description" : "sidebar.workspaceRow.browser.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.directory" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.icon" : {
+      "default" : true,
+      "description" : "The icon or emoji you chose for a workspace.",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.lastActivity" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.agentStatus" : {
+      "description" : "sidebar.workspaceRow.mixed.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.branch" : {
+      "description" : "sidebar.workspaceRow.mixed.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.directory" : {
+      "description" : "sidebar.workspaceRow.mixed.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.icon" : {
+      "description" : "sidebar.workspaceRow.mixed.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.lastActivity" : {
+      "description" : "sidebar.workspaceRow.mixed.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.ports" : {
+      "description" : "sidebar.workspaceRow.mixed.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.process" : {
+      "description" : "sidebar.workspaceRow.mixed.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.progress" : {
+      "description" : "sidebar.workspaceRow.mixed.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.pullRequest" : {
+      "description" : "sidebar.workspaceRow.mixed.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.mixed.tabCount" : {
+      "description" : "sidebar.workspaceRow.mixed.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.working" : {
+      "description" : "sidebar.workspaceRow.mixed.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.ports" : {
+      "default" : false,
+      "description" : "Set by a hook: cmux workspace status set ports <text>.",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.process" : {
+      "default" : false,
+      "description" : "The terminal's title, which the shell or program sets.",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.progress" : {
+      "default" : false,
+      "description" : "A progress bar under the row and the busy mark of running work.",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.pullRequest" : {
+      "default" : false,
+      "description" : "Set by a hook: cmux workspace status set pr <text>.",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.secondLineOrder" : {
+      "default" : [
+        "directory",
+        "branch",
+        "process",
+        "agentStatus",
+        "ports",
+        "lastActivity"
+      ],
+      "description" : "The order of the shown items under the workspace name.",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.tabCount" : {
+      "default" : false,
+      "description" : "sidebar.workspaceRow.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.agentStatus" : {
+      "description" : "sidebar.workspaceRow.terminal.agentStatus",
+      "title" : "Agent Status",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.branch" : {
+      "description" : "sidebar.workspaceRow.terminal.branch",
+      "title" : "Git Branch",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.directory" : {
+      "description" : "sidebar.workspaceRow.terminal.directory",
+      "title" : "Folder",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.icon" : {
+      "description" : "sidebar.workspaceRow.terminal.icon",
+      "title" : "Icon",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.lastActivity" : {
+      "description" : "sidebar.workspaceRow.terminal.lastActivity",
+      "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.ports" : {
+      "description" : "sidebar.workspaceRow.terminal.ports",
+      "title" : "Ports",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.process" : {
+      "description" : "sidebar.workspaceRow.terminal.process",
+      "title" : "Running Program",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.progress" : {
+      "description" : "sidebar.workspaceRow.terminal.progress",
+      "title" : "Progress",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.pullRequest" : {
+      "description" : "sidebar.workspaceRow.terminal.pullRequest",
+      "title" : "Pull Request",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.secondLineOrder" : {
+      "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
+      "items" : {
+        "enum" : [
+          "directory",
+          "branch",
+          "process",
+          "agentStatus",
+          "ports",
+          "lastActivity"
+        ],
+        "type" : "string"
+      },
+      "title" : "Second Line Order",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.terminal.tabCount" : {
+      "description" : "sidebar.workspaceRow.terminal.tabCount",
+      "title" : "Tab Count",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.working" : {
+      "description" : "sidebar.workspaceRow.terminal.working",
+      "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.working" : {
+      "default" : true,
+      "description" : "A mark while an agent works in the workspace.",
+      "title" : "Agent Working",
+      "type" : "boolean"
     },
     "status.inferCommandBusy" : {
       "default" : true,
@@ -1357,7 +1986,7 @@
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",
-      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "description" : "While downloads wait, a found update shows on Settings and one click downloads it.",
       "enum" : [
         "defer-low-data",
         "defer-expensive",
@@ -1367,30 +1996,14 @@
       "type" : "string"
     },
     "updates.notify" : {
-      "default" : "card",
+      "default" : "badge",
       "description" : "updates.notify",
       "enum" : [
-        "card",
         "badge",
         "silent"
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
-    },
-    "updates.quietHours" : {
-      "description" : "No update card between these times.",
-      "properties" : {
-        "end" : {
-          "title" : "end",
-          "type" : "string"
-        },
-        "start" : {
-          "title" : "start",
-          "type" : "string"
-        }
-      },
-      "title" : "Quiet Hours",
-      "type" : "object"
     },
     "window.titlebar" : {
       "default" : "minimal",

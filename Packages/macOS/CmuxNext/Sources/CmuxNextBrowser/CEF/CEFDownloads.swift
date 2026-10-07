@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// A shim download event (DOWNLOAD_STARTED / _PROGRESS / _DONE in
-/// cmux_cef_shim.h), decoded.
+/// cmux_cef_shim.h), decoded. `id` is the shim's download token.
 nonisolated enum CEFDownloadEvent: Equatable, Sendable {
     enum End: Int64, Equatable, Sendable {
         case complete = 1
@@ -36,25 +36,31 @@ nonisolated enum CEFDownloadEvent: Equatable, Sendable {
 struct CEFDownloadShim {
     /// Starts a download of a URL with a tab's request context.
     var start: (_ browser: Int32, _ url: String) -> Bool
-    /// Answers DOWNLOAD_STARTED with a path; "" cancels.
+    /// Answers DOWNLOAD_STARTED (by token) with a path; "" cancels.
     var answer: (_ id: Int32, _ path: String) -> Void
-    /// 0 cancel, 1 pause, 2 resume.
+    /// 0 cancel, 1 pause, 2 resume (a cancel before the first update is
+    /// held by the shim and applied then).
     var control: (_ id: Int32, _ command: Int32) -> Void
 }
 
 /// Chromium downloads as engine-neutral `BrowserDownload`s. Every download
 /// Chromium starts (a page's, Option-click, Save Link As, a click mapped to
 /// a download) asks here for its path; the answer follows
-/// `BrowserDownloadPolicy` (the Downloads folder, or the file the person
-/// chose). The tab that started it sends `.download` to the App, which
-/// keeps one downloads list for both engines.
+/// `BrowserDownloadPolicy.place` (a temporary sibling of the Downloads file
+/// or of the file the person chose, moved into place when it completes).
+/// The tab that started it sends `.download` to the App, which keeps one
+/// downloads list for both engines. Ids are the shim's download tokens,
+/// unique across profiles (Chromium's own ids are per profile).
 final class CEFDownloads {
     private let shim: () -> CEFDownloadShim?
     /// Where downloads go without a chosen file.
     var directory: () -> URL = { DownloadDestination.defaultDirectory }
-    var exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
-    /// Removes the file a save panel already agreed to replace.
-    var removeReplaced: (URL) -> Void = { try? FileManager.default.removeItem(at: $0) }
+    /// Names running downloads hold (shared with WebKit's downloads).
+    var reservations: BrowserDownloadReservations = .shared
+    /// Whether a download page `browser` started may go ahead (the tab's
+    /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
+    /// itself (`download`, `save`) never ask.
+    var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -62,21 +68,45 @@ final class CEFDownloads {
     private var items: [Int32: BrowserDownload] = [:]
     /// Files the person chose (Save Link As…), waiting for their download.
     private var chosen: [(browser: Int32, url: String, destination: URL)] = []
+    /// Links cmux itself downloads (`download`), waiting for their download.
+    private var started: [(browser: Int32, url: String)] = []
+    /// Page downloads waiting for `admit`'s answer, by token.
+    private var admitting: Set<Int32> = []
 
     init(shim: @escaping () -> CEFDownloadShim?) {
         self.shim = shim
     }
 
+    /// The schemes a download may start from: http, https, data, blob;
+    /// never file: (the shim refuses the others too).
+    static let downloadableSchemes: Set<String> = ["http", "https", "data", "blob"]
+
+    static func isDownloadable(_ url: String) -> Bool {
+        guard let colon = url.firstIndex(of: ":") else { return false }
+        return downloadableSchemes.contains(url[..<colon].lowercased())
+    }
+
     /// Downloads `url` with tab `browser`'s session into the Downloads folder.
     func download(_ url: String, browser: Int32) -> Bool {
-        shim()?.start(browser, url) ?? false
+        guard Self.isDownloadable(url) else {
+            logger.error("download refused: not a web URL")
+            return false
+        }
+        guard let shim = shim() else { return false }
+        started.append((browser, url))
+        if started.count > 16 { started.removeFirst(started.count - 16) }
+        guard shim.start(browser, url) else {
+            if let index = started.lastIndex(where: { $0.browser == browser && $0.url == url }) { started.remove(at: index) }
+            return false
+        }
+        return true
     }
 
     /// Downloads `url` with tab `browser`'s session into `destination`, a
     /// file the person chose.
     func save(_ url: URL, to destination: URL, browser: Int32) -> Bool {
         let address = url.absoluteString
-        guard let shim = shim() else { return false }
+        guard Self.isDownloadable(address), let shim = shim() else { return false }
         chosen.append((browser, address, destination))
         if chosen.count > 16 { chosen.removeFirst(chosen.count - 16) }
         guard shim.start(browser, address) else {
@@ -89,13 +119,15 @@ final class CEFDownloads {
     func handle(_ event: CEFDownloadEvent) {
         switch event {
         case let .started(id, browser, url, suggestedName, total):
-            started(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total)
+            admitThenStart(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total)
         case let .progress(id, received, total, speed, paused):
             items[id]?.update(received: received, total: total, bytesPerSecond: speed, paused: paused)
         case let .done(id, end, reason, path):
+            // Chromium ended it while the question was open: nothing started.
+            if admitting.remove(id) != nil { return }
             guard let item = items.removeValue(forKey: id) else { return }
-            if end == .complete, let destination = item.destination, !path.isEmpty,
-               URL(filePath: path).standardizedFileURL != destination.standardizedFileURL {
+            if end == .complete, let written = item.placement?.temporaryURL, !path.isEmpty,
+               URL(filePath: path).standardizedFileURL != written.standardizedFileURL {
                 logger.error("download \(id) ended at another path than cmux chose")
             }
             switch end {
@@ -107,19 +139,58 @@ final class CEFDownloads {
         }
     }
 
-    private func started(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
-        guard let shim = shim() else { return }
+    /// A download cmux started (Save Link As, Download Linked File) goes
+    /// ahead; a page's own asks the tab's gate first. A refused one is
+    /// cancelled silently: no file, nothing in the downloads list.
+    private func admitThenStart(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
         let pick = chosen.firstIndex { $0.browser == browser && $0.url == url }.map { chosen.remove(at: $0).destination }
-        if let pick { removeReplaced(pick) }
-        let destination = BrowserDownloadPolicy.destination(chosen: pick, suggestedFilename: suggestedName,
-                                                            directory: directory(), exists: exists)
-        let item = BrowserDownload(sourceURL: URL(string: url), filename: destination.lastPathComponent)
-        item.destination = destination
+        if pick != nil || takeStarted(browser: browser, url: url) {
+            return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
+        }
+        admitting.insert(id)
+        admit(browser) { [weak self] outcome, site in
+            guard let self, admitting.remove(id) != nil else { return }
+            guard outcome == .allowed else {
+                shim()?.answer(id, "")
+                logger.notice("download \(id) refused for tab \(browser): automatic downloads")
+                // Listed blocked, with the reason and the site whose
+                // setting blocked it: no refusal is silent.
+                if let reason = AutomaticDownloadGate.blockedReason(outcome) {
+                    deliver(browser, .blocked(sourceURL: URL(string: url), suggestedName: suggestedName, site: site, reason: reason))
+                }
+                return
+            }
+            start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: nil)
+        }
+    }
+
+    private func takeStarted(browser: Int32, url: String) -> Bool {
+        guard let index = started.firstIndex(where: { $0.browser == browser && $0.url == url }) else { return false }
+        started.remove(at: index)
+        return true
+    }
+
+    private func start(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?, pick: URL?) {
+        guard let shim = shim() else { return }
+        // The chosen file stays until the download completes (a failed one
+        // keeps it); the download writes a temporary sibling.
+        guard let placement = BrowserDownloadPolicy.place(chosen: pick, suggestedFilename: suggestedName,
+                                                          directory: directory(), reservations: reservations) else {
+            shim.answer(id, "")
+            let item = BrowserDownload(sourceURL: URL(string: url), filename: DownloadDestination.sanitizedFilename(suggestedName))
+            logger.error("download \(id) refused: no free file name")
+            deliver(browser, item)
+            item.complete(.failed("no free file name"))
+            return
+        }
+        let item = BrowserDownload(sourceURL: URL(string: url), filename: placement.finalURL.lastPathComponent)
+        item.destination = placement.finalURL
+        item.placement = placement
         item.update(received: 0, total: total)
         item.cancelHandler = { shim.control(id, 0) }
         item.pauseHandler = { paused in shim.control(id, paused ? 1 : 2) }
         items[id] = item
-        shim.answer(id, destination.path(percentEncoded: false))
+        shim.answer(id, placement.temporaryURL.path(percentEncoded: false))
         logger.notice("download \(id) started for tab \(browser), chosen=\(pick != nil)")
         deliver(browser, item)
     }
@@ -145,6 +216,13 @@ extension CEFDownloads {
             )
         }
         let logger = downloads.logger
+        // A page's download asks its tab (`AutomaticDownloadGate`); one
+        // without a cmux tab is not in the downloads list and goes ahead.
+        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (AutomaticDownloadGate.Outcome, String?) -> Void) in
+            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed, nil) }
+            let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
+            tab.automaticDownloads.request(site: site) { decide($0, site) }
+        }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {
                 logger.error("download for tab \(browser) without a cmux tab: not in the downloads list")

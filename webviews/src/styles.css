@@ -693,6 +693,8 @@ body {
   justify-self: end;
 }
 #content {
+  /* Sidebar resize and slide coordinates are physical; keep their grid LTR. */
+  direction: ltr;
   --cmux-diff-files-width: 252px;
   position: relative;
   flex: 1 1 auto;
@@ -706,6 +708,17 @@ body {
   overscroll-behavior: contain;
   contain: strict;
   background: transparent;
+}
+/* Localized chrome follows the document; code comparisons keep their source order. */
+:root[dir="rtl"] :is(#viewer, #files-sidebar) {
+  direction: rtl;
+}
+#viewer diffs-container,
+#file-list file-tree-container,
+.source-pill-stats,
+.base-picker-label {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
@@ -898,6 +911,11 @@ body[data-status-only="true"] #files-motion-curtain {
   --trees-scrollbar-gutter-override: 0px;
   --trees-status-added-override: var(--cmux-diff-count-added);
   --trees-status-deleted-override: var(--cmux-diff-count-deleted);
+}
+/* SCROLLBARS-FOLLOW-MACOS: the tree has no scroller of its own width in overlay mode (rows keep the
+   full width); for "Always" it shows the library's scroller in a gutter (scrollers.ts). */
+html[data-scrollers="legacy"] #file-list {
+  --trees-scrollbar-gutter-override: 6px;
 }
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;

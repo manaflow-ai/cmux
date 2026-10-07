@@ -12,6 +12,10 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page drew its first frame after the handshake (`pane.painted`), the
+    /// first that shows what it is. Until then its pane keeps what it showed.
+    public internal(set) var hasPainted = false
+    @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -37,6 +41,16 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    /// Resolves the explicit Browse… fallback in the project picker.
+    @ObservationIgnored public var onBrowseProject: (() async -> String?)?
+    /// Returns bounded project paths for the picker, optionally filtered by query.
+    @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
+    /// Opens onboarding's existing project and agent-history import flow.
+    @ObservationIgnored public var onImportAndSync: (() -> Void)?
+    /// Runs an action advertised by the host's omnibar.
+    @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
+    @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -67,6 +81,34 @@ public final class AgentPaneModel {
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+
+    /// Whether this host supports converting a fresh chat without a chooser page.
+    @ObservationIgnored private let allowsTabConversion: Bool
+    /// The host's acpmux socket for this pane (in the app the page never holds one).
+    @ObservationIgnored public let transport: AgentPaneTransport
+    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The App's side of reply chips, images and the preview card's browsers.
+    @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
+    /// The last handshake's connection, until the page opens it: used once, so the LocalApp
+    /// token is never kept beyond one handshake.
+    @ObservationIgnored private var pendingConnection: AcpmuxConnection?
+    /// The folders of this pane's workspace the App knows (its local tabs' folders). With the
+    /// handshake's cwd and the new tab page's folders they are the roots every `cwd` or `path`
+    /// the page sends must be under (``AcpmuxPathPolicy``).
+    @ObservationIgnored public var workspaceRoots: (@MainActor () -> [String])?
+    /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
+    /// exists, and where a new chat starts when the workspace has no folder (no other root).
+    @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
+    /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
+    /// agent folder; a refusal carries its localized text (an older background service, a save
+    /// that failed).
+    @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
+    /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
+    /// workspace's own field (``workspaceRoots``) carries it.
+    @ObservationIgnored public internal(set) var chosenFolder: String?
+    @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -76,13 +118,36 @@ public final class AgentPaneModel {
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
-        newTab: AgentPaneNewTab? = nil
+        newTab: AgentPaneNewTab? = nil,
+        allowsTabConversion: Bool = false,
+        transport: AgentPaneTransport = AgentPaneTransport()
     ) {
+        self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
         self.newTab = sessionId == nil ? newTab : nil
+        transport.roots = { [weak self] in self?.roots() ?? [] }
+        transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
+        transport.primaryRoot = { [weak self] in self?.primaryRoot() }
+        transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
+        transport.requestRoot = { [weak self] folder, answer in
+            guard let onRequestRoot = self?.onRequestRoot else { return answer(false) }
+            onRequestRoot(folder, answer)
+        }
+        if let sessionId { transport.sessions.add(sessionId) }
+        transport.requestModeConfirmation = { [weak self] asked, answer in
+            guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
+            onConfirmMode(asked, answer)
+        }
     }
+
+    /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
+    @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+
+    /// Asks the user to add a folder the page named outside every root (the view's native sheet).
+    @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -99,11 +164,21 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A new workspace's first tab (its view made before the store's reply
+    /// named it a new tab page): a chat that has no session yet becomes the
+    /// page. A chat with a session keeps it.
+    public func becomeNewTab(_ page: AgentPaneNewTab) {
+        guard sessionId == nil else { return }
+        newTab = page
+    }
+
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported: break
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
+             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
+        case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -135,10 +210,23 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
+                handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
+                // A new chat with no folder starts in agent-home; the page offers Choose Folder….
+                if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
+                   workspaceAgentHome?() != nil {
+                    handshake.chooseFolder = true
+                }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
+                if let cwd = handshake.cwd { handshakeCwd = cwd }
+                if let session = handshake.sessionId { transport.sessions.add(session) }
+                // The connection stays here; the reply never encodes it.
+                pendingConnection = handshake.connection
+                handshake.connection = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
@@ -160,22 +248,32 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
+        case .painted:
+            markPainted()
+            return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
-            guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
+            guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
             return AgentPaneReply.success()
         case .typeAhead(let text):
-            guard newTab != nil, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
+            guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
+        case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
+        case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
+            // and the command palette's chats page ("Show all", decision K1).
+            guard id == "newTab.page" || id == "agentPane.searchChats" || (id == "palette.welcomeChecklist" && newTab != nil),
+                  let onRunAction else {
+                return Self.unsupported("action.run")
+            }
             onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):
@@ -186,6 +284,24 @@ public final class AgentPaneModel {
             guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
             onSetDefaultKind(kind)
             return AgentPaneReply.success()
+        case .chooseFolder:
+            return await chooseFolder()
+        case .browseProject:
+            guard let onBrowseProject else { return Self.unsupported("project.browse") }
+            guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["cwd": cwd])
+        case .listProjects(let query):
+            guard let onListProjects else { return Self.unsupported("project.list") }
+            return AgentPaneReply.success(["projects": await onListProjects(query)])
+        case .importAndSync:
+            guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
+            onImportAndSync()
+            return AgentPaneReply.success()
+        case .paneAction, .tabState: return respondToHeader(request)
+        case .appAction(let id):
+            guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
+            onAppAction(id)
+            return AgentPaneReply.success()
         case .editShortcut(let kind):
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
             onEditShortcut(kind)
@@ -195,8 +311,15 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
-                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+            guard let onOpenFile else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            let url: URL
+            switch checkedFileOpen(path, target: target) {
+            case .success(let checked): url = checked
+            case .failure(let refusal): return Self.transportFailure(refusal)
+            }
+            guard await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
@@ -231,29 +354,38 @@ public final class AgentPaneModel {
             }
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
+        case .turnUndo(let undo): return await respondToTurnUndo(undo)
+        case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
+        case .transportOpen:
+            guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
+            pendingConnection = nil
+            do {
+                return AgentPaneReply.success(["connection": try await transport.open(connection)])
+            } catch {
+                return Self.transportFailure(error)
+            }
+        case .transportSend(let connection, let frames):
+            return Self.transportReply(await transport.send(connection: connection, frames: frames))
+        case .transportGesture(let intent):
+            guard let intent else { return Self.transportFailure(.intentInvalid) }
+            guard let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+            return AgentPaneReply.success(["ticket": ticket])
+        case .transportGestureRelease:
+            transport.gestures.clearTickets()
+            return AgentPaneReply.success()
+        case .transportClose(let connection):
+            transport.close(connection: connection)
+            return AgentPaneReply.success()
+        case .reply(let reply):
+            return await respond(to: reply)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
-    }
-
-    private static func unsupported(_ method: String) -> [String: Any] {
-        AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
 
     private func setCheckpointAvailable(_ available: Bool) {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
-    }
-}
-
-extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
-        return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
-            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

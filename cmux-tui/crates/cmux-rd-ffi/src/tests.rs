@@ -351,7 +351,11 @@ fn a_panic_poisons_only_that_receiver() {
 #[test]
 fn header_declares_exactly_the_exported_functions_and_codes() {
     let header = include_str!("../include/cmux_rd_ffi.h");
-    let source = include_str!("lib.rs");
+    let source = concat!(
+        include_str!("lib.rs"),
+        include_str!("input_ffi.rs"),
+        include_str!("session_ffi.rs")
+    );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
         .filter(|l| !l.trim_start().starts_with('#') && !l.trim_start().starts_with('/'))
@@ -374,18 +378,45 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_CARRIER", CMUX_RD_ERR_CARRIER),
         ("CMUX_RD_ERR_FAILED", CMUX_RD_ERR_FAILED),
         ("CMUX_RD_ERR_PANIC", CMUX_RD_ERR_PANIC),
+        ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
     assert!(header.contains(&format!("#define CMUX_RD_FFI_ABI_VERSION {ABI_VERSION}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_CONTROL {STREAM_CONTROL}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_DATAGRAM {STREAM_DATAGRAM}u")));
+    assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_BULK {}u", STREAM_BULK)));
+    assert_eq!(CMUX_RD_MESSAGE_BULK, u32::from(STREAM_BULK));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_KEYFRAME 0x0{}u", flags::KEYFRAME)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_RECOVERY 0x0{}u", flags::RECOVERY)));
+    assert!(header.contains(&format!("#define CMUX_RD_FLAG_TILE 0x0{}u", flags::TILE)));
+    assert_eq!(CMUX_RD_FLAG_TILE, u32::from(flags::TILE));
     // Layouts on 64-bit targets (the Swift tests check the imported layouts).
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
     assert_eq!(size_of::<CmuxRdStats>(), 24);
+    assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
+    for (name, value) in [
+        ("CMUX_RD_INPUT_KEY", CMUX_RD_INPUT_KEY as usize),
+        ("CMUX_RD_INPUT_POINTER", CMUX_RD_INPUT_POINTER as usize),
+        ("CMUX_RD_INPUT_BUTTON", CMUX_RD_INPUT_BUTTON as usize),
+        ("CMUX_RD_INPUT_SCROLL", CMUX_RD_INPUT_SCROLL as usize),
+        ("CMUX_RD_INPUT_TEXT", CMUX_RD_INPUT_TEXT as usize),
+        ("CMUX_RD_INPUT_SERVICE", CMUX_RD_INPUT_SERVICE as usize),
+        ("CMUX_RD_INPUT_MUST_DELIVER", CMUX_RD_INPUT_MUST_DELIVER as usize),
+        ("CMUX_RD_INPUT_MAX_SERVICE", CMUX_RD_INPUT_MAX_SERVICE),
+        ("CMUX_RD_INPUT_MAX_TEXT", CMUX_RD_INPUT_MAX_TEXT),
+        ("CMUX_RD_INPUT_PACKET_MAX", CMUX_RD_INPUT_PACKET_MAX),
+        ("CMUX_RD_SESSION_MAX_STREAMS", CMUX_RD_SESSION_MAX_STREAMS),
+    ] {
+        assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
+    }
+    // The kinds are the wire tags: a key event encodes with tag CMUX_RD_INPUT_KEY.
+    let key = cmux_rd_proto::InputPacket {
+        first_seq: 1,
+        events: vec![cmux_rd_proto::InputEvent::Key { usage: 4, down: true }],
+    };
+    assert_eq!(key.encode()[5], CMUX_RD_INPUT_KEY as u8);
 }
 
 #[test]

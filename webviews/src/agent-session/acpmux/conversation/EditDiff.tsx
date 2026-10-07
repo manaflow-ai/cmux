@@ -3,12 +3,14 @@
 // few lines. The changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { useEffect, useMemo, useState } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
-import { FileDiff } from "@pierre/diffs/react";
+import { FileDiff, WorkerPoolContext } from "@pierre/diffs/react";
 import { editPatch, type TurnFile } from "../diff";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { Copy } from "./icons";
+import { useT } from "../i18n";
+import { paneHighlightPool } from "./highlightPool";
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () =>
@@ -40,6 +42,7 @@ function diffOptions(numbered: boolean, themeType: "light" | "dark") {
 }
 
 export function EditDiff({ file }: { file: TurnFile }) {
+  const t = useT();
   registerAgentDiffTheme();
   const [copied, setCopied] = useState(false);
   // The pane's theme can switch while the card is open; syntax colors follow it.
@@ -58,6 +61,8 @@ export function EditDiff({ file }: { file: TurnFile }) {
   // edit keeps its parsed diff and does not paint again.
   const patchText = patches.join("\0");
   const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
+  const language = highlighted ? getFiletypeFromFileName(file.displayPath) : "text";
+  const workerPool = paneHighlightPool("none", language);
   const diffs = useMemo(
     () =>
       patchText.split("\0").map((patch) => {
@@ -78,8 +83,8 @@ export function EditDiff({ file }: { file: TurnFile }) {
         <button
           type="button"
           className="cv-codeblock__action cv-edit-diff__copy"
-          aria-label={copied ? "Copied" : "Copy diff"}
-          title={copied ? "Copied" : "Copy diff"}
+          aria-label={copied ? t("code.copied") : t("code.copyDiff")}
+          title={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyText(patches.join("")).then(
               () => setCopied(true),
@@ -93,14 +98,12 @@ export function EditDiff({ file }: { file: TurnFile }) {
       <div className="cv-edit-diff__body">
         {file.edits.map((edit, index) =>
           edit.hunks.length ? (
-            <FileDiff
-              key={edit.toolId + index}
-              fileDiff={diffs[index]!}
-              options={edit.numbered ? options.numbered : options.fragment}
-            />
+            <WorkerPoolContext.Provider key={edit.toolId + index} value={workerPool}>
+              <FileDiff fileDiff={diffs[index]!} options={edit.numbered ? options.numbered : options.fragment} />
+            </WorkerPoolContext.Provider>
           ) : (
             <div key={edit.toolId + index} className="cv-edit-diff__empty">
-              No line changes
+              {t("changes.noLineChanges")}
             </div>
           ),
         )}

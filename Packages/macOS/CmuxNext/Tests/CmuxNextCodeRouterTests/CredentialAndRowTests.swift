@@ -83,6 +83,19 @@ import Testing
         #expect(!missing.canConnect)
     }
 
+    /// Connect links the account into CodeRouter; while CodeRouter cannot be
+    /// reached the button is hidden instead of a line saying why.
+    @Test func connectHidesWhileCodeRouterIsUnreachable() {
+        var row = AccountRowState(provider: .codex)
+        row.reduce(.detected(ProviderDetection(provider: .codex, status: .signedIn)))
+        row.reduce(.cmuxSignIn(true))
+        #expect(row.canConnect)
+        row.reduce(.linkedFailed("Could not connect to the server."))
+        #expect(!row.canConnect)
+        row.reduce(.linkedLoaded([]))
+        #expect(row.canConnect)
+    }
+
     @Test func connectLifecycleAndDuplicateGuard() {
         var row = signedInCodex()
         row.reduce(.connectStarted)

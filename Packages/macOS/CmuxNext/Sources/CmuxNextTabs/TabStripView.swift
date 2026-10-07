@@ -61,7 +61,6 @@ public final class TabStripView: NSView {
     /// Edges whose fade is shown or fading in (`updateFadeMask`).
     var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
-    let buttonGroup = TabStripButtonGroupView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -101,14 +100,14 @@ public final class TabStripView: NSView {
     /// Press-and-hold on + opens the new tab menu (`showNewTabMenu`).
     var newTabHoldTask: Task<Void, Never>?
     var newTabHoldOpenedMenu = false
-    /// Trailing button under the mouse-down, while the press lasts.
-    var pendingTrailingPress: Int?
-    /// Whether the trailing buttons and the plus show (pointer, open menu,
-    /// VoiceOver): the strip's inputs to `reveal` (HoverReveal, R120).
+    /// Whether the plus shows (pointer, open menu, VoiceOver focus): the
+    /// strip's inputs to `reveal` (HoverReveal, R120).
     var buttonReveal = TabStripButtonReveal() {
         didSet { reveal.sync(buttonReveal, from: oldValue) }
     }
     private(set) lazy var reveal = TabStripRevealController(strip: self)
+    /// Strip elements (the strip, tab elements, the plus) VoiceOver focuses now.
+    var accessibilityFocusedElements: Set<ObjectIdentifier> = []
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
@@ -158,10 +157,11 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
-        contentView.addSubview(buttonGroup)
+        newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
+            guard let newTabButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
+        }
         reveal.install()
-        buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
-        buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
         setAccessibilityElement(true)
@@ -200,6 +200,12 @@ public final class TabStripView: NSView {
         return bounds.contains(local) ? self : nil
     }
 
+    /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
+    public override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        noteAccessibilityFocus(ObjectIdentifier(self), accessibilityFocused)
+    }
+
     public override func accessibilityChildren() -> [Any]? {
         var children: [Any] = []
         for slot in result.slots where !slot.isCollapsed {
@@ -210,7 +216,6 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
-        if !buttonGroup.isHidden { children.append(buttonGroup) }
         return children
     }
 
@@ -276,8 +281,7 @@ public final class TabStripView: NSView {
                     groups: model.groups,
                     selectedID: model.selectedID,
                     style: model.style,
-                    showsNewTabButton: model.showsNewTabButton,
-                    trailingButtons: model.trailingButtons
+                    showsNewTabButton: model.showsNewTabButton
                 )
             }
             for await _ in changes {
@@ -322,7 +326,6 @@ public final class TabStripView: NSView {
         }
         groupEditor.hide()
         newTabButton.needsLayout = true
-        buttonGroup.metrics = metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
@@ -337,11 +340,9 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
-        let groupWidth = trailingGroupWidth
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0) - groupWidth)
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
-        layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
             // Tabs resize with the window instantly.

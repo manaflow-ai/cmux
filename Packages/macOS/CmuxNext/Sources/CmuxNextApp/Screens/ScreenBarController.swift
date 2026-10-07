@@ -145,9 +145,20 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .trailingButton:
+        case .moveToNewSplit, .moveToNewColumn:
             break
         }
+    }
+
+    /// The position inside `group` for a drop that puts screen `moving` at
+    /// `displayIndex` of the screen bar (`add-screens-to-screen-group`
+    /// takes an index inside the group, cmux-tui spec commands.md).
+    static func groupIndex(_ displayIndex: Int, moving: StripTabID, group: CmuxNextTabs.TabGroupID,
+                            in model: TabStripModel) -> Int {
+        let ordered = model.orderedTabs
+        let members = Set(ordered.filter { $0.groupID == group }.map(\.id.rawValue))
+        return TabMoveIndex.groupIndex(display: ordered.map(\.id.rawValue), members: members, moving: moving.rawValue,
+                                       displayIndex: displayIndex)
     }
 
     private func groupRef(_ id: CmuxNextTabs.TabGroupID) -> ScreenGroupRef? {
@@ -164,7 +175,8 @@ final class ScreenBarController {
         case .moveGroup(let id, let to):
             ScreenGroupCommands.move(ScreenGroupID(rawValue: id.rawValue), to: to, daemon: daemon)
         case .addToGroup(let id, let group, let index):
-            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), index: index, daemon: daemon) }
+            let inGroup = index.map { Self.groupIndex($0, moving: id, group: group, in: model) }
+            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), index: inGroup, daemon: daemon) }
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):

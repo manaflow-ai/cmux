@@ -58,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -420,12 +420,31 @@ fn run_response(
                         localize_operation_error(plan, &mut error);
                     }
                     key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
                 key_report.succeeded();
                 if !plan.stream {
-                    let code = print_success(&result, global.output);
+                    // Focus in a session a cmux app owns is the app's (app_focus).
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(operation) => {
+                            match super::app_focus::after_daemon(global, *operation, result) {
+                                Ok(result) => result,
+                                Err(error) => return print_operation_error(&error, global.output),
+                            }
+                        }
+                        WireOperation::Raw { .. } => result,
+                    };
+                    let result = plan.view.project(result);
+                    let shown = match global.output {
+                        OutputMode::Human => human_view(plan, &result),
+                        _ => std::borrow::Cow::Borrowed(&result),
+                    };
+                    let code = print_success(&shown, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -496,11 +515,11 @@ fn run_response(
                     return print_operation_error(&error, global.output);
                 }
                 let message = end.recovery.unwrap_or_else(|| "stream ended with an error".into());
-                eprintln!("{message}");
+                eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
@@ -528,6 +547,7 @@ pub(super) fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -555,6 +575,39 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// What the human table shows for a result. `workspace list --order
+/// personal` adds an ORDER column (the row's place in the returned order),
+/// because INDEX stays the session order.
+fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    let personal = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
+    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    match result.as_array() {
+        Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .enumerate()
+                .map(|(order, row)| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("order".into(), json!(order));
+                    }
+                    row
+                })
+                .collect(),
+        )),
+        Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        _ => std::borrow::Cow::Borrowed(result),
+    }
+}
+
+fn is_closed_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ClosedList)
+    )
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -636,22 +689,27 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let _ = io::stderr().lock().write_all(human_error_text(error).as_bytes());
+            eprint!("{}", human_error_lines(error));
         }
     }
     exit_code
 }
 
-/// The human form of a local error: its message, then any candidates.
-fn human_error_text(error: &Value) -> String {
+/// Render an operation error for human-readable stderr. The message and any
+/// candidate names can carry remote-supplied text, so they get the same
+/// visible sanitizing as human stdout.
+fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-    let mut text = format!("{}\n", visible_controls(message));
+    let mut text = sanitize_human_block(message);
+    text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
     {
         for candidate in candidates {
             if let Some(candidate) = candidate.as_str() {
-                text.push_str(&format!("  {}\n", visible_controls(candidate)));
+                text.push_str("  ");
+                text.push_str(&sanitize_human_cell(candidate));
+                text.push('\n');
             }
         }
     }
@@ -712,7 +770,8 @@ fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            output.push_str(&visible_controls(value));
+            let value = sanitize_human_block(value);
+            output.push_str(&value);
             if !value.ends_with('\n') {
                 output.push('\n');
             }
@@ -828,7 +887,7 @@ fn flatten_human_object(
         if let Value::Object(nested) = value {
             flatten_human_object(Some(&path), nested, rows);
         } else {
-            rows.push((visible_controls(&path), human_cell(value)));
+            rows.push((sanitize_human_cell(&path), human_cell(value)));
         }
     }
 }
@@ -836,35 +895,19 @@ fn flatten_human_object(
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => visible_controls(&value.replace(['\r', '\n'], "\\n")),
+        Value::String(value) => sanitize_human_cell(value),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        value => visible_controls(
+        // serde_json escapes C0 controls but writes C1 controls and the
+        // Unicode separators raw, so the serialized form needs the same pass.
+        value => sanitize_human_cell(
             &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
         ),
     }
 }
 
-/// Daemon and terminal-derived text shows control characters as escapes
-/// (`\u{1b}`) so it cannot drive the terminal that runs the CLI. Newlines and
-/// tabs are layout, not commands, and pass through.
-fn visible_controls(text: &str) -> String {
-    if !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-        return text.to_string();
-    }
-    let mut visible = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_control() && c != '\n' && c != '\t' {
-            visible.extend(c.escape_default());
-        } else {
-            visible.push(c);
-        }
-    }
-    visible
-}
-
 fn human_header(key: &str) -> String {
-    visible_controls(&key.replace('_', " ").to_uppercase())
+    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
 }
 
 fn human_key_rank(key: &str) -> usize {
@@ -874,7 +917,7 @@ fn human_key_rank(key: &str) -> usize {
         "title" => 2,
         "kind" => 3,
         "state" => 4,
-        "lifecycle" => 5,
+        "lifecycle" | "order" => 5,
         "index" => 6,
         "focused" => 7,
         "running" => 8,
@@ -927,6 +970,12 @@ pub(super) fn resolve_socket_with_env(
     }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
+
+mod closed_view;
+mod hints;
+mod sanitize;
+pub(super) use hints::connect_failure;
+use sanitize::{sanitize_human_block, sanitize_human_cell};
 
 #[cfg(test)]
 mod tests;

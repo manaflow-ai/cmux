@@ -47,6 +47,9 @@ Outputs are deterministic (sorted, no timestamp unless --created is given):
   --files-out DIR     the license files, as DIR/<crate>-<version>/<file>
                       (DIR then holds exactly these files)
   --check             regenerate and fail when --out or --files-out differ
+  --match-report FILE every shipped text that does not satisfy its concluded
+                      expression, one per line; the run still fails (no mode
+                      or environment variable accepts a mismatch)
 
 --reviewed JSON (owned by the license review):
   {"extra_license_files": {"<name>" | "<name> <version>": ["AUTHORS", ...]},
@@ -72,6 +75,7 @@ import sys
 import tempfile
 from typing import Iterable
 
+import license_match
 from cargo_inputs import Manifest, Sources, parse_cargo_tree, read_lock, read_manifest, target_info
 from notice_model import (
     CRATES_IO,
@@ -178,6 +182,7 @@ def collect(args: argparse.Namespace) -> list[Crate]:
         closure_label = "exact (cargo tree)"
     first_party_license = args.first_party_license.read_bytes() if args.first_party_license else None
     errors: list[str] = []
+    mismatches: list[str] = []
     crates: list[Crate] = []
     for key in sorted(reached):
         crate_dir, ws_root = locations[key]
@@ -251,7 +256,24 @@ def collect(args: argparse.Namespace) -> list[Crate]:
             if concluded not in or_alternatives(declared):
                 errors.append(f"{key.name} {key.version}: election concludes {concluded!r}, which is not one of the alternatives of {declared!r}")
                 continue
+        if not first_party:
+            # The shipped texts must satisfy the concluded expression (license_match.py).
+            try:
+                texts = [lf.data.decode("utf-8") for lf in files]
+            except UnicodeDecodeError:
+                texts = None  # rendering reports the file that is not UTF-8
+            problem = None if texts is None else license_match.expression_problem(concluded, texts)
+            if problem is not None:
+                message = f"{key.name} {key.version}: shipped license texts {[lf.name for lf in files]} do not satisfy {concluded!r}: {problem}"
+                mismatches.append(message)
+                errors.append(message)
+                continue
         crates.append(Crate(key, first_party, declared, concluded, download, lock[key].checksum, files, closure_label, sorted(reached[key])))
+    if args.match_report:
+        # Every license-text mismatch of the run, one per line. Never a way to
+        # accept one: a mismatch is also an error, so the run still fails.
+        args.match_report.parent.mkdir(parents=True, exist_ok=True)
+        args.match_report.write_text("".join(m + "\n" for m in mismatches), encoding="utf-8")
     if errors:
         raise NoticeError("\n".join(errors))
     return crates
@@ -283,6 +305,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p.add_argument("--out", type=Path)
     p.add_argument("--files-out", type=Path)
     p.add_argument("--check", action="store_true")
+    p.add_argument("--match-report", type=Path, help="write every license-text mismatch to FILE (one per line); the run still fails on any mismatch")
     return p.parse_args(list(argv))
 
 

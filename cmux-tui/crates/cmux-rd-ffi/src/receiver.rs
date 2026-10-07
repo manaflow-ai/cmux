@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_CONTROL, STREAM_DATAGRAM,
-    StreamDeframer, encode_stream_frame, flags,
+    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_BULK, STREAM_CONTROL,
+    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame, flags,
 };
 
 /// How the session's datagrams travel.
@@ -60,6 +60,8 @@ const DECODE_SAMPLES: usize = 30;
 #[derive(Debug)]
 pub struct Receiver {
     carrier: Carrier,
+    /// The display stream this receiver reassembles; its feedback names it.
+    stream: u16,
     nack_after_us: u64,
     reassembler: Reassembler,
     deframer: StreamDeframer,
@@ -89,8 +91,15 @@ impl Receiver {
     /// `deadline_us`: how long a frame may wait for missing shards.
     /// `nack_after_us`: how long a frame waits before its gaps are NACKed.
     pub fn new(carrier: Carrier, deadline_us: u64, nack_after_us: u64) -> Self {
+        Self::for_stream(carrier, 0, deadline_us, nack_after_us)
+    }
+
+    /// A receiver for display stream `stream` (its feedback datagrams carry
+    /// that stream, so the host recovers the right stream).
+    pub fn for_stream(carrier: Carrier, stream: u16, deadline_us: u64, nack_after_us: u64) -> Self {
         Self {
             carrier,
+            stream,
             nack_after_us,
             reassembler: Reassembler::new(deadline_us),
             deframer: StreamDeframer::default(),
@@ -288,7 +297,7 @@ impl Receiver {
         DatagramHeader {
             flags: 0,
             kind: DatagramKind::Feedback,
-            stream: 0,
+            stream: self.stream,
             frame: 0,
             index: 0,
             count: 0,
@@ -334,7 +343,7 @@ impl Receiver {
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {
-        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM));
+        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK));
         let cost = bytes.len() + MESSAGE_OVERHEAD;
         if self.message_bytes + cost > MAX_MESSAGE_BYTES {
             self.failed = true;

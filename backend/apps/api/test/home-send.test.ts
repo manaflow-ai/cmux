@@ -84,4 +84,23 @@ describe("invite email sends (stage C)", { timeout: 60_000 }, () => {
     expect(r.state).toBe("refused_env")
     expect(r.calls).toHaveLength(0)
   })
+
+  it("outside production, an inviter on HOME_INVITE_ALLOWED_INVITERS (verified email) reaches any address", async () => {
+    const r = await invite("send-team-inviter", "hank@example.com", { ...ON, HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com", HOME_INVITE_ALLOWED_INVITERS: "send-team-inviter@example.com" })
+    expect(r.state).toBe("sent")
+    expect(r.calls).toHaveLength(1)
+    expect(r.left).toBe(0)
+  })
+
+  it("an inviter on HOME_INVITE_ALLOWED_INVITERS by user id reaches any address", async () => {
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "send-team-inviter-id")
+    const r = await invite("send-team-inviter-id", "ivy@example.com", { ...ON, HOME_INVITE_ALLOWED_INVITERS: user })
+    expect(r.state).toBe("sent")
+  })
+
+  it("an inviter off HOME_INVITE_ALLOWED_INVITERS keeps the recipient allow list", async () => {
+    const r = await invite("send-not-team", "jack@example.com", { ...ON, HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com", HOME_INVITE_ALLOWED_INVITERS: "lead@example.com" })
+    expect(r.state).toBe("refused_env")
+    expect(r.calls).toHaveLength(0)
+  })
 })

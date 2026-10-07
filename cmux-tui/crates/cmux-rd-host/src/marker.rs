@@ -19,6 +19,8 @@ pub fn cells(counter: u32) -> [bool; CELLS] {
 }
 
 /// Reads the marker from a luma plane. `video_range` selects the threshold (125 vs 128).
+/// Only the bench viewer (and the tests) decode markers.
+#[cfg(any(feature = "bench", test))]
 pub fn decode_luma(y: &[u8], stride: usize, video_range: bool) -> Option<u16> {
     let threshold = if video_range { 125 } else { 128 };
     let center = (CELL / 2) as usize;

@@ -31,6 +31,7 @@ pub(crate) struct ControlResponses {
     pub(super) latest_cell_pixel_ack: AtomicU64,
     pub(super) pending_input_acks: Mutex<PendingInputAckWindow>,
     pub(super) input_ack_shutdown: Mutex<Option<Arc<UnixStream>>>,
+    pub(super) clipboard_reads: ClipboardReadInbox,
 }
 
 impl ControlResponses {
@@ -41,6 +42,7 @@ impl ControlResponses {
             latest_cell_pixel_ack: AtomicU64::new(0),
             pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
             input_ack_shutdown: Mutex::new(None),
+            clipboard_reads: ClipboardReadInbox::default(),
         }
     }
 

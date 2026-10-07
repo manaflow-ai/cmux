@@ -432,7 +432,7 @@ Every op and action is on every surface or has a reasoned exemption (check-actio
 
 | Action | Palette | Shortcut | CLI | MCP | Right-click |
 | --- | --- | --- | --- | --- | --- |
-| `feed.show` (toggle the feed panel) | Show Feed | Cmd-I (replaces Show Notifications) | `cmux feed show` (exempt guiOnly) | exempt | sidebar background |
+| `feed.show` (toggle the feed panel) | Show Feed | Cmd-Shift-I | `cmux feed show` (exempt guiOnly) | exempt | sidebar background |
 | `feed.openItem` | per item ("Open: <title>") | Return in the panel | `cmux feed open <id> [--focus]` | exempt (focus) | item row |
 | `feed.answerItem` (choice of the item's actions) | per item | per action number in the panel | `cmux feed answer` | never | item row |
 | `feed.decline` | per item | Delete in the panel | `cmux feed cancel <id>` | never | item row |

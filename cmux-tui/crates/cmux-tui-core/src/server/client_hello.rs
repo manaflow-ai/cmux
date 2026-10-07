@@ -1,6 +1,6 @@
 //! `client-hello` step 1 (plans/cmux-next/request-origin.md, "Hello and
 //! capability"): `{cmd: "client-hello", role: "main"|"page_relay",
-//! install_id?}` -> `{connection_id}`.
+//! install_id?}` -> `{connection_id, user_origin_allowed, nonce?}`.
 //!
 //! The hello is accepted only as a connection's first line, or as its second
 //! line right after exactly one `identify`; any other line first (a second
@@ -15,12 +15,15 @@
 //! against the app's code signature (prover A). A role-main hello with an
 //! install id always gets a nonce, and the very next line must be step 2,
 //! `{cmd: "client-hello", install_id, proof}` -> `{verified, install_id,
-//! connection_id}`; any other line closes the window, and a refused proof
-//! is `client_hello.refused` (no retry). Either prover sets the
+//! connection_id, user_origin_allowed}`; any other line closes the window,
+//! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
-//! A page relay connection may not `subscribe` (its requests are page
-//! requests; it reads replies, not the event stream).
+//! A page relay connection carries only `cmux.protocol/2` requests (pages
+//! speak nothing else through the relay). Every other line on it is refused
+//! with `origin.forbidden {required: "agent", derived: "page"}` (default
+//! deny), except `identify` and a (late, so refused) `client-hello`. This
+//! keeps every legacy command, `subscribe` included, away from page JS.
 
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
@@ -81,7 +84,7 @@ impl HelloGate {
     }
 
     /// Sees every line before dispatch. `Some(reply)` answers the line here
-    /// (a `client-hello`, or a page relay's `subscribe`) and nothing else
+    /// (a `client-hello`, or a page relay's legacy line) and nothing else
     /// sees it; `None` dispatches it as usual.
     pub(super) fn observe(
         &mut self,
@@ -90,15 +93,25 @@ impl HelloGate {
         line: &str,
         peer: impl FnOnce() -> Peer,
     ) -> Option<Value> {
-        // After the window closes only a late hello, or a page relay's
-        // subscribe, is answered here; each test is a superset of its case.
+        // After the window closes only a late hello, or any line of a page
+        // relay, is looked at here; the test is a superset of those cases.
         let open = !matches!(self.window, Window::Closed);
-        let maybe_subscribe = self.page_relay && line.contains("subscribe");
-        if !open && !maybe_subscribe && !line.contains(CLIENT_HELLO) {
+        if !open && !self.page_relay && !line.contains(CLIENT_HELLO) {
             return None;
         }
         let window = std::mem::replace(&mut self.window, Window::Closed);
-        let value: Value = serde_json::from_str(line).ok()?;
+        let value = match serde_json::from_str::<Value>(line) {
+            Ok(value) => value,
+            Err(_) if self.page_relay => return Some(page_relay_refusal(None)),
+            Err(_) => return None,
+        };
+        // The same test dispatch uses for a `cmux.protocol/2` line: those
+        // go on to the origin gate.
+        if self.page_relay
+            && value.as_object().is_some_and(|object| object.contains_key("protocol"))
+        {
+            return None;
+        }
         let id = value.get("id").cloned();
         let result = match value.get("cmd").and_then(Value::as_str) {
             Some(CLIENT_HELLO) => match window {
@@ -121,11 +134,8 @@ impl HelloGate {
                 self.window = Window::Open { identified: true };
                 return None;
             }
-            Some("subscribe") if self.page_relay => Err((
-                "origin.forbidden",
-                "a page relay connection cannot subscribe",
-                Some(json!({"derived": RequestOrigin::Page.wire_name()})),
-            )),
+            Some("identify") if self.page_relay => return None,
+            _ if self.page_relay => return Some(page_relay_refusal(id)),
             _ => return None,
         };
         Some(match result {
@@ -173,7 +183,10 @@ impl HelloGate {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
-        let mut data = json!({"connection_id": client.to_string()});
+        let mut data = json!({
+            "connection_id": client.to_string(),
+            "user_origin_allowed": user_origin_allowed(mux, client),
+        });
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
         let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
@@ -187,6 +200,17 @@ impl HelloGate {
         }
         Ok(data)
     }
+}
+
+/// The answer to a legacy line on a page relay connection.
+fn page_relay_refusal(id: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "ok": false,
+        "error": "a page relay connection sends only cmux.protocol/2 requests",
+        "error_code": "origin.forbidden",
+        "error_details": {"required": "agent", "derived": RequestOrigin::Page.wire_name()},
+    })
 }
 
 /// Step 2: the install-key proof over this connection's nonce (prover B).
@@ -208,9 +232,34 @@ fn prove(
     {
         return Err(REFUSED);
     }
-    Ok(json!({"verified": true, "install_id": install_id, "connection_id": client.to_string()}))
+    Ok(json!({
+        "verified": true,
+        "install_id": install_id,
+        "connection_id": client.to_string(),
+        "user_origin_allowed": user_origin_allowed(mux, client),
+    }))
+}
+
+/// `user_origin_allowed` in both hello replies: whether an origin `user`
+/// request on this connection passes the apps door now (the verified app,
+/// not bound to an agent). The app sends `user` only when it is true and
+/// never resends a refused `user` as `script`.
+fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
+    #[cfg(unix)]
+    {
+        apps::user_origin_allowed(mux, client)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (mux, client);
+        false
+    }
 }
 
 #[cfg(all(test, unix))]
 #[path = "client_hello_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "untrusted_mint_tests.rs"]
+mod untrusted_mint_tests;

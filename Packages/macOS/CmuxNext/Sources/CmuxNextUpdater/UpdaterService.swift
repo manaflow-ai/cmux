@@ -56,16 +56,21 @@ public final class UpdaterService {
     public internal(set) var whatsNew: ReleaseNotes?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
+    /// UPDATE-CARD: the staged update's display version (kept while it
+    /// installs) and its verified notes, fetched once when it was staged.
+    public internal(set) var stagedVersion: String?
+    public internal(set) var stagedNotes: ReleaseNotes?
+    @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// The staged appcast item's build (replaced by tests).
+    @ObservationIgnored var stagedBuild: () -> String? = { nil }
+    /// `updates.downloadAutomatically` (the card's Automatic Updates box).
+    public internal(set) var automaticUpdates = true
+    /// Writes `updates.downloadAutomatically` (set by the App).
+    @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
-    public var preferences = UpdatePreferences.defaults {
-        didSet { if preferences.quietHours != oldValue.quietHours { scheduleQuietBoundary() } }
-    }
-    /// The local minute of the day the card is evaluated at.
-    public internal(set) var minuteOfDay = 0
-    /// Asks the App to confirm an install although agents run (CmuxDialog).
-    @ObservationIgnored public var confirmInterrupt: ((UpdateBlockers) -> Void)?
+    public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     @ObservationIgnored var cancelStaged: () -> Void = {}
@@ -74,12 +79,8 @@ public final class UpdaterService {
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
-    /// The App's observation of what a relaunch would interrupt.
-    @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
-    @ObservationIgnored var quietTimer: DemandTimer?
-    @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let now: () -> Date
 
     /// Asks the App to show the update sheet (set by the App): a failure's
@@ -88,9 +89,8 @@ public final class UpdaterService {
     /// Sparkle is about to relaunch into the update (set by the App: the quit
     /// keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
-    /// Whether a window shows the rail's update circle (set by the App:
-    /// false while the window rail is off). Without it, checks and installs
-    /// open the update sheet.
+    /// Whether a window shows the update notice (the sidebar footer's
+    /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
@@ -113,9 +113,7 @@ public final class UpdaterService {
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
-                clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping () -> Date = Date.init) {
-        self.clock = clock
         self.now = now
         self.identity = identity
         self.policy = policy
@@ -140,8 +138,8 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
-        minuteOfDay = Self.minuteOfDay(now())
         restorePinnedTestFeed()
         restoreRollbackSkip()
     }
@@ -296,7 +294,8 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
-            card: card
+            card: card,
+            badge: footerPill?.title
         )
     }
 

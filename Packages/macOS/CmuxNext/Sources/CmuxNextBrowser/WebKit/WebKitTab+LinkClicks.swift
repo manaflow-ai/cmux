@@ -63,7 +63,7 @@ enum WebKitLinkClick: Equatable {
             tab.webView.load(request)
         case .download:
             guard let url = request.url, WebKitTab.isWebScheme(url) else { return true }
-            tab.webView.startDownload(using: request) { [weak tab] download in tab?.register(download, source: url) }
+            tab.webView.startDownload(using: request) { [weak tab] download in tab?.downloads.register(download, source: url) }
         case .open, .pageDefault:
             return false
         }

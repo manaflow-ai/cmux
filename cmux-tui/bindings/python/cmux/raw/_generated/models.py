@@ -149,6 +149,16 @@ class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
 
+class TerminalClipboardHostKind(str, Enum):
+    LOCAL = 'local'
+    REMOTE = 'remote'
+    CLOUD = 'cloud'
+
+class TerminalClipboardLocation(str, Enum):
+    STANDARD = 'standard'
+    SELECTION = 'selection'
+    PRIMARY = 'primary'
+
 class TerminalKey(str, Enum):
     UNIDENTIFIED = 'unidentified'
     BACKQUOTE = 'backquote'
@@ -283,6 +293,21 @@ class ViewAttachmentOutcome(str, Enum):
 
 
 @dataclass(frozen=True)
+class ActivitySnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySnapshot'
+    attached_clients: int
+    last_agent_action_at_ms: Union[int, None]
+    last_user_input_at_ms: Union[int, None]
+    live_agents: int
+
+
+@dataclass(frozen=True)
+class ActivitySubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySubscribeResult'
+    activity: ActivitySnapshot
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -331,12 +356,57 @@ class AttachedViewResizeResult:
 
 
 @dataclass(frozen=True)
+class Bookmark:
+    __cmux_schema_path__: ClassVar[str] = 'types/Bookmark'
+    browser_profile_id: str
+    created_ms: int
+    id: str
+    index: int
+    kind: str
+    parent: str
+    title: str
+    favicon_key: Union[str, MissingType] = field(default=MISSING)
+    last_used_ms: Union[int, MissingType] = field(default=MISSING)
+    source_key: Union[str, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class BookmarkChangeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BookmarkChangeResult'
+    bookmark: Bookmark
+    changed: bool
+    replayed: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class BookmarkImportNode:
+    __cmux_schema_path__: ClassVar[str] = 'types/BookmarkImportNode'
+    kind: str
+    title: str
+    children: Union[List[BookmarkImportNode], MissingType] = field(default=MISSING)
+    created_ms: Union[int, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
     height: int
     seq: int
     width: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserHostProviderResult'
+    host_pid: int
+    listener_pid: int
+    secret: str
+    socket: str
 
 
 @dataclass(frozen=True)
@@ -442,6 +512,16 @@ class ConversationChange:
 
 
 @dataclass(frozen=True)
+class ConversationImportMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationImportMessage'
+    author: str
+    client_msg_id: str
+    created_at: str
+    parts: List[ConversationPart]
+    id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationMessage:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationMessage'
     author: str
@@ -462,7 +542,7 @@ class ConversationPart:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
     type: str
     host: Union[str, MissingType] = field(default=MISSING)
-    preview: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, MissingType] = field(default=MISSING)
     runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
     session: Union[str, MissingType] = field(default=MISSING)
     status: Union[str, MissingType] = field(default=MISSING)
@@ -537,6 +617,7 @@ class ConversationTabRecord:
     agent_session: Union[AgentSessionSource, MissingType] = field(default=MISSING)
     conversation: Union[str, MissingType] = field(default=MISSING)
     owner: Union[str, MissingType] = field(default=MISSING)
+    page: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -866,6 +947,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1140,6 +1222,31 @@ class RunResult:
 
 
 @dataclass(frozen=True)
+class SavedTabGroupMember:
+    __cmux_schema_path__: ClassVar[str] = 'types/SavedTabGroupMember'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class SavedTabGroupRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/SavedTabGroupRecord'
+    color: str
+    id: str
+    members: List[SavedTabGroupMember]
+    name: str
+    room: str
+    updated_at_ms: int
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class Screen:
     __cmux_schema_path__: ClassVar[str] = 'types/Screen'
     active: bool
@@ -1408,6 +1515,70 @@ class Tab:
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TabGroupEndedTerminal:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupEndedTerminal'
+    terminal_id: str
+    terminal_incarnation: Union[str, None]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupOutcome:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupOutcome'
+    pane: Union[Id, None]
+    workspace: Union[Id, None]
+    group: Union[TabGroupRecord, None]
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupRecord'
+    collapsed: bool
+    color: str
+    id: str
+    name: str
+    saved_id: Union[str, None]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupRun:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupRun'
+    collapsed: bool
+    color: str
+    count: int
+    id: str
+    name: str
+    saved_id: Union[str, None]
+    start: int
+    surfaces: List[Id]
+    pane: Union[Id, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TerminalClipboardHost:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardHost'
+    kind: TerminalClipboardHostKind
+    name: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReplyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardReplyResult'
+    accepted: bool
+    granted: bool
+
+
+@dataclass(frozen=True)
+class TerminalClipboardSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardSubscribeResult'
+    clipboard_read_ready: bool
 
 
 @dataclass(frozen=True)
@@ -1711,6 +1882,7 @@ class AttachSurfaceRequest:
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot_images: Union[bool, MissingType] = field(default=MISSING)
     snapshot_local_history: Union[bool, MissingType] = field(default=MISSING)
     snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
     viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
@@ -1755,6 +1927,12 @@ class BrowserFramePresentedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-frame-presented/request'
     surface: Id
     frame_seq: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-host-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -1913,6 +2091,15 @@ class CloseTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class CloseTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-tab-group/result'
+    closed: List[Id]
+    group: str
+    terminals: Union[List[TabGroupEndedTerminal], MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class CloseTabsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-tabs/request'
     surfaces: List[TabRef]
@@ -1949,6 +2136,82 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-history/request'
+    before_seq: int
+    conversation: str
+    limit: int
+
+
+@dataclass(frozen=True)
+class CloudConversationOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-op/request'
+    idempotency_key: str
+    op: Union[JsonValue, None]
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudConversationSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-snapshot/request'
+    conversation: str
+    tail: int
+
+
+@dataclass(frozen=True)
+class CloudConversationSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-subscribe/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
+class CloudConversationUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-unsubscribe/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
+class CloudInboxListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
+    include_archived: Union[bool, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudInboxSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-subscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudInboxUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-unsubscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudSessionClearRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudSessionSetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-set/request'
+    access_token: str
+    api_base_url: str
+    expires_at: int
+    client_version: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudSessionStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ConversationAgentTokenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
     participant: str
@@ -1959,6 +2222,82 @@ class ConversationAgentTokenResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/result'
     participant: str
     token: str
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/request'
+    conversation: str
+    hash: str
+    length: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentReadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/result'
+    byte_count: int
+    data: str
+    eof: bool
+    hash: str
+    mime_type: str
+    offset: int
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/request'
+    op: str
+    byte_count: Union[int, None, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    duration_ms: Union[int, None, MissingType] = field(default=MISSING)
+    height: Union[int, None, MissingType] = field(default=MISSING)
+    mime_type: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    piece: Union[str, None, MissingType] = field(default=MISSING)
+    poster: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    sha256: Union[str, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result'
+    needs: Union[List[str], None, MissingType] = field(default=MISSING)
+    received: Union[int, None, MissingType] = field(default=MISSING)
+    stored: Union[ConversationAttachmentUploadResultStored, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStored:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+    poster: Union[ConversationAttachmentUploadResultStoredPoster, None, MissingType] = field(default=MISSING)
+    preview: Union[ConversationAttachmentUploadResultStoredPreview, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPoster:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/poster/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPreview:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/preview/type'
+    byte_count: int
+    hash: str
+    mime_type: str
 
 
 @dataclass(frozen=True)
@@ -2002,6 +2341,21 @@ class ConversationHistoryRequest:
 class ConversationHistoryResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
     messages: List[ConversationMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/request'
+    conversation: str
+    messages: List[ConversationImportMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/result'
+    conversation: ConversationSummary
+    imported: List[int]
+    skipped: int
 
 
 @dataclass(frozen=True)
@@ -2220,6 +2574,14 @@ class DeleteBookmarkRequest:
 
 
 @dataclass(frozen=True)
+class DeleteBookmarkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-bookmark/result'
+    deleted: List[str]
+    replayed: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class DeleteBrowserProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-browser-profile/request'
     browser_profile: str
@@ -2248,6 +2610,14 @@ class DeleteSavedScreenGroupRequest:
 class DeleteSavedTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-tab-group/request'
     saved: str
+
+
+@dataclass(frozen=True)
+class DeleteSavedTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-tab-group/result'
+    deleted: bool
+    saved: str
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -2346,13 +2716,22 @@ class IdsRequest:
 class ImportBookmarksRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/import-bookmarks/request'
     browser_profile_id: str
-    nodes: List[JsonValue]
+    nodes: List[BookmarkImportNode]
     parent: str
     index: Union[int, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     replace: Union[bool, MissingType] = field(default=MISSING)
     source_key: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ImportBookmarksResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/import-bookmarks/result'
+    count: int
+    replayed: bool
+    root_ids: List[str]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -2389,6 +2768,14 @@ class ListBookmarksRequest:
 
 
 @dataclass(frozen=True)
+class ListBookmarksResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-bookmarks/result'
+    bookmarks: List[Bookmark]
+    bookmarks_revision: int
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class ListClientsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-clients/request'
     pass
@@ -2419,9 +2806,23 @@ class ListSavedTabGroupsRequest:
 
 
 @dataclass(frozen=True)
+class ListSavedTabGroupsResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-saved-tab-groups/result'
+    saved_groups: List[SavedTabGroupRecord]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class ListTabGroupsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/request'
     pass
+
+
+@dataclass(frozen=True)
+class ListTabGroupsResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/result'
+    groups: List[TabGroupRun]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -2677,7 +3078,9 @@ class NewConversationTabRequest:
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
+    page: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2688,6 +3091,7 @@ class NewConversationTabResult:
     conversation: ConversationTabRecord
     replayed: bool
     tab_resource_id: Union[str, None]
+    transaction: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2696,6 +3100,8 @@ class NewFrontendBrowserTabRequest:
     engine: str
     url: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, MissingType] = field(default=MISSING)
+    after: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
@@ -2957,6 +3363,14 @@ class RemoveTabsFromTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class RemoveTabsFromTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remove-tabs-from-tab-group/result'
+    groups: List[str]
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class RenamePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/rename-pane/request'
     pane: Id
@@ -3079,6 +3493,14 @@ class SaveScreenGroupRequest:
 class SaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/save-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class SaveTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/save-tab-group/result'
+    group: str
+    saved: str
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -3387,11 +3809,30 @@ class SubscribeRequest:
 
 
 @dataclass(frozen=True)
+class SubscribeActivityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/subscribe-activity/request'
+    pass
+
+
+@dataclass(frozen=True)
 class SwapPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/swap-pane/request'
     pane: Id
     dir: Union[PaneDirection, None, MissingType] = field(default=MISSING)
     target: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReplyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-clipboard-reply/request'
+    request_id: str
+    text: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-clipboard-subscribe/request'
+    terminal_ids: List[str]
 
 
 @dataclass(frozen=True)
@@ -3447,6 +3888,14 @@ class UngroupTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class UngroupTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ungroup-tab-group/result'
+    group: str
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class UnpinWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unpin-workspace/request'
     session_id: str
@@ -3469,6 +3918,14 @@ class UnsaveScreenGroupRequest:
 class UnsaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class UnsaveTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/result'
+    group: str
+    unsaved: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -3600,6 +4057,14 @@ class ZoomPaneRequest:
 
 
 @dataclass(frozen=True)
+class ActivityChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/activity-changed/payload'
+    activity: ActivitySnapshot
+    event: Literal['activity-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class AgentChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/agent-changed/payload'
     surface: Id
@@ -3678,6 +4143,73 @@ class ClientDetachedEvent(EventBase):
 class ClientListInvalidatedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/client-list-invalidated/payload'
     event: Literal['client-list-invalidated']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudConversationChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-changed/payload'
+    change: Union[JsonValue, None]
+    conversation: str
+    event: Literal['cloud-conversation-changed']
+    rev: int
+    seq: int
+    transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudConversationResyncedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-resynced/payload'
+    conversation: str
+    event: Literal['cloud-conversation-resynced']
+    messages: Union[JsonValue, None]
+    rev: int
+    seq: int
+    summary: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudInboxChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-changed/payload'
+    entries: Union[JsonValue, None]
+    event: Literal['cloud-inbox-changed']
+    seq: int
+    transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudInboxResetEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-reset/payload'
+    event: Literal['cloud-inbox-reset']
+    seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudSessionNeededEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-session-needed/payload'
+    event: Literal['cloud-session-needed']
+    reason: str
+    expires_at: Union[int, None, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudSubscriptionStateEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-subscription-state/payload'
+    event: Literal['cloud-subscription-state']
+    scope: str
+    state: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    reason: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -4104,6 +4636,25 @@ class TabRenamedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class TerminalClipboardReadEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-clipboard-read/payload'
+    terminal_id: str
+    event: Literal['terminal-clipboard-read']
+    host: TerminalClipboardHost
+    location: TerminalClipboardLocation
+    request_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReadCancelledEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-clipboard-read-cancelled/payload'
+    event: Literal['terminal-clipboard-read-cancelled']
+    request_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class TerminalReapedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/terminal-reaped/payload'
     terminal_id: str
@@ -4261,7 +4812,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4291,17 +4842,25 @@ __all__ = [
     'SizeMode',
     'SizeReason',
     'SplitDirection',
+    'TerminalClipboardHostKind',
+    'TerminalClipboardLocation',
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
     'ViewAttachmentOutcome',
+    'ActivitySnapshot',
+    'ActivitySubscribeResult',
     'AgentRecord',
     'AgentSessionSource',
     'AppliedPane',
     'ApplyLayoutResult',
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
+    'Bookmark',
+    'BookmarkChangeResult',
+    'BookmarkImportNode',
     'BrowserFrame',
+    'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
     'BrowserProviderTarget',
     'BrowserProviderUnregisterResult',
@@ -4313,6 +4872,7 @@ __all__ = [
     'CloseTerminalResult',
     'ColumnPin',
     'ConversationChange',
+    'ConversationImportMessage',
     'ConversationMessage',
     'ConversationPart',
     'ConversationPartRef',
@@ -4385,6 +4945,8 @@ __all__ = [
     'RowHeight',
     'RowMarkerPoint',
     'RunResult',
+    'SavedTabGroupMember',
+    'SavedTabGroupRecord',
     'Screen',
     'ServerStatsConnections',
     'ServerStatsHistogram',
@@ -4412,6 +4974,13 @@ __all__ = [
     'SplitRespawn',
     'SurfaceResult',
     'Tab',
+    'TabGroupEndedTerminal',
+    'TabGroupOutcome',
+    'TabGroupRecord',
+    'TabGroupRun',
+    'TerminalClipboardHost',
+    'TerminalClipboardReplyResult',
+    'TerminalClipboardSubscribeResult',
     'TerminalColorOverrides',
     'TerminalColors',
     'TerminalCommandHistoryResult',
@@ -4449,6 +5018,7 @@ __all__ = [
     'BrowserBackRequest',
     'BrowserForwardRequest',
     'BrowserFramePresentedRequest',
+    'BrowserHostProviderRequest',
     'BrowserInsertTextRequest',
     'BrowserKeyRequest',
     'BrowserKeyPressRequest',
@@ -4468,17 +5038,38 @@ __all__ = [
     'CloseScreenGroupRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
+    'CloseTabGroupResult',
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'CloudConversationHistoryRequest',
+    'CloudConversationOpRequest',
+    'CloudConversationSnapshotRequest',
+    'CloudConversationSubscribeRequest',
+    'CloudConversationUnsubscribeRequest',
+    'CloudInboxListRequest',
+    'CloudInboxSubscribeRequest',
+    'CloudInboxUnsubscribeRequest',
+    'CloudSessionClearRequest',
+    'CloudSessionSetRequest',
+    'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
+    'ConversationAttachmentReadRequest',
+    'ConversationAttachmentReadResult',
+    'ConversationAttachmentUploadRequest',
+    'ConversationAttachmentUploadResult',
+    'ConversationAttachmentUploadResultStored',
+    'ConversationAttachmentUploadResultStoredPoster',
+    'ConversationAttachmentUploadResultStoredPreview',
     'ConversationBindRequest',
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
+    'ConversationImportRequest',
+    'ConversationImportResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',
@@ -4500,11 +5091,13 @@ __all__ = [
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
     'DeleteBookmarkRequest',
+    'DeleteBookmarkResult',
     'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
     'DeleteSavedScreenGroupRequest',
     'DeleteSavedTabGroupRequest',
+    'DeleteSavedTabGroupResult',
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
@@ -4520,17 +5113,21 @@ __all__ = [
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',
+    'ImportBookmarksResult',
     'ImportSessionOrganizationRequest',
     'JournalFrontendEventRequest',
     'JournalFrontendEventResult',
     'ListAgentsRequest',
     'ListBookmarksRequest',
+    'ListBookmarksResult',
     'ListClientsRequest',
     'ListNotificationsRequest',
     'ListPersonalRequest',
     'ListSavedScreenGroupsRequest',
     'ListSavedTabGroupsRequest',
+    'ListSavedTabGroupsResult',
     'ListTabGroupsRequest',
+    'ListTabGroupsResult',
     'ListTerminalsRequest',
     'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
@@ -4589,6 +5186,7 @@ __all__ = [
     'ReloadConfigResult',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
+    'RemoveTabsFromTabGroupResult',
     'RenamePaneRequest',
     'RenameProviderManagedWorkspaceRequest',
     'RenameScreenRequest',
@@ -4604,6 +5202,7 @@ __all__ = [
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',
+    'SaveTabGroupResult',
     'ScrollSurfaceRequest',
     'SelectScreenRequest',
     'SelectTabRequest',
@@ -4639,7 +5238,10 @@ __all__ = [
     'SnapshotRequestRequest',
     'SplitRequest',
     'SubscribeRequest',
+    'SubscribeActivityRequest',
     'SwapPaneRequest',
+    'TerminalClipboardReplyRequest',
+    'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
     'TerminalReadRangeRequest',
@@ -4647,10 +5249,12 @@ __all__ = [
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
+    'UngroupTabGroupResult',
     'UnpinWorkspaceRequest',
     'UnregisterBrowserProviderRequest',
     'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UnsaveTabGroupResult',
     'UpdateBookmarkRequest',
     'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',
@@ -4666,6 +5270,7 @@ __all__ = [
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
+    'ActivityChangedEvent',
     'AgentChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',
@@ -4674,6 +5279,12 @@ __all__ = [
     'ClientChangedEvent',
     'ClientDetachedEvent',
     'ClientListInvalidatedEvent',
+    'CloudConversationChangedEvent',
+    'CloudConversationResyncedEvent',
+    'CloudInboxChangedEvent',
+    'CloudInboxResetEvent',
+    'CloudSessionNeededEvent',
+    'CloudSubscriptionStateEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
     'ConversationChangedEvent',
@@ -4712,6 +5323,8 @@ __all__ = [
     'TabChangedEvent',
     'TabClosedEvent',
     'TabRenamedEvent',
+    'TerminalClipboardReadEvent',
+    'TerminalClipboardReadCancelledEvent',
     'TerminalReapedEvent',
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -35,6 +36,8 @@ final class SettingsWindowService: InternalPageProvider {
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool)?
     var isWaiting: Bool { waiting != nil }
+    /// The page fragment the Settings page shows, or will open with.
+    var currentRoute: String? { webPage?.route ?? pendingRoute }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
@@ -94,6 +97,7 @@ final class SettingsWindowService: InternalPageProvider {
     var page: InternalPageID { .settings }
     var title: String { SettingsDeepLink.pageTitle }
     var symbol: String { "gearshape" }
+    var icon: IconName? { .settings }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
     func makeView(for key: String, in window: WindowController?) -> NSView {

@@ -13,10 +13,11 @@ import Testing
     }
 
     @Test func theStepIsLeftOutWithoutTheHelper() {
-        #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.computerUse))
+        #expect(!OnboardingModel(services: MockOnboardingServices(), start: .computerUse).steps.contains(.computerUse))
         let services = MockOnboardingServices()
         services.computerUseSource = MockComputerUsePermissionSource()
-        #expect(OnboardingModel(services: services).steps == [.role, .projects, .defaultBrowser, .importData, .theme, .computerUse])
+        #expect(OnboardingModel(services: services, start: .computerUse).steps == [.computerUse])
+        #expect(!OnboardingModel(services: services).steps.contains(.computerUse), "the first run asks for no grants")
     }
 
     @Test func rowsFollowTheGrantsWhileTheStepShows() async {
@@ -28,9 +29,8 @@ import Testing
         source.current.accessibility = true
         await settle { model.computerUse.permissions.accessibility }
         #expect(model.computerUse.permissions == ComputerUsePermissions(accessibility: true, screenRecording: false))
-        // Leaving the step stops following: a later grant is not read.
-        model.back()
-        model.stepDidAppear()
+        // Closing the window stops following: a later grant is not read.
+        model.finish(completed: true)
         source.current.screenRecording = true
         for _ in 0..<50 { await Task.yield() }
         #expect(!model.computerUse.permissions.screenRecording)
@@ -65,6 +65,34 @@ import Testing
         // A granted row has nothing to allow.
         model.computerUse.allow(.screenRecording)
         #expect(source.opened == [.screenRecording] && model.computerUse.helping == nil)
+    }
+
+    /// A dev build with no Developer ID signed helper: Allow opens no list,
+    /// floats no tile (nothing to grant that the TCC row would accept) and
+    /// the step says computer use is unavailable in this build.
+    @Test func withoutASignedHelperAllowReportsUnavailable() async {
+        let source = MockComputerUsePermissionSource(helperAppURL: nil)
+        let services = MockOnboardingServices()
+        services.computerUseSource = source
+        let model = OnboardingModel(services: services, start: .computerUse)
+        model.stepDidAppear()
+        let view = ComputerUseStepView(model: model.computerUse)
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
+        #expect(!Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable))
+        model.computerUse.allow(.screenRecording)
+        #expect(source.opened.isEmpty)
+        #expect(model.computerUse.helping == nil)
+        #expect(model.computerUse.unavailable)
+        await settle { Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable) }
+        #expect(Self.shownText(view).contains(OnboardingStrings.computerUseHelperUnavailable))
+        model.finish(completed: true)
+    }
+
+    static func shownText(_ view: NSView) -> [String] {
+        var found: [String] = []
+        if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field.stringValue) }
+        for child in view.subviews { found += shownText(child) }
+        return found
     }
 
     @Test func closingTheTileOrTheFlowEndsTheHelp() {

@@ -14,7 +14,8 @@ import Foundation
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
 // - `connected` (`value` bool): the owner link state on the page's connection stream;
-// - `click` (`selector`): clicks the first element matching the CSS selector (live proofs).
+// - `click` (`selector`): clicks the first element matching the CSS selector (live proofs);
+// - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element.
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods() {
@@ -64,7 +65,10 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return ["clicked": .bool(await page.debugClick(selector))]
+            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true))]
+        case "type":
+            guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
+            return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]

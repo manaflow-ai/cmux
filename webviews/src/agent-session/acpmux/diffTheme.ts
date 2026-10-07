@@ -3,6 +3,7 @@
 // Colors come from the pane's theme variables (applyAgentTheme), which inherit into
 // Pierre's shadow roots; the dark values below are the fallbacks.
 import { registerCustomTheme } from "@pierre/diffs";
+import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "../../scrollers";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
 export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
@@ -181,7 +182,7 @@ export const diffUnsafeCSS = /* css */ `
 [data-acpmux-current] { box-shadow: inset 2px 0 0 var(--agent-accent, ${c.fg}); }
 [data-expand-button], [data-separator-content] { color: ${c.muted}; }
 [data-separator-content] { font-size: 12px; padding: 0 9px; }
-`;
+${PIERRE_DIFFS_SCROLLER_CSS}`;
 
 /// Injected into the tree's shadow root: 13px system font, 29px rows, a quiet selection.
 export const treeUnsafeCSS = /* css */ `
@@ -203,4 +204,28 @@ export const treeUnsafeCSS = /* css */ `
 }
 [data-type="item"][data-item-focused="true"]::before { display: none; }
 [data-item-section="decoration"] { font-size: 12px; }
-`;
+/* Long names (changes/treeTitles.ts): one unclipped line inside the content section, which clips
+   it with a fade at its end (no ellipsis, no middle truncation keeping the extension); the counts
+   never shrink. --cmux-title-lead is padding left of the first glyph, inside the section, that a
+   marquee fades glyphs across; the negative margin keeps the name where Pierre puts it. */
+[data-type="item"] [data-item-section="content"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  margin-inline-start: calc(-1 * var(--cmux-title-lead, 0px));
+  padding-inline-start: var(--cmux-title-lead, 0px);
+}
+[data-type="item"] [data-item-section="content"] > * { width: max-content; min-width: max-content; max-width: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-group-container] > div { flex: none; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-container] { overflow: visible; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-grid] { display: block; }
+[data-type="item"] [data-item-section="content"] :is([data-truncate-content="overflow"], [data-truncate-marker-cell], [data-truncate-fill]) { display: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-content="visible"] { white-space: pre; }
+[data-type="item"] [data-item-section="content"][data-cmux-clipped] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--cmux-title-lead, 0px), #000 calc(100% - var(--cmux-title-fade, 20px)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--cmux-title-lead, 0px), #000 calc(100% - var(--cmux-title-fade, 20px)), transparent 100%);
+}
+[data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; padding-inline-start: 6px; }
+${PIERRE_TREES_SCROLLER_CSS}`;

@@ -27,6 +27,7 @@ mod call;
 mod keybinding;
 mod run;
 mod settings;
+mod skew;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -40,6 +41,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "accounts",
     "open",
     "keybinding",
+    "ghostty",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -168,6 +170,14 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
             call("accounts.list", json!({}))
+        }
+        // The Ghostty config keys and keybind actions cmux does not apply
+        // (R92 diagnostics): the same report as Settings > Terminal.
+        ("ghostty", Some("diagnostics")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("ghostty.diagnostics", json!({}))
         }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
@@ -388,7 +398,7 @@ fn read_text<'a>(
     let messages = &crate::localization::catalog().app_control;
     match args.split_first() {
         Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
-        _ => Err(UsageError::new(messages.scope_usage.replace("{scope}", scope))),
+        _ => Err(UsageError::new(messages.search_text_usage.replace("{scope}", scope))),
     }
 }
 
@@ -689,6 +699,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
+            if error_code(&error) == Some("method_not_found") {
+                skew::annotate(stream, method, &mut error);
+            }
             settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);

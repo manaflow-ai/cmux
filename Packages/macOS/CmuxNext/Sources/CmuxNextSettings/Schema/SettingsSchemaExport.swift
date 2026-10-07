@@ -70,6 +70,7 @@ public struct SettingsSchemaExport {
             "agent_refusal": SettingsSchema.agentRefusedKeys[descriptor.id].map { $0.rawValue as Any } ?? NSNull(),
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
             "consumers": descriptor.consumers.sorted().map(\.rawValue),
+            "page_hidden": descriptor.page != .shown,
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
@@ -101,12 +102,20 @@ public struct SettingsSchemaExport {
             row["kind"] = "number_list"
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
+        case .stringList: row["kind"] = "string_list"
+        case .orderedChoices(let list):
+            row["kind"] = "string_list"
+            row["choices"] = choices(list)
+            row["ordered"] = true
         }
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
         if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
+        } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
+            // Portable: a web address that contains %s or {searchTerms}, or empty.
+            row["validation"] = "domain:search_template"
         } else {
             switch descriptor.kind {
             case .theme: row["validation"] = "domain:theme"

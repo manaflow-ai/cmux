@@ -22,6 +22,9 @@ pending = {}
 known = set()
 
 
+LAST_MCP_SERVERS = None
+
+
 def send(obj):
     with lock:
         sys.stdout.write(json.dumps(obj) + "\n")
@@ -87,6 +90,34 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
+    # like "ask:"; "drift-ask: MODE" changes its own mode to MODE, then asks.
+    # Both let a test change the session between the dispatch and the ask.
+    if text.startswith("gate-ask:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[9:].strip()) as gate:
+            gate.read()
+        text = "ask: gated command"
+    if text.startswith("drift-ask:"):
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[10:].strip()})
+        text = "ask: drifted command"
+    # "ask-always: X" asks with an "allow always" option (a lasting grant).
+    if text.startswith("ask-always:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "t1", "title": text[11:].strip(), "kind": "execute", "status": "pending"},
+                "options": [
+                    {"optionId": "always", "name": "Always", "kind": "allow_always"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -114,10 +145,20 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode: X": the harness changes its own mode, as a real one may.
+    if text.startswith("set-mode:"):
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "mcp" replies with the mcpServers of the last session/new, load or fork.
+    if text == "mcp":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
@@ -211,6 +252,7 @@ def handle_prompt(rid, params):
 
 
 def main():
+    global LAST_MCP_SERVERS
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -236,6 +278,8 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m in ("session/new", "session/load", "session/fork"):
+            LAST_MCP_SERVERS = params.get("mcpServers")
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
@@ -254,11 +298,15 @@ def main():
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             known.add(f"fake-{sessions}")
-            send({"jsonrpc": "2.0", "id": rid, "result": {
+            result = {
                 "sessionId": f"fake-{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
-            }})
+            }
+            # FAKE_NO_MODES=1: an adapter that reports no session modes.
+            if os.environ.get("FAKE_NO_MODES") == "1":
+                del result["modes"]
+            send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/load":
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt

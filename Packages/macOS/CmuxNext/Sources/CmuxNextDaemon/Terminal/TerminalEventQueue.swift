@@ -158,7 +158,7 @@ final class TerminalEventQueue: @unchecked Sendable {
     private static func outputSize(_ event: TerminalChannelEvent) -> Int {
         switch event {
         case .output(let data, _): data.count
-        case .snapshot(let frame) where frame.phase == .history: frame.data.count
+        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
         default: 0
         }
     }

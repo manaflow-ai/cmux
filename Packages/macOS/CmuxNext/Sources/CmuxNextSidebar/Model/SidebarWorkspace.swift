@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextIcons
-import Foundation
+public import Foundation
 
 /// Unread state for the badge.
 public nonisolated enum UnreadState: Hashable, Sendable {
@@ -17,13 +17,13 @@ public nonisolated enum UnreadState: Hashable, Sendable {
     }
 }
 
-/// The strongest tab type represented by a workspace row.
+/// What a workspace row shows: the kind of its selected tab.
 public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendable {
-    /// A workspace with an adopted Claude or Codex harness tab.
+    /// An agent: an agent chat, a Home conversation or an agent terminal.
     case harness
-    /// A workspace whose tabs are terminals or remote terminals.
+    /// A terminal or remote terminal.
     case terminal
-    /// A workspace containing a browser tab and no harness tab.
+    /// A browser page.
     case browser
 
     /// The leading symbol shown when the workspace has no custom icon.
@@ -52,18 +52,36 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// between machines; drops across machine sections are refused.
     public var machineID: MachineID
     public var title: String
-    /// Passive detail (cwd, git branch). Shown in the tooltip and
-    /// accessibility label, never as a second line: it rarely changes and
-    /// repeats on every row.
-    public var subtitle: String?
-    /// Live status (agent status line, hook `set_status`). The only text
-    /// that earns the row a second line.
+    /// Row facts. Which ones a row shows is `sidebar.workspaceRow.*`
+    /// (`WorkspaceRowContent`); none shows by default.
+    /// The folder of the first tab that reports one, `~`-abbreviated.
+    public var directory: String?
+    /// That tab's git branch.
+    public var branch: String?
+    /// The front terminal's program, as the shell or program titles it.
+    public var process: String?
+    /// The status line agents and hooks report (`cmux workspace status set`),
+    /// without the entries other elements show (ports, pr).
     public var status: String?
-    /// Set only when the user chose an icon or color. When nil, the row uses
-    /// ``SidebarWorkspaceKind.symbol`` so every row keeps a type glyph.
+    /// Listening ports a hook reported (status entry `ports`).
+    public var ports: String?
+    /// A pull request / CI badge a hook reported (status entry `pr`).
+    public var pullRequest: String?
+    /// When an agent or a notification last changed the workspace.
+    public var lastActivity: Date?
+    /// What the workspace's tabs are, for per-kind row settings.
+    public var rowKind: WorkspaceRowKind
+    /// An agent turn runs in one of the workspace's tabs (daemon agent
+    /// state): the row's working indicator.
+    public var agentWorking: Bool
+    /// Set only when the user chose an icon or color. When nil, the row
+    /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
-    /// The leading type represented by the workspace's tabs.
+    /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
+    /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
+    /// mark is the row's type glyph; nil for other tabs and unknown agents.
+    public var kindBrand: String?
     public var unread: UnreadState
     /// The row's status indicator: the merged status of the workspace's
     /// tabs and its own status entries (`StatusStack`), drawn by the
@@ -87,10 +105,18 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         id: WorkspaceID,
         machineID: MachineID = .local,
         title: String,
-        subtitle: String? = nil,
+        directory: String? = nil,
+        branch: String? = nil,
+        process: String? = nil,
         status: String? = nil,
+        ports: String? = nil,
+        pullRequest: String? = nil,
+        lastActivity: Date? = nil,
+        rowKind: WorkspaceRowKind? = nil,
+        agentWorking: Bool = false,
         icon: WorkspaceIcon? = nil,
         kind: SidebarWorkspaceKind = .terminal,
+        kindBrand: String? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
@@ -102,10 +128,18 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.id = id
         self.machineID = machineID
         self.title = title
-        self.subtitle = subtitle
+        self.directory = directory
+        self.branch = branch
+        self.process = process
         self.status = status
+        self.ports = ports
+        self.pullRequest = pullRequest
+        self.lastActivity = lastActivity
+        self.rowKind = rowKind ?? kind.rowKind
+        self.agentWorking = agentWorking
         self.icon = icon
         self.kind = kind
+        self.kindBrand = kindBrand
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle
@@ -116,10 +150,22 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     }
 }
 
+nonisolated extension SidebarWorkspaceKind {
+    /// The row kind of a workspace whose tabs are all of this kind.
+    public var rowKind: WorkspaceRowKind {
+        switch self {
+        case .harness: .agent
+        case .terminal: .terminal
+        case .browser: .browser
+        }
+    }
+}
+
 nonisolated extension SidebarWorkspace {
-    /// The second line, when the row carries live information.
-    public var liveDetail: String? {
-        guard let status, !status.isEmpty else { return nil }
-        return status
+    /// The folder and branch, for the hover card and the filter (not a row
+    /// element: the row shows each through its own setting).
+    public var folderLine: String? {
+        let parts = [directory, branch].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: WorkspaceRowContent.separator)
     }
 }

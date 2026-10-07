@@ -6,10 +6,12 @@ import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
+import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
 import { ToggleEditor } from "./ToggleEditor";
+import { SearchTemplateEditor } from "./SearchTemplateEditor";
 import { UrlEditor } from "./UrlEditor";
 import type { EditorProps } from "./types";
 
@@ -37,16 +39,24 @@ export function Editor(props: EditorProps): ReactNode {
     case "sound":
       return <SoundEditor {...props} />;
     case "url":
-      return <UrlEditor {...props} />;
+      return row.validation === "domain:search_template" ? (
+        <SearchTemplateEditor {...props} />
+      ) : (
+        <UrlEditor {...props} />
+      );
     case "host_list":
       return <HostListEditor {...props} />;
     case "folder_list":
       return <FolderListEditor {...props} />;
     case "time_range":
       return <TimeRangeEditor {...props} />;
+    case "string_list":
+      // A list of fixed choices in an order the user picks (sidebar.workspaceRow.secondLineOrder).
+      // Other string lists are page-hidden keys, which the page never lists (schema.ts).
+      return row.choices ? <OrderedChoicesEditor {...props} /> : null;
     case "number_list":
     case "string_map":
-      // Only cmux-browser keys have these kinds, and the page never lists them (schema.ts).
+      // Only cmux-browser and page-hidden keys have these kinds, and the page never lists them (schema.ts).
       return null;
   }
 }

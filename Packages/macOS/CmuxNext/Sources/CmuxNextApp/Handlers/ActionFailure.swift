@@ -39,13 +39,16 @@ struct ActionFailure: Error, Hashable, CustomStringConvertible {
 extension ActionRegistry {
     /// Binds a throwing handler; a thrown error is reported with `refuse`.
     /// With `requires`, the action is unavailable (disabled in every surface)
-    /// while the daemon lacks that capability.
+    /// while the daemon lacks that capability; with `unavailable`, while it
+    /// returns a reason.
     @discardableResult
     /// `daemon` is read when availability is asked (the active window's
     /// machine then), not when the action is bound.
     func bind(_ id: ActionID, requires capability: String? = nil, daemon: @autoclosure @escaping @MainActor () -> DaemonService? = nil,
+              unavailable: @escaping @MainActor () -> String? = { nil },
               run: @escaping @MainActor (ActionInvocation) throws -> Void) -> Bool {
         let reason: @MainActor () -> String? = {
+            if let reason = unavailable() { return reason }
             guard let capability, let daemon = daemon(), !daemon.supports(capability) else { return nil }
             return daemon.missingCapabilityMessage(capability)
         }

@@ -104,7 +104,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -250,11 +250,24 @@ jobs:
       # The Rust god-file ratchet (plans/cmux-next/OWNERSHIP-PRINCIPLES.md): no cmux-tui
       # file may pass 1000 lines or 60 functions unless godfile-baseline.tsv lists it,
       # and a listed file may not grow. Both modes run it, so no landing gate skips it.
+      # It fails only on what this commit grew against its merge base with
+      # feat-cmux-next, so a god file already on the base blocks no lane; if the
+      # merge base cannot be read or fetched, it checks every file.
       - name: Rust god-file check
-        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=()
+          if merge_base="$(gh api "repos/$GITHUB_REPOSITORY/compare/feat-cmux-next...$EXACT_COMMIT" --jq .merge_base_commit.sha 2>/dev/null)" \
+            && [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] \
+            && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
+            base=(--base "$merge_base")
+          fi
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
       # loudly, when that checkout is missing or empty instead of later in
@@ -392,7 +405,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install valgrind
         run: |
@@ -601,10 +614,23 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
+      # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
+      - name: Cache the verified Zig tarball
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
 
       - name: Install zig
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -653,6 +679,15 @@ jobs:
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
+      - name: Mac browser host provider tests
+        working-directory: cmux-tui
+        # The provider socket's peer pid differs by platform (macOS reports
+        # the last process that used the server end), and the inherited
+        # listeners must close on exec on macOS too.
+        run: |
+          cargo test -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
+          cargo test -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
+
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
@@ -661,6 +696,11 @@ jobs:
             -- --exact
           cargo test -p cmux-tui-core --lib \
             unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
+            -- --exact
+          # macOS always has /bin/zsh; the Linux runner has none, so this
+          # end-to-end title test only skips there.
+          cargo test -p cmux-tui-core --lib \
+            shell_integration::tests::a_daemon_integrated_zsh_titles_a_long_command_with_every_argument \
             -- --exact
           cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
             -- --test-threads=1
@@ -710,7 +750,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -898,7 +938,7 @@ jobs:
     name: test (windows)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -916,7 +956,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -1071,7 +1111,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -1155,7 +1195,7 @@ jobs:
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-      windows_runner: windows-latest
+      windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:

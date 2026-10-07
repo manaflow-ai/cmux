@@ -7,7 +7,7 @@ export interface PairingRecord {
   readonly public_jwk: { kty: "EC"; crv: "P-256"; x: string; y: string }
   readonly thumbprint: string
   readonly wg_public_key: string
-  readonly info: { name: string; platform: string; os_version: string; arch: string; cmux_version: string }
+  readonly info: { name: string; platform: string; os_version: string; arch: string; cmux_version: string; capabilities?: ReadonlyArray<string> }
   readonly country: string | null
   readonly expires_at: number
 }

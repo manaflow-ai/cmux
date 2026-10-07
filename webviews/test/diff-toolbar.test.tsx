@@ -4,7 +4,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { App } from "../src/App";
 import { BranchBasePicker, type BranchPickerPayload } from "../src/BranchBasePicker";
 import type { DiffTransport } from "../src/diff/transport";
@@ -14,8 +14,13 @@ import { createDiffViewerLabelResolver } from "../src/labels";
 import { createDiffViewerStatus } from "../src/status";
 import { sourceMenuModel, type SourceTarget } from "../src/toolbar-model";
 import type { DiffSource } from "../src/diff/generated/protocol";
+import { privateCreateRoot } from "./viewer-empty-dom";
 
 let root: Root | null = null;
+// React DOM picks how onChange reads text inputs when its module first evaluates, and bun shares
+// one module cache across files and preloads. A private client copy evaluated inside the jsdom
+// window always takes native `input` events, however the shared copy started.
+let createRoot: typeof import("react-dom/client").createRoot | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, unknown>();
 for (const key of [
@@ -64,18 +69,14 @@ function setup(): Document {
   g.fetch = () => {
     throw new Error("unexpected fetch");
   };
-  // React picked its legacy IE input polyfill at import (no DOM then): it reads
-  // value changes on keyup and calls attach/detachEvent, which JSDOM lacks.
-  const elementProto = dom.window.Element.prototype as unknown as { attachEvent: () => void; detachEvent: () => void };
-  elementProto.attachEvent = () => {};
-  elementProto.detachEvent = () => {};
   g.requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
   g.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  createRoot ??= privateCreateRoot();
   return dom.window.document;
 }
 
 function render(element: React.ReactNode): void {
-  root = createRoot(dom!.window.document.getElementById("root")!);
+  root = createRoot!(dom!.window.document.getElementById("root")!);
   flushSync(() => root?.render(element));
 }
 
@@ -94,7 +95,7 @@ function key(target: Element, keyName: string): void {
 function type(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
-  input.dispatchEvent(new dom!.window.KeyboardEvent("keyup", { bubbles: true }));
+  input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
 }
 
 function renderStatusApp() {

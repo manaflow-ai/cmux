@@ -1,13 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// The quit question as cmux dialogs (R96, R138: no system alerts). "Quit
-/// cmux?" keeps the terminals by default (Keep Sessions Running, Return),
-/// Cancel (Escape), and "Quit Everything…" opens "End all terminals?"
-/// (Quit Everything, Cancel, End Everything; no Return default). "Don't ask
-/// again" is a check box. Each dialog blocks the window `QuitCoordinator`
-/// picks, or shows app-wide when no window is open (the app host, which
-/// activates the app).
+/// The quit question as one cmux dialog (R96, R138: no system alerts;
+/// #17501: never a second step). "Quit cmux?" keeps the terminals by
+/// default (Keep Sessions Running, Return), Cancel (Escape), and Quit
+/// Everything ends them (no key). "Don't ask again" is a
+/// check box. The dialog blocks the window `QuitCoordinator` picks, or
+/// shows app-wide when no window is open (the app host, which activates
+/// the app).
 @MainActor
 final class QuitAlert {
     enum Answer: Equatable {
@@ -18,11 +18,10 @@ final class QuitAlert {
     static let rememberField = "remember"
 
     let prompt: QuitPrompt
-    private(set) var content: QuitAlertContent
+    let content: QuitAlertContent
     private let center: CmuxDialogCenter
     private var dialogID: Int?
     private var remember = false
-    private weak var parent: NSWindow?
     private(set) var isAttached = false
     private var completion: ((Answer) -> Void)?
 
@@ -68,7 +67,7 @@ final class QuitAlert {
         switch id {
         case .keep, .quit: .default
         case .cancel: .cancel
-        case .quitEverything, .confirmQuitEverything, .endEverything: .destructive
+        case .confirmQuitEverything, .endEverything: .destructive
         }
     }
 
@@ -76,7 +75,6 @@ final class QuitAlert {
     func present(in window: NSWindow?) {
         guard completion != nil else { return }
         let attach = window.flatMap { $0.isVisible && !$0.isMiniaturized ? $0 : nil }
-        parent = attach
         isAttached = attach != nil
         let scope: CmuxDialogScope = attach.map { .window($0) } ?? .app
         dialogID = center.present(Self.spec(content, remember: remember), in: scope) { [weak self] answer in
@@ -89,44 +87,46 @@ final class QuitAlert {
         finish(.quit(.keep, remember: false))
     }
 
-    /// Clicks the button `id` ("keep", "quit", "cancel", "quit-everything",
-    /// "confirm-quit-everything", "end-everything"; the old "end" and
-    /// "end-keep-layout" still work). False when the dialog shown has no
-    /// such button.
+    /// Clicks the button `id` ("keep", "quit", "cancel",
+    /// "confirm-quit-everything", "end-everything"; the old "end-keep-layout"
+    /// and "quit-everything" press Quit Everything). "end" opened the old
+    /// second step: it now only reports whether Quit Everything shows, so
+    /// scripts that press "end" and then an end choice still work;
+    /// "end-everything" answers End Everything, which has no button. False
+    /// when the dialog shown has no such choice.
     @discardableResult
     func press(_ id: String) -> Bool {
         guard let dialogID else { return false }
         let ids = buttons.map(\.id)
+        let ends = ids.contains(QuitAlertContent.Button.confirmQuitEverything.rawValue)
+        if id == "end" { return ends }
+        if id == QuitAlertContent.Button.endEverything.rawValue {
+            guard ends else { return false }
+            finish(.quit(.endEverything, remember: false))
+            return true
+        }
         let resolved = switch id {
         case "quit" where !ids.contains("quit"): "keep"
-        case "end": "quit-everything"
-        case "end-keep-layout": "confirm-quit-everything"
+        case "end-keep-layout", "quit-everything": "confirm-quit-everything"
         default: id
         }
         return center.press(dialogID, button: resolved)
     }
 
-    /// A second Cmd-Q while the dialog shows: the default on the first step
-    /// (keep), nothing on the confirmation.
+    /// A second Cmd-Q while the dialog shows: its default (keep, or Quit).
     func answerDefault() {
-        guard content.isFirstStep, let primary = content.buttons.first else { return }
+        guard let primary = content.buttons.first else { return }
         press(primary.rawValue)
     }
 
     private func answered(_ answer: CmuxDialogAnswer) {
         dialogID = nil
-        let remembered = answer.values[Self.rememberField]?.bool ?? remember
+        let remembers = content.showsSuppression && (answer.values[Self.rememberField]?.bool ?? remember)
         switch QuitAlertContent.Button(rawValue: answer.button) {
-        case .keep: finish(.quit(.keep, remember: content.showsSuppression && remembered))
-        case .quit: finish(.quit(prompt.defaultChoice, remember: content.showsSuppression && remembered))
-        case .confirmQuitEverything: finish(.quit(.endKeepLayout, remember: remember))
-        case .endEverything: finish(.quit(.endEverything, remember: remember))
-        case .quitEverything:
-            // "End all terminals?" replaces "Quit cmux?" in the same place,
-            // carrying "Don't ask again".
-            remember = remembered
-            content = .endConfirmation
-            present(in: parent)
+        case .keep: finish(.quit(.keep, remember: remembers))
+        case .quit: finish(.quit(prompt.defaultChoice, remember: remembers))
+        case .confirmQuitEverything: finish(.quit(.endKeepLayout, remember: remembers))
+        case .endEverything: finish(.quit(.endEverything, remember: remembers))
         case .cancel, nil: finish(.cancel)
         }
     }

@@ -6,7 +6,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
+                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
@@ -57,11 +57,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K searches chats only while an agent chat has the keyboard,
-                // so the simulator's Cmd-K keeps its meaning.
-                defaultShortcut: Shortcut("k", modifiers: [.command]),
-                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane]
+                // Decision K1: no default shortcut (Cmd-K clears the terminal). The command
+                // palette's chats page lists every chat; this opens it from anywhere.
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
@@ -147,6 +145,47 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.computerUse.screenRecording", defaultValue: "Grant Screen Recording Access", bundle: .module),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
+            ),
+            // The Home Chief's subagents (optchat-chief spawn): a workspace
+            // whose tab is an existing acpmux session's chat. Automation only.
+            ActionDescriptor(
+                id: "agent.openSessionWorkspace",
+                title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "workspace"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                // It starts the workspace's terminal: action.run waits the
+                // terminal start deadline, not 2 s, so the caller's run ends
+                // once the workspace exists (it renames it later by key).
+                startsTerminal: true,
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
+            ),
+            // The Home Chief's settings sidebar (the header's name pill does the same).
+            ActionDescriptor(
+                id: "home.toggleChiefSettings",
+                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
+                keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
+                symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The local Chief's memory inspector (optchat-inspector.md): what the
+            // model saw each turn and the memory tree, in a browser tab in a new
+            // column. Debug builds only (DEV and nightly).
+            ActionDescriptor(
+                id: "chief.openMemoryInspector",
+                title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

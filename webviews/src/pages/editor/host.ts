@@ -33,6 +33,8 @@ export const EDITOR_RECENTS_OP = "cmux.editor.recents";
 export const EDITOR_CHOOSE_FILE_OP = "cmux.editor.chooseFile";
 export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
+/** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
+export const EDITOR_EDITED_OP = "cmux.editor.edited";
 export const EDITOR_CHANGES = "cmux.editor.changes";
 export const EDITOR_LOOK = "cmux.editor.look";
 export const EDITOR_CONFLICT = "cmux.editor.conflict";
@@ -61,6 +63,8 @@ export interface EditorFile {
 
 /** What `cmux.editor.config` and `cmux.editor.open` answer. */
 export interface EditorConfig extends EditorFile {
+  /** A recovered crash draft of this file: the page loads it as an unsaved edit (once). */
+  recoveredText?: string;
   /** The terminal appearance, as the diff viewer gets it (code font, palette, colors). */
   appearance?: DiffViewerAppearance;
   /** The `editor` settings section (settings.ts `EditorSettings`), unparsed. */

@@ -6,16 +6,24 @@
 
 mod browser_pages;
 mod capture;
+mod choosers;
+pub mod clipboard;
+mod closed_roots;
 mod connection;
 mod cookies;
 mod cors;
+mod dispatch;
+mod downloads;
+mod drag;
 mod driver;
 mod evaluate;
 mod fetch;
+mod fetch_runs;
 mod input;
 pub mod keys;
 mod navigation;
 mod network;
+mod overrides;
 mod pdf;
 #[cfg(unix)]
 pub mod pipe;
@@ -24,4 +32,4 @@ mod state;
 
 pub use connection::{CdpConnection, CdpEvent, CdpEventHandler, CdpWire, protocol_error};
 pub use driver::CdpDriver;
-pub use state::{AGENT_WORLD, HOST_WORLD};
+pub use state::{AGENT_WORLD, HOST_WORLD, TabOverrides};

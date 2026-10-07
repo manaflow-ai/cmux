@@ -65,16 +65,14 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             return verdict
         }
         while let entry = readdir(handle) {
-            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
-                String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
-            }
+            let (name, type) = record(entry)
             if name == "." || name == ".." { continue }
             scanned += 1
             if scanned > scanLimit {
                 stoppedEarly = true
                 break
             }
-            switch isFolder(type: entry.pointee.d_type, at: base + "/" + name) {
+            switch isFolder(type: type, at: base + "/" + name) {
             case true: folders.append(name)
             case false where lists(name): files.append(name)
             default: break
@@ -108,6 +106,23 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             readNow(directory, mode: mode, limit: limit)
         }.value
     }
+
+    /// The name and type of one `readdir` record. A record is `d_reclen`
+    /// bytes long, not `sizeof(dirent)`: the last one in the buffer may end
+    /// just before an unmapped page. So only the record's own bytes are
+    /// read (the fields at their offsets, the name by `d_namlen`), never
+    /// the whole struct or its 1024-byte `d_name`.
+    static func record(_ entry: UnsafeMutablePointer<dirent>) -> (name: String, type: UInt8) {
+        let raw = UnsafeRawPointer(entry)
+        let length = Int(raw.loadUnaligned(fromByteOffset: Self.nameLengthOffset, as: UInt16.self))
+        let type = raw.loadUnaligned(fromByteOffset: Self.typeOffset, as: UInt8.self)
+        let bytes = UnsafeRawBufferPointer(start: raw + Self.nameOffset, count: length)
+        return (String(decoding: bytes, as: UTF8.self), type)
+    }
+
+    private static let nameOffset = MemoryLayout<dirent>.offset(of: \dirent.d_name) ?? 21
+    private static let nameLengthOffset = MemoryLayout<dirent>.offset(of: \dirent.d_namlen) ?? 18
+    private static let typeOffset = MemoryLayout<dirent>.offset(of: \dirent.d_type) ?? 20
 
     /// A folder, or a link to one (links and unknown types need a stat).
     private static func isFolder(type: UInt8, at path: String) -> Bool {

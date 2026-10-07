@@ -28,6 +28,23 @@ describe("math delimiters", () => {
     ]);
   });
 
+  test("escaped brackets around prose are not an equation", () => {
+    expect(normalizeMath(["\\[This bracket is escaped.\\]"])).toEqual(["\\[This bracket is escaped.\\]"]);
+    expect(html("\\[This bracket is escaped.\\]")).toContain("[This bracket is escaped.]");
+    expect(normalizeMath(["\\[x\\]"])).toEqual(["$$x$$"]);
+  });
+
+  test("inline code keeps \\( \\) as written", () => {
+    expect(normalizeMath(["run `echo \\(x\\)` then \\(y\\)"])).toEqual(["run `echo \\(x\\)` then $y$"]);
+  });
+
+  test("the specimen's Mathematics section is typeset: fractions, roots, aligned, bmatrix", () => {
+    const out = html(specimenAnswer);
+    expect(out).not.toContain("cv-math-source");
+    for (const command of ["frac", "sqrt", "begin{aligned}", "begin{bmatrix}"]) expect(out).toContain(`\\${command}`); // in the MathML annotation, so it was typeset
+    expect(out).toContain('class="katex-display"');
+  });
+
   test("code fences are left alone", () => {
     expect(normalizeMath(["```text", "\\(x\\)", "```"])).toEqual(["```text", "\\(x\\)", "```"]);
   });
@@ -81,11 +98,19 @@ describe("the pane's earlier renderer gaps", () => {
     expect(out).not.toContain("[ ]");
     expect(out).not.toContain("[x]");
   });
+
+  test("checked tasks expose an accessible checkbox and a check mark", () => {
+    const out = html("- [x] done");
+    expect(out).toContain('role="checkbox"');
+    expect(out).toContain('aria-checked="true"');
+    expect(out).toContain('aria-readonly="true"');
+    expect(out).toContain('class="cv-checkbox__check"');
+  });
 });
 
 describe("links", () => {
   test("a web link keeps its href; a script link draws as text", () => {
-    expect(html("[site](https://example.com)")).toContain('href="https://example.com"');
+    expect(html("[site](https://example.com)")).toContain('href="https://example.com/"');
     const unsafe = html("[run](javascript:alert(1))");
     expect(unsafe).not.toContain("<a");
     expect(unsafe).toContain("run");

@@ -50,6 +50,7 @@ public nonisolated enum SidebarSectionsSetting {
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
                           keywords: ["sidebar", "workspace", "tabs"])
     }
+
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
     public static let looks = ["quiet", "card", "tray", "lines", "linesIcons"]
 
@@ -97,6 +98,8 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
+        SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
+        result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         if let value = root.value(at: launcherModePath) {
             if let text = value.stringValue, let mode = SidebarLauncherMode(rawValue: text) {
                 result.launcherMode = mode

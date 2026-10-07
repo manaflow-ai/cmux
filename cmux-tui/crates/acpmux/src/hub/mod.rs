@@ -8,30 +8,42 @@
 //! `adoption` (resuming a harness's own session on `session/new`).
 
 mod adoption;
+mod catalog_reload;
+mod fork;
 mod handoff;
+mod harness_view;
+mod harness_watch;
 mod idle;
+mod launch_roots;
 mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
+mod model_hint;
 mod paging;
 mod pool;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
 use shutdown::ShutdownPlan;
+#[cfg(test)]
+mod remote_sandbox_adopt_tests;
 mod spawn;
 mod stream;
 mod tap;
 #[cfg(test)]
 mod tap_tests;
-pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
+pub use lifecycle::{
+    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+};
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod remote_floor;
+mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
@@ -39,6 +51,9 @@ mod turns;
 mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
+mod web_control;
+pub use web_control::Control;
+pub(crate) use web_control::ModeWrite;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -100,6 +115,9 @@ pub struct TurnInfo {
     pub prompt_id: String,
     /// Sequence of this turn's `turn_started` record.
     pub turn_seq: u64,
+    /// Who prompted (or steered) this turn. A Web turn never uses the chat
+    /// allowance: each eligible permission in it still asks.
+    pub control: Control,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -125,6 +143,11 @@ pub struct PromptOptions {
     /// example after its daemon connection closed: also look in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// The rules the prompt runs under, checked again at dispatch.
+    pub control: Control,
+    /// Whether this prompt came from a gated app/Web path and must be checked
+    /// again when a queued turn is dispatched.
+    pub trust_gate: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -200,6 +223,10 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// Web control ended: the mode left the asking table (`web_control.rs`).
+    pub(super) web_control_ended: AtomicBool,
+    /// The remote floor's per-session marks (`remote_floor.rs`).
+    pub(super) floor: remote_floor::FloorState,
 }
 
 impl Session {
@@ -282,6 +309,16 @@ pub struct Hub {
     pub(super) idle_pass: Mutex<()>,
     /// Hidden pre-created sessions for instant harness switches (`pool/`).
     pub(super) pool: Arc<pool::PoolState>,
+    /// The merged asking-mode table for Web connections (`web_control.rs`).
+    pub(super) web_modes: StdMutex<web_control::WebModeCache>,
+    /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
+    pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
+    /// The `sandbox-exec` remote chains run Claude Code under
+    /// (`remote_sandbox.rs`).
+    pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// The device-wide chat index, once started (`chats/`).
+    pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
+    pub(super) harness_watch: harness_watch::HarnessWatchState,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -351,13 +388,21 @@ impl Hub {
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
+            web_modes: StdMutex::new(Default::default()),
+            trust_gate: StdMutex::new(None),
+            remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            chats: std::sync::OnceLock::new(),
+            harness_watch: Default::default(),
         });
+        if let Ok(c) = hub.config.try_read() {
+            hub.refresh_web_modes(&c);
+        }
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub
@@ -373,6 +418,23 @@ impl Hub {
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
         *self.idle_child.lock().unwrap() = idle;
         self.idle_wake.notify_one();
+    }
+
+    /// Turns on the folder-trust gate for the app's agent pane, reading the
+    /// agents' files and acpmux's record at `paths` (the daemon passes the
+    /// user's; tests pass fixtures). None turns it off.
+    pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
+        *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
+    }
+
+    /// The gate's paths, while the gate is on.
+    pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
+        self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Where adopt looks for harness sessions by default.
+    pub fn harness_homes(&self) -> crate::adopt::HarnessHomes {
+        self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
@@ -397,6 +459,8 @@ impl Hub {
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env && crate::login_env::import().await {
+            // `CLAUDE_CONFIG_DIR` / `CODEX_HOME` may come from the login shell only.
+            self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
             match self.reload_catalog().await {
                 Ok(_) => reloaded = true,
                 Err(e) => tracing::warn!("catalog reload after login env: {e}"),
@@ -520,6 +584,8 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
+            web_control_ended: AtomicBool::new(false),
+            floor: Default::default(),
         })
     }
 

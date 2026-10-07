@@ -160,6 +160,8 @@ fn pins_groups_and_room_deletion() {
     // Delete without a target: pins removed, groups deleted, members ungrouped.
     let deleted = run(&mux, json!({"cmd":"delete-profile","profile":"prof_work"})).unwrap();
     assert!(deleted["moved_to"].is_null());
+    // Delete Space is one reopenable closed group (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+    assert!(deleted["closed_id"].as_str().is_some_and(|id| id.starts_with("closed_")));
     assert_eq!(
         deleted["unpinned"],
         json!([{"session_id":"remote-1","workspace_key":"future-key"}])
@@ -252,4 +254,19 @@ fn sessions_register_import_once_and_forget() {
         listed["workspaces"].as_array().unwrap().iter().all(|row| row["session_id"] != "remote-1")
     );
     assert_eq!(listed["pins"], json!([]));
+}
+
+/// `personal-mixed-order-v1`: groups and loose workspaces share one
+/// personal order (`workspace_group.update {top_index}`).
+#[test]
+fn identify_advertises_the_mixed_personal_order() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "personal-mixed-order-v1")
+    );
 }

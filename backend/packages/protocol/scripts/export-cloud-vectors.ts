@@ -238,6 +238,7 @@ const big = { cpu: 4, memory_mb: 8192, disk_mb: 32768 }
 kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, revision: "50" } }, "50")], {
   key: "key-resize-1"
 })
+kase("machine.resize.grow_only", "cloud.machine.resize", { machine: vm(1), size: { cpu: 1 } }, [opErr("cloud.machine.resize", "key-resize-2", "cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", false, { size: M1.size as Json })], { key: "key-resize-2" })
 kase(
   "machine.resize.size_locked",
   "cloud.machine.resize",
@@ -459,7 +460,7 @@ event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revisi
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
-vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1 })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1, seq })
 
 const doc = {
   $comment:

@@ -337,7 +337,10 @@ fn kept_tab_survives_a_real_exit_and_a_restart() {
         )
         .unwrap();
     let before = topology(&mux);
-    let tabs = tabs_of(&before).into_iter().map(|tab| (tab, None)).collect::<Vec<_>>();
+    let tabs = tabs_of(&before)
+        .into_iter()
+        .map(|tab_id| crate::state::kept_tab_store::KeptTab { tab_id, ..Default::default() })
+        .collect::<Vec<_>>();
     mux.commit_kept_tabs(&tabs).unwrap();
     mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
         TerminalExitOutcome::Signal { signal: libc::SIGTERM, core_dumped: false },

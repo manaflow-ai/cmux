@@ -9,6 +9,7 @@ import {
   EDITOR_CHANGES,
   EDITOR_CONFIG_OP,
   EDITOR_CONFLICT,
+  EDITOR_EDITED_OP,
   EDITOR_LOOK,
   EDITOR_OPEN_OP,
   EDITOR_SAVE_OP,
@@ -23,6 +24,7 @@ import {
   type ReadOnlyReason,
 } from "./host";
 import { resolveEditorSettings } from "./settings";
+import { createEditReporter } from "../shared/editReporter";
 
 export type SaveStatus = "saved" | "edited" | "saving" | "failed";
 
@@ -69,6 +71,8 @@ export interface CodeView {
   text(): string;
   /** A number that returns to an earlier value when the edits are undone back to it. */
   version(): number;
+  /** Replaces the whole document as one undoable edit (a recovered draft); reports no user edit. */
+  replaceText?(text: string): void;
   setReadOnly(readOnly: boolean): void;
   /** Formats the document (format on save), when a formatter exists for its language. */
   format?(): Promise<void>;
@@ -143,11 +147,29 @@ export class EditorStore {
   private pendingChange: EditorChange | null = null;
   private stopChanges: (() => void) | null = null;
   private stopLook: (() => void) | null = null;
+  /** A recovered draft to load as an edit once the file is in the view. */
+  private recovered: string | null = null;
+  private readonly reporter;
 
   constructor(
     private readonly client: PageClient | null,
     private readonly schedule: Schedule = defaultSchedule,
-  ) {}
+    reportSchedule: Schedule = defaultSchedule,
+  ) {
+    this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+  }
+
+  /** `cmux.editor.edited`: the host's unsaved state and recovery draft follow the view. */
+  private reportEdited(): void {
+    const file = this.state.file;
+    if (!file || !this.client || !this.view || this.state.readOnly) return;
+    this.client
+      .call<unknown>(EDITOR_EDITED_OP, { path: file.path, text: this.view.text(), baseHash: this.baseHash })
+      .catch((error) => {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux editor edited", error);
+      });
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -211,6 +233,10 @@ export class EditorStore {
     this.savedText = config.text;
     this.baseHash = config.hash;
     const readOnly = config.readOnly === true;
+    this.recovered =
+      !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
+        ? config.recoveredText
+        : null;
     const size = typeof config.size === "number" ? config.size : config.text.length;
     this.set({
       phase: "ready",
@@ -256,6 +282,12 @@ export class EditorStore {
     this.pending = null;
     this.view.load(document);
     this.savedVersion = this.view.version();
+    const recovered = this.recovered;
+    if (recovered !== null && this.view.replaceText) {
+      this.recovered = null;
+      this.view.replaceText(recovered);
+      this.edited();
+    }
   }
 
   /** The view mounted (or unmounted, with null). A loaded file goes into it. */
@@ -307,6 +339,7 @@ export class EditorStore {
   /** A user edit (the view's content changed by the user). */
   edited(): void {
     if (this.state.readOnly || this.state.phase !== "ready") return;
+    this.reporter.edited();
     const dirty = this.isDirty();
     if (this.state.status !== "saving") this.set({ status: dirty ? "edited" : "saved" });
     this.cancelAutosave?.();

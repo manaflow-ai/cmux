@@ -119,6 +119,7 @@ import Testing
         #expect(LayoutTunables.dropEdgeFraction.defaultValue == style.dropEdgeFraction)
         #expect(LayoutTunables.dropEdgeMinimum.defaultValue == style.dropEdgeRange.lowerBound)
         #expect(LayoutTunables.dropEdgeMaximum.defaultValue == style.dropEdgeRange.upperBound)
+        #expect(LayoutTunables.dropZoneHysteresis.defaultValue == style.dropZoneHysteresis)
         #expect(LayoutTunables.newColumnDropWidth.defaultValue == style.newColumnDropWidth)
         #expect(LayoutTunables.inactivePaneDimming.defaultValue == style.inactivePaneDimming)
         #expect(LayoutTunables.minimumContentWidth.defaultValue == style.minimumPaneContentSize.width)

@@ -22,6 +22,9 @@ public final class PageRouter {
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
     private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
+    /// Page calls still running, by page call id: cancelled by the page's `cancel` envelope, by
+    /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
+    private var inFlight: [UInt64: PageCallInFlight] = [:]
     private var closed = false
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
@@ -57,7 +60,8 @@ public final class PageRouter {
                     }
                     opid = text
                 }
-                let value = try await call(op, params: message["params"] ?? .object([:]), opid: opid)
+                let params = message["params"] ?? .object([:])
+                let value = try await cancellable(id: id) { [self] in try await call(op, params: params, opid: opid) }
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -74,6 +78,10 @@ public final class PageRouter {
             } catch {
                 return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
             }
+        case "cancel":
+            // A cancel of an unknown or finished id is a no-op; it gets no reply.
+            inFlight[id]?.cancel()
+            return .null
         case "unsub":
             if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
             return .null
@@ -101,6 +109,17 @@ public final class PageRouter {
         let (provider, params) = try admit(op, params: params)
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
                                                                                      userGesture: hasUserGesture?() ?? false))
+    }
+
+    /// Runs `work` as page call `id`, answering `cmux.op.cancelled` at once when the call is
+    /// cancelled; the work's task is cancelled too, so the owner stops (a relay cancels its op).
+    private func cancellable(id: UInt64, _ work: @escaping @MainActor () async throws -> JSONValue) async throws -> JSONValue {
+        let call = PageCallInFlight()
+        inFlight[id] = call
+        defer { if inFlight[id] === call { inFlight[id] = nil } }
+        return try await withCheckedThrowingContinuation { continuation in
+            call.start(continuation, work)
+        }
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
@@ -212,6 +231,9 @@ public final class PageRouter {
         let pending = pendingCalls
         pendingCalls.removeAll()
         for continuation in pending.values { continuation.resume(throwing: PageError.closed) }
+        let running = inFlight
+        inFlight.removeAll()
+        for call in running.values { call.cancel() }
     }
 
     /// Reopens after a reload of the same page (a new document starts with no subscriptions).
@@ -229,5 +251,37 @@ public final class PageRouter {
         ]
         if let details = error.details { envelope["details"] = details }
         return .object(envelope)
+    }
+}
+
+/// One page call in flight: its work's task and the continuation the router answers. The first of
+/// the work's end and a cancel answers it (once); a cancel also cancels the task.
+@MainActor
+final class PageCallInFlight {
+    private var continuation: CheckedContinuation<JSONValue, any Error>?
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+
+    func start(_ continuation: CheckedContinuation<JSONValue, any Error>, _ work: @escaping @MainActor () async throws -> JSONValue) {
+        self.continuation = continuation
+        guard !cancelled else { return finish(.failure(PageError.opCancelled)) }
+        // task-owner: one page call; ends with its work or the page's cancel (navigation, tab close)
+        task = Task { @MainActor [weak self] in
+            let result: Result<JSONValue, any Error>
+            do { result = .success(try await work()) } catch { result = .failure(error) }
+            self?.finish(result)
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        task?.cancel()
+        finish(.failure(PageError.opCancelled))
+    }
+
+    private func finish(_ result: Result<JSONValue, any Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(with: result)
     }
 }

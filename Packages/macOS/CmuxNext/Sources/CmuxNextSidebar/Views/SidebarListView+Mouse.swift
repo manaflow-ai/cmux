@@ -4,12 +4,7 @@ import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
 extension SidebarListView {
     // MARK: - Mouse
-    struct Press {
-        var key: SidebarRowKey
-        var point: NSPoint
-        var deferredClick: WorkspaceID?
-        var cancelled = false
-    }
+    typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
@@ -112,6 +107,9 @@ extension SidebarListView {
         }
         reload(animated: true)
     }
+    // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
+    override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
+    override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
     // MARK: - Group header single vs double click
     struct PendingGroupToggle {
         let group: GroupID
@@ -145,10 +143,8 @@ extension SidebarListView {
     // MARK: - Keyboard
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
-        if event.keyCode == 120, flags.isEmpty { // F2
-            if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
-            return
-        }
+        // F2 renames the active workspace inline.
+        if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
             if !model.filterText.isEmpty {

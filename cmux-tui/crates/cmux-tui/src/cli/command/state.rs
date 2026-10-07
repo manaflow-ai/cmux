@@ -139,6 +139,26 @@ fn required_index(params: &mut Params, flags: &mut Flags) -> Result<(), UsageErr
 }
 
 /// `--<flag> <value>` sets the field, `--clear-<flag>` sends null.
+/// `--top-index <n>` (the personal workspace index the group shows right
+/// before) or `--clear-top-index` (after every loose workspace).
+fn top_index(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
+    let clear = flags.boolean("clear-top-index");
+    match (group_number(flags, "top-index")?, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new("--top-index and --clear-top-index are mutually exclusive"))
+        }
+        (Some(index), false) => {
+            params.insert("top_index", index);
+            Ok(())
+        }
+        (None, true) => {
+            params.insert("top_index", Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
 fn nullable(
     params: &mut Params,
     flags: &mut Flags,
@@ -319,6 +339,16 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
+/// `workspace list [--order session|personal]`.
+pub(super) fn workspace_list(
+    selectors: &Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let mut params = Params::default();
+    insert_optional_string(&mut params.fields, flags, "order", "order");
+    params.send(Op::WorkspaceList, selectors, flags)
+}
+
 pub(super) fn parse_workspace_group(
     words: &[&str],
     selectors: &mut Selectors,
@@ -354,6 +384,7 @@ pub(super) fn parse_workspace_group(
                     nullable(&mut params, flags, "color", "color")?;
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
+                    top_index(&mut params, flags)?;
                     Op::WorkspaceGroupUpdate
                 }
                 "delete" => Op::WorkspaceGroupDelete,

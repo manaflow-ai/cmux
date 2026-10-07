@@ -12,22 +12,36 @@
 
 pub mod automation_input;
 pub mod cdp;
+pub mod cookie_backups;
 pub mod driver;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
+#[cfg(unix)]
+pub mod headless_activity;
+#[cfg(unix)]
+pub mod headless_configure;
+#[cfg(unix)]
+pub mod headless_routes;
+#[cfg(unix)]
+pub mod headless_source;
 pub mod host;
+pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;
 pub mod policy;
+pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
+#[cfg(unix)]
+pub mod provider_source;
 pub mod secrets;
 #[cfg(unix)]
 pub mod server;
+pub mod tab_source;
 pub mod vm;

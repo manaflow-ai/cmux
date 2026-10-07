@@ -59,6 +59,14 @@ import Foundation
             pane.insertTab(tab, at: pane.tabs.count)
             store.tabsBySurface[provisional.surface] = tab
             return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .bindAgentSession(let surface, let session):
+            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
+            let previous = tab.snapshot
+            var next = previous
+            record.session = session
+            next.conversation = ConversationTabRef(agentSession: record)
+            tab.update(next)
+            return .tabSnapshot(surface: surface, previous: previous)
         }
     }
 
@@ -114,6 +122,8 @@ import Foundation
             guard setRowHeights(heights, of: column, in: store) != nil else {
                 return store.reportMirrorViolation("intent overlay undo found column \(column) without its rows")
             }
+        case .tabSnapshot(let surface, let previous):
+            store.tabsBySurface[surface]?.update(previous)
         case .createdTab(let surface, let pane):
             store.tabsBySurface[surface] = nil
             guard store.panesByHandle[pane]?.removeTab(surface: surface) != nil else {

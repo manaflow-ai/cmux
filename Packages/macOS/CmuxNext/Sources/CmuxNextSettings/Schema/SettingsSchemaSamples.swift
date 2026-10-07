@@ -26,6 +26,9 @@ nonisolated enum SettingsSchemaSamples {
         case .sound, .theme, .fontFamily:
             // Valid names depend on the machine; only the shape is portable.
             return ([], [.number(1), .bool(true), .null])
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            return ([.string(""), .string("https://search.example/?q=%s"), .string("https://search.example/find?q={searchTerms}")],
+                    [.string("https://search.example/"), .string("search.example"), .string("not a url %s"), .number(1)])
         case .url:
             return ([.string(""), .string("https://cmux.com"), .string("example.com/path"), .string("about:blank"), .string("file:///tmp/a.html")],
                     [.string("not a url"), .string("ftp://example.com"), .string("localhost"), .number(1)])
@@ -46,6 +49,12 @@ nonisolated enum SettingsSchemaSamples {
         case .stringMap:
             return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
                     [.string("★"), .array([]), .object(["Work": .number(1)])])
+        case .stringList:
+            return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
+                    [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])
+        case .orderedChoices(let choices):
+            return ([.array([]), .array(choices.reversed().map { .string($0.value) })],
+                    [.string(choices.first?.value ?? "a"), .array([.string("__not_a_choice__")]), .array([.number(1)])])
         }
     }
 

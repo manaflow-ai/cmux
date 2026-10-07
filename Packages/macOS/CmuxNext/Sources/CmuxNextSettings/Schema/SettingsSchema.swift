@@ -9,10 +9,10 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        let next = general + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
-            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }
@@ -32,9 +32,10 @@ public nonisolated enum SettingsSchema {
         AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
-    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads stay out).
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
+    /// page-hidden keys stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section && $0.isShownInCmuxNext }
+        all.filter { $0.section == section && $0.isShownOnSettingsPage }
     }
 
     /// The descriptor for a dotted key or key path.
@@ -50,12 +51,14 @@ public nonisolated enum SettingsSchema {
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
+        case .home: []
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
+        // The page draws Open <settings file> itself, named from the loaded path.
+        case .advanced: ["reloadConfiguration"]
         }
     }
 
@@ -90,6 +93,18 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "back", "forward", "navigation", "location", "scope"]
             ),
             SettingDescriptor(
+                NavigationHistoryStepSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
+                help: SettingsText.keyed("settings.navigation.historySteps.help",
+                                        "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                kind: .choice([
+                    SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
+                    SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
+                ]),
+                default: .string(NavigationHistoryStepSetting.fallback),
+                keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
+            ),
+            SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
                 help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
@@ -111,10 +126,20 @@ public nonisolated enum SettingsSchema {
                 default: .string(TitlebarButtonsSetting.fallback.rawValue),
                 keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help",
+                                        "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
+            ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
+        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -174,7 +199,10 @@ public nonisolated enum SettingsSchema {
 
     // MARK: Appearance
 
-    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors }
+    static var appearance: [SettingDescriptor] {
+        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors
+    }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)

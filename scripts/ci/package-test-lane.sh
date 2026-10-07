@@ -63,6 +63,12 @@ case "${1:-}" in
         if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
           echo "package-test-lane.sh: suite needs test filters such as SuiteA,SuiteB (got '$suite_arg')" >&2; exit 2
         fi
+        # A trailing '.' or '/' (`CmuxNextAppTests.`, copied from the route's
+        # regex) matches no test, so the step built everything for nothing.
+        case "$suite_filter" in
+          *.|*/)
+            echo "package-test-lane.sh: suite filter '$suite_filter' ends with '${suite_filter: -1}'; pass the target name (CmuxNextAppTests) or Target.Suite/test" >&2; exit 2 ;;
+        esac
         suite_filters+=("$suite_filter")
       done
     done
@@ -360,11 +366,10 @@ run_package_tests() {
       END { exit found ? 0 : 1 }
     ' "$log"
   }
-  # Stop after the first selected package fails. Package selection is already
-  # dependency-ordered, so testing later packages would spend fleet time after
-  # the PR has a decisive failure while hiding the first actionable result.
-  # test_package returns the package's status so the summary records it before
-  # the lane exits.
+  # Every selected package runs even after another one fails, so one broken
+  # or hung package cannot hide the results of the packages after it.
+  # test_package returns the package's status instead of exiting; every
+  # package gets a summary row, and the summary at the end fails the lane.
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -443,7 +448,6 @@ run_package_tests() {
         result="failed (exit $package_status)"
         echo "::error title=Swift package tests failed::$pkg failed with exit status $package_status after ${seconds}s"
       fi
-      break
     fi
     summary+=("$(printf '%-34s %-18s %6ss' "$pkg" "$result" "$seconds")")
   done < "$selected"
@@ -468,8 +472,17 @@ run_suite() {
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
-  echo "::group::swift build --build-tests $suite_package"
-  swift build --build-tests --package-path "$suite_package" < /dev/null
+  # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
+  # user runs); @testable imports then need -enable-testing. The default stays debug.
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
+  # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
+  # release suite build turns that one SIL pass off.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
+    configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
@@ -488,7 +501,7 @@ run_suite() {
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
-      -- swift test --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
     if [ "$status" -eq 0 ]; then
       python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
     fi

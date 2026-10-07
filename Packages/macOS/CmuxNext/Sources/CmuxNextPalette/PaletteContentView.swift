@@ -354,7 +354,7 @@ final class PaletteContentView: NSView {
                 Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
             }
         }
-        Motion.animate(appearing ? .fadeIn : .fadeOut, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
+        Motion.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
             guard let self, self.actionsMenuFadingOut, !appearing else { return }
             self.actionsMenuFadingOut = false
             view.isHidden = true

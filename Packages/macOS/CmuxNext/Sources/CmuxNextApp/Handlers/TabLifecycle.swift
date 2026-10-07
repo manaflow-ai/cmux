@@ -44,7 +44,36 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        guard let pane = ctx.daemonPane(invocation) else { return }
+        // A named tab or pane that resolves to nothing is refused by the
+        // lookup. Without one, a missing focused pane is not a refusal yet:
+        // the active workspace may still be empty (below).
+        let named = ctx.namesPane(invocation)
+        guard let pane = named ? ctx.daemonPane(invocation) : ctx.services.windows.active?.focusedPane?.pane else {
+            guard !named else { return }
+            // Cmd-T (and Cmd-I through it) can arrive while the active
+            // workspace is still empty and has no pane controller. Repair
+            // that exact workspace through the shared first-terminal owner;
+            // callers awaiting tracked work then observe the pane mount
+            // without switching workspaces.
+            guard invocation.target == nil,
+                  let workspace = ctx.scope(invocation).workspace,
+                  let key = workspace.key,
+                  let daemon = ctx.services.machines.daemon(forWorkspace: workspace.id),
+                  let connection = daemon.connection else { ctx.registry.refuse(MiscHandlerStrings.noPane); return }
+            let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
+            guard repair.states[key] == nil else { return }
+            ctx.registry.track(Task { @MainActor in
+                do {
+                    _ = try await repair.populating(key) {
+                        try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+                    }
+                    return nil
+                } catch {
+                    return ActionWorkFailure("new terminal", mayHaveApplied: true, terminalMayAppear: true)
+                }
+            })
+            return
+        }
         let controller = ctx.services.paneController(for: pane)
         // The targeted tab (CLI `--tab`), else the pane's selected tab (an
         // empty pane has none and gets a terminal; never a refusal).
@@ -226,10 +255,22 @@ enum TabLifecycle {
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            return pane.close([id])
+            // The user's Cmd-W keeps a pinned tab (Chrome parity, PINNED-ITEMS-END-TO-END P3);
+            // the tab menu, the CLI and MCP name the tab and close it.
+            if invocation.origin == .user {
+                switch pane.stripModel.keyboardClose(id) {
+                case .close: break
+                case .select(let next): return pane.select(next)
+                case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
+                }
+            }
+            // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
+            return CloseUndoToasts.close(in: pane, [id])
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-        if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
+        if let controller = ctx.services.paneController(for: pane) {
+            return CloseUndoToasts.close(in: controller, [StripTabID(tab.id)])
+        }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
         if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }
         ctx.send(command.label, command.run)
@@ -249,13 +290,6 @@ enum TabLifecycle {
         guard let tab = hiddenTab(ctx, invocation), let name else { return false }
         let surface = tab.surface
         ctx.send("rename-surface") { try await $0.renameTab(surface, to: name) }
-        return true
-    }
-
-    static func togglePinHidden(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> Bool {
-        guard let tab = hiddenTab(ctx, invocation) else { return false }
-        let surface = tab.surface, pinned = !tab.pinned
-        ctx.send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
         return true
     }
 }

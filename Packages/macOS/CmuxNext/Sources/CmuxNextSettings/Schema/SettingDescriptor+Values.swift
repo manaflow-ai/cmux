@@ -34,6 +34,7 @@ extension SettingDescriptor {
         case .sound:
             return value.stringValue != nil
         case .url:
+            if BrowserOmnibarSetting.templatePaths.contains(path) { return value.stringValue.map(BrowserOmnibarSetting.isSearchTemplate) ?? false }
             return value.stringValue.map { $0.isEmpty || BrowserNewTabPage.url(from: $0) != nil } ?? false
         case .hostList:
             guard case .array(let items) = value else { return false }
@@ -55,6 +56,12 @@ extension SettingDescriptor {
         case .stringMap:
             guard case .object(let members) = value else { return false }
             return members.values.allSatisfy { $0.stringValue != nil }
+        case .stringList:
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }
+        case .orderedChoices(let choices):
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
         }
     }
 

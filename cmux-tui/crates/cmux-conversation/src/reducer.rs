@@ -54,10 +54,16 @@ pub enum Reject {
     AgentRate,
     /// The request names an actor other than the connection's principal.
     ActorMismatch,
+    /// An attachment part names a hash this conversation holds no record of
+    /// (never uploaded here, or swept before the send arrived). The host checks it.
+    UnknownAttachment,
+    /// An attachment part's type, size, poster or preview differs from the
+    /// conversation's record of its hash. The host checks it.
+    AttachmentMismatch,
 }
 
 impl Reject {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 22] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -78,6 +84,8 @@ impl Reject {
         Self::AgentBudget,
         Self::AgentRate,
         Self::ActorMismatch,
+        Self::UnknownAttachment,
+        Self::AttachmentMismatch,
     ];
 
     pub fn code(self) -> &'static str {
@@ -102,6 +110,8 @@ impl Reject {
             Self::AgentBudget => "agent_budget",
             Self::AgentRate => "agent_rate",
             Self::ActorMismatch => "actor_mismatch",
+            Self::UnknownAttachment => "unknown_attachment",
+            Self::AttachmentMismatch => "attachment_mismatch",
         }
     }
 }
@@ -504,6 +514,11 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     && host.as_deref().is_none_or(|host| valid_short_text(host, 256))
                     && preview.as_deref().is_none_or(|preview| preview.len() <= MAX_PREVIEW_BYTES);
                 if !valid {
+                    return Err(Reject::InvalidParts);
+                }
+            }
+            Part::Attachment { .. } => {
+                if !crate::attachments::valid_attachment_part(part) {
                     return Err(Reject::InvalidParts);
                 }
             }

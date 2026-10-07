@@ -35,6 +35,8 @@ import Testing
         case .number(let number): [.number(number.range.lowerBound), .number(number.range.upperBound)]
         case .color: ["#112233", "#11223344"]
         case .sound: ["default", "none", "Glass"]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["", "https://search.example/?q=%s", "https://search.example/find?q={searchTerms}"]
         case .url: ["", "https://example.com/start", "example.com"]
         case .hostList: [[], ["mail.google.com", "*.example.com"]]
         case .folderList: [[], ["/Users/ada/src", "~/notes"]]
@@ -43,6 +45,8 @@ import Testing
         case .fontFamily: ["SF Mono", "JetBrains Mono"]
         case .numberList(let number): [[], [.number(number.range.lowerBound), .number(number.range.upperBound)]]
         case .stringMap: [[:], ["*": "★", "Work": ""]]
+        case .stringList: [[], ["ws-1", "ws-2"]]
+        case .orderedChoices(let choices): [[], .array(choices.reversed().map { .string($0.value) })]
         }
     }
 
@@ -54,6 +58,8 @@ import Testing
         case .number(let number): ["wide", .number(number.range.upperBound + 100)]
         case .color: ["blue", 7]
         case .sound: [5]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["https://search.example/", "example.com", "not an address %s", 4]
         case .url: ["not an address", "ftp://example.com", 4]
         case .hostList: ["mail.google.com", [1]]
         case .folderList: ["/Users/ada/src", ["relative/path"], [1]]
@@ -62,6 +68,8 @@ import Testing
         case .fontFamily: ["Mono = 1", "\"Quoted\"", 12]
         case .numberList(let number): [.number(number.range.lowerBound), [.number(number.range.upperBound + 1)], ["1"]]
         case .stringMap: ["★", ["Work": 1]]
+        case .stringList: ["ws-1", [1], [""]]
+        case .orderedChoices: ["directory", ["__not_a_choice__"], [1]]
         }
     }
 
@@ -109,7 +117,7 @@ import Testing
         let ids = SettingsSchema.all.map(\.id)
         #expect(Set(ids).count == ids.count)
         for descriptor in SettingsSchema.all {
-            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownInCmuxNext)
+            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownOnSettingsPage)
         }
     }
 

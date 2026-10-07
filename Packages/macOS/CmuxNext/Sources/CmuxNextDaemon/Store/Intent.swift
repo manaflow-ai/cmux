@@ -36,6 +36,9 @@ public enum Intent: Sendable, Hashable {
     /// creation fails. Its id and surface come from a ``ProvisionalTab``,
     /// so neither can name a daemon tab.
     case createTab(pane: PaneID, provisional: TabSnapshot)
+    /// `bind-conversation-tab-session`: agent chat tab `surface` shows acpmux `session` (the
+    /// compare-and-swap's new value) until the daemon's record has it or refuses it.
+    case bindAgentSession(surface: SurfaceID, session: String)
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

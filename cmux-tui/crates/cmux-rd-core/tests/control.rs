@@ -4,7 +4,7 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
 use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
-use cmux_rd_proto::{Arrival, InputEvent};
+use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
 const R: Rect = Rect { x: 0, y: 0, width: 10, height: 10 };
@@ -85,10 +85,7 @@ proptest! {
 #[test]
 fn applier_skips_a_gap_after_the_timeout() {
     let mut a = InputApplier::new(200_000);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 3,
-        events: vec![InputEvent::Pointer { x: 1, y: 1 }],
-    };
+    let later = InputPacket { first_seq: 3, events: vec![InputEvent::Pointer { x: 1, y: 1 }] };
     assert!(a.accept(&later, 0).is_empty());
     assert!(a.tick(199_999).is_empty());
     assert_eq!(a.tick(200_000), vec![InputEvent::Pointer { x: 1, y: 1 }]);
@@ -219,10 +216,8 @@ fn send_times_survive_sequence_wrap() {
 #[test]
 fn a_skipped_gap_is_reported_once_so_the_host_releases_keys() {
     let mut a = InputApplier::new(10);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 2,
-        events: vec![InputEvent::Key { usage: 4, down: true }],
-    };
+    let later =
+        InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
     a.accept(&later, 0);
     a.tick(10);
     assert!(a.take_skipped_gap());
@@ -238,6 +233,135 @@ fn releases_are_resent_until_acknowledged() {
         assert_eq!(p.events.len(), 1);
     }
     s.ack(1);
+    assert!(s.packet().is_none());
+}
+
+#[test]
+fn every_input_packet_fits_the_smallest_session_datagram() {
+    // 32 long text events would encode to about 8 KB in one packet; the
+    // datagram carrier drops anything above max_datagram (1152 on VPC paths).
+    let mut s = InputSender::new();
+    for _ in 0..32 {
+        s.push(InputEvent::Text("x".repeat(256)));
+    }
+    let mut covered = std::collections::BTreeSet::new();
+    while let Some(p) = s.packet() {
+        assert!(!p.events.is_empty());
+        assert!(HEADER_LEN + p.encode().len() <= MAX_DATAGRAM_VPC);
+        covered.extend((0..p.events.len() as u32).map(|i| p.first_seq + i));
+    }
+    assert_eq!(covered, (1..=32).collect());
+}
+
+#[test]
+fn new_input_is_not_held_behind_a_full_window_of_repeats() {
+    let mut s = InputSender::new();
+    for _ in 0..8 {
+        s.push(InputEvent::Text("y".repeat(256)));
+    }
+    let first = s.packet().expect("first window");
+    assert_eq!(first.first_seq, 1);
+    let second = s.packet().expect("second window");
+    assert_eq!(second.first_seq, 1 + first.events.len() as u32);
+    // With everything sent once, the next packet repeats from the oldest event.
+    while s.has_unsent() {
+        s.packet();
+    }
+    assert_eq!(s.packet().expect("repeat").first_seq, 1);
+    s.ack(8);
+    assert!(s.is_empty());
+}
+
+#[test]
+fn a_release_that_is_never_acknowledged_keeps_going_out_without_overflow() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Key { usage: 4, down: false });
+    for _ in 0..300 {
+        assert_eq!(s.packet().expect("release stays queued").first_seq, 1);
+    }
+}
+
+#[test]
+fn a_refused_packet_is_discarded_and_acknowledged() {
+    let mut a = InputApplier::new(200_000);
+    let refused = InputPacket {
+        first_seq: 1,
+        events: vec![
+            InputEvent::Key { usage: 4, down: true },
+            InputEvent::Key { usage: 4, down: false },
+        ],
+    };
+    a.refuse(&refused);
+    // The ack covers the refused events, so the viewer stops repeating them.
+    assert_eq!(a.applied(), 2);
+    // A late repeat of a refused event is never applied.
+    assert!(a.accept(&refused, 1_000).is_empty());
+    // Input after control is granted applies normally, with no gap.
+    let next = InputPacket { first_seq: 3, events: vec![InputEvent::Text("a".into())] };
+    assert_eq!(a.accept(&next, 2_000), vec![InputEvent::Text("a".into())]);
+    assert!(!a.take_skipped_gap());
+}
+
+#[test]
+fn sequence_numbers_wrap_after_two_to_the_32_events() {
+    let start = u32::MAX - 2;
+    let mut s = InputSender::starting_at(start);
+    let mut a = InputApplier::starting_at(200_000, start);
+    for usage in 0..6 {
+        s.push(InputEvent::Key { usage, down: true });
+    }
+    let p = s.packet().expect("packet");
+    assert_eq!(p.first_seq, start);
+    assert_eq!(a.accept(&p, 0).len(), 6);
+    assert_eq!(a.applied(), 2);
+    // The ack across the wrap empties the queue.
+    s.ack(a.applied());
+    assert!(s.is_empty());
+    // A late repeat from before the wrap is not applied again.
+    assert!(a.accept(&p, 1_000).is_empty());
+}
+
+#[test]
+fn held_input_across_the_wrap_applies_in_serial_order() {
+    let key = |usage| InputEvent::Key { usage, down: true };
+    let mut a = InputApplier::starting_at(200_000, u32::MAX - 1);
+    // Sequences 0 and 1 arrive before u32::MAX - 1 and u32::MAX.
+    assert!(a.accept(&InputPacket { first_seq: 0, events: vec![key(3), key(4)] }, 0).is_empty());
+    let before = InputPacket { first_seq: u32::MAX - 1, events: vec![key(1), key(2)] };
+    assert_eq!(a.accept(&before, 10), vec![key(1), key(2), key(3), key(4)]);
+    assert_eq!(a.applied(), 1);
+}
+
+#[test]
+fn a_gap_skip_across_the_wrap_keeps_the_serially_first_event() {
+    let key = |usage| InputEvent::Key { usage, down: true };
+    let mut a = InputApplier::starting_at(200_000, u32::MAX - 1);
+    // u32::MAX - 1 and 0 are lost; u32::MAX and 1 arrive.
+    assert!(a.accept(&InputPacket { first_seq: 1, events: vec![key(9)] }, 0).is_empty());
+    assert!(a.accept(&InputPacket { first_seq: u32::MAX, events: vec![key(5)] }, 0).is_empty());
+    // After the timeout the applier skips to u32::MAX (serially first), not to 1.
+    assert_eq!(a.tick(200_000), vec![key(5)]);
+    assert_eq!(a.tick(400_000), vec![key(9)]);
+}
+
+#[test]
+fn a_must_deliver_service_event_repeats_until_acknowledged() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Service { must_deliver: true, bytes: vec![1, 2] });
+    for _ in 0..10 {
+        assert_eq!(s.packet().expect("still queued").first_seq, 1);
+    }
+    s.ack(1);
+    assert!(s.packet().is_none());
+}
+
+#[test]
+fn a_plain_service_event_stops_after_three_sends() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Service { must_deliver: false, bytes: vec![1] });
+    for _ in 0..MAX_SENDS {
+        assert!(s.packet().is_some());
+    }
     assert!(s.packet().is_none());
 }
 

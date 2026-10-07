@@ -40,7 +40,11 @@ enum DebugShowcase {
             // Null while the store has not yet committed a new agent tab.
             "agent_tab": services.showcase.agentTabs[pane.paneKey].map(CmuxNextSettings.JSONValue.string) ?? .null,
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
+            "daemon_workspaces": .number(Double(services.daemon.store.workspaces.count)),
+            "window_workspaces": .number(Double(services.windows.registry.members(of: window.state.id).count)),
             "focused": .bool(params["focus"]?.boolValue == true),
+            "dense": .bool(params["dense"]?.boolValue == true),
+            "scene": params["scene"] ?? .null,
         ])
     }
 
@@ -66,18 +70,39 @@ enum DebugShowcase {
     /// workspaces, so the sidebar and workspace selection exercise their real
     /// models instead of a showcase-only view.
     private static func seedWorkspaceSet(services: AppServices, windowID: String) {
-        let workspaces: [(String, String)] = [
-            ("cmux-next", "~/code/cmux"),
-            ("docs-site", "~/code/docs-site"),
-            ("infra", "~/code/infra"),
+        let workspaces = [
+            "cmux-next",
+            "docs-site",
+            "infra",
         ]
-        for (name, cwd) in workspaces where services.showcase.workspaces[name] == nil {
-            var spawn = WorkspaceSpawn(cwd: cwd, name: name)
-            spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
-            Task { @MainActor in
-                do {
-                    let id = try await services.windows.createWorkspace(spawn, into: windowID)
+        Task { @MainActor in
+            guard let connection = services.daemon.connection else { return }
+            for name in workspaces {
+                if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: existing, in: controller.state, select: false)
+                    }
+                    continue
+                }
+                if let existing = services.daemon.store.workspaces.first(where: { $0.displayName == name }) {
+                    let id = existing.id
                     services.showcase.workspaces[name] = id
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
+                    }
+                    continue
+                }
+                services.showcase.workspaces[name] = nil
+                do {
+                    let id = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: false).workspaceID.rawValue
+                    services.windows.claimNew(workspaceID: id, window: windowID)
+                    services.showcase.workspaces[name] = id
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
+                    }
+                    let seededIDs = Array(services.showcase.workspaces.values)
+                    _ = services.windows.moveWorkspaces(seededIDs, toWindow: windowID, select: false)
+                    services.windows.reconcileMembership()
                 } catch {
                     services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }

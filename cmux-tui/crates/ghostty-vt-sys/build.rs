@@ -50,6 +50,10 @@ fn main() {
         .arg("build")
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
+        // No build fetches packages it does not use, so each source archive
+        // equals the real fetch list: libghostty-vt never needs the iTerm2
+        // theme set (emit-themes defaults to true and fetches it lazily).
+        .arg("-Demit-themes=false")
         .arg("-Doptimize=ReleaseFast");
     // ghostty-next publishes releases as git tags (xcframework-<sha>-<flavor>)
     // on main commits. Ghostty's build reads `git describe` and panics on a

@@ -18,8 +18,8 @@ use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_query, personal_state_store, screen_state_store, tab_state_store,
-    window_record_store,
+    closed_history_query, personal_state_store, screen_state_store, sidebar_layout_store,
+    tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -29,6 +29,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         Op::WorkspaceUpdate
+            | Op::WorkspaceAgentFolderSet
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
@@ -74,6 +75,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordList
             | Op::WindowRecordPut
             | Op::WindowRecordDelete
+            | Op::SidebarLayoutGet
+            | Op::SidebarLayoutUpdate
             | Op::WorkspaceEnsureHome
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
@@ -211,6 +214,18 @@ pub(crate) fn dispatch(
                     expected_revision(fields)?,
                     selectors,
                     update,
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: gate A2 admitted only the user.
+        Op::WorkspaceAgentFolderSet => {
+            let commit = mux
+                .state_set_agent_folder(
+                    &mutation(&request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    nullable_string(fields, "path").flatten(),
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)
@@ -504,6 +519,18 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        // Sidebar section layout (personal, sidebar-layout-v1)
+        Op::SidebarLayoutGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_layout_store::snapshot)
+        }
+        Op::SidebarLayoutUpdate => {
+            ensure_session(mux, selectors)?;
+            let op = fields.get("op").cloned().unwrap_or_default();
+            let commit =
+                mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
         // workspace-kind-v1: the one home workspace, created by the store.
         Op::WorkspaceEnsureHome => {
             ensure_session(mux, selectors)?;
@@ -584,13 +611,16 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room"])?;
+            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
                 color: nullable_string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
                 room: string(fields, "room"),
+                top_index: fields
+                    .get("top_index")
+                    .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

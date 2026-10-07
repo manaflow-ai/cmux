@@ -99,6 +99,8 @@ jobs:
         run: node scripts/release_asset_guard.test.js
       - name: Reject broken app bundles and daemon artifacts
         run: python3 tests/test_remote_daemon_release_verification.py
+      - name: cmuxd-remote third-party notices
+        run: python3 tests/test_remote_daemon_notices.py
       - name: Build and exercise stable and nightly daemon artifacts
         run: python3 tests/test_remote_daemon_release_assets.py
       - name: Test daemon behavior with the race detector

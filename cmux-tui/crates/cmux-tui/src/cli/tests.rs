@@ -172,7 +172,7 @@ fn every_scope_has_dedicated_help() {
     assert!(japanese.contains("保存状態のリセット"));
     assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
     assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
-    assert!(TERMINAL_HELP.contains("move|project|attach|close"));
+    assert!(TERMINAL_HELP.contains("move|project --workspace <selector>"));
 }
 
 #[test]
@@ -212,8 +212,8 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
             assert!(failure.error.0.contains("is not part of cmux"), "{args:?}: {}", failure.error);
         }
     }
-    // Shorthands lower first, so `ls` (session list) is refused too.
-    assert!(parse(&strings(&["ls"]), Surface::Cmux).is_err());
+    // `cmux` has no session scope, so its `ls` shorthand lists workspaces.
+    assert!(matches!(parse(&strings(&["ls"]), Surface::Cmux), Ok(ParsedCommand::Command { .. })));
     assert!(!catalog.local_server.cmux_root_help.contains("raw"));
     // A typo suggests only a scope cmux shows.
     let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {
@@ -241,6 +241,8 @@ fn cmux_accepts_what_its_own_processes_send_through_the_parser() {
         vec!["agent", "hook", "emit", "--source", "claude", "--event", "Stop"],
         // `cmux acp open` (acp.rs).
         vec!["pane", "current", "run", "--", "/bin/cmux", "acp", "attach", "review"],
+        // `cmux harness run ID --tab` (acp.rs).
+        vec!["pane", "current", "run", "--", "/bin/cmux", "harness", "run", "aider", "--cwd", "/r"],
         // The app's daemon launcher and iOS remotes.
         vec!["--session", "cmux-app", "--json", "server", "ensure"],
         vec!["--session", "cmux-app", "--json", "server", "status"],
@@ -462,4 +464,23 @@ fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
     ] {
         assert!(parse(&strings(&args), Surface::CmuxTui).is_err(), "accepted {args:?}");
     }
+}
+
+#[test]
+fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
+    let args = strings(&[
+        "agent",
+        "hook",
+        "emit",
+        "--source",
+        "claude",
+        "--event",
+        "Stop",
+        "--payload-json",
+        "{}",
+        "--terminal",
+        "term_x",
+    ]);
+    let Err(error) = command::parse(&args, Surface::Cmux) else { panic!("parsed a bad terminal") };
+    assert_eq!(error.0, "terminal ID must contain exactly 32 lowercase hexadecimal digits");
 }

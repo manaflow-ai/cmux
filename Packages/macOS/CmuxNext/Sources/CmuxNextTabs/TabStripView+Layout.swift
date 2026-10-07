@@ -95,22 +95,23 @@ extension TabStripView {
         startAnimating()
     }
 
+    /// Chrome's separator rule (`TabSeparatorVisibility`) over the tabs in the
+    /// row: the selected, hovered and dragged tabs hide the separators on
+    /// both sides, and the last tab's separator is the line before +. A drop
+    /// gap counts as the dragged tab. Members collapsed into a group chip are
+    /// out of the row and draw none; a chip is a neutral neighbor.
     func updateSeparators() {
-        let slots = result.slots.filter { $0.width > 0.5 || !$0.isCollapsed }
-        let selected = model.selectedID
-        func emphasized(_ slot: TabLayoutSlot) -> Bool {
-            let id = slot.id
-            return id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID || slot.isGroupChip || slot.isCollapsed
-        }
-        for (index, slot) in slots.enumerated() {
-            guard let cell = cells[slot.id] else { continue }
-            guard index + 1 < slots.count else {
-                cell.showsSeparator = false
-                continue
-            }
-            let next = slots[index + 1]
-            cell.showsSeparator = !emphasized(slot) && !emphasized(next) && slot.isPinned == next.isPinned
-                && slot.groupID == next.groupID
+        let row = result.slots.filter { !$0.isCollapsed }
+        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
+        let visible = TabSeparatorVisibility.visibleSeparators(
+            tabCount: row.count,
+            selected: index(of: model.selectedID),
+            hovered: index(of: hoveredID),
+            dragged: index(of: drag?.id) ?? index(of: Self.placeholderID)
+        )
+        let shown = Set(visible.map { row[$0].id })
+        for slot in result.slots {
+            cells[slot.id]?.showsSeparator = shown.contains(slot.id)
         }
     }
 

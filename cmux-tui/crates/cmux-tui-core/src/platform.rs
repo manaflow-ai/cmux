@@ -606,7 +606,7 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     ghostty_config_paths_from(env_path("XDG_CONFIG_HOME"), home_dir())
 }
 
-fn ghostty_config_paths_from(
+pub(crate) fn ghostty_config_paths_from(
     xdg_config_home: Option<PathBuf>,
     home: Option<PathBuf>,
 ) -> Vec<PathBuf> {
@@ -1209,6 +1209,9 @@ fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Op
     let Some(slash) = rest.find('/') else { return Some(None) };
     let (host, path) = rest.split_at(slash);
     let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
+    if path.contains('\0') {
+        return Some(None);
+    }
     let path = Path::new(path);
     Some((host_ok && terminal_pwd_path_is_safe(path)).then(|| path.to_owned()))
 }

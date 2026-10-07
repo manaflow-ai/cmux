@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 
 /// A page tab's content: the provider's view filling the pane. The pane
 /// focuses `focusTarget` when the tab gets the keyboard; a click inside the
@@ -27,8 +28,9 @@ final class InternalPageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The view that takes the keyboard when the tab is focused.
-    var focusTarget: NSView { content }
+    /// The view that takes the keyboard when the tab is focused: a React page's
+    /// web content itself, so typing reaches the page without a click first.
+    var focusTarget: NSView { (content as? PageWebView)?.webKitView ?? content }
 
     override var acceptsFirstResponder: Bool { false }
 }

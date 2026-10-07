@@ -17,26 +17,31 @@ enum ViewerHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         let viewers = services.viewers
+        viewers.diffPages.chooser = PickerDiffFolderChooser(viewers: viewers)
         registry.bind("openDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
-            guard let folder = ViewerService.folder(of: pane) else { return showPicker(viewers.diffPickerPage(for: pane), context) }
+            guard let folder = ViewerService.folder(of: pane) else { return try showPicker(viewers.diffPickerPage(for: pane), context, invocation) }
             let focus = invocation.allowsViewChange
-            // No repository at the pane's folder: the picker asks for one.
+            // No repository at the pane's folder: the picker asks for one (only when the run may
+            // change the view; an agent or the CLI without focus gets needsFocus).
             registry.track(Task { @MainActor in
-                do { try await viewers.openDiff(folder, in: pane, focus: focus) } catch { showPicker(viewers.diffPickerPage(for: pane), context) }
+                do { try await viewers.openDiff(folder, in: pane, focus: focus) } catch {
+                    guard focus else { return backgroundPickerRefusal() }
+                    context.services.palette.show(page: viewers.diffPickerPage(for: pane), relativeTo: context.activeWindow?.window)
+                }
                 return nil
             })
         })
         registry.bind("palette.openDirectoryDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
-            showPicker(viewers.diffPickerPage(for: pane), context)
+            try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
         })
         registry.bind("openMarkdownFile", run: { invocation in
             let pane = context.paneController(invocation)
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
                 viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
             } else {
-                showPicker(viewers.filePickerPage(for: pane, markdown: true), context)
+                try showPicker(viewers.filePickerPage(for: pane, markdown: true), context, invocation)
             }
         })
         // In the palette each picker is a page of the palette, pushed in place.
@@ -53,12 +58,23 @@ enum ViewerHandlers {
     }
 
     /// `file.open` without a path (the menu, a shortcut, `cmux file open`).
-    static func openFilePicker(_ invocation: ActionInvocation, context: AppActionContext) {
+    static func openFilePicker(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let pane = invocation.target == nil ? context.services.windows.active?.focusedPane : context.paneController(invocation)
-        showPicker(context.services.viewers.filePickerPage(for: pane, markdown: false), context)
+        try showPicker(context.services.viewers.filePickerPage(for: pane, markdown: false), context, invocation)
     }
 
-    private static func showPicker(_ page: PalettePageSpec, _ context: AppActionContext) {
-        context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
+    /// The needsFocus refusal of a picker that background work would open (openDiffViewer at a
+    /// folder with no repository): a typed refusal, so action.run answers `unavailable` with the
+    /// reason, as the direct refusal does, not `daemon_error`.
+    static func backgroundPickerRefusal() -> ActionWorkFailure {
+        ActionWorkFailure("open diff", ActionFailure(message: MiscHandlerStrings.pickerNeedsFocus))
+    }
+
+    /// The cmux picker opens over the window only when the run may change the view (a user run, or
+    /// focus requested); an agent or the CLI without focus gets needsFocus and no picker.
+    private static func showPicker(_ page: @autoclosure () -> PalettePageSpec, _ context: AppActionContext,
+                                   _ invocation: ActionInvocation) throws {
+        guard invocation.allowsViewChange else { throw ActionFailure(message: MiscHandlerStrings.pickerNeedsFocus) }
+        context.services.palette.show(page: page(), relativeTo: context.activeWindow?.window)
     }
 }

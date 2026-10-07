@@ -192,10 +192,21 @@ PY
 cli() {
   local args="" arg
   for arg in "$@"; do args+=" $(printf '%q' "$arg")"; done
-  remote "env -i HOME=\"\$HOME\" USER=\"\$USER\" PATH=/usr/bin:/bin TMPDIR=\"\\${TMPDIR:-/tmp}\" CMUX_SOCKET_PATH=$(printf '%q' "/tmp/cmux-debug-$TAG.sock") CMUX_TAG=$(printf '%q' "$TAG") $(printf '%q' "$APP_PATH/Contents/Resources/bin/cmux")$args"
+  remote "env -i HOME=\"\$HOME\" USER=\"\$USER\" PATH=/usr/bin:/bin TMPDIR=\"\\${TMPDIR:-/tmp}\" $(printf '%q' "$APP_PATH/Contents/Resources/bin/cmux") --app-socket $(printf '%q' "/tmp/cmux-debug-$TAG.sock")$args"
 }
-seed() { cli rpc debug.showcase.seed '{"focus":true}'; }
-seed_worked_turn() { cli rpc debug.agent_pane '{"action":"seed_rows","fixture":"worked-turn"}'; }
+# Debug methods: `cmux rpc` reaches a remote route, so the app's control socket takes `app call`.
+call() { cli app call "$@"; }
+# The app opens on Home, where no pane is ready: show the first workspace, then seed until it takes.
+seed() {
+  local _
+  cli action run workspace.selectFirst --focus
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    call debug.showcase.seed '{"focus":true}' | grep -Eq '"?seeded"?[": ]+true' && return 0
+    sleep 2
+  done
+  die "debug.showcase.seed found no ready pane"
+}
+seed_worked_turn() { call debug.agent_pane '{"action":"seed_rows","fixture":"worked-turn"}'; }
 still() { local n=$1; mkdir -p "$STILL_ROOT/$n"; cua state "$HOST" "$TARGET" --out "$STILL_ROOT/$n" --quiet; [[ -s "$STILL_ROOT/$n/screenshot.png" && -s "$STILL_ROOT/$n/state.json" ]] || die "incomplete still: $n"; }
 surface() { local n=$1 action=$2; cli action run "$action" --focus; sleep 1; still "$n"; }
 socket_action() { cli action run "$1" --focus; sleep 1; }
@@ -219,7 +230,7 @@ fi
 remote "test -x $(printf '%q' "$APP_PATH/Contents/Resources/bin/cmux") && open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"
 sleep "$WAIT_SECONDS"; seed; seed_worked_turn; sleep "$WAIT_SECONDS"; still 01-main-rail
 still 02-agent-chat-tools-footer
-cli rpc debug.agent_pane '{"action":"open_changes"}'
+call debug.agent_pane '{"action":"open_changes"}'
 sleep 1; still 03-diff-viewer
 surface 04-inbox feed.show; surface 05-sidebar toggleSidebar
 surface 06-settings openSettings

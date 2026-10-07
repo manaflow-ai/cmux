@@ -28,6 +28,13 @@ pub enum ErrorCode {
     Evaluation,
     Forbidden,
     Ambiguous,
+    /// The host stopped the call (a fetch whose cell timed out, or whose
+    /// session ended): classic main's `cancelled`.
+    Cancelled,
+    /// A code this build does not know (a newer peer's): decoding never
+    /// fails on one, so adding a code breaks no older reader of this enum.
+    #[serde(other)]
+    Unknown,
 }
 
 impl ErrorCode {
@@ -42,6 +49,8 @@ impl ErrorCode {
             ErrorCode::Evaluation => "evaluation",
             ErrorCode::Forbidden => "forbidden",
             ErrorCode::Ambiguous => "ambiguous",
+            ErrorCode::Cancelled => "cancelled",
+            ErrorCode::Unknown => "unknown",
         }
     }
 }
@@ -77,6 +86,10 @@ impl DriverError {
 
     pub fn closed(message: impl Into<String>) -> Self {
         DriverError::new(ErrorCode::Closed, message)
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        DriverError::new(ErrorCode::Cancelled, message)
     }
 
     pub fn timeout(message: impl Into<String>) -> Self {
@@ -163,6 +176,21 @@ pub fn required_f64(params: &Value, name: &str) -> Result<f64, DriverError> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// FETCH-CANCEL-CODE compatibility: a decoder never fails on a code it
+    /// does not know (an older or newer peer's); `cancelled` round-trips.
+    #[test]
+    fn error_codes_round_trip_and_unknown_codes_still_decode() {
+        let cancelled = DriverError::new(ErrorCode::Cancelled, "fetch: cancelled");
+        let text = cancelled.to_json().to_string();
+        assert!(text.contains(r#""code":"cancelled""#), "{text}");
+        let back: DriverError = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.code, ErrorCode::Cancelled);
+        let future: Result<DriverError, _> =
+            serde_json::from_value(json!({"code": "some_future_code", "message": "m"}));
+        let future = future.expect("an unknown code decodes");
+        assert_eq!(future.message, "m");
+    }
 
     #[test]
     fn errors_serialize_with_protocol_codes() {

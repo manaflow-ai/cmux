@@ -1,9 +1,10 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
 /// The minimal sidebar: no search field, machine headers only with more than
-/// one machine, second lines only for live status, hover-revealed buttons.
+/// one machine, useful secondary lines, hover-revealed buttons.
 @MainActor @Suite struct MinimalChromeTests {
     func localOnly(_ nodes: [SidebarNode], collapsed: Bool = false) -> [SidebarSection] {
         [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), isCollapsed: collapsed, nodes: nodes)]
@@ -32,17 +33,28 @@ import Testing
         #expect(keys.contains(.section(cloudSection)))
     }
 
-    @Test func onlyLiveStatusEarnsASecondLine() {
+    @Test func dropAboveTheFirstRowOfAHeaderlessListTargetsIndexZero() {
+        let sections = localOnly([.workspace(w("a")), .workspace(w("b")), .workspace(w("c"))])
+        let base = SidebarLayout.make(sections: sections, metrics: .standard)
+        let target = DropResolver.resolve(y: 0, payload: .workspaces([id("c")]), base: base, sections: sections)
+        #expect(target == .position(DropPosition(section: local, index: 0)))
+    }
+
+    /// SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: only a turned-on element with
+    /// text earns a second line; a blank status never does.
+    @Test func onlyAShownElementWithTextEarnsASecondLine() {
         let m = SidebarLayoutMetrics.standard
-        let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")
-        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~", status: "Claude: running tests")
+        let passive = SidebarWorkspace(id: id("a"), title: "a", directory: "~")
+        let live = SidebarWorkspace(id: id("b"), title: "b", directory: "~", status: "Claude: running tests")
         let blank = SidebarWorkspace(id: id("c"), title: "c", status: "")
-        #expect(passive.liveDetail == nil)
-        #expect(blank.liveDetail == nil)
-        #expect(live.liveDetail == "Claude: running tests")
-        #expect(m.height(for: passive) == m.rowHeight)
-        #expect(m.height(for: blank) == m.rowHeight)
-        #expect(m.height(for: live) == m.rowHeightWithSubtitle)
+        var on = WorkspaceRowPreferences.defaults
+        on.base.shown.formUnion([.directory, .agentStatus])
+        for ws in [passive, live, blank] {
+            #expect(m.height(for: WorkspaceRowContent(ws, preferences: .defaults)) == m.rowHeight)
+        }
+        #expect(m.height(for: WorkspaceRowContent(passive, preferences: on)) == m.rowHeightWithSubtitle)
+        #expect(m.height(for: WorkspaceRowContent(blank, preferences: on)) == m.rowHeight)
+        #expect(WorkspaceRowContent(live, preferences: on).detail == "~ · Claude: running tests")
     }
 
     @Test func sidebarHasNoSearchFieldAndTypingDoesNotFilter() throws {

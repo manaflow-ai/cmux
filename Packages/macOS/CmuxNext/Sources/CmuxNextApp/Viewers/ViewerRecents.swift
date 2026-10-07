@@ -16,7 +16,8 @@ import Foundation
 @MainActor
 final class ViewerRecents {
     enum Kind: String, CaseIterable, Codable, Sendable {
-        /// Folders the diff viewer opened.
+        /// Folders the diff viewer opened: read from the diff host's own
+        /// store (`DiffRecents`), never recorded here.
         case diff
         /// Markdown files.
         case markdown

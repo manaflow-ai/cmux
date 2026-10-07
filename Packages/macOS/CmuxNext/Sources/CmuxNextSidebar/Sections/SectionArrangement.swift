@@ -16,7 +16,7 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
         case grid
         /// Large tiles in columns, each a glyph well over a short label
         /// (Safari's favorites), on one tonal card set apart from the list
-        /// below. The default top section.
+        /// below. Opt-in; the default top section is a list.
         case tiles
     }
 

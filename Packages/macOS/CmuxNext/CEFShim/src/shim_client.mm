@@ -266,11 +266,12 @@ class Client : public CefClient,
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
     std::string features;
-    int64_t popup = request == 0 ? TakePopup(browser, &features) : 0;
-    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features);
+    std::string popup_url;
+    int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 
-  bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
+  bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int popup_id, const CefString& target_url,
                      const CefString&, WindowOpenDisposition disposition, bool user_gesture,
                      const CefPopupFeatures& features,
                      CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings& settings,
@@ -285,9 +286,15 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
-    RememberPopup(browser->GetIdentifier(), disposition, user_gesture, features);
+    RememberPopup(browser->GetIdentifier(), popup_id, target_url.ToString(), disposition, user_gesture, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
+  }
+
+  // Chromium refused a popup after OnBeforePopup: it never reaches
+  // OnAfterCreated, so it must not be matched to another tab.
+  void OnBeforePopupAborted(CefRefPtr<CefBrowser> browser, int popup_id) override {
+    AbortPopup(browser->GetIdentifier(), popup_id);
   }
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,

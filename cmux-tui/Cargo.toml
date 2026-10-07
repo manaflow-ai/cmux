@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-history",
+    "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-chief",
@@ -51,6 +52,9 @@ members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-encode",
+    "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -88,6 +92,9 @@ default-members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-encode",
+    "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -119,6 +126,7 @@ ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
+cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }

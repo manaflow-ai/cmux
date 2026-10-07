@@ -18,6 +18,7 @@ const PAGE_ACCESS: &[&str] = &[
     "frame.contentFrame",
     "frame.contentFrames",
     "frame.ownerBox",
+    "frame.focused",
     "input.mouse",
     "input.key",
     "input.insertText",

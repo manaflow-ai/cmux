@@ -1,4 +1,3 @@
-#if CMUX_RD_FFI
 /// Receiver counters for the pane's status line.
 public nonisolated struct RemoteRdStats: Sendable, Hashable {
     /// Newest frame released to the decoder (the feedback acknowledgement).
@@ -11,4 +10,3 @@ public nonisolated struct RemoteRdStats: Sendable, Hashable {
     /// dropped because the caller fell behind.
     public var framesLost: UInt64
 }
-#endif

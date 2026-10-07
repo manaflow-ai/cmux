@@ -89,6 +89,21 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
            PRIMARY KEY(session_id, terminal_key)
          );",
     )?;
+    add_group_top_position(transaction)?;
+    Ok(())
+}
+
+/// `personal_groups.top_position` (`personal-mixed-order-v1`): a group's
+/// slot in the personal workspace order; NULL is after every loose
+/// workspace. Added in place to older registries (additive, no schema
+/// version bump).
+fn add_group_top_position(connection: &Connection) -> anyhow::Result<()> {
+    let present = connection
+        .prepare("SELECT 1 FROM pragma_table_info('personal_groups') WHERE name = 'top_position'")?
+        .exists([])?;
+    if !present {
+        connection.execute_batch("ALTER TABLE personal_groups ADD COLUMN top_position INTEGER")?;
+    }
     Ok(())
 }
 
@@ -200,6 +215,12 @@ pub struct PersonalGroup {
     pub color: Option<String>,
     pub collapsed: bool,
     pub index: usize,
+    /// Its place among the loose workspaces (`personal-mixed-order-v1`):
+    /// the group shows right before the personal workspace with this
+    /// `index` (the first one at or after its slot; a group before a
+    /// workspace on the same slot). None: after every loose workspace, the
+    /// order before mixed order.
+    pub top_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -495,8 +516,13 @@ pub(crate) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalP
 }
 
 pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<PersonalGroup>> {
+    // A slot is the index of the first personal workspace at or after it
+    // (tie rule: a group before a workspace on the same position).
     let mut statement = connection.prepare(
-        "SELECT group_id, profile_id, name, color, collapsed FROM personal_groups
+        "SELECT group_id, profile_id, name, color, collapsed,
+                CASE WHEN top_position IS NULL THEN NULL ELSE
+                  (SELECT COUNT(*) FROM personal_workspaces AS w WHERE w.position < g.top_position) END
+         FROM personal_groups AS g
          ORDER BY position ASC, group_id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -506,12 +532,22 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             row.get::<_, String>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, i64>(4)?,
+            row.get::<_, Option<i64>>(5)?,
         ))
     })?;
     let mut groups = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (id, profile, name, color, collapsed) = row?;
-        groups.push(PersonalGroup { id, profile, name, color, collapsed: collapsed != 0, index });
+        let (id, profile, name, color, collapsed, top) = row?;
+        let top_index = top.map(usize::try_from).transpose()?;
+        groups.push(PersonalGroup {
+            id,
+            profile,
+            name,
+            color,
+            collapsed: collapsed != 0,
+            index,
+            top_index,
+        });
     }
     Ok(groups)
 }
@@ -598,17 +634,24 @@ pub(crate) fn commit_personal(
     subjects: Vec<JournalSubject>,
     payload: &Value,
 ) -> anyhow::Result<u64> {
+    let revision = bump_personal_revision(transaction)?;
+    let mut payload = payload.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("personal_revision".into(), json!(revision));
+    }
+    append_presentation_record(transaction, kind, subjects, &payload)?;
+    Ok(revision)
+}
+
+/// Bump `personal_revision` alone: for a personal write that is part of
+/// another commit's fact (the create-time personal row of a workspace).
+pub(crate) fn bump_personal_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let revision = personal_revision(transaction)?.saturating_add(1);
     transaction.execute(
         "INSERT INTO meta(key, value) VALUES(?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![REVISION_META_KEY, revision.to_string()],
     )?;
-    let mut payload = payload.clone();
-    if let Some(object) = payload.as_object_mut() {
-        object.insert("personal_revision".into(), json!(revision));
-    }
-    append_presentation_record(transaction, kind, subjects, &payload)?;
     Ok(revision)
 }
 

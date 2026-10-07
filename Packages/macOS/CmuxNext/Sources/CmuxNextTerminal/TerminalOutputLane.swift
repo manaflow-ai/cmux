@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 import Synchronization
 import os
@@ -59,6 +60,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
+            TypingLatencyProbe.shared.mark(.outputParsed)
         }
     }
 
@@ -112,6 +114,25 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             readyRestored.store(false, ordering: .releasing)
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
+            }
+        }
+    }
+
+    /// Applies the owner's Kitty image replay on Ghostty's trusted replay
+    /// path (`ghostty_surface_apply_kitty_replay`: its own parser, no PTY
+    /// writes; the private replay keys work only here), in stream order.
+    func applyKittyReplay(_ data: Data) {
+        guard !data.isEmpty else { return }
+        backlog.withLock { $0.bytes += data.count }
+        queue.async { [self] in
+            defer { parsed(data.count) }
+            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            let applied = data.withUnsafeBytes { buffer -> Bool in
+                guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+                return ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
+            }
+            if !applied {
+                Self.logger.error("kitty replay skipped part of \(data.count) bytes")
             }
         }
     }

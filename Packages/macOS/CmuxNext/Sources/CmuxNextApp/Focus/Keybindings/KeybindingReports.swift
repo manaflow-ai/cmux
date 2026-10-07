@@ -59,12 +59,31 @@ enum KeybindingReports {
         return .object(object)
     }
 
+    /// The Keyboard Shortcuts page's list (`cmux.keybindings.list`): every
+    /// entry, but a user Ghostty keybind once. Its app-wide
+    /// `.ghosttyFallback` entry (same keys and command as its `.ghostty`
+    /// entry) is not a second row, so the remaining `ghostty-fallback` rows
+    /// are Ghostty's defaults.
+    static func pageList(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+        let entries = RegistryKeyBindings(registry).table.entries
+        let user = Set(entries.filter { $0.source == .ghostty }.map { GhosttyRow(keys: $0.keys, command: $0.command) })
+        return list(params, registry: registry) { entry in
+            entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command))
+        }
+    }
+
+    private struct GhosttyRow: Hashable {
+        var keys: [Shortcut]
+        var command: ActionID
+    }
+
     /// `keybinding.list`: every entry in precedence order (a later entry
     /// wins), optionally filtered by `query` (title, command id or key text,
     /// case-insensitive), `command` and `source`. Each entry has an `id`
     /// (its position in the table) and `conflicts`: the ids of the other
     /// entries on the same keys whose `when` can hold at the same time.
-    static func list(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+    /// `shows` leaves entries out (``pageList(_:registry:)``).
+    static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (KeyBinding) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
         let command = params["command"]?.stringValue
         let source = params["source"]?.stringValue
@@ -72,6 +91,7 @@ enum KeybindingReports {
         let byKeys = Dictionary(grouping: entries.indices, by: { entries[$0].keys })
         let rows = entries.indices.filter { index in
             let entry = entries[index]
+            if !shows(entry) { return false }
             if let command, registry.canonicalID(for: ActionID(rawValue: command)) != entry.command { return false }
             if let source, entry.source.name != source { return false }
             guard !query.isEmpty else { return true }
@@ -82,19 +102,25 @@ enum KeybindingReports {
             let entry = entries[index]
             guard case .object(var object) = json(entry, registry: registry) else { return .null }
             object["id"] = JSONValue(index)
-            let conflicts = (byKeys[entry.keys] ?? []).filter { $0 != index && WhenClause.canOverlap(entries[$0].when, entry.when) }
+            let conflicts = (byKeys[entry.keys] ?? []).filter {
+                $0 != index && shows(entries[$0]) && WhenClause.canOverlap(entries[$0].when, entry.when)
+            }
             object["conflicts"] = .array(conflicts.map { JSONValue($0) })
             return .object(object)
         }
         // Defaults a removal took out: listed (never resolved) so the editor can reset them.
+        // Defaults on keys the user's Ghostty config claims: listed with `removedBy: ghostty`
+        // (read-only; the Ghostty config, not cmux, gives them back).
         let table = RegistryKeyBindings(registry).table
-        let removed = table.removed.enumerated().filter { _, entry in
-            (command == nil || registry.canonicalID(for: ActionID(rawValue: command ?? "")) == entry.command)
-                && (source == nil || entry.source.name == source)
-        }.map { offset, entry -> JSONValue in
-            guard case .object(var object) = json(entry, registry: registry) else { return .null }
+        let hidden = table.removed.map { ($0, false) } + table.claimedByGhostty.map { ($0, true) }
+        let removed = hidden.enumerated().filter { _, item in
+            (command == nil || registry.canonicalID(for: ActionID(rawValue: command ?? "")) == item.0.command)
+                && (source == nil || item.0.source.name == source)
+        }.map { offset, item -> JSONValue in
+            guard case .object(var object) = json(item.0, registry: registry) else { return .null }
             object["id"] = JSONValue(entries.count + offset)
             object["removed"] = true
+            if item.1 { object["removedBy"] = "ghostty" }
             object["conflicts"] = []
             return .object(object)
         }

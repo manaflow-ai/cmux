@@ -59,17 +59,21 @@ import Testing
         let tokens = ThemeTokens.fallback
         let event = try #require(AgentPageEvent.theme(tokens, surface: .newTabPage))
         #expect(event.kind == "theme")
-        let web = try JSONValue.parse(Data(WebTheme(tokens, surface: .newTabPage).payloadJSON.utf8))
+        let web = try JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: .newTabPage).payloadJSON.utf8))
         #expect(event.value["web"] == web)
+        // The New Tab page is transparent: its pane backs it (the previous content, blurred).
+        #expect(web["variables"]?["--cmux-surface-background"]?.stringValue?.hasSuffix(", 0.0)") == true)
+        #expect(AgentPaneTheme.pageColor(tokens, surface: .newTabPage, backgrounds: .none).alpha == 0)
         #expect(event.value["agent"] == JSONValue(foundation: AgentPaneTheme.values(tokens, surface: .newTabPage)))
     }
 
-    @Test func customizationSendsTheStyleAndLayoutAndTheRegistrySeparately() {
+    /// The style and layout go as an event; the registry does not (the view runs it as a script,
+    /// AgentPaneViewPageHostTests), since the page's CSP refuses a script the page makes itself.
+    @Test func customizationSendsTheStyleAndLayoutButNotTheRegistry() {
         let custom = AgentPaneCustomization(themeCSS: "a{}", registryJS: "const x = 1;", layoutJSON: #"{"b":1}"#)
         let events = AgentPageEvent.customization(custom)
-        #expect(events.map(\.kind) == ["registry", "customization"])
-        #expect(events[0].value == "const x = 1;")
-        #expect(events[1].value == ["themeCSS": "a{}", "layout": ["b": 1]])
+        #expect(events.map(\.kind) == ["customization"])
+        #expect(events[0].value == ["themeCSS": "a{}", "layout": ["b": 1]])
         // A cleared customization still clears the style a deleted theme.css left.
         let cleared = AgentPageEvent.customization(AgentPaneCustomization())
         #expect(cleared.map(\.kind) == ["customization"])

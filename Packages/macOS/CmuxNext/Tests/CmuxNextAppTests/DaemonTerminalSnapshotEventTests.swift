@@ -28,6 +28,15 @@ import Testing
         #expect(DaemonTerminalIO.attachLocalHistory == TerminalSession.restoresLocalHistory)
     }
 
+    /// S3k: an images chunk becomes the trusted Kitty replay, with the host's
+    /// skipped-image count; the attach opts in when the surface can apply it.
+    @Test func imagesBecomeTheKittyReplay() {
+        let images = TerminalSnapshotFrame(phase: .images, generation: 2, offset: 9, version: 1,
+                                           skippedImages: 2, data: Data("KITTY".utf8))
+        #expect(DaemonTerminalIO.event(for: .snapshot(images)) == .snapshot(Data("KITTY".utf8), phase: .images(skipped: 2)))
+        #expect(DaemonTerminalIO.attachImages == TerminalSession.appliesKittyReplay)
+    }
+
     /// The version comes from the linked GhosttyNextKit; 0 would mean the
     /// library cannot restore snapshots, and the attach must then not ask.
     @Test func attachAsksAtTheLinkedSnapshotVersion() {

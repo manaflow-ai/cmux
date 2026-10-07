@@ -39,7 +39,12 @@
 # reports that it needs a newer cmux-tui. The first-party Cloud app server goes
 # beside it as bin/cmux-cloud by the same rules (CMUX_NEXT_CLOUD_SERVER_BIN; pin
 # fields cloud_server_*; tree state cmux-cloud.sha256), where the app supervisor
-# looks for first-party native servers.
+# looks for first-party native servers. The browser host goes beside bin/cmux as
+# bin/cmux-browser-host by the same rules (CMUX_NEXT_BROWSER_HOST_BIN; pin fields
+# browser_host_*; tree state cmux-browser-host.sha256): the daemon runs the
+# sibling of its own executable. Release signing (sign-cmux-bundle-helpers.sh)
+# signs every Mach-O in bin/ the same way as bin/cmux, and
+# check-bundled-browser-host.sh checks the placed copy.
 set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
@@ -105,9 +110,11 @@ elif [[ -z "$src" && "$mode" == tree ]]; then
   source_kind="tree-hosted"
   url="https://files.cmux.com/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin"
   if [[ -f "$tree_dir/source.json" ]]; then
-    read -r expected_commit run_id < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("run") or "-")' "$tree_dir/source.json")
+    read -r expected_commit run_id published_key < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("run") or "-", d.get("key") or "-")' "$tree_dir/source.json")
     [[ "$expected_commit" == - ]] && expected_commit=""
     [[ "$run_id" == - ]] && run_id=""
+    # A tree fetched through its v1 publication (CMUX-TUI-TREE-KEY-V2) records that key.
+    [[ "$published_key" =~ ^[0-9a-f]{40}$ ]] && url="https://files.cmux.com/cmux-tui/tree/$published_key/cmux-tui-aarch64-apple-darwin"
   fi
 elif [[ -z "$src" ]]; then
   if [[ -f "$pin_file" && "$arch" == aarch64 ]]; then
@@ -214,6 +221,8 @@ companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256
 app_host_src="$companion_src"
 companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256
 cloud_server_src="$companion_src"
+companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256
+browser_host_src="$companion_src"
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode
@@ -226,6 +235,7 @@ url=$url
 version=$version_line
 app_host_sha256=${app_host_src:+$(sha256_of "$app_host_src")}
 cloud_server_sha256=${cloud_server_src:+$(sha256_of "$cloud_server_src")}
+browser_host_sha256=${browser_host_src:+$(sha256_of "$browser_host_src")}
 "
 
 mkdir -p "$dest_dir"
@@ -257,6 +267,7 @@ place_companion() {
 }
 place_companion "$app_host_src" cmux-app-host
 place_companion "$cloud_server_src" cmux-cloud
+place_companion "$browser_host_src" cmux-browser-host
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

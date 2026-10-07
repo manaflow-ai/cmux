@@ -21,6 +21,13 @@ enum BrowserHitStrings {
         String(format: t("browserHits.download.finished", "Downloaded “%@”"), name)
     }
 
+    static func downloadBlocked(_ name: String) -> String {
+        String(format: t("browserHits.download.blocked", "Blocked download of “%@”"), name)
+    }
+
+    /// The blocked-download notice's button: the site's Site settings.
+    static var siteSettings: String { t("browserHits.download.siteSettings", "Site Settings…") }
+
     static func downloadFailed(_ name: String) -> String {
         String(format: t("browserHits.download.failed", "Could not download “%@”"), name)
     }

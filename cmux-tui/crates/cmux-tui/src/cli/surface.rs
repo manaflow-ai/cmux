@@ -56,3 +56,20 @@ impl Surface {
         self.scopes().contains(&scope)
     }
 }
+
+/// The name this process was run as (`cmux` or `cmux-tui`), read from argv[0]
+/// once. Diagnostics start with it: `format!("{BIN}: …")`; `stderr_log!`
+/// brings it into scope.
+pub(crate) struct ProgramName;
+
+pub(crate) const BIN: ProgramName = ProgramName;
+
+impl std::fmt::Display for ProgramName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        static SURFACE: std::sync::OnceLock<Surface> = std::sync::OnceLock::new();
+        formatter.write_str(match SURFACE.get_or_init(Surface::current) {
+            Surface::Cmux => "cmux",
+            Surface::CmuxTui => "cmux-tui",
+        })
+    }
+}

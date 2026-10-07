@@ -20,6 +20,8 @@ mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
+mod cloud_conversations_backend;
+#[cfg(unix)]
 mod coderouter_usage;
 mod config;
 mod headless;
@@ -33,6 +35,7 @@ mod layout_undo;
 mod link;
 mod local_owner;
 mod localization;
+mod loopback_policy;
 mod machine;
 #[cfg(unix)]
 mod machine_agent;
@@ -62,7 +65,7 @@ mod remote_cli {
     ) -> i32 {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
+            "{BIN}: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
         1
@@ -73,6 +76,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
 #[cfg(test)]
@@ -81,6 +85,9 @@ mod ui;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
+#[cfg(unix)]
+use loopback_policy::deny_daemon_listener_ports;
+use loopback_policy::loopback_forward_policy;
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
@@ -928,7 +935,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
-                print!("{}", usage());
+                print!("{}", if out.attach { localization::attach_help() } else { usage() });
                 client_log::exit(0);
             }
             "-V" | "--version" => {
@@ -1610,7 +1617,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 
 fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
-    unsafe { cmux_link::token::take_from_process_env() };
+    unsafe { startup_env::take_link_token_from_env() };
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1646,31 +1653,9 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Read the Cloud template settings and remove them from this process's
-/// environment, so no terminal host, shell, agent, or plugin it spawns
-/// inherits them. Must run before any thread starts.
-fn take_cloud_template_env() {
-    const KEYS: [&str; 3] = [
-        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
-        "CMUX_TUI_TEMPLATE_BOUND_FILE",
-        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
-    ];
-    let settings = CloudTemplateEnv {
-        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
-        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
-        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
-    };
-    for key in KEYS {
-        // SAFETY: called first in run_main, before this process starts any
-        // thread, so no other thread can read the environment concurrently.
-        unsafe { std::env::remove_var(key) };
-    }
-    let _ = CLOUD_TEMPLATE_ENV.set(settings);
-}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
-    take_cloud_template_env();
+    startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
     // that need not be UTF-8 or valid cmux-tui flags.
@@ -1701,12 +1686,12 @@ fn run_main() {
         }
         return;
     }
-    // `cmux acp …` runs acpmux in this process. It needs none of the mux's
-    // provider credentials or signal handlers.
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux
+    // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("acp") {
+    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
-        let args = std::env::args_os().skip(2).collect();
+        let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run(args));
     }
     #[cfg(unix)]
@@ -1718,7 +1703,7 @@ fn run_main() {
         if let Err(error) = harden_provider_secret_process() {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: cannot protect machine-provider credentials: {error}"
+                "{BIN}: cannot protect machine-provider credentials: {error}"
             );
             client_log::exit(1);
         }
@@ -1728,14 +1713,14 @@ fn run_main() {
     if let Err(error) = harden_provider_secret_process() {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: cannot protect machine-provider credentials: {error}"
+            "{BIN}: cannot protect machine-provider credentials: {error}"
         );
         client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: {}",
+            "{BIN}: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
         client_log::exit(1);
@@ -1745,7 +1730,7 @@ fn run_main() {
         client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
-        crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+        crate::client_log::stderr_log!("startup", "{BIN}: {error}");
         client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
@@ -1756,7 +1741,7 @@ fn run_main() {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
-            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             client_log::exit(1);
         }
         return;
@@ -1765,7 +1750,7 @@ fn run_main() {
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
-            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             if error.show_help() {
                 crate::client_log::stderr_log!(
                     "startup",
@@ -1837,7 +1822,7 @@ fn run_main() {
         if session::is_expected_remote_shutdown(&e) {
             return;
         }
-        crate::client_log::stderr_log!("startup", "cmux-tui: {e:#}");
+        crate::client_log::stderr_log!("startup", "{BIN}: {e:#}");
         client_log::exit(1);
     }
 }
@@ -2111,37 +2096,6 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
-/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
-/// forwarding off instead of widening access.
-fn loopback_forward_policy(
-    value: Option<&serde_json::Value>,
-) -> cmux_tui_core::server::LoopbackForwardPolicy {
-    use cmux_tui_core::server::LoopbackForwardPolicy;
-    let Some(value) = value else { return LoopbackForwardPolicy::default() };
-    match LoopbackForwardPolicy::from_config_value(value) {
-        Ok(policy) => policy,
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
-            );
-            LoopbackForwardPolicy::disabled()
-        }
-    }
-}
-
-/// Denies loopback forwarding to ports this daemon listens on, so a forwarded
-/// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
-#[cfg(unix)]
-fn deny_daemon_listener_ports<const N: usize>(
-    policy: &mut cmux_tui_core::server::LoopbackForwardPolicy,
-    addresses: [Option<std::net::SocketAddr>; N],
-) {
-    for address in addresses.into_iter().flatten().filter(|address| address.port() != 0) {
-        policy.deny_port(address.port());
-    }
-}
-
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2234,8 +2188,7 @@ fn run_server(
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
-    surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    cmux_tui_core::daemon_env::add_daemon_socket_env(&socket_path, &mut surface_options);
     #[cfg(unix)]
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
@@ -2334,6 +2287,7 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2387,13 +2341,13 @@ fn run_server(
         };
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: remote daemon {}, link {}, admin {}",
+            "{BIN}: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
             runtime.info().admin_socket.display()
         );
         for route in &runtime.info().routes {
-            crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
+            crate::client_log::stderr_log!("startup", "{BIN}: remote route {route}");
         }
         Some(runtime)
     } else {
@@ -2430,7 +2384,7 @@ fn run_server(
     if let Some(server) = &websocket_server {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: WebSocket control at ws://{}",
+            "{BIN}: WebSocket control at ws://{}",
             server.local_addr()
         );
         // A forwarded page must never reach the daemon's own control port.
@@ -2449,7 +2403,7 @@ fn run_server(
     }
     mux.set_loopback_forward_policy(loopback_forward_policy);
     mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
-        crate::client_log::stderr_log!("loopback-forward", "cmux-tui: {line}");
+        crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
     }));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
@@ -2458,6 +2412,8 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    #[cfg(unix)]
+    cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built
@@ -2471,7 +2427,7 @@ fn run_server(
                 Err(error) => {
                     crate::client_log::stderr_log!(
                         "startup",
-                        "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                        "{BIN}: unplaced terminal reaper unavailable: {error}"
                     );
                     None
                 }
@@ -2489,7 +2445,7 @@ fn run_server(
         Err(error) => {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: idle terminal reaper unavailable: {error}"
+                "{BIN}: idle terminal reaper unavailable: {error}"
             );
             None
         }
@@ -2501,7 +2457,7 @@ fn run_server(
         Err(error) => {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: launch snapshot writer unavailable: {error}"
+                "{BIN}: launch snapshot writer unavailable: {error}"
             );
             None
         }
@@ -3186,7 +3142,7 @@ fn run_tui_once(
 }
 
 fn usage_exit(msg: &str) -> ! {
-    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    crate::client_log::stderr_log!("startup", "{BIN}: {msg}\n\n{}", usage());
     client_log::exit(2);
 }
 

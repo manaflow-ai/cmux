@@ -12,16 +12,19 @@ final class WebKitWebView: WKWebView {
 
     override func mouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.mouseDown(with: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.rightMouseDown(with: event)
     }
 
     override func otherMouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.otherMouseDown(with: event)
     }
 
@@ -33,6 +36,7 @@ final class WebKitWebView: WKWebView {
             return
         }
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.keyDown(with: event)
     }
 

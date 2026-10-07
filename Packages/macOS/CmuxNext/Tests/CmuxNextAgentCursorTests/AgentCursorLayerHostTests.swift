@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxAgentCursor
 import QuartzCore
 import Testing
@@ -42,7 +43,10 @@ import Testing
         host.apply(.place(session: "a", point: .zero))
         host.apply(.pulse(session: "a"))
         let cursor = try #require(host.cursorLayer(for: "a"))
-        #expect(cursor.ripple.animation(forKey: "agentCursor.pulse") != nil)
+        // Motion.set keys each animation by its key path (MotionFade.clickPulse).
+        #expect(cursor.ripple.animation(forKey: "opacity") != nil, "the ripple fades")
+        #expect((cursor.ripple.animation(forKey: "transform.scale") != nil) == Motion.animatesMovement,
+                "it grows unless movement is off (Reduce Motion)")
         #expect(cursor.root.animationKeys() == nil)
     }
 

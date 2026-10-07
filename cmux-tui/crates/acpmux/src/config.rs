@@ -71,6 +71,10 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
+    /// listed, but run in a terminal tab (`cmux harness run`), never as an
+    /// acpmux session.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -366,16 +370,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -412,9 +406,10 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
-    /// `webRoots`: folders a remote (Web) connection may use as a session's
-    /// cwd or extra directory, besides the known projects (the cwds of local
-    /// sessions). Written in config.json, never over a WebSocket.
+    /// `webAskingModes`: more asking modes per family (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
+    /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
     /// `pool`: hidden pre-created sessions that make a harness switch
@@ -457,6 +452,25 @@ pub struct Config {
     /// family preference or fallback routes new work to them.
     #[serde(skip)]
     pub unavailable: BTreeMap<String, String>,
+    /// Display, capability, auth and sessions data of the profiles that came
+    /// from profile files or cmux.json (`config/profiles.rs`), by id. Those
+    /// profiles are never written to config.json.
+    #[serde(skip)]
+    pub profile_meta: BTreeMap<String, ProfileMeta>,
+    /// Problems in the profile sources, for `harness list`, doctor and Settings.
+    #[serde(skip)]
+    pub profile_diagnostics: Vec<ProfileDiagnostic>,
+    /// config.json entries a profile file replaced; `save` keeps them.
+    #[serde(skip)]
+    pub shadowed_config: BTreeMap<String, HarnessProfile>,
+    /// Where folder profiles' trust and enable records are read (H4,
+    /// `config/folder_profiles.rs`); None (an in-code config): no folder profiles.
+    #[serde(skip)]
+    pub folder_gate: Option<folder_profiles::FolderGate>,
+    /// The profile file sources this config was loaded from; a reload and
+    /// the hot-reload watcher read the same ones.
+    #[serde(skip)]
+    pub profile_sources: ProfileSources,
 }
 
 impl Config {
@@ -557,6 +571,11 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
+        Self::load_from_with(path, &ProfileSources::current())
+    }
+
+    /// `load_from` with explicit profile file sources.
+    pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(&path)
@@ -566,9 +585,39 @@ impl Config {
         } else {
             Config::default()
         };
+        cfg.join_profiles(profiles::load(sources));
+        cfg.join_discovered(discover_harnesses());
+        if cfg.default_harness.is_none() {
+            cfg.auto_default = true;
+            cfg.default_harness = cfg.harnesses.keys().next().cloned();
+        }
+        cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
+        cfg.profile_sources = sources.clone();
+        cfg.path = Some(path);
+        Ok(cfg)
+    }
+
+    /// Adds the profiles from profile files and cmux.json. They win over
+    /// config.json entries with the same id (kept for `save`).
+    pub fn join_profiles(&mut self, loaded: LoadedProfiles) {
+        for (id, (profile, meta)) in loaded.profiles {
+            if let Some(old) = self.harnesses.insert(id.clone(), profile)
+                && !self.profile_meta.contains_key(&id)
+            {
+                self.shadowed_config.insert(id.clone(), old);
+            }
+            self.profile_meta.insert(id, meta);
+        }
+        self.profile_diagnostics.extend(loaded.diagnostics);
+    }
+
+    /// Joins discovered harnesses to the configured ones (configured entries
+    /// always win) and sets the automatic Claude fallbacks and preference.
+    pub fn join_discovered(&mut self, discovered: BTreeMap<String, HarnessProfile>) {
+        let cfg = self;
         // Harnesses found on PATH join the configured ones, so installing an
         // adapter such as pi-acp is enough; configured entries always win.
-        for (name, profile) in discover_harnesses() {
+        for (name, profile) in discovered {
             if !cfg.harnesses.contains_key(&name) {
                 cfg.discovered.insert(name.clone());
                 cfg.harnesses.insert(name, profile);
@@ -586,7 +635,10 @@ impl Config {
             // the pool falls back to the direct login. Only when the user
             // wrote no preference of their own.
             if cfg.discovered.contains("claude-sr") {
-                let has_direct = cfg.harnesses.contains_key("claude");
+                // The pool falls back to, and `-m claude` prefers, a direct
+                // login only on acpmux's own adapter, never an ACP `claude`.
+                let has_direct =
+                    cfg.harnesses.get("claude").is_some_and(|c| c.kind == HarnessKind::ClaudeStdio);
                 if let Some(p) = cfg.harnesses.get_mut("claude-sr")
                     && p.fallback.is_none()
                     && has_direct
@@ -604,12 +656,6 @@ impl Config {
                 }
             }
         }
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            cfg.default_harness = cfg.harnesses.keys().next().cloned();
-        }
-        cfg.path = Some(path);
-        Ok(cfg)
     }
 
     /// Where preset directories live (`presets/` next to config.json); None
@@ -628,7 +674,12 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let mut on_disk = self.clone();
-        on_disk.harnesses.retain(|n, _| !self.discovered.contains(n));
+        on_disk
+            .harnesses
+            .retain(|n, _| !self.discovered.contains(n) && !self.profile_meta.contains_key(n));
+        for (n, p) in &self.shadowed_config {
+            on_disk.harnesses.insert(n.clone(), p.clone());
+        }
         if let Some((p, f)) = &self.auto_fallback
             && let Some(prof) = on_disk.harnesses.get_mut(p)
             && prof.fallback.as_deref() == Some(f.as_str())
@@ -658,115 +709,6 @@ impl Config {
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
-}
-
-/// Look for agent adapters in the acpx config and on PATH.
-pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
-    let mut agents = BTreeMap::new();
-    if let Some(home) = dirs::home_dir() {
-        let acpx = home.join(".acpx").join("config.json");
-        if let Ok(text) = std::fs::read_to_string(&acpx)
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-            && let Some(map) = v.get("agents").and_then(|a| a.as_object())
-        {
-            for (name, profile) in map {
-                if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
-                    let argv: Vec<String> =
-                        argv.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
-                    if !argv.is_empty() {
-                        agents.insert(
-                            name.clone(),
-                            HarnessProfile {
-                                kind: HarnessKind::Acp,
-                                argv,
-                                env: BTreeMap::new(),
-                                description: Some("imported from ~/.acpx".into()),
-                                fallback: None,
-                                family: None,
-                                models: vec![],
-                                model: None,
-                                effort: None,
-                                policy: None,
-                            },
-                        );
-                    }
-                }
-            }
-        }
-    }
-    for (name, bin) in [
-        ("codex", "codex-acp"),
-        ("claude", "claude"),
-        ("gemini", "gemini"),
-        ("opencode", "opencode"),
-        ("opencode-v2", "opencode2"),
-        ("deepseek", "dsh"),
-        // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
-        // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
-        ("pi", "pi-acp"),
-        // Claude through the subrouter account pool: `sr claude proxy`
-        // picks the account with the most quota and fails over on limits.
-        ("claude-sr", "sr"),
-        // oh-my-pi (can1357/oh-my-pi), a pi fork with a native ACP server.
-        ("omp", "omp"),
-        // Prime Agent (PrimeIntellect-ai/prime-agent), a pi fork: `--mode acp`.
-        ("prime", "prime-agent"),
-    ] {
-        if agents.contains_key(name) {
-            continue;
-        }
-        if let Some(path) = which(bin) {
-            let (kind, argv) = match bin {
-                "claude" => (HarnessKind::ClaudeStdio, vec![path]),
-                "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
-                "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
-                "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
-                "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
-                "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
-                "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
-                _ => (HarnessKind::Acp, vec![path]),
-            };
-            agents.insert(
-                name.to_owned(),
-                HarnessProfile {
-                    kind,
-                    argv,
-                    env: BTreeMap::new(),
-                    description: Some(if bin == "sr" {
-                        "Claude through the subrouter account pool".into()
-                    } else {
-                        "found on PATH".into()
-                    }),
-                    fallback: None,
-                    family: if matches!(bin, "dsh" | "opencode2") {
-                        Some(name.into())
-                    } else {
-                        None
-                    },
-                    models: vec![],
-                    model: None,
-                    effort: None,
-                    policy: None,
-                },
-            );
-        }
-    }
-    // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
-    // entry), an installed codex still gets a harness through the pinned adapter package.
-    if !agents.contains_key("codex")
-        && let Some(profile) =
-            codex_through_adapter_package(which("codex").as_deref(), which("npx").as_deref())
-    {
-        agents.insert("codex".to_owned(), profile);
-    }
-    // A direct Claude falls over to the pool when its account is exhausted.
-    if agents.contains_key("claude-sr")
-        && let Some(c) = agents.get_mut("claude")
-        && c.fallback.is_none()
-    {
-        c.fallback = Some("claude-sr".into());
-    }
-    agents
 }
 
 /// Drop discovered launcher profiles whose binary cannot actually run the
@@ -808,7 +750,8 @@ pub fn subrouter_route(env_url: Option<&str>, servers_json: &std::path::Path) ->
 
 /// `verify_launchers` with the subrouter route given: a proxy launcher that
 /// fails becomes the `claude` profile routed through that server when there
-/// is one, else it is marked unavailable.
+/// is one and it is acpmux's own adapter (`claude-stdio`), else it is
+/// marked unavailable.
 pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
@@ -821,8 +764,14 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
         .collect();
     for (name, argv) in candidates {
         if let Err(reason) = launcher_ok(&argv) {
+            // Only acpmux's own adapter takes over: claude-sr never becomes
+            // an ACP adapter (`claude` imported from ~/.acpx, say).
             if let Some(url) = &route
-                && let Some(claude) = cfg.harnesses.get("claude").cloned()
+                && let Some(claude) = cfg
+                    .harnesses
+                    .get("claude")
+                    .filter(|c| c.kind == HarnessKind::ClaudeStdio)
+                    .cloned()
             {
                 tracing::info!(agent = %name, %url, "{reason}; routing Claude through the subrouter server");
                 let mut env = claude.env.clone();
@@ -906,7 +855,7 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     Ok(())
 }
 
-fn which(bin: &str) -> Option<String> {
+pub(crate) fn which(bin: &str) -> Option<String> {
     let path = crate::login_env::path()?;
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(bin);
@@ -982,12 +931,21 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 }
 
 mod codex_adapter;
+mod discover;
 pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
+pub use discover::{discover_harnesses, discover_harnesses_from};
+mod peer;
+pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+pub mod folder_profiles;
+pub mod profiles;
+pub use profiles::{
+    Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
+};
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

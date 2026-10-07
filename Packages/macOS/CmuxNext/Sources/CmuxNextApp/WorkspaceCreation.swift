@@ -50,4 +50,46 @@ enum WorkspaceCreation {
             )
         }
     }
+
+    /// Creates workspace `key` and its first tab from `firstTab`, which gets
+    /// the created workspace (its handle, for commands that take one), owned
+    /// by `repair` like ``create(_:name:on:repair:terminal:)``: a failure
+    /// closes the workspace.
+    @MainActor
+    static func createWithFirstTab<T>(
+        _ key: WorkspaceKey,
+        name: String?,
+        on connection: DaemonConnection,
+        repair: EmptyWorkspaceRepair,
+        firstTab: (WorkspaceMutationResult) async throws -> T
+    ) async throws -> T {
+        try await repair.populating(key) {
+            var created: WorkspaceMutationResult?
+            return try await withTerminal(
+                createWorkspace: {
+                    let result = try await connection.createWorkspace(name: name, key: key)
+                    created = result
+                    return result.key
+                },
+                createTerminal: { _ in
+                    guard let created else { throw DaemonError.notConnected }
+                    return try await firstTab(created)
+                },
+                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection) }
+            )
+        }
+    }
+
+    /// A person's new workspace on the New Tab page (`opensNewTabPage`),
+    /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
+    /// command, or `daemon` cannot host the page).
+    @MainActor
+    static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+                           repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
+        guard spawn.opensNewTabPage, spawn.command == nil, tabs.canHost(on: daemon), let connection = daemon.connection else { return nil }
+        return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
+            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon)
+            return created.key.rawValue
+        }
+    }
 }

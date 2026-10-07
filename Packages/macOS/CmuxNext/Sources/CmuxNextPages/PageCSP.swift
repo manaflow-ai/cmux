@@ -4,8 +4,10 @@ public import Foundation
 /// loopback connections and frames and the diff page's WebAssembly and provider connection). The
 /// scheme handler sends it as the response header, the only CSP a page gets. Every page starts
 /// strict: no network, no frames, inline script and style only; a first-party page may add
-/// `connect-src` and `frame-src` sources and the one script keyword `'wasm-unsafe-eval'`. App pages
-/// (``PageDescriptor/appPage(id:resource:namespaces:)``) always get the strict policy.
+/// `connect-src` and `frame-src` sources and the one script keyword `'wasm-unsafe-eval'`. A page that
+/// ships its script as files may also turn inline script off (``inlineScript``), which only narrows
+/// the policy. App pages (``PageDescriptor/appPage(id:resource:namespaces:)``) always get the strict
+/// policy.
 public nonisolated struct PageCSP: Sendable, Hashable {
     /// `connect-src` sources (`ws://127.0.0.1:*`, the page's own provider endpoint).
     public var connect: [String]
@@ -13,14 +15,18 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     public var frame: [String]
     /// Extra `script-src` keywords; only ``allowedScriptKeywords`` are kept.
     public var script: [String]
+    /// False drops `'unsafe-inline'` from `script-src`: the page runs only same-origin script files,
+    /// so markup injected into it (an agent's output) cannot run script.
+    public var inlineScript: Bool
 
     public static let allowedScriptKeywords: Set<String> = ["'wasm-unsafe-eval'"]
     public static let strict = PageCSP()
 
-    public init(connect: [String] = [], frame: [String] = [], script: [String] = []) {
+    public init(connect: [String] = [], frame: [String] = [], script: [String] = [], inlineScript: Bool = true) {
         self.connect = connect
         self.frame = frame
         self.script = script
+        self.inlineScript = inlineScript
     }
 
     static let base: [(String, [String])] = [
@@ -34,6 +40,7 @@ public nonisolated struct PageCSP: Sendable, Hashable {
             sources.filter { !$0.isEmpty && !$0.contains(where: { $0 == ";" || $0 == "," || $0.isWhitespace }) }
         }
         var directives = Self.base
+        if !inlineScript { directives[1].1.removeAll { $0 == "'unsafe-inline'" } }
         let keywords = script.filter(Self.allowedScriptKeywords.contains)
         if !keywords.isEmpty { directives[1].1 += keywords }
         let connect = clean(connect)

@@ -11,7 +11,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 181);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 193);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 196);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -39,6 +39,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (
             vec![
@@ -94,12 +95,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "window_record.list"
                         | "window_record.put"
                         | "window_record.delete"
+                        // The Mac app edits the sidebar layout through its
+                        // own sidebar actions and intent log.
+                        | "sidebar_layout.get"
+                        | "sidebar_layout.update"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
                         // The verified app mints confirmations for its own
                         // page relay; the CLI is never that app.
                         | "origin.confirmation.issue"
+                        // Only the user sets where a workspace's agents run,
+                        // through the verified app (gate A2).
+                        | "workspace.agent_folder.set"
             )
         })
         .map(String::as_str)

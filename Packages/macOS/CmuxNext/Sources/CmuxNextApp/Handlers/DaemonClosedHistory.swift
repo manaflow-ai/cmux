@@ -51,11 +51,29 @@ enum DaemonClosedHistory {
         let pane = item.paneID.flatMap { id in
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
+        let clock = ContinuousClock(), start = clock.now
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem
             do {
                 reopened = try await connection.state.reopenClosed(item.id)
+                // Where a slow restore spends its time (nxdog52: the first Cmd-Z took over 2 s).
+                let reply = start.duration(to: clock.now)
+                let tabs = reopened.tabIDs
+                let undo = services.closedTabs?.undoToasts
+                undo?.noteReopen(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
+                // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
+                undo?.reopenWatch?.cancel()
+                undo?.reopenWatch = Task { @MainActor [weak undo] in
+                    await daemon.store.applied(through: await connection.eventSequence())
+                    let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
+                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
+                    // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
+                    for await present in Observations({ inStore() }) where present {
+                        undo?.noteReopenTabsArrived(start.duration(to: clock.now))
+                        return
+                    }
+                }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
                 return "closed.reopen: \(error)"
@@ -73,7 +91,7 @@ enum DaemonClosedHistory {
     /// Shows a reopened item once the store has it.
     private static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,
                              services: AppServices) {
-        guard let workspace = daemon.store.workspace(resourceID: reopened.workspaceID),
+        guard let workspaceID = reopened.workspaceID, let workspace = daemon.store.workspace(resourceID: workspaceID),
               let window = services.windows.active else { return }
         services.windows.show(workspaceID: workspace.id, in: window.state)
         switch kind {

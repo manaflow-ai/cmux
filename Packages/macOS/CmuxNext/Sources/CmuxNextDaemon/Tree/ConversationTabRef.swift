@@ -2,8 +2,9 @@ import Foundation
 
 /// What a conversation tab shows (`conversation-tabs-v1`, plans/cmux-next/home.md 7): one
 /// conversation of the `local` (daemon) or `cloud` conversation owner, or an acpmux agent session
-/// (`agent-session-tabs-v1`, cmux-tui/spec/commands.md new-conversation-tab). The store never reads either
-/// one's content; the app renders it from its owner. Exactly one source is set.
+/// (`agent-session-tabs-v1`, cmux-tui/spec/commands.md new-conversation-tab), or one of the app's own
+/// pages by id (`page-tabs-v1`: App Store, Settings). The store never reads any one's content; the
+/// app renders it. Exactly one source is set.
 public struct ConversationTabRef: Sendable, Hashable, Codable {
     /// The `conv_` id, for a conversation source.
     public var conversation: String?
@@ -11,6 +12,8 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
     public var owner: String?
     /// The agent session, for an agent chat tab.
     public var agentSession: AgentSessionRef?
+    /// The page id (`app-store`, `settings`), for a page tab (`page-tabs-v1`).
+    public var page: String?
 
     public init(conversation: String, owner: String) {
         self.conversation = conversation
@@ -24,8 +27,15 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
         self.agentSession = agentSession
     }
 
+    public init(page: String) {
+        conversation = nil
+        owner = nil
+        agentSession = nil
+        self.page = page
+    }
+
     enum CodingKeys: String, CodingKey {
-        case conversation, owner
+        case conversation, owner, page
         case agentSession = "agent_session"
     }
 
@@ -33,6 +43,8 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if let session = try c.decodeIfPresent(AgentSessionRef.self, forKey: .agentSession) {
             self.init(agentSession: session)
+        } else if let page = try c.decodeIfPresent(String.self, forKey: .page) {
+            self.init(page: page)
         } else {
             self.init(conversation: try c.decode(String.self, forKey: .conversation), owner: try c.decode(String.self, forKey: .owner))
         }

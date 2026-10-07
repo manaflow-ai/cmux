@@ -273,6 +273,42 @@ class InstallGitHooksTests(unittest.TestCase):
         unmerged = self.git("diff", "--name-only", "--diff-filter=U").stdout.split()
         self.assertEqual(unmerged, ["webviews/src/App.tsx"])
 
+    def test_every_generated_web_output_keeps_ours(self):
+        """The bundles the agent pane build writes beside index.html, and the strings
+        tables the builds generate, collided on every feat-cmux-next move until each
+        PR rebuilt them by hand."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = [self.repo / path for path in (
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+            "webviews/src/agent-session/acpmux/generated/strings.json",
+            "webviews/src/pages/settings/generated/strings.json",
+        )]
+        for path in outputs:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("base\n", encoding="utf-8")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        for path in outputs:
+            path.write_text("lane build\n", encoding="utf-8")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        for path in outputs:
+            path.write_text("main build\n", encoding="utf-8")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in outputs:
+            self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()

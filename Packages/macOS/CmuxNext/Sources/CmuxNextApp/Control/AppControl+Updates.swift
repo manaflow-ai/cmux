@@ -119,6 +119,7 @@ extension AppControl {
                 .object(["kind": .string(card.kind), "title": .string(card.presentation.title),
                          "detail": card.presentation.detail.map(JSONValue.string) ?? .null])
             } ?? .null,
+            "badge": status.badge.map(JSONValue.string) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

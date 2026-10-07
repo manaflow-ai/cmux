@@ -10,6 +10,20 @@ public nonisolated enum TerminalSnapshotPhase: Sendable, Equatable {
     /// A READY cut exactly at the owner's resize: the surface reflows and
     /// keeps its own history when it matches the owner's check (S2c).
     case readyLocalHistory(TerminalLocalHistory)
+    /// The owner's Kitty image replay of the last READY's cut (S3k), applied
+    /// on the surface's trusted replay path, never as PTY output.
+    /// `skipped`: images the owner left out (its per-READY cap).
+    case images(skipped: Int)
+}
+
+extension TerminalSnapshotPhase {
+    /// A READY (plain or local-history): the restore of a whole screen.
+    var isReady: Bool {
+        switch self {
+        case .ready, .readyLocalHistory: true
+        case .history, .images: false
+        }
+    }
 }
 
 /// The owner's grid and history check of a local-history READY.
@@ -38,6 +52,10 @@ extension TerminalSession {
     /// The linked libghostty restores local-history READYs
     /// (`ghostty_surface_restore_snapshot_local_history`, GhosttyNextKit pin).
     public nonisolated static let restoresLocalHistory = true
+
+    /// The linked libghostty applies Kitty image replays
+    /// (`ghostty_surface_apply_kitty_replay`, GhosttyNextKit pin).
+    public nonisolated static let appliesKittyReplay = true
 }
 
 extension TerminalSession {
@@ -62,6 +80,11 @@ extension TerminalSession {
             return true
         case .readyLocalHistory(let local):
             return await restoreLocalHistory(data, local, on: lane)
+        case .images(let skipped):
+            await lane.waitForCapacity()
+            surfaceView.lane?.applyKittyReplay(data)
+            noteSkippedImages(skipped)
+            return true
         }
     }
 

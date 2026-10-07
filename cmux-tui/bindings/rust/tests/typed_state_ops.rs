@@ -160,6 +160,46 @@ fn workspace_update_sends_set_and_cleared_fields_and_decodes_the_snapshot() {
 }
 
 #[test]
+fn workspace_agent_folder_set_sends_the_path_or_null_and_decodes_the_snapshot() {
+    let mock = mock(|stream, reader| {
+        let set = request(reader, "workspace.agent_folder.set");
+        assert_eq!(set["idempotency_key"], "folder-1");
+        assert_eq!(
+            set["params"],
+            json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
+                   "path": "/Users/me/project"})
+        );
+        let workspace = json!({"id": WORKSPACE, "session_id": SESSION, "name": "w", "index": 0,
+                               "focused": true, "extra": {"agent_folder": "/Users/me/project"}});
+        mutation_ok(stream, &set, workspace);
+
+        let clear = request(reader, "workspace.agent_folder.set");
+        assert_eq!(clear["params"]["path"], Value::Null);
+        let workspace = json!({"id": WORKSPACE, "session_id": SESSION, "name": "w", "index": 0,
+                               "focused": true, "extra": {}});
+        mutation_ok(stream, &clear, workspace);
+    });
+    let client = mock.client();
+    let workspace = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .workspace(WorkspaceId::parse(WORKSPACE).unwrap());
+    let set = workspace
+        .set_agent_folder_with(
+            Some("/Users/me/project".to_string()),
+            MutationOptions::new("folder-1").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(set.value.extra["agent_folder"], "/Users/me/project");
+    let cleared = workspace.set_agent_folder(None).unwrap();
+    assert!(!cleared.value.extra.contains_key("agent_folder"));
+    // A relative path is refused before any request.
+    let error = workspace.set_agent_folder(Some("project".to_string())).unwrap_err();
+    assert!(matches!(error, Error::InvalidArgument(_)), "{error:?}");
+    client.close().unwrap();
+    mock.finish();
+}
+
+#[test]
 fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
     let mock = mock(|stream, reader| {
         let pin = request(reader, "tab.pin");
@@ -401,6 +441,16 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         );
         mutation_ok(stream, &update, group_snapshot("Deep work", Value::Null, true, 0));
 
+        let slot = request(reader, "workspace_group.update");
+        assert_eq!(
+            slot["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "top_index": 3})
+        );
+        let mut placed = group_snapshot("Deep work", Value::Null, true, 0);
+        placed["top_index"] = json!(3);
+        mutation_ok(stream, &slot, placed);
+
         let moved = request(reader, "workspace_group.move");
         assert_eq!(
             moved["params"],
@@ -444,9 +494,16 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         color: Update::Clear,
         collapsed: Some(true),
         room: None,
+        top_index: Update::Unchanged,
     };
     let updated = session.update_workspace_group(GROUP, update).unwrap().value;
     assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
+    assert_eq!(updated.top_index, None, "a snapshot without top_index decodes");
+    let slot = WorkspaceGroupUpdateOptions {
+        top_index: Update::Set(3),
+        ..WorkspaceGroupUpdateOptions::default()
+    };
+    assert_eq!(session.update_workspace_group(GROUP, slot).unwrap().value.top_index, Some(3));
     assert_eq!(session.move_workspace_group(GROUP, 2).unwrap().value.index, 1);
     let deleted = session.delete_workspace_group(GROUP).unwrap().value;
     assert_eq!(deleted.ungrouped.len(), 2);

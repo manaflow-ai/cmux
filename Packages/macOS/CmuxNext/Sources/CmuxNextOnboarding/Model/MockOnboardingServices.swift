@@ -26,12 +26,12 @@ public final class MockOnboardingServices: OnboardingServices {
     /// A fresh temporary folder, so the mock never writes to ~/cmux.
     public var firstTaskFolder = FirstTaskFolder(url: FileManager.default.temporaryDirectory
         .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
+    /// Whether the classic cmux session import is offered.
+    public var canImportClassicSessions = false
     /// The computer use step's grants; nil leaves the step out.
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
-    /// The role step's answer: what `savedProfile` returns and `saveProfile` replaces.
-    public var savedProfile: OnboardingProfile?
     public let defaultApps: any DefaultAppRegistering
     /// What the project scan finds.
     public var agentProjects: [AgentProject] = []
@@ -63,7 +63,12 @@ public final class MockOnboardingServices: OnboardingServices {
         self.density = density
     }
 
-    public func detectBrowsers() async -> [BrowserSource] { sources }
+    /// How many times browsers were detected (each one reads other apps' data).
+    public private(set) var detections = 0
+    public func detectBrowsers() async -> [BrowserSource] {
+        detections += 1
+        return sources
+    }
 
     public func scanAgentProjects() async -> [AgentProject] { agentProjects }
     public func chooseFolder() async -> URL? { chosenFolder }
@@ -122,7 +127,6 @@ public final class MockOnboardingServices: OnboardingServices {
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
     public func setVariantID(_ id: String?, for step: OnboardingModel.Step) { variantIDs[step] = id }
 
-    public func saveProfile(_ profile: OnboardingProfile) { savedProfile = profile }
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
 

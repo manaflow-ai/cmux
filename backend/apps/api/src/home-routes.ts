@@ -42,8 +42,21 @@ export interface ConversationStub {
 }
 
 interface AddressStub {
-  stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string): Promise<void>
+  stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string, inviter?: InviteSender): Promise<void>
 }
+
+/**
+ * Who made an invite, for the team inviter rule (home-send.ts): a person's own Stack session, never
+ * an install (a daemon install can run agents without a chief token) or an agent; the email only
+ * when verified.
+ */
+export interface InviteSender {
+  readonly user: string
+  readonly email: string | null
+}
+
+export const inviteSender = (p: Principal): InviteSender | undefined =>
+  p.user && !p.agent && p.kind === "session" ? { user: p.user, email: p.email_verified === true && p.email ? p.email : null } : undefined
 
 export const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationStub
 const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as AddressStub
@@ -83,7 +96,7 @@ const createInvite = async (
   if ("ok" in resolved) return reject(frame.idempotency_key, resolved.code, resolved.message)
   const invite = `inv_${digest26(`invite\u0000${conversation}\u0000${actorOf(principal)}\u0000${frame.idempotency_key}`)}`
   const secret = invites.crockford(createHmac("sha256", env.HOME_ADDRESS_KEY!).update(`invite-secret\u0000${invite}`).digest(), invites.SECRET_CHARS)
-  await addressStub(env, resolved.id).stashSecret(resolved.id, invite, secret, Date.now() + STASH_TTL_MS, resolved.address.channel, resolved.address.value)
+  await addressStub(env, resolved.id).stashSecret(resolved.id, invite, secret, Date.now() + STASH_TTL_MS, resolved.address.channel, resolved.address.value, inviteSender(principal))
   const params = {
     invite_id: invite,
     address: resolved.id,

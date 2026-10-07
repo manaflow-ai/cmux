@@ -42,9 +42,12 @@ final class LaunchSettle {
         for work in waiting { work() }
     }
 
-    /// Listens for the first terminal content (`TerminalTimings`) and for
-    /// the local daemon becoming unavailable.
+    /// Listens for the first terminal content (`TerminalTimings`), for the
+    /// pane region becoming ready any other way (a page or an agent shown
+    /// first, `PaneController`; or the reveal deadline), and for the local
+    /// daemon becoming unavailable.
     func install(daemon: DaemonService) {
+        reveal.whenReady(.pane) { [weak self] in self?.settle() }
         TerminalTimings.onContentApplied = { [weak self] in
             TerminalTimings.onContentApplied = nil
             DebugTimings.markLaunch("first_terminal_content_applied")

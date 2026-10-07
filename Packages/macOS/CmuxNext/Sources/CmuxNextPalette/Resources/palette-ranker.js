@@ -50,6 +50,8 @@
   var subtitleWeight = 65;
   var accessoryWeight = 50;
   var maximumBoost = 60;
+  var wholeTitleBonus = 500;
+  var wholeKeywordBonus = 250;
   var defaultHalfLife = 3 * 24 * 60 * 60;
   var cachedVersion;
   var cachedFields = [];
@@ -425,6 +427,10 @@
       if (!match)
         return;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
+      if (titleIsQuery(entry.title, query.raw))
+        score += wholeTitleBonus;
+      else if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
+        score += wholeKeywordBonus;
       if (entry.isEnabled === false)
         score -= disabledPenalty;
       scored.push({ index, score, highlights: match.highlights });
@@ -466,13 +472,31 @@
       sectionOrder(order, request.sectionOrders ?? []);
     return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));
   }
+  function titleIsQuery(title, raw) {
+    const normalize = (text) => text.trim().replace(/(\u2026|\.\.\.)$/u, "").trim().toLocaleLowerCase();
+    const query = normalize(raw);
+    return query !== "" && normalize(title) === query;
+  }
   function rankPaletteRequest(request) {
     return request.operation === "rankEmpty" ? rankPaletteEmpty(request) : rankPalette(request);
   }
 
   // src/palette/ranker-bridge.ts
   function installPaletteRankerBridge(target = globalThis) {
-    target.__cmuxPaletteRank = (requestJSON) => JSON.stringify(rankPaletteRequest(JSON.parse(requestJSON)));
+    let installed;
+    target.__cmuxPaletteInstall = (version, entriesJSON) => {
+      installed = { version, entries: JSON.parse(entriesJSON) };
+    };
+    target.__cmuxPaletteRank = (requestJSON) => {
+      const request = JSON.parse(requestJSON);
+      if (request.entries == null) {
+        if (!installed || installed.version !== request.version) {
+          throw new Error(`palette ranker: no entries installed for version ${String(request.version)}`);
+        }
+        request.entries = installed.entries;
+      }
+      return JSON.stringify(rankPaletteRequest(request));
+    };
   }
   installPaletteRankerBridge();
 })();

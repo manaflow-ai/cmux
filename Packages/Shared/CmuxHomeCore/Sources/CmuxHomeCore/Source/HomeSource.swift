@@ -29,6 +29,21 @@ public enum HomeEvent: Hashable, Sendable {
     case conversationRemoved(ConversationID, inboxRev: Revision)
     /// A message was committed (new) or updated (edit, retract, reaction).
     case message(Message, rev: Revision)
+    /// The owner's current summary and newest messages of one conversation,
+    /// pushed after a resubscribe or a gap the owner detected. Applied like
+    /// a fetched `snapshot(of:tail:)` page; a conversation that is not open
+    /// takes only the summary.
+    case conversationPage(ConversationPage)
+    /// An owner's transport came back while the merged connection stayed
+    /// online (a renewed lease, a socket live again after a disconnect, a
+    /// reply after a failed one). The client resends its unconfirmed
+    /// intents with their keys and refetches stale streams, as on reconnect.
+    case ownerRecovered
+    /// The owner will never apply these intents: the account that made
+    /// them signed out or another account signed in. The client drops them
+    /// in every state (failed sends too) and never resends them, so no
+    /// intent goes out under an identity other than the one that made it.
+    case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
 }
@@ -105,9 +120,20 @@ public protocol HomeSource: Sendable {
     /// fetch never leaves a partial file behind). A source without a
     /// thumbnail service downsamples the original itself.
     func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL
+
+    /// The conversation's transcript left the screen: the store shows it
+    /// nowhere now. A source that subscribed it for the transcript may end
+    /// that subscription; the inbox entry stays as its owner lists it.
+    /// The store calls it again for a conversation whose transcript closed
+    /// while a read of it ran (the read may have set up again what the
+    /// first close found nothing of), so a repeated close must be harmless.
+    func close(_ conversation: ConversationID)
 }
 
 extension HomeSource {
+    /// Sources that keep no per-transcript state ignore it.
+    public func close(_ conversation: ConversationID) {}
+
     /// Default for sources without blob storage.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         throw HomeRejection.invalid("attachments unsupported")

@@ -3,6 +3,18 @@ use crate::error::{DecodeError, Reader};
 /// Largest UTF-8 text in one [`InputEvent::Text`].
 pub const MAX_TEXT_BYTES: usize = 256;
 
+/// Largest payload of one [`InputEvent::Service`]: a single event fills one
+/// input packet of the smallest session datagram (1136 bytes of payload minus
+/// the 5-byte packet prefix and the 4-byte event header).
+pub const MAX_SERVICE_BYTES: usize = 1127;
+
+/// [`InputEvent::Service`] flag bits on the wire.
+pub mod service_flags {
+    /// Repeat until acknowledged, like a key release (a key-up inside the
+    /// service's opaque bytes must never be lost).
+    pub const MUST_DELIVER: u8 = 0b0000_0001;
+}
+
 /// One viewer input event. Keys use USB HID usages (page << 16 | id), so the
 /// meaning does not depend on the viewer's keyboard layout; committed IME text
 /// travels as [`InputEvent::Text`].
@@ -28,6 +40,14 @@ pub enum InputEvent {
         precise: bool,
     },
     Text(String),
+    /// A service-defined event (rd change C2, tag 0x80): opaque bytes the
+    /// session's service (for example `rb/1`) interprets, applied in order
+    /// and exactly once like every event. Sent only when both sides list the
+    /// `input.service` cap.
+    Service {
+        must_deliver: bool,
+        bytes: Vec<u8>,
+    },
 }
 
 /// Input events with consecutive sequence numbers starting at `first_seq`.
@@ -44,8 +64,21 @@ const TAG_POINTER: u8 = 2;
 const TAG_BUTTON: u8 = 3;
 const TAG_SCROLL: u8 = 4;
 const TAG_TEXT: u8 = 5;
+const TAG_SERVICE: u8 = 0x80;
 
 impl InputEvent {
+    /// Bytes this event takes in an [`InputPacket`] payload.
+    pub fn encoded_len(&self) -> usize {
+        match self {
+            Self::Key { .. } => 6,
+            Self::Pointer { .. } => 9,
+            Self::Button { .. } => 3,
+            Self::Scroll { .. } => 10,
+            Self::Text(text) => 3 + truncate_utf8(text, MAX_TEXT_BYTES).len(),
+            Self::Service { bytes, .. } => 4 + bytes.len().min(MAX_SERVICE_BYTES),
+        }
+    }
+
     fn encode_into(&self, out: &mut Vec<u8>) {
         match self {
             Self::Key { usage, down } => {
@@ -75,6 +108,13 @@ impl InputEvent {
                 out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
                 out.extend_from_slice(bytes);
             }
+            Self::Service { must_deliver, bytes } => {
+                out.push(TAG_SERVICE);
+                out.push(if *must_deliver { service_flags::MUST_DELIVER } else { 0 });
+                let bytes = &bytes[..bytes.len().min(MAX_SERVICE_BYTES)];
+                out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+                out.extend_from_slice(bytes);
+            }
         }
     }
 
@@ -92,6 +132,20 @@ impl InputEvent {
                 let text = std::str::from_utf8(r.take(len)?)
                     .map_err(|_| DecodeError::Invalid("utf-8 text"))?;
                 Self::Text(text.to_owned())
+            }
+            TAG_SERVICE => {
+                let flags = r.u8()?;
+                if flags & !service_flags::MUST_DELIVER != 0 {
+                    return Err(DecodeError::Invalid("service event flags"));
+                }
+                let len = r.u16()? as usize;
+                if len > MAX_SERVICE_BYTES {
+                    return Err(DecodeError::Invalid("service event length"));
+                }
+                Self::Service {
+                    must_deliver: flags & service_flags::MUST_DELIVER != 0,
+                    bytes: r.take(len)?.to_vec(),
+                }
             }
             other => return Err(DecodeError::InputTag(other)),
         })
@@ -117,6 +171,9 @@ fn truncate_utf8(text: &str, max: usize) -> &[u8] {
     }
     &text.as_bytes()[..end]
 }
+
+/// Size of the [`InputPacket`] payload prefix: `u32 first_seq`, `u8 n`.
+pub const INPUT_PACKET_PREFIX_LEN: usize = 5;
 
 impl InputPacket {
     /// Serializes the packet payload: `u32 first_seq`, `u8 n`, then `n` events.

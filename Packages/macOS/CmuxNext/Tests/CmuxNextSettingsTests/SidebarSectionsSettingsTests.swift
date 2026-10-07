@@ -29,6 +29,32 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
+    /// The S1 key is still read for one release when the new key is absent.
+    @Test func countsAreOptIn() throws {
+        #expect(try !parse("{}").sidebarSections.workspaceRow.base.shows(.tabCount))
+        #expect(try parse(#"{"sidebar": {"showCounts": true}}"#).sidebarSections.workspaceRow.base.shows(.tabCount))
+        let bad = try parse(#"{"sidebar": {"showCounts": 1}}"#)
+        #expect(bad.sidebarSections == .defaults)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.showCounts"])
+    }
+
+    /// S1: rows are one line unless the folder line is turned on.
+    @Test func theWorkspaceFolderLineIsOptIn() throws {
+        #expect(try !parse("{}").sidebarSections.workspaceRow.base.shows(.directory))
+        #expect(try parse(#"{"sidebar": {"showWorkspaceDirectory": true}}"#).sidebarSections.workspaceRow.base.shows(.directory))
+        let bad = try parse(#"{"sidebar": {"showWorkspaceDirectory": "yes"}}"#)
+        #expect(bad.sidebarSections == .defaults)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.showWorkspaceDirectory"])
+        let descriptor = try #require(SettingsSchema.all.first { $0.path == ["sidebar", "workspaceRow", "directory"] })
+        #expect(descriptor.section == .appearance)
+    }
+
+    /// One nested-tabs key: `sidebar.showWorkspaceTabs` (#17186). An
+    /// unshipped `sidebar.nestedTabs` is not a setting.
+    @Test func nestedTabsIsNotASecondKey() {
+        #expect(!SettingsSchema.all.contains { $0.path == ["sidebar", "nestedTabs"] })
+    }
+
     /// R87: nightly-next builds wrote `sidebar.stickyBandsScroll`; it is
     /// read for one release, and the new key wins when both are set.
     @Test func theOldStickyBandsKeyIsReadForOneRelease() throws {

@@ -1,14 +1,16 @@
 // One edit in the changes view: its header and its diff on @pierre/diffs.
 import React, { useMemo } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
-import { FileDiff, useStableCallback } from "@pierre/diffs/react";
+import { FileDiff, WorkerPoolContext, useStableCallback } from "@pierre/diffs/react";
 import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
 import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
+import { paneHighlightPool } from "../conversation/highlightPool";
 
 export type DiffLayout = "unified" | "split";
 
@@ -40,17 +42,20 @@ export function EditBlock({
   review?: HunkReview;
   focusAfter?: FocusAfter;
 }) {
+  const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
   // unchanged edit keeps its parsed diff and does not paint again.
   const patch = useMemo(() => editPatch(file, edit), [file, edit]);
   const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
+  const language = highlighted ? getFiletypeFromFileName(file.displayPath) : "text";
   const fileDiff = useMemo(() => {
     const parsed = getSingularPatch(patch);
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
   const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
+  const workerPool = paneHighlightPool(lineDiffType, language);
   const reviewing = review !== undefined;
   const annotations = useMemo(
     () =>
@@ -91,31 +96,35 @@ export function EditBlock({
     <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {header}
       {!view.collapsed && edit.hunks.length === 0 && (
-        <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
+        <div className="acpmux-diff-empty-edit">
+          {file.binary ? t("changes.binaryNotShown") : t("changes.noLineChanges")}
+        </div>
       )}
       {showDiff && (
-        <FileDiff<HunkAnchor>
-          className="acpmux-diff-pierre"
-          fileDiff={fileDiff}
-          options={options}
-          lineAnnotations={annotations}
-          renderAnnotation={(annotation) => {
-            const anchor = annotation.metadata;
-            return review && focusAfter && anchor ? (
-              <HunkActions
-                anchor={anchor}
-                decision={
-                  anchor.keys.length > 0 &&
-                  anchor.keys.every((key) => review.decisions.get(key) === review.decisions.get(anchor.keys[0]!))
-                    ? review.decisions.get(anchor.keys[0]!)
-                    : undefined
-                }
-                onDecide={(decision) => anchor.keys.forEach((key) => review.decide(key, decision))}
-                focusAfter={focusAfter}
-              />
-            ) : null;
-          }}
-        />
+        <WorkerPoolContext.Provider value={workerPool}>
+          <FileDiff<HunkAnchor>
+            className="acpmux-diff-pierre"
+            fileDiff={fileDiff}
+            options={options}
+            lineAnnotations={annotations}
+            renderAnnotation={(annotation) => {
+              const anchor = annotation.metadata;
+              return review && focusAfter && anchor ? (
+                <HunkActions
+                  anchor={anchor}
+                  decision={
+                    anchor.keys.length > 0 &&
+                    anchor.keys.every((key) => review.decisions.get(key) === review.decisions.get(anchor.keys[0]!))
+                      ? review.decisions.get(anchor.keys[0]!)
+                      : undefined
+                  }
+                  onDecide={(decision) => anchor.keys.forEach((key) => review.decide(key, decision))}
+                  focusAfter={focusAfter}
+                />
+              ) : null;
+            }}
+          />
+        </WorkerPoolContext.Provider>
       )}
     </div>
   );

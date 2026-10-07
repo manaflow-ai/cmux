@@ -15,7 +15,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?
-    public let pendingPrompts: [BrowserPrompt] = []
+    public internal(set) var pendingPrompts: [BrowserPrompt] = []
     public internal(set) var extensionActions: [CEFExtensionAction] = []
     public internal(set) var openExtensionPopup: String?
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
@@ -24,6 +24,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
+    /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
+    @ObservationIgnored lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -42,10 +44,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public internal(set) var devTools: BrowserDevToolsState
     /// DevTools placement (layout, docked views, window); writes `devTools`.
     @ObservationIgnored let devToolsController: CEFDevToolsController
-    /// cmux's header over Chromium's side panel, while it is open.
-    @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
-    @ObservationIgnored var sidePanelState: CEFSidePanelState?
-    @ObservationIgnored var sidePanelRefreshPending = false
+    /// cmux's header over Chromium's side panel (`CEFSidePanelController`).
+    @ObservationIgnored private(set) lazy var sidePanel = CEFSidePanelController(tab: self)
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
@@ -82,8 +82,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// and every navigation that ends without committing clears it.
     @ObservationIgnored var titleBeforeCommit: String?
     @ObservationIgnored var capturesTitleBeforeCommit = false
-    @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
-    @ObservationIgnored var nextFindID: Int32 = 1
+    /// The pending find-in-page request (`CEFFindRequests`).
+    @ObservationIgnored var findRequests = CEFFindRequests()
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false
@@ -133,6 +133,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
         applyPasswordFill()
+        leaveAutomaticDownloadsToCmux(browser)
         agentRelay.browserAttached()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
@@ -199,8 +200,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
         agentRelay.browserEnded()
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
+        dismissPrompts()
         host.removed(self)
         if !isClosed {
             isClosed = true
@@ -224,8 +225,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         machine.apply(.processExited(exit))
         reloadWhenShown = host.visibleTab !== self
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
     }
 
@@ -253,6 +253,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
@@ -372,6 +373,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isClosed = true
         agentRelay.resumeWaiters(false)
         faviconTask?.cancel()
+        dismissPrompts()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

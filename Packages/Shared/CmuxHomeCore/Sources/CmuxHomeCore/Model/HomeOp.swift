@@ -17,6 +17,10 @@ public enum HomeOp: Hashable, Sendable {
     case startConversation(contacts: [ContactAddress], firstMessage: [MessagePart])
     /// Invites a person to cmux without starting a conversation (the Invite button).
     case invite(contact: ContactAddress)
+    /// `dm.open` with a person the user already reaches (a team member or a
+    /// connection): opens the existing DM with them, or creates it. The
+    /// owner refuses a person the user cannot reach (`not_reachable`).
+    case openDirect(peer: ParticipantID)
     /// Account inbox: pin or unpin (nil) a conversation.
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
@@ -33,7 +37,7 @@ public enum HomeOp: Hashable, Sendable {
              .addReaction(_, let conversation, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
-        case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite:
+        case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
             .inbox
         }
     }
@@ -48,7 +52,7 @@ public enum HomeOp: Hashable, Sendable {
              .addReaction(_, let conversation, _, _),
              .setTyping(let conversation, _):
             conversation
-        case .createGroup, .createChief, .startConversation, .invite:
+        case .createGroup, .createChief, .startConversation, .invite, .openDirect:
             nil
         }
     }

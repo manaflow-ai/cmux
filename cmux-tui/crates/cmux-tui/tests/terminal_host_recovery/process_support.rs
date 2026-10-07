@@ -1,4 +1,5 @@
-//! Process and terminal-host liveness waits shared by the recovery tests.
+//! Process and terminal-host liveness waits shared by the recovery tests,
+//! and the empty-workspace setup most of them start from.
 
 use super::*;
 
@@ -126,4 +127,61 @@ pub(crate) fn assert_screen_shows(socket: &Path, surface: u64, marker: &str, ter
     panic!(
         "{marker:?} never showed on surface {surface}; resolved={resolved}; last screen:\n{screen}"
     );
+}
+
+/// Waits until every thread of `pid` is stopped (after a SIGSTOP). kill()
+/// returns before the target is stopped, and a thread on another CPU can
+/// still answer one more request, so a test that needs a silent process
+/// must wait for this observable state.
+pub(crate) fn wait_until_stopped(pid: libc::pid_t) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !process_stopped(pid) {
+        assert!(Instant::now() < deadline, "process {pid} did not stop after SIGSTOP");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_stopped(pid: libc::pid_t) -> bool {
+    let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else { return false };
+    let mut any = false;
+    for task in tasks.flatten() {
+        let Ok(stat) = fs::read_to_string(task.path().join("stat")) else { return false };
+        // The state is the first field after the parenthesized command name.
+        let Some(state) = stat.rsplit_once(") ").and_then(|(_, rest)| rest.chars().next()) else {
+            return false;
+        };
+        if !matches!(state, 'T' | 't') {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_stopped(pid: libc::pid_t) -> bool {
+    Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .ok()
+        .is_some_and(|out| String::from_utf8_lossy(&out.stdout).trim_start().starts_with('T'))
+}
+
+/// Creates an empty workspace with `workspace.create` under idempotency key
+/// `key` and returns its id.
+pub(crate) fn create_empty_workspace(socket: &Path, key: &str, name: &str) -> String {
+    let created = resource_request(
+        socket,
+        key,
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":name,
+            "initial_content":"empty",
+        }),
+        Some(key),
+    );
+    created["value"]["workspace_id"].as_str().unwrap().to_string()
 }

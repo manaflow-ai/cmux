@@ -93,4 +93,17 @@ import Testing
         #expect(WebTheme(tokens, surface: .diff, backgrounds: host).variables["--cmux-surface-background"]
             == WebTheme(tokens).variables["--cmux-surface-background"])
     }
+
+    /// The markdown and code editor pages (diff-host S6, S7) read `--cmux-surface-background` too,
+    /// each with its own override.
+    @Test func theFilePagesTakeTheirOwnOverrides() {
+        let tokens = Self.tokens(opacity: 0.8)
+        let markdown = SurfaceBackgrounds(overrides: [.markdown: SurfaceBackground(color: Self.red, opacity: 1)])
+        #expect(WebTheme(tokens, surface: .markdown, backgrounds: markdown).variables["--cmux-surface-background"] == "rgba(204, 51, 51, 1.0)")
+        #expect(WebTheme(tokens, surface: .editor, backgrounds: markdown).variables["--cmux-surface-background"]
+            == WebTheme(tokens).variables["--cmux-surface-background"])
+        let editor = SurfaceBackgrounds(overrides: [.editor: SurfaceBackground(color: Self.red, opacity: 1)])
+        #expect(WebTheme(tokens, surface: .editor, backgrounds: editor).variables["--cmux-surface-background"] == "rgba(204, 51, 51, 1.0)")
+        #expect(SurfaceKind(rawValue: "markdown") == .markdown && SurfaceKind(rawValue: "editor") == .editor)
+    }
 }

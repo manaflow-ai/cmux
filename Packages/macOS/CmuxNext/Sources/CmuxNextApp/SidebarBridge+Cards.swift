@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextUpdater
@@ -10,9 +11,9 @@ extension SidebarBridge {
     }
 }
 
-/// The R114 card stack's content: the update card (the updater's gate
-/// decides whether one shows), the test-feed notice, and later what's new
-/// and announcements. Card actions go back to their owners.
+/// The R114 card stack's content (a check the user asked for, the test-feed
+/// notice, what's new, announcements) and the staged update card
+/// (UPDATE-CARD). Card actions go back to their owners.
 @MainActor
 enum SidebarCardFeed {
     static let updateCardID = "update"
@@ -38,9 +39,22 @@ enum SidebarCardFeed {
             handle(id, action, updater: updater)
         }
         return Task {
-            for await cards in Observations({ () -> [SidebarCard] in cards(updater) }) {
+            for await (cards, card) in Observations({ () -> ([SidebarCard], SidebarUpdateCard?) in (cards(updater), updateCard(updater)) }) {
                 if model.cards != cards { model.cards = cards }
+                if model.updateCard != card { model.updateCard = card }
             }
+        }
+    }
+
+    /// A link in the update card's popover (a pull request, the release
+    /// notes): a browser tab in the active window's focused pane, like a
+    /// Cmd-click on a terminal link; with no window it waits for one.
+    static func openUpdateLink(_ url: URL, services: AppServices) {
+        guard url.scheme == "https" else { return }
+        if let pane = services.windows.active?.focusedPane {
+            pane.newBrowserTab(url: url)
+        } else {
+            services.externalOpen.perform(.browserTab(url))
         }
     }
 
@@ -50,13 +64,22 @@ enum SidebarCardFeed {
             try? updater.useTestFeed(nil, pinned: false)
         case (updateCardID, .open):
             updater.cardClicked()
-        case (updateCardID, .button(UpdateCardPresentation.Button.installNow.rawValue)):
-            updater.installNow()
-        case (updateCardID, .button(UpdateCardPresentation.Button.later.rawValue)):
-            updater.installLater()
         default:
             break
         }
+    }
+
+    /// The staged update card (UPDATE-CARD; nil while checking or downloading).
+    static func updateCard(_ updater: UpdaterService) -> SidebarUpdateCard? {
+        guard let card = updater.readyCard else { return nil }
+        let notes = card.notes
+        let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
+        return SidebarUpdateCard(
+            title: card.title, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
+            notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
+                                           whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
+                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL))
     }
 
     /// The update card first, then the test-feed notice while one is active.
@@ -67,16 +90,16 @@ enum SidebarCardFeed {
                 PageDescriptor.changelogTryItActions.contains(id) ? [SidebarCard.Button(id: id, title: UpdaterService.announcementActionTitle)] : nil
             } ?? []
             cards.append(SidebarCard(id: announcementPrefix + item.id, title: item.title, detail: item.detail, buttons: buttons,
-                                     dismissible: true, alwaysVisible: false, accent: false))
+                                     dismissible: true, alwaysVisible: false))
         }
         if let text = updater.whatsNewCardText {
             cards.append(SidebarCard(id: whatsNewCardID, title: text.title, detail: text.detail,
-                                     dismissible: true, alwaysVisible: true, accent: false))
+                                     dismissible: true, alwaysVisible: true))
         }
         if let text = updater.testFeedCardText {
             cards.append(SidebarCard(id: testFeedCardID, title: text.title, detail: text.detail,
                                      buttons: [SidebarCard.Button(id: "use-real-feed", title: text.useRealFeed)],
-                                     dismissible: false, alwaysVisible: true, accent: false))
+                                     dismissible: false, alwaysVisible: true))
         }
         return cards
     }
@@ -84,7 +107,6 @@ enum SidebarCardFeed {
     static func sidebarCard(_ card: UpdateCard) -> SidebarCard {
         let text = card.presentation
         return SidebarCard(id: updateCardID, title: text.title, detail: text.detail, progress: text.progress,
-                           buttons: text.buttons.map { SidebarCard.Button(id: $0.rawValue, title: $0.title) },
-                           dismissible: false, alwaysVisible: true, accent: text.accent)
+                           dismissible: false, alwaysVisible: true)
     }
 }

@@ -177,13 +177,18 @@ CefRefPtr<CefClient> MakeClient(int request);
 CefRefPtr<CefClient> DefaultClient();
 
 // Popups a page asked for (OnBeforePopup), waiting for their
-// OnAfterCreated: the disposition and window features go with the new tab's
-// AFTER_CREATED event (shim_windows.mm).
-void RememberPopup(int opener, int disposition, bool user_gesture, const CefPopupFeatures& features);
+// OnAfterCreated: the target URL, disposition, gesture and window features go
+// with the new tab's AFTER_CREATED event (shim_windows.mm, PendingPopups in
+// download_state.h). A popup Chromium aborts drops out (AbortPopup); one
+// older than PendingPopups::kLifetimeMs expires.
+void RememberPopup(int opener, int popup_id, const std::string& url, int disposition, bool user_gesture,
+                   const CefPopupFeatures& features);
+void AbortPopup(int opener, int popup_id);
 // Returns opener << 32 | user_gesture << 16 | disposition for AFTER_CREATED's
-// b, and the window features ("x,y,width,height" or ""). Takes the opener's
-// oldest popup.
-int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features);
+// b, the window features ("x,y,width,height" or "") and the target URL. Takes
+// the opener's popup whose target URL is the new tab's visible URL, else its
+// oldest live popup.
+int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features, std::string* url);
 void ForgetPopups(int opener);
 // Chromium commands that would open a window of Chromium's own.
 bool IsWindowCommand(int command_id);
@@ -209,6 +214,8 @@ bool IsWebStoreURL(const std::string& url);
 // handler: every download waits for the host's path (DOWNLOAD_STARTED,
 // cmux_shim_download_continue) and reports its progress and end.
 CefRefPtr<CefDownloadHandler> DownloadHandler();
+// Releases every waiting and running download callback (before CefShutdown).
+void ForgetDownloads();
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

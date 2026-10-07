@@ -2,7 +2,7 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -27,6 +27,9 @@ export interface ComboboxProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** A row's content (a name over a path); default: the suggestion text. The row still submits
+   * and completes its suggestion string. */
+  renderItem?(value: string): ReactNode;
 }
 
 export function Combobox({
@@ -42,6 +45,7 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  renderItem,
 }: ComboboxProps) {
   const container = usePortalContainer();
   const [value, setValue] = useState(defaultValue);
@@ -82,7 +86,7 @@ export function Combobox({
           render={<li />}
           onClick={() => onSubmit(item)}
         >
-          {item}
+          {renderItem ? renderItem(item) : item}
         </Autocomplete.Item>
       )}
     </Autocomplete.List>

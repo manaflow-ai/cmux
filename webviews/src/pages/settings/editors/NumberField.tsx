@@ -31,24 +31,29 @@ export function NumberField({
   const unit = unitLabel(range);
   return (
     <span className="number-field">
-      <input
-        className="field number"
-        type="text"
-        inputMode="decimal"
-        value={shown}
-        placeholder={placeholder}
-        disabled={disabled}
-        aria-labelledby={labelId}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") commit();
-          else if (event.key === "Escape" && draft !== null) {
-            event.stopPropagation();
-            setDraft(null);
-          }
-        }}
-      />
+      {/* The hidden copy of the shown text (or the placeholder) in the same grid cell sets the
+          field's width, so a long default label ("Configurazione di Ghostty") is never cut. */}
+      <span className="number-sizer" data-value={shown || placeholder}>
+        <input
+          className="field number"
+          type="text"
+          inputMode="decimal"
+          size={1}
+          value={shown}
+          placeholder={placeholder}
+          disabled={disabled}
+          aria-labelledby={labelId}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit();
+            else if (event.key === "Escape" && draft !== null) {
+              event.stopPropagation();
+              setDraft(null);
+            }
+          }}
+        />
+      </span>
       {unit && <span className="unit">{unit}</span>}
     </span>
   );

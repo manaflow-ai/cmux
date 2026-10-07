@@ -19,6 +19,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod private_data;
+mod proxy;
+pub use proxy::NameResolver;
+mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
 #[derive(Debug, Clone, Default)]
@@ -51,8 +55,9 @@ pub struct Gate {
     fetches: Mutex<fetch::FetchSlots>,
     /// Signalled when a fetch slot frees or the session ends.
     fetch_slot_free: std::sync::Condvar,
-    /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
-    /// the blocked-request log the runtime shows as blockedNavigations().
+    /// The host fetch log (policy op "corsLog"): HOST-FETCH-CORS
+    /// relaxations and redirect hops whose address never arrived; kept apart
+    /// from the blocked-request log the runtime shows as blockedNavigations().
     cors_log: Mutex<Vec<Value>>,
     /// The newest requests the filter refused (URL, reason), so a fetch
     /// that failed on a redirect hop can say which hop and why. Not the
@@ -66,6 +71,12 @@ pub struct Gate {
     tab_secrets: Arc<TabSecrets>,
     /// `automation.input` events for this lease session, if published.
     inputs: Option<crate::automation_input::InputEmitter>,
+    /// This machine's name resolver (the range rule for proxied sessions).
+    resolver: NameResolver,
+    /// The session's new tabs use a proxy (its last session.configure).
+    proxied: std::sync::atomic::AtomicBool,
+    /// The host's log of private-data operations (private_data.rs).
+    private_data: Arc<crate::private_data_log::PrivateDataLog>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -90,7 +101,17 @@ impl Gate {
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
+            resolver: proxy::system_resolver(),
+            proxied: std::sync::atomic::AtomicBool::new(false),
+            private_data: Arc::default(),
         }
+    }
+
+    /// The name resolver the range rule uses for a proxied session's URLs
+    /// (tests give their own).
+    pub fn with_resolver(mut self, resolver: NameResolver) -> Gate {
+        self.resolver = resolver;
+        self
     }
 
     /// Publishes `automation.input` for the inputs this session dispatches,
@@ -105,6 +126,14 @@ impl Gate {
     pub fn with_tab_secrets(mut self, tab_secrets: Arc<TabSecrets>) -> Gate {
         self.tab_secrets = tab_secrets;
         self
+    }
+
+    /// An entry the engine wrote for this session (an event of its tab that
+    /// no session took, D2): kept in the policy log, masked like the tab's
+    /// other values.
+    pub fn log_policy(&self, entry: Value) {
+        let target = entry.get("targetId").and_then(Value::as_str).map(str::to_owned);
+        push_log(&self.log, self.mask_for_target(target.as_deref(), &entry));
     }
 
     /// The session ends: the driver releases its per-session state now.
@@ -250,6 +279,11 @@ impl Gate {
                     "frame.evaluate: the host world is not available to sessions",
                 ));
             }
+            "frame.focused" => {
+                return Err(Self::refuse(
+                    "frame.focused: the host's focus check is not available to sessions",
+                ));
+            }
             "cdp" if !self.grants.raw_cdp => {
                 return Err(Self::refuse(
                     "cdp: raw CDP needs the browser.cdp grant for this session",
@@ -259,6 +293,12 @@ impl Gate {
                 return Err(Self::refuse(
                     "session.configure: content rules come from the host's domain policy",
                 ));
+            }
+            "session.configure" => {
+                if let Some(reason) = self.proxy_refusal(params) {
+                    return Err(proxy::refused(reason));
+                }
+                ("", None)
             }
             _ => ("", None),
         };
@@ -277,11 +317,15 @@ impl Gate {
     /// The domain policy and the range rule for a URL the agent opens or
     /// fetches (navigations and fetch never disagree).
     fn url_refusal(&self, url: &str) -> Option<String> {
-        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        policy.navigation_refusal(url).or_else(|| {
-            let parsed = url::Url::parse(url).ok()?;
-            policy.egress_refusal(&parsed, self.grants.remote)
-        })
+        let refusal = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            policy.navigation_refusal(url).or_else(|| {
+                let parsed = url::Url::parse(url).ok()?;
+                policy.egress_refusal(&parsed, self.grants.remote)
+            })
+        };
+        // Resolved outside the policy lock (a lookup can take a while).
+        refusal.or_else(|| self.proxied_name_refusal(url))
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -315,7 +359,17 @@ impl Gate {
             "frame.evaluate",
             &json!({"targetId": target, "world": "host", "source": FOCUSED_FRAME_URL, "args": []}),
         )?;
-        let Some(frame_url) = frame_url.as_str() else {
+        // The probe cannot look into an out-of-process (cross-origin) frame;
+        // the engine then names the focused frame itself.
+        let frame_url = match frame_url {
+            Value::String(url) => Some(url),
+            _ => self
+                .driver
+                .call("frame.focused", &json!({"targetId": target}))
+                .ok()
+                .and_then(|focused| focused.get("url")?.as_str().map(str::to_owned)),
+        };
+        let Some(frame_url) = frame_url.as_deref() else {
             return Err(Self::refuse(format!(
                 "secret {name:?}: the focused field is in a frame the host cannot verify"
             )));
@@ -367,6 +421,11 @@ impl VmHost for Gate {
     /// Every VM call: the gate's checks, the engine, then masking. A
     /// script's value stays JSON text and is masked as text (a9 raw_value).
     fn driver_call_reply(&self, method: &str, params: Value) -> Result<Reply, DriverError> {
+        // Fetch cancels come from the VM's cell timeouts and the session's
+        // end through the gate, never from agent code.
+        if matches!(method, "net.fetch.cancel" | "net.fetch.done") {
+            return Err(DriverError::unsupported_method(method));
+        }
         if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(DriverError::new(
                 ErrorCode::Forbidden,
@@ -408,6 +467,14 @@ impl VmHost for Gate {
                 }
             }),
         };
+        if method == "session.configure"
+            && let Ok(Reply::Value(answer)) = &result
+        {
+            self.note_configured(answer);
+        }
+        if let Ok(Reply::Value(answer)) = &result {
+            self.note_private_data(method, &params, answer);
+        }
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target
@@ -438,6 +505,10 @@ impl VmHost for Gate {
     /// Main's native ABI (port plan D1): `secrets(op, args)` and
     /// `policy(op, args)`, reached as `native("secrets" | "policy",
     /// {op, args})`. Values never appear in an answer.
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancel_cell_fetches(cell);
+    }
+
     fn native(&self, name: &str, call: Value) -> Result<Value, String> {
         let op = call["op"].as_str().unwrap_or("");
         let args = &call["args"];

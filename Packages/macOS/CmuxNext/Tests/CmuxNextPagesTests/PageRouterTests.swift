@@ -168,6 +168,59 @@ import Testing
         #expect(again["t"] == "ok")
     }
 
+    /// A provider whose call waits until it is cancelled; records the cancellation it saw.
+    final class Slow: PageProvider {
+        var started = false
+        var sawCancel = false
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+            started = true
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                sawCancel = true
+                throw error
+            }
+            return [:]
+        }
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            PageSubscription {}
+        }
+    }
+
+    func slowRouter() -> (PageRouter, Slow) {
+        let slow = Slow()
+        return (PageRouter(descriptor: page, routes: [PageRoute(prefix: "cmux.settings.", provider: slow)]), slow)
+    }
+
+    /// op.cancel (app-op-routing.md "Op cancel"): the page's `{t:"cancel", id}` cancels that call's
+    /// work at once; the call answers `cmux.op.cancelled` exactly once.
+    @Test func aCancelEnvelopeCancelsTheCallAtOnce() async {
+        let (router, slow) = slowRouter()
+        let reply = Task { await router.handle(["t": "call", "id": 4, "op": "cmux.settings.set", "params": [:], "opid": "op-1"]) }
+        for _ in 0..<100 where !slow.started { await Task.yield() }
+        #expect(await router.handle(["t": "cancel", "id": 4]) == .null)
+        let answer = await reply.value
+        #expect(answer["t"] == "err" && answer["code"] == "cmux.op.cancelled" && answer["id"] == 4)
+        for _ in 0..<100 where !slow.sawCancel { await Task.yield() }
+        #expect(slow.sawCancel, "the provider's work was cancelled, not left running")
+        // A cancel of an unknown or finished id is a no-op.
+        #expect(await router.handle(["t": "cancel", "id": 4]) == .null)
+        #expect(await router.handle(["t": "cancel", "id": 99]) == .null)
+    }
+
+    /// Navigation (reset) and tab close (close) cancel every call still in flight.
+    @Test func navigationAndCloseCancelCallsInFlight() async {
+        let (router, slow) = slowRouter()
+        let reply = Task { await router.handle(["t": "call", "id": 5, "op": "cmux.settings.set", "params": [:]]) }
+        for _ in 0..<100 where !slow.started { await Task.yield() }
+        router.reset()
+        let answer = await reply.value
+        #expect(answer["code"] == "cmux.op.cancelled")
+        for _ in 0..<100 where !slow.sawCancel { await Task.yield() }
+        #expect(slow.sawCancel)
+    }
+
     @Test func hostCallsResolveFromThePageReply() async throws {
         let (router, _, _, sent) = router()
         let reply = Task { try await router.callPage(PageNativeOp.pageCommand, params: ["command": "find"]) }

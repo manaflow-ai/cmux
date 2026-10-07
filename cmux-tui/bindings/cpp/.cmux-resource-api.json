@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "cbb2ac697ea7f7eb2d7431fdf8f7265d5569e43e77efc74fdc9bb430b7b569d0",
+  "catalog_sha256": "d42a7784f0f31b4c789341fc939e574f66b21b4b97a609acc0de1d8ee501f296",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -343,6 +343,12 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "sidebar_layout.get": {
+      "class": "read"
+    },
+    "sidebar_layout.update": {
+      "class": "mutation"
+    },
     "sidebar_view.attach": {
       "class": "stream_open"
     },
@@ -500,6 +506,9 @@
       "class": "read"
     },
     "window_record.put": {
+      "class": "mutation"
+    },
+    "workspace.agent_folder.set": {
       "class": "mutation"
     },
     "workspace.close": {

@@ -66,11 +66,4 @@ import Testing
         #expect(AcpmuxEnvironment.fnv1a64("") == 0xcbf2_9ce4_8422_2325)
         #expect(AcpmuxEnvironment.fnv1a64("a") == 0xaf63_dc4c_8601_ec8c)
     }
-
-    @Test func aDevOriginIsAddedOnlyWhenThereIsOne() throws {
-        let environment = try #require(resolve(tag: "dev", executables: ["/usr/local/bin/acpmux"]))
-        #expect(environment.allowingDevOrigin(nil) == environment)
-        #expect(environment.allowingDevOrigin("http://127.0.0.1:4176").daemonArguments
-            == ["--listen", "127.0.0.1:0", "--allow-dev-origin", "http://127.0.0.1:4176"])
-    }
 }

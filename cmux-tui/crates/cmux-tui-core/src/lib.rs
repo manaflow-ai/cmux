@@ -12,7 +12,9 @@ mod agent_hooks;
 mod apps;
 pub mod backoff;
 mod browser;
+pub mod browser_host;
 mod browser_provider;
+pub mod cloud_conversations;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -42,6 +44,7 @@ mod machine_name;
 mod model;
 mod mux;
 mod pairing;
+mod program_status;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
@@ -67,6 +70,8 @@ mod surface;
 #[cfg(unix)]
 mod terminal_backend;
 mod terminal_end;
+#[cfg(unix)]
+mod terminal_loss_log;
 mod terminal_metadata;
 mod workspace_registry;
 

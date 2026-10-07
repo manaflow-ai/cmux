@@ -31,6 +31,11 @@ pub(crate) enum PersonalChange {
         color: Option<Option<String>>,
         collapsed: Option<bool>,
         room: Option<String>,
+        /// The group's slot among the loose workspaces
+        /// (`personal-mixed-order-v1`); `Some(None)` clears it. Omitted
+        /// when absent, so older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        top_index: Option<Option<usize>>,
     },
     GroupDelete {
         group: String,
@@ -94,7 +99,7 @@ fn typed(error: anyhow::Error, scope: &str, id: &str) -> anyhow::Error {
     }
 }
 
-fn all_groups(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
+pub(crate) fn all_groups(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
     Ok(personal::workspace_group_snapshots(transaction, None)?
         .into_iter()
         .map(|group| {
@@ -104,7 +109,7 @@ fn all_groups(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
         .collect())
 }
 
-fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
+pub(crate) fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
     Ok(personal::room_snapshots(transaction)?
         .into_iter()
         .map(|room| {
@@ -114,7 +119,7 @@ fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
         .collect())
 }
 
-fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
+pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
     Ok(personal::placement_snapshots(transaction)?
         .into_iter()
         .map(|placement| {
@@ -151,6 +156,20 @@ impl Mux {
             "selectors": change.targets_workspace().then_some(selectors),
             "change": change,
         });
+        // Delete Space closes its workspaces (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+        if let PersonalChange::RoomDelete { room, move_to: None } = &change {
+            let closed_id = crate::state::closed_history_store::new_closed_id();
+            return self
+                .state_room_delete(
+                    mutation,
+                    operation,
+                    &fingerprint,
+                    expected_revision,
+                    room,
+                    &closed_id,
+                )
+                .map(|deleted| deleted.commit);
+        }
         self.commit_state(
             mutation,
             operation,
@@ -193,7 +212,7 @@ fn apply_personal(
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))
         }
-        PersonalChange::GroupUpdate { group, name, color, collapsed, room } => {
+        PersonalChange::GroupUpdate { group, name, color, collapsed, room, top_index } => {
             personal::update_group(
                 tx,
                 &group,
@@ -203,6 +222,10 @@ fn apply_personal(
                 room.as_deref(),
             )
             .map_err(|error| typed(error, "workspace_group", &group))?;
+            if let Some(top_index) = top_index {
+                personal::set_group_top(tx, &group, top_index)
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
             let value = personal::workspace_group_snapshot(tx, &group)?
                 .context("updated group vanished")?;
             let mut changes = vec![state_upsert("workspace_group", &group, value.clone())];

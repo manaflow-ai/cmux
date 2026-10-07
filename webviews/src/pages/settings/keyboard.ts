@@ -2,6 +2,7 @@
 // switch, Return reveals a search result (or enters a row's control). The page never handles
 // Cmd or Ctrl chords; the app's key dispatcher owns them and sends page commands
 // (`cmux.page.command`: find, back, forward, reset), which `runPageCommand` performs.
+import { focusSearchField } from "../shared/searchField";
 export type KeyboardActions = {
   back(): void;
   forward(): void;
@@ -16,9 +17,7 @@ const rowSelector = "[data-row-key], [data-action-row]";
 const controlSelector = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)";
 
 export function focusSearch(doc: Document): void {
-  const input = doc.querySelector<HTMLInputElement>("[data-settings-search]");
-  input?.focus();
-  input?.select();
+  focusSearchField(doc, "[data-settings-search]");
 }
 
 export function focusControl(row: Element): boolean {

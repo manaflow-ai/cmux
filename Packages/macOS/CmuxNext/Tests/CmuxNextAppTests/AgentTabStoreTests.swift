@@ -47,12 +47,15 @@ struct AgentTabStoreTests {
         let key = try await fixture.open(session: "s-1")
         let view = try #require(fixture.tabs.view(for: key))
         _ = await view.model.respond(to: .persistSession("s-2"))
+        await ReopenClosedTabTests.settle { fixture.binds.count == 1 }
         #expect(fixture.binds.last?.session == "s-2" && fixture.bindExpectations.last == "s-1")
-        #expect(fixture.tabs.sentSessions[key] == "s-2", "kept until the store's record shows it")
+        await ReopenClosedTabTests.settle { !fixture.daemon.hasPendingIntents }
+        #expect(fixture.daemon.tab(id: key)?.agentSession?.session == "s-2", "the store took it")
         fixture.bindAnswer = .conflict
         _ = await view.model.respond(to: .persistSession("s-3"))
+        await ReopenClosedTabTests.settle { fixture.binds.count == 2 && !fixture.daemon.hasPendingIntents }
         #expect(fixture.bindExpectations.last == "s-2", "the next change expects the session the store took")
-        #expect(fixture.tabs.sentSessions[key] == nil, "a refused change leaves nothing in flight")
+        #expect(fixture.daemon.tab(id: key)?.agentSession?.session == "s-2", "a refused change goes away")
     }
 
     /// A creation the store refuses rolls back visibly: the tab shown at once goes away and its
@@ -60,7 +63,7 @@ struct AgentTabStoreTests {
     @Test func aRefusedCreationRemovesTheTabShownAtOnce() async throws {
         let fixture = try AgentTabFixture()
         fixture.holdCreate = { }
-        fixture.tabs.create = { _, _, _, _ in throw DaemonError.notConnected }
+        fixture.tabs.create = { _, _, _, _, _ in throw DaemonError.notConnected }
         let pending = try fixture.tabs.open(in: 3, of: fixture.service, session: "s-1")
         #expect(fixture.shownAgentTabs.count == 1, "shown before the store answers")
         await #expect(throws: DaemonError.self) { _ = try await pending.value() }
@@ -115,6 +118,7 @@ struct AgentTabStoreTests {
         let view = try #require(fixture.tabs.view(for: key))
         _ = await view.model.respond(to: .persistSession("s-2"))
         _ = await view.model.respond(to: .persistSession("s-2"))
+        await ReopenClosedTabTests.settle { !fixture.binds.isEmpty && !fixture.daemon.hasPendingIntents }
         #expect(fixture.binds.map(\.key) == [key] && fixture.binds.map(\.session) == ["s-2"])
         #expect(fixture.tabs.session(of: key) == "s-2")
     }
@@ -145,6 +149,46 @@ struct AgentTabStoreTests {
 
 @MainActor
 struct AgentTabLifecycleTests {
+    @Test func aSettledBlankChatKeepsItsConversionAndProjectActions() async throws {
+        let fixture = try AgentTabFixture()
+        try AgentTabFixture.connect(fixture.daemon)
+        var opened: [String] = []
+        fixture.tabs.blankChatHandler = { [weak fixture] key in
+            guard fixture?.daemon.tab(id: key) != nil else { return nil }
+            return NewTabPageHandler(
+                open: { key, _ in opened.append(key) },
+                jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                listProjects: { _ in ["/project"] }
+            )
+        }
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service)
+        let view = try #require(fixture.tabs.view(for: pending.key))
+        let created = try await pending.value()
+        fixture.tabs.releaseGoneTabs(in: fixture.daemon)
+
+        _ = await view.model.respond(to: .openTab(.terminal, text: "", cwd: nil, search: false, run: false))
+        #expect(opened == [created.key])
+        let reply = await view.model.respond(to: .listProjects(nil))
+        let projects = (reply["value"] as? [String: Any])?["projects"] as? [String]
+        #expect(projects == ["/project"])
+    }
+
+    /// A new tab page's tab is "New Tab" in the strip until it becomes a chat: the strip
+    /// observes which tabs show the page, under the provisional id and then the store's.
+    @Test func theStripSeesWhichTabsShowTheNewTabPage() async throws {
+        let fixture = try AgentTabFixture()
+        try AgentTabFixture.connect(fixture.daemon)
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                                        listProjects: { _ in [] })
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service, newTab: (AgentPaneNewTab(kind: .agent), handler))
+        #expect(fixture.tabs.pageTabs.ids == [pending.key])
+        let created = try await pending.value()
+        #expect(fixture.tabs.pageTabs.ids == [created.key])
+        let view = try #require(fixture.tabs.view(for: created.key))
+        _ = await view.model.respond(to: .persistSession("s-1"))
+        #expect(fixture.tabs.pageTabs.ids.isEmpty)
+    }
+
     /// A tab closed out of sight (the CLI, another client, its pane closing) lets its page go
     /// once its tree is live without it; a tree from a daemon that is away is not trusted.
     @Test func aTabTheStoreNoLongerListsLetsItsViewGo() async throws {
@@ -205,8 +249,9 @@ struct AgentTabLifecycleTests {
         let fixture = try AgentTabFixture(registry: registry)
         let key = try await fixture.open()
         let view = try #require(fixture.tabs.view(for: key))
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌘K" }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌘K")
+        // Search Agent Chats starts unbound (decision K1: Cmd-K clears the terminal).
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == "⌘I" }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == nil)
         registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "agentPane.searchChats")
         await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J" }
         #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J")

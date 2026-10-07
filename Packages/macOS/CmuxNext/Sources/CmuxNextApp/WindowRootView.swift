@@ -58,9 +58,23 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row is
-    /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
+    /// The sidebar toggle, Back, Forward and the glass patch: hidden until the
+    /// top row or the sidebar is hovered (`window.titlebarButtons`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
+    /// Held while the pointer is over the sidebar (its chrome reveal).
+    var sidebarHoverHold: HoverReveal.Hold?
+    /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
+    /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
+    let cornerRegion = PassThroughView(frame: .zero)
+    private(set) lazy var cornerReveal = HoverReveal(region: cornerRegion)
+    /// The sidebar is hidden (WindowController follows the sidebar model).
+    var sidebarHidden = false {
+        didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
+    }
+    /// The traffic lights and band are collapsed: strips under them keep no room.
+    var windowControlsCollapsed = false
+    /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
+    var onWindowControlsChange: ((Bool) -> Void)?
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -88,6 +102,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
+        addSubview(cornerRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         dockHeight = dock.heightAnchor.constraint(equalToConstant: 0)
         contentBottom = contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)
@@ -116,6 +131,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
+        setUpCornerReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -220,7 +236,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    var onHintGeometryChange: (() -> Void)?
+
     override func layout() {
+        defer { onHintGeometryChange?() }
         super.layout()
         // A reorder that added no view passed no add hook: the agent cursor goes back on top.
         if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
@@ -246,6 +265,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
         layoutTitlebarReveal(rowHeight: rowHeight)
+        layoutCornerReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }

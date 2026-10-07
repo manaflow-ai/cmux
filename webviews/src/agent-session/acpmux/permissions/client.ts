@@ -1,3 +1,4 @@
+import { errorMessage } from "../transportErrors";
 import { translate } from "../i18n";
 import {
   PERMISSION_GROUP_OPS,
@@ -90,7 +91,7 @@ function asError(error: unknown): PermissionRpcError {
   }
   return new PermissionRpcError({
     code: "operation.failed",
-    message: error instanceof Error ? error.message : translate("permission.error.failed"),
+    message: error instanceof Error ? errorMessage(error) : translate("permission.error.failed"),
   });
 }
 

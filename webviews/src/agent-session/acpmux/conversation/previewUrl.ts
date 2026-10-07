@@ -5,11 +5,14 @@
 // browser does not reach, reads as localhost.
 //
 // The text is not trusted: a shell call's output can carry a fetched page's words. So the card's
-// frame, which loads without a click, only ever loads the page's root (`previewFrameUrl`); the
-// full address waits for the reader's click (the link, Open in tab).
+// frame loads nothing until the reader clicks "Load preview". That click is the reader's consent to
+// the address the card shows, so the frame then loads that address (`previewFrameUrl`): the same
+// loopback host and port, its path and query, no fragment. The frame stays sandboxed without
+// forms and takes no input.
 import type { AcpmuxRow } from "../model";
 
-/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css); the page draws at four
+/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css, and the unloaded
+/// placeholder in conversation.css); the page draws at four
 /// times its size, scaled down.
 export const PREVIEW_FRAME_HEIGHT = 180;
 
@@ -63,7 +66,9 @@ export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): str
   ]);
 }
 
-/// What the card's frame loads: the page's root, never the path or query the text named.
+/// What the card's frame loads after the click: the address the card shows (host, port, path and
+/// query as found; the fragment is the page's own and is not shown).
 export function previewFrameUrl(url: string): string {
-  return `${new URL(url).origin}/`;
+  const parsed = new URL(url);
+  return `${parsed.origin}${parsed.pathname}${parsed.search}`;
 }

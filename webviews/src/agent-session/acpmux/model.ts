@@ -3,6 +3,8 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { safeHref } from "./replyHref";
+import type { ShellRun } from "./shell/shellRuns";
 
 export type AcpmuxRow = {
   id: string;
@@ -37,6 +39,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
+  shell?: ShellRun;
 };
 
 export type AcpmuxActivity = {
@@ -98,6 +102,8 @@ export type AcpmuxSnapshot = {
     title?: string;
     name?: string;
     harness?: string;
+    /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
+    family?: string;
     model?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
@@ -119,6 +125,10 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
+  /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
+  /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
+  /// acpmux that names none. Unset in a snapshot no client built (fixtures).
+  origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
@@ -280,14 +290,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
-/// A link target the page opens: http and https only.
-export function safeHref(href: string): string | undefined {
-  try {
-    return /^https?:$/i.test(new URL(href, "https://cmux.invalid").protocol) ? href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/// A link target the page opens: absolute http and https only (replyHref.ts).
+export { safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
@@ -487,26 +491,39 @@ import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
-/// The pane header: the agent the session runs (its first prompt already titles the session
-/// picker and opens the transcript), and a status only when it says something to act on.
-export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+/// The pane's fallback accessible name and problem-only header status.
+export function paneHeader(
+  snapshot: AcpmuxSnapshot,
+  t: Translate = translate,
+): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
-    : "Agent Chat";
-  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+    : t("header.agentChat");
+  // Initial connecting and normal turn events are quiet. The client includes the failure
+  // after `connecting:` while retrying, and keeps it until a successful connection.
   const connection = snapshot.connection;
+  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
+  const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
     connection === "disconnected"
-      ? "Reconnecting"
-      : connection.startsWith("connecting")
-        ? "Connecting"
-        : snapshot.isWorking
-          ? "Working"
-          : connection === "mock"
-            ? "Mock"
-            : "";
-  return { title, status };
+      ? t("header.disconnected")
+      : retrying
+        ? t("header.reconnecting")
+        : failed
+          ? t("header.failed")
+          : "";
+  if (!status) return { title, status };
+  const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
+  let rowError: string | undefined;
+  if (failed && !reason) {
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      rowError = snapshot.rows[index]?.error;
+      if (rowError) break;
+    }
+  }
+  return { title, status, detail: reason || rowError || status };
 }

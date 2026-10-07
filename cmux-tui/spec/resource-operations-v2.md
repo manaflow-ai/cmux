@@ -6,14 +6,14 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 193 operations for exactly one local mux
+`cmux.protocol/2` transports 196 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 59 | Reads state and forbids an idempotency key |
-| `mutation` | 116 | Requires an idempotency key and returns a mutation result |
+| `read` | 60 | Reads state and forbids an idempotency key |
+| `mutation` | 118 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -44,13 +44,14 @@ correlation, and idempotency metadata.
 | `screen` | 11 | `column.update`, `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.move`, `screen.rename`, `screen.update` |
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
 | `session` | 24 | `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
+| `sidebar_layout` | 2 | `sidebar_layout.get`, `sidebar_layout.update` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 11 | `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |
 | `terminal` | 23 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.output_read`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `window_record` | 3 | `window_record.delete`, `window_record.list`, `window_record.put` |
-| `workspace` | 20 | `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.place`, `workspace.placement.list`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_log.list`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| `workspace` | 21 | `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.place`, `workspace.placement.list`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_log.list`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | `workspace_group` | 5 | `workspace_group.create`, `workspace_group.delete`, `workspace_group.list`, `workspace_group.move`, `workspace_group.update` |
 
 ## Local operations

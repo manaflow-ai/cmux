@@ -25,21 +25,33 @@ use std::collections::HashSet;
 use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
-/// Runs the request; keeps the body in the host world under an id.
+/// Runs the request; keeps the body in the host world under an id. The id
+/// comes from `crypto.getRandomValues`, which (unlike `crypto.randomUUID`)
+/// exists in an insecure context too (an http page that is not loopback).
 const START: &str = "async (req) => { \
     const store = globalThis.__cmuxFetch || (globalThis.__cmuxFetch = new Map()); \
-    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), req.timeoutMs); \
+    const ctls = globalThis.__cmuxFetchCtl || (globalThis.__cmuxFetchCtl = new Map()); \
+    const ctl = new AbortController(); if (req.fetchId) ctls.set(req.fetchId, ctl); \
+    const timer = req.timeoutMs > 0 ? setTimeout(() => ctl.abort(new Error('fetch: timed out')), req.timeoutMs) : 0; \
+    let idle = 0; const touch = () => { if (!(req.idleTimeoutMs > 0)) return; clearTimeout(idle); \
+      idle = setTimeout(() => ctl.abort(new Error('fetch: no data arrived for ' + req.idleTimeoutMs + ' ms')), req.idleTimeoutMs); }; \
+    touch(); \
     try { \
       const headers = new Headers(); for (const [k, v] of req.headers || []) headers.append(k, v); \
       let body; if (req.bodyBase64) { const bin = atob(req.bodyBase64); body = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) body[i] = bin.charCodeAt(i); } \
-      const r = await fetch(req.url, { method: req.method || 'GET', headers, body, credentials: req.credentials || 'include', redirect: 'follow', signal: ctl.signal }); \
-      const chunks = []; let size = 0; const reader = r.body ? r.body.getReader() : null; \
-      if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; \
+      const r = await fetch(req.url, { method: req.method || 'GET', headers, body, credentials: req.credentials || 'include', redirect: req.redirect || 'follow', signal: ctl.signal }); \
+      touch(); const chunks = []; let size = 0; const reader = r.body ? r.body.getReader() : null; \
+      if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; touch(); size += value.length; \
         if (size > req.maxBytes) { ctl.abort(); throw new Error('the response body is larger than 64 MiB; download it in a tab'); } chunks.push(value); } \
       const all = new Uint8Array(size); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } \
-      const id = crypto.randomUUID(); store.set(id, all); \
-      return { id, size, url: r.url, status: r.status, statusText: r.statusText, redirected: r.redirected, headers: [...r.headers] }; \
-    } finally { clearTimeout(timer); } }";
+      const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''); store.set(id, all); \
+      return { id, size, type: r.type, url: r.url, status: r.status, statusText: r.statusText, redirected: r.redirected, headers: [...r.headers] }; \
+    } finally { clearTimeout(timer); clearTimeout(idle); if (req.fetchId) ctls.delete(req.fetchId); } }";
+
+/// Aborts one running fetch of this world (a cancel from the host).
+const ABORT: &str = "(id) => { /* cmux-fetch-cancel */ \
+    const c = globalThis.__cmuxFetchCtl && globalThis.__cmuxFetchCtl.get(id); \
+    if (c) c.abort(new Error('fetch: cancelled')); return !!c; }";
 
 /// One base64 chunk of a stored body (a multiple of 3 bytes, so chunks
 /// concatenate into one base64 text).
@@ -70,6 +82,24 @@ const SHELL_MARKER: &str = "about:blank#cmux-shell-";
 pub(crate) struct Shells {
     live: HashSet<String>,
     ended: bool,
+    /// Running fetches by the gate's `fetchId` (cancels).
+    runs: super::fetch_runs::Runs,
+}
+
+/// A running fetch's entry: removed when the fetch returns.
+struct RunEntry<'a> {
+    inner: &'a Inner,
+    id: String,
+}
+
+impl Drop for RunEntry<'_> {
+    fn drop(&mut self) {
+        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.finish(&self.id);
+    }
+}
+
+fn cancelled() -> DriverError {
+    DriverError::cancelled("fetch: cancelled")
 }
 
 /// An open fetch shell: closed when dropped (success, error, timeout,
@@ -78,6 +108,9 @@ struct ShellTab<'a> {
     inner: &'a Inner,
     target: String,
     marker: String,
+    /// Kept for the fetch's next hops to its origin; `net.fetch.done`,
+    /// a cancel or the session's end closes it.
+    kept: bool,
 }
 
 impl Drop for ShellTab<'_> {
@@ -85,6 +118,9 @@ impl Drop for ShellTab<'_> {
         let inner = self.inner;
         inner.lock().shell_markers.remove(&self.marker);
         inner.cors.lock().unwrap_or_else(PoisonError::into_inner).remove_shell(&self.target);
+        if self.kept {
+            return;
+        }
         if inner.shells.lock().unwrap_or_else(PoisonError::into_inner).live.remove(&self.target) {
             inner.close_target(&self.target);
         }
@@ -98,22 +134,129 @@ impl Inner {
     /// first-party cookies. The shell is hidden from the session and closes
     /// after the fetch.
     pub(super) fn net_fetch(&self, params: &Value) -> Result<Value, DriverError> {
-        if params.get("targetId").is_some_and(Value::is_string) {
-            return self.net_fetch_in_tab(params);
+        // The gate's id for this fetch, so it can be cancelled (a cancel
+        // that came first fails it at once).
+        let run = match params.get("fetchId").and_then(Value::as_str) {
+            Some(id) => {
+                let started = self
+                    .shells
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .runs
+                    .start(id, Instant::now());
+                if !started {
+                    return Err(cancelled());
+                }
+                Some(RunEntry { inner: self, id: id.to_owned() })
+            }
+            None => None,
+        };
+        let run_id = run.as_ref().map(|entry| entry.id.as_str());
+        if let Some(target) = params.get("targetId").and_then(Value::as_str) {
+            self.run_in(run_id, target)?;
+            return self.net_fetch_in_tab(params, run_id);
         }
         let url = url::Url::parse(params.get("url").and_then(Value::as_str).unwrap_or(""))
             .ok()
             .filter(|url| matches!(url.scheme(), "http" | "https"))
             .ok_or_else(|| DriverError::invalid("fetch: url: expected an http or https URL"))?;
-        let shell_url = format!("{}{SHELL_PATH}", url.origin().ascii_serialization());
-        let deadline = Instant::now() + timeout_of(params);
-        let shell = self.open_shell(&shell_url, deadline)?;
-        let left = deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64;
-        self.navigate(&json!({"targetId": shell.target, "url": shell_url,
-            "waitUntil": "domcontentloaded", "timeoutMs": left}))?;
+        let origin = url.origin().ascii_serialization();
+        let shell_url = format!("{origin}{SHELL_PATH}");
+        // One shell per origin within one fetch: a redirect hop back to an
+        // origin reuses its shell.
+        let reused = run_id.and_then(|id| {
+            let shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+            shells.runs.kept_shell(id, &origin).filter(|target| shells.live.contains(target))
+        });
+        let mut opened = None;
+        let target = match reused {
+            Some(target) => target,
+            None => {
+                // Opening and loading the shell is no progress of the fetch:
+                // the idle limit bounds it too, also without a total limit
+                // (a navigation Chromium never answers must not hold the
+                // call forever).
+                let mut deadline = Instant::now() + timeout_of(params);
+                if let Some(idle) =
+                    params.get("idleTimeoutMs").and_then(Value::as_u64).filter(|ms| *ms > 0)
+                {
+                    deadline = deadline.min(Instant::now() + Duration::from_millis(idle));
+                }
+                let mut shell = self.open_shell(&shell_url, deadline)?;
+                self.run_in(run_id, &shell.target)?;
+                let left =
+                    deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64;
+                self.navigate(&json!({"targetId": shell.target, "url": shell_url,
+                    "waitUntil": "domcontentloaded", "timeoutMs": left}))?;
+                if let Some(id) = run_id {
+                    let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+                    shells.runs.keep_shell(id, &origin, &shell.target);
+                    shell.kept = true;
+                }
+                let target = shell.target.clone();
+                opened = Some(shell);
+                target
+            }
+        };
+        self.run_in(run_id, &target)?;
         let mut params = params.clone();
-        params["targetId"] = json!(shell.target);
-        self.net_fetch_in_tab(&params)
+        params["targetId"] = json!(target);
+        let result = self.net_fetch_in_tab(&params, run_id);
+        drop(opened);
+        result
+    }
+
+    /// `net.fetch.done {fetchId}`: the gate finished a fetch (every hop);
+    /// the shells it kept close.
+    pub(super) fn net_fetch_done(&self, params: &Value) -> Result<Value, DriverError> {
+        let id = crate::protocol::required_str(params, "fetchId")?;
+        let closing: Vec<String> = {
+            let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+            let kept = shells.runs.done(id);
+            kept.into_iter().filter(|target| shells.live.remove(target)).collect()
+        };
+        for target in closing {
+            self.close_target(&target);
+        }
+        Ok(Value::Null)
+    }
+
+    /// Records the tab a fetch runs in; fails when it was cancelled.
+    fn run_in(&self, run: Option<&str>, target: &str) -> Result<(), DriverError> {
+        let Some(id) = run else { return Ok(()) };
+        let cancelled_now =
+            self.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.set_target(id, target);
+        if cancelled_now { Err(cancelled()) } else { Ok(()) }
+    }
+
+    fn run_cancelled(&self, run: Option<&str>) -> bool {
+        run.is_some_and(|id| {
+            self.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.is_cancelled(id)
+        })
+    }
+
+    /// `net.fetch.cancel {fetchId}`: the gate cancels a running fetch (its
+    /// cell timed out, or the session ended). A shell fetch closes its shell
+    /// (the detached session fails the pending call at once); an in-tab
+    /// fetch is aborted in the host world.
+    pub(super) fn net_fetch_cancel(&self, params: &Value) -> Result<Value, DriverError> {
+        let id = crate::protocol::required_str(params, "fetchId")?;
+        let (target, shell) = {
+            let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+            let target = shells.runs.cancel(id, Instant::now());
+            let shell = target.as_ref().is_some_and(|t| shells.live.remove(t));
+            (target, shell)
+        };
+        match target {
+            Some(target) if shell => self.close_target(&target),
+            Some(target) => {
+                let _ = self
+                    .evaluate(&json!({"targetId": target, "world": "host", "source": ABORT,
+                    "args": [id], "timeoutMs": INTERNAL_TIMEOUT.as_millis() as u64}));
+            }
+            None => {}
+        }
+        Ok(Value::Null)
     }
 
     /// Creates a hidden shell tab, set up and ready to navigate: its service
@@ -151,7 +294,7 @@ impl Inner {
             shells.ended
         };
         // From here every exit closes the tab.
-        let shell = ShellTab { inner: self, target, marker };
+        let shell = ShellTab { inner: self, target, marker, kept: false };
         if ended {
             return Err(DriverError::closed("fetch: the session ended"));
         }
@@ -206,7 +349,7 @@ impl Inner {
 
     /// One host fetch with its HOST-FETCH-CORS token: issued before, revoked
     /// with the fetch on every path; the relaxations go to the gate's log.
-    fn net_fetch_in_tab(&self, params: &Value) -> Result<Value, DriverError> {
+    fn net_fetch_in_tab(&self, params: &Value, run: Option<&str>) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let token = super::cors::fresh_token();
         let url = params.get("url").and_then(Value::as_str).unwrap_or("");
@@ -227,7 +370,7 @@ impl Inner {
         if started {
             self.refresh_interception();
         }
-        let result = self.fetch_with_token(&session, params, &token);
+        let result = self.fetch_with_token(&session, params, &token, run);
         let (relaxed, ended) = {
             let mut cors = self.cors.lock().unwrap_or_else(PoisonError::into_inner);
             cors.revoke(&token);
@@ -250,9 +393,13 @@ impl Inner {
         session: &super::driver::Session,
         params: &Value,
         token: &str,
+        run: Option<&str>,
     ) -> Result<Value, DriverError> {
+        // 0: no total limit (the gate's default, as classic); the idle limit
+        // still applies.
         let timeout_ms =
             params.get("timeoutMs").and_then(Value::as_u64).unwrap_or(DEFAULT_FETCH_TIMEOUT_MS);
+        let call_timeout_ms = if timeout_ms == 0 { 0 } else { timeout_ms + 5_000 };
         let max_bytes = params.get("maxBytes").and_then(Value::as_u64).unwrap_or(u64::MAX);
         // The token goes as a header; the request worker removes it.
         let mut headers = params.get("headers").cloned().unwrap_or(json!([]));
@@ -267,21 +414,46 @@ impl Inner {
             "credentials": params.get("credentials").cloned().unwrap_or(json!("include")),
             "maxBytes": max_bytes,
             "timeoutMs": timeout_ms,
+            "idleTimeoutMs": params.get("idleTimeoutMs").cloned().unwrap_or(json!(0)),
+            "fetchId": run,
+            "redirect": params.get("redirect").cloned().unwrap_or(json!("follow")),
         });
         let host = |source: &str, args: Value| {
             self.evaluate(&json!({
                 "targetId": session.target_id, "world": "host", "source": source, "args": args,
-                "awaitPromise": true, "timeoutMs": timeout_ms + 5_000,
+                "awaitPromise": true, "timeoutMs": call_timeout_ms,
             }))
         };
         let head = host(START, json!([request]))
             .map_err(|error| DriverError::new(error.code, format!("fetch: {}", error.message)))?;
+        // `redirect: "manual"`: the host follows the redirect itself; its
+        // status and Location were read at the response stage.
+        if head["type"] == "opaqueredirect" {
+            let (status, location) = self
+                .cors
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take_redirect(token)
+                .ok_or_else(|| DriverError::invalid("fetch: a redirect without a Location"))?;
+            let url = params.get("url").and_then(Value::as_str).unwrap_or("").to_owned();
+            let mut result = json!({"url": url, "status": status, "statusText": "",
+                "redirected": false, "headers": [], "bodyBase64": "",
+                "redirect": {"status": status, "location": location}});
+            if let Some(ip) = self.response_address(session, &url, params) {
+                result["remoteIPAddress"] = json!(ip);
+            }
+            return Ok(result);
+        }
         let id = head["id"].as_str().unwrap_or("").to_owned();
         let size = head["size"].as_u64().unwrap_or(0);
         let mut body = String::new();
         let mut pulled = Ok(());
         let mut start = 0;
         while start < size {
+            if self.run_cancelled(run) {
+                pulled = Err(cancelled());
+                break;
+            }
             match host(CHUNK, json!([id, start, CHUNK_BYTES])) {
                 Ok(chunk) => body.push_str(chunk.as_str().unwrap_or("")),
                 Err(error) => {
@@ -294,18 +466,7 @@ impl Inner {
         let _ = host(DROP, json!([id]));
         pulled?;
         let url = head["url"].as_str().unwrap_or("").to_owned();
-        // The address the final response came from (the gate's DNS
-        // rebinding check); the Network event may trail the body a little.
-        let deadline = Instant::now() + Duration::from_secs(1).min(timeout_of(params));
-        let remote_ip = self
-            .wait_for(&session.target_id, deadline, "the response's address", |tab| {
-                tab.responses
-                    .iter()
-                    .rev()
-                    .find(|(seen, _)| *seen == url)
-                    .map(|(_, ip)| Ok(ip.clone()))
-            })
-            .ok();
+        let remote_ip = self.response_address(session, &url, params);
         let mut result = json!({
             "url": url,
             "status": head["status"],
@@ -314,9 +475,33 @@ impl Inner {
             "headers": head["headers"],
             "bodyBase64": body,
         });
-        if let Some(ip) = remote_ip.filter(|ip| !ip.is_empty()) {
+        if let Some(ip) = remote_ip {
             result["remoteIPAddress"] = json!(ip);
         }
         Ok(result)
+    }
+
+    /// The address a response for `url` came from (the gate's DNS
+    /// rebinding check); the Network event may trail the body a little.
+    fn response_address(
+        &self,
+        session: &super::driver::Session,
+        url: &str,
+        params: &Value,
+    ) -> Option<String> {
+        let deadline = Instant::now() + Duration::from_secs(1).min(timeout_of(params));
+        self.wait_for(&session.target_id, deadline, "the response's address", |tab| {
+            tab.responses.iter().rev().find(|(seen, _)| *seen == url).map(|(_, ip)| Ok(ip.clone()))
+        })
+        .ok()
+        .filter(|ip| !ip.is_empty())
+    }
+}
+
+impl super::CdpDriver {
+    /// The `fetchId` of the host fetch whose shell is `target` (a shared
+    /// browser applies that fetch's session filter to the shell).
+    pub fn shell_fetch_id(&self, target: &str) -> Option<String> {
+        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.fetch_in(target)
     }
 }

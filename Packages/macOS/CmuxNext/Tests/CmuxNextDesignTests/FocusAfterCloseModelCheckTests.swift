@@ -191,7 +191,9 @@ import Testing
 
     /// Breadth-first exploration from every initial layout of up to
     /// `maxColumns` columns of up to 3 panes, to `depth` steps.
-    static func explorePanes(depth: Int, maxColumns: Int = 4, maxPanes: Int = Self.maxPanes, policy: CloseFocusPolicy, rule: PaneRule) -> Stats {
+    static func explorePanes(depth: Int, maxColumns: Int = 4, maxPanes: Int = Self.maxPanes,
+                             policy: CloseFocusPolicy, rule: PaneRule,
+                             stopAfterViolation: Bool = false) -> Stats {
         var stats = Stats()
         var frontier: Set<PaneWorld> = []
         // Initial layouts: every composition of 1...maxColumns columns of 1...3 panes, each pane focused.
@@ -218,7 +220,10 @@ import Testing
                     stats.transitions += 1
                     if transition(step, world) != nil { stats.closes += 1 }
                     let bad = check(step, before: world, after: after, policy: policy, rule: rule)
-                    if !bad.isEmpty, stats.violations.count < 5 { stats.violations.append("\(world) \(step): \(bad)") }
+                    if !bad.isEmpty {
+                        if stats.violations.count < 5 { stats.violations.append("\(world) \(step): \(bad)") }
+                        if stopAfterViolation { return stats }
+                    }
                     let key = canonical(after)
                     if seen.insert(key).inserted { next.insert(key) }
                 }
@@ -288,7 +293,8 @@ import Testing
                 return real
             }
         }
-        let stats = Self.explorePanes(depth: 4, policy: .previousNeighbor, rule: mutant)
+        let stats = Self.explorePanes(depth: 4, policy: .previousNeighbor, rule: mutant,
+                                      stopAfterViolation: true)
         #expect(!stats.violations.isEmpty, "mutant \(name) not caught")
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import os
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
@@ -54,6 +55,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
+        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+        defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
@@ -61,6 +65,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
+        if event.type == .keyDown {
+            // Router-consumed keys never reach AppKit local event monitors.
+            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
+        }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         super.sendEvent(event)
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }

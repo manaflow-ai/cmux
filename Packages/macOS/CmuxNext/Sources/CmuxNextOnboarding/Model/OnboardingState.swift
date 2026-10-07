@@ -27,8 +27,6 @@ public nonisolated struct OnboardingStateFile: Sendable {
         var version: Int
         var completed: Bool
         var date: Date
-        /// The role step's answer (absent in files from before the step).
-        var profile: OnboardingProfile?
     }
 
     private func read() -> Record? {
@@ -48,22 +46,8 @@ public nonisolated struct OnboardingStateFile: Sendable {
         return record.version < Self.currentVersion
     }
 
-    /// Records that onboarding ended (`completed` false: skipped), with
-    /// `profile` or else the profile already saved.
-    public func markDone(completed: Bool, profile: OnboardingProfile? = nil, now: Date = Date()) throws {
-        try write(Record(version: Self.currentVersion, completed: completed, date: now, profile: profile ?? read()?.profile))
-    }
-
-    /// The role step's saved answer.
-    public func profile() -> OnboardingProfile? {
-        read()?.profile
-    }
-
-    /// Saves the role step's answer. Before onboarding ends the record
-    /// keeps version 0, so it still counts as not done.
-    public func saveProfile(_ profile: OnboardingProfile, now: Date = Date()) throws {
-        var record = read() ?? Record(version: 0, completed: false, date: now)
-        record.profile = profile
-        try write(record)
+    /// Records that onboarding ended (`completed` false: skipped).
+    public func markDone(completed: Bool, now: Date = Date()) throws {
+        try write(Record(version: Self.currentVersion, completed: completed, date: now))
     }
 }

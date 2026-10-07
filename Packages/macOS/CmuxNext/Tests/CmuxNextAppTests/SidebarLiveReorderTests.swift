@@ -9,7 +9,13 @@ import Testing
 /// live window (mouse events through the sidebar, the bridge selecting the
 /// pressed workspace), Alpha must draw in its moved slot, never as an empty
 /// row. Windows never go on screen.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct SidebarLiveReorderTests {
+///
+/// The row moves are AppKit `animator()` frame animations, which advance only
+/// in a GUI session with a display: on a display-less host (the EC2 fleet
+/// Macs, `NSScreen.screens` empty) they never run and the row keeps its old
+/// frame. Skipped there (cmux-ci 75001ce577efbc629038d12d fails both tests
+/// alone on aws-m4pro; triage-live-f56c5cc7 passes 3 of 3 on a mini).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .requiresGUISession) struct SidebarLiveReorderTests {
     static let keys = ["0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a01", "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a02", "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a03"]
     static let names = ["Alpha", "Beta", "Gamma"]
 
@@ -24,6 +30,15 @@ import Testing
         }
         let json = #"{"generation":"g1","workspace_revision":"# + "\(2 + count)" + #","workspaces":["# + workspaces.joined(separator: ",") + "]}"
         return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
+    }
+
+    /// Waits until `condition` holds, at most `limit`. The row moves are
+    /// animator() frame animations driven by the main run loop, so under a
+    /// loaded parallel run they land later than any fixed sleep; a fixed
+    /// sleep then reads the old frame although the row does move.
+    static func eventually(within limit: Duration = .seconds(10), _ condition: () -> Bool) async throws {
+        let clock = ContinuousClock(), deadline = clock.now + limit
+        while !condition(), clock.now < deadline { try await Task.sleep(for: .milliseconds(16)) }
     }
 
     static func event(_ type: NSEvent.EventType, _ point: NSPoint, in list: NSView) -> NSEvent? {
@@ -58,7 +73,10 @@ import Testing
             list.mouseDragged(with: try #require(Self.event(.leftMouseDragged, NSPoint(x: press.x, y: y), in: list)))
             await Task.yield()
         }
-        try await Task.sleep(for: .milliseconds(900))
+        try await Self.eventually {
+            guard let moved = row("Alpha"), let view = list.rowViews[moved.key] else { return false }
+            return view.frame == list.frame(for: moved)
+        }
         #expect(list.drag != nil)
         let moved = try #require(row("Alpha"))
         let view = try #require(list.rowViews[moved.key], "Alpha has a row view")
@@ -103,7 +121,10 @@ import Testing
             list.mouseDragged(with: try #require(Self.event(.leftMouseDragged, NSPoint(x: press.x, y: y), in: list)))
             try await Task.sleep(for: .milliseconds(16))
         }
-        try await Task.sleep(for: .milliseconds(1500))
+        try await Self.eventually {
+            guard let moved = row("Alpha"), let view = list.rowViews[moved.key] else { return false }
+            return view.frame == list.frame(for: moved)
+        }
         let moved = try #require(row("Alpha"))
         let view = list.rowViews[moved.key]
         let selection = sidebar.model.orderedSelection.compactMap { sidebar.model.workspace($0)?.title }
