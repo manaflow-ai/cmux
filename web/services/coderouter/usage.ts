@@ -23,7 +23,48 @@ export type AccountsUsageDependencies = {
   readonly credential: typeof freshCredential;
   readonly fetchUsage: (credential: CodeRouterCredential) => Promise<Response>;
   readonly report: typeof reportCoderouterFailure;
+  /** Consecutive usage-read timeouts per account; defaults to this instance's tracker. */
+  readonly timeoutStreaks?: UsageTimeoutStreaks;
 };
+
+/**
+ * Consecutive timed-out polls after which one account's usage read is
+ * reported as an error instead of a transient upstream warning.
+ */
+export const USAGE_TIMEOUT_ERROR_STREAK = 3;
+const MAX_TRACKED_TIMEOUT_ACCOUNTS = 1_000;
+
+export type UsageTimeoutStreaks = {
+  readonly record: (accountId: string) => number;
+  readonly clear: (accountId: string) => void;
+};
+
+/**
+ * Counts consecutive usage-read timeouts per account on this server
+ * instance. Best effort: a new instance starts at zero, which delays an
+ * escalation but never invents one. Bounded so a long-lived instance
+ * cannot grow it without limit.
+ */
+export function createUsageTimeoutStreaks(): UsageTimeoutStreaks {
+  const streaks = new Map<string, number>();
+  return {
+    record: (accountId) => {
+      const next = (streaks.get(accountId) ?? 0) + 1;
+      streaks.delete(accountId);
+      streaks.set(accountId, next);
+      if (streaks.size > MAX_TRACKED_TIMEOUT_ACCOUNTS) {
+        const oldest = streaks.keys().next().value;
+        if (oldest !== undefined) streaks.delete(oldest);
+      }
+      return next;
+    },
+    clear: (accountId) => {
+      streaks.delete(accountId);
+    },
+  };
+}
+
+const defaultTimeoutStreaks = createUsageTimeoutStreaks();
 
 type AccountWithUsage = CodeRouterAccountSummary & {
   readonly usage?: unknown;
@@ -103,6 +144,7 @@ async function accountUsage(
       return { ...account, usageError: `HTTP ${response.status}` };
     }
     const usage: unknown = await response.json();
+    (dependencies.timeoutStreaks ?? defaultTimeoutStreaks).clear(account.id);
     const cooldownMs = usageCooldown(usage);
     if (cooldownMs !== null) {
       await dependencies.markCooldown(account.id, cooldownMs);
@@ -118,11 +160,37 @@ async function accountUsage(
     if (error instanceof CodeRouterRefreshBusy) {
       return { ...account, usageError: "credential_refreshing" };
     }
+    if (isTimeout(error)) return reportUsageTimeout(dependencies, account, error);
     dependencies.report("provider_usage", error, {
       provider: account.provider,
     });
     return { ...account, usageError: "unavailable" };
   }
+}
+
+/**
+ * The usage endpoint answers in ~0.35 s at p50 and ~2 s at p99; a read past
+ * the 5 s budget is almost always a stalled response body. The account list
+ * is polled, so the next poll retries: one timeout is an upstream warning,
+ * and only an account that keeps timing out escalates to an error.
+ */
+function reportUsageTimeout(
+  dependencies: AccountsUsageDependencies,
+  account: CodeRouterAccountSummary,
+  error: unknown,
+): AccountWithUsage {
+  const consecutive = (dependencies.timeoutStreaks ?? defaultTimeoutStreaks).record(account.id);
+  dependencies.report(
+    "provider_usage",
+    error,
+    { provider: account.provider, timeout: true, consecutive },
+    consecutive >= USAGE_TIMEOUT_ERROR_STREAK ? {} : { fault: "upstream" },
+  );
+  return { ...account, usageError: "timeout" };
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
 }
 
 /**
