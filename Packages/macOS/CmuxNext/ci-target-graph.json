@@ -83,7 +83,9 @@
         "CmuxNextAgentActivity"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "tests/fixtures/cua-helper-signatures/"
+      ]
     },
     "CmuxNextAgentCursor": {
       "kind": "regular",
