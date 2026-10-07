@@ -735,9 +735,10 @@ fn start(
         } else {
             "off (no acpmux)".to_owned()
         },
-        workspaces
-            .as_ref()
-            .map_or_else(|| format!("off ({no_workspace_reason})"), |w| format!("one per subagent, in {}", w.place())),
+        workspaces.as_ref().map_or_else(
+            || format!("off ({no_workspace_reason})"),
+            |w| format!("one per subagent, in {}", w.place())
+        ),
         if trace.is_on() {
             paths.traces.display().to_string()
         } else {

@@ -15,7 +15,11 @@ use std::sync::{Arc, Mutex};
 use optchat_chief::workspaces::{DaemonWorkspaces, Workspaces};
 use serde_json::{Value, json};
 
-fn serve(listener: UnixListener, capabilities: Vec<&'static str>, requests: Arc<Mutex<Vec<Value>>>) {
+fn serve(
+    listener: UnixListener,
+    capabilities: Vec<&'static str>,
+    requests: Arc<Mutex<Vec<Value>>>,
+) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let (requests, capabilities) = (requests.clone(), capabilities.clone());
@@ -47,14 +51,20 @@ fn serve(listener: UnixListener, capabilities: Vec<&'static str>, requests: Arc<
                         }),
                         _ => json!({}),
                     };
-                    let _ = writeln!(out, "{}", json!({"id": req["id"], "ok": true, "data": data}));
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"id": req["id"], "ok": true, "data": data})
+                    );
                 }
             });
         }
     });
 }
 
-fn workspaces(caps: Vec<&'static str>) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
+fn workspaces(
+    caps: Vec<&'static str>,
+) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("cmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -69,16 +79,32 @@ fn workspaces(caps: Vec<&'static str>) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value
 }
 
 fn commands(requests: &Mutex<Vec<Value>>, cmd: &str) -> Vec<Value> {
-    requests.lock().unwrap().iter().filter(|r| r["cmd"] == cmd).cloned().collect()
+    requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["cmd"] == cmd)
+        .cloned()
+        .collect()
 }
 
 #[test]
 fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
-    let (w, requests, _dir) = workspaces(vec!["workspace-registry-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]);
-    let key = w.open("sess-1", "a1 · summarize", Path::new("/Users/x/fun/repo")).unwrap();
+    let (w, requests, _dir) = workspaces(vec![
+        "workspace-registry-v1",
+        "conversation-tabs-v1",
+        "agent-session-tabs-v1",
+    ]);
+    let key = w
+        .open("sess-1", "a1 · summarize", Path::new("/Users/x/fun/repo"))
+        .unwrap();
     let created = commands(&requests, "create-workspace");
     assert_eq!(created.len(), 1);
-    assert_eq!(created[0]["key"], key.as_str(), "the caller's key names the workspace");
+    assert_eq!(
+        created[0]["key"],
+        key.as_str(),
+        "the caller's key names the workspace"
+    );
     assert_eq!(created[0]["name"], "a1 · summarize");
     let terminal = commands(&requests, "create-terminal");
     assert_eq!(terminal[0]["workspace"], 7);
@@ -98,5 +124,8 @@ fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
     let (w, requests, _dir) = workspaces(vec!["workspace-registry-v1", "conversation-tabs-v1"]);
     let err = w.open("sess-1", "a1 · x", Path::new("/tmp")).unwrap_err();
     assert!(err.contains("agent-session-tabs-v1"), "{err}");
-    assert!(commands(&requests, "create-workspace").is_empty(), "nothing half made");
+    assert!(
+        commands(&requests, "create-workspace").is_empty(),
+        "nothing half made"
+    );
 }

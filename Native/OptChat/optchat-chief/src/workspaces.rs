@@ -254,7 +254,10 @@ impl Workspaces for DaemonWorkspaces {
                         host: self.host.clone(),
                         host_name: Optional::Value(self.host_name.clone()),
                         session: Optional::Value(session.to_owned()),
-                        harness: self.harness.clone().map_or(Optional::Missing, Optional::Value),
+                        harness: self
+                            .harness
+                            .clone()
+                            .map_or(Optional::Missing, Optional::Value),
                     }),
                     mutation_id: Optional::Value(format!("optchat-subagent-tab-{key}")),
                     ..Default::default()
