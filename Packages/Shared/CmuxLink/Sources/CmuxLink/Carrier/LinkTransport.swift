@@ -19,4 +19,11 @@ public protocol LinkTransport: Sendable {
     /// `.mediaTrack`. Throws when `capabilities.carriesMedia` is false.
     func publishMediaTrack(_ descriptor: MediaTrackDescriptor) async throws -> MediaTrackHandle
     func close() async
+    /// The peer this transport authenticated, if the carrier authenticates
+    /// peers itself (nil for loopback and unauthenticated carriers).
+    var peerIdentity: LinkPeerIdentity? { get }
+}
+
+extension LinkTransport {
+    public var peerIdentity: LinkPeerIdentity? { nil }
 }
