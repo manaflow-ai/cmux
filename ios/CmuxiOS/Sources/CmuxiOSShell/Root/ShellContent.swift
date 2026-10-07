@@ -44,7 +44,7 @@ public struct ShellContent {
     private func isMock(_ seam: FeatureSeam) -> Bool { sources.resolved[seam] != .real }
 
     private func placeholder(
-        _ tab: ShellTab, seam: FeatureSeam, summary: String, _ stream: @escaping PlaceholderStream.Factory
+        _ tab: ShellTab, seam: FeatureSeam, summary: String, _ stream: @escaping PlaceholderSnapshot.Factory
     ) -> UIViewController {
         let screen = FeaturePlaceholderViewController(tab: tab, lane: seam.lane, summary: summary, stream: stream)
         let navigation = UINavigationController(rootViewController: screen)

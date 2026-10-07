@@ -11,14 +11,14 @@ public final class FeaturePlaceholderViewController: UIViewController {
     private let shellTab: ShellTab
     private let lane: String
     private let summary: String
-    private let stream: PlaceholderStream.Factory
+    private let stream: PlaceholderSnapshot.Factory
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<String, String>!
     private var rows: [String: PlaceholderRow] = [:]
     private var sectionTitles: [String: String] = [:]
     private var observation: Task<Void, Never>?
 
-    public init(tab: ShellTab, lane: String, summary: String, stream: @escaping PlaceholderStream.Factory) {
+    public init(tab: ShellTab, lane: String, summary: String, stream: @escaping PlaceholderSnapshot.Factory) {
         shellTab = tab
         self.lane = lane
         self.summary = summary

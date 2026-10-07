@@ -2,10 +2,10 @@ import CmuxiOSFeatureKit
 import CmuxiOSShell
 import Testing
 
-@Suite struct PlaceholderStreamTests {
+@Suite struct PlaceholderSnapshotStreamTests {
     @Test func mapsEverySnapshotAndCarriesConnection() async throws {
         let feed = MockFeedSource()
-        let factory = PlaceholderStream.map(isMock: true, { await feed.updates() }) { items in
+        let factory = PlaceholderSnapshot.stream(isMock: true, { await feed.updates() }) { items in
             [PlaceholderSection(id: "all", title: nil, rows: items.map {
                 PlaceholderRow(id: $0.id, title: $0.title, symbolName: "tray")
             })]

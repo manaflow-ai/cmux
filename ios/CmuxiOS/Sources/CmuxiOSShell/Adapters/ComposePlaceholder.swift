@@ -3,8 +3,8 @@ import Foundation
 
 /// Compose tab placeholder over `TaskComposerSink`: what the pickers offer.
 enum ComposePlaceholder {
-    static func stream(_ sink: any TaskComposerSink, isMock: Bool) -> PlaceholderStream.Factory {
-        PlaceholderStream.map(isMock: isMock, { await sink.catalog() }, sections: sections)
+    static func stream(_ sink: any TaskComposerSink, isMock: Bool) -> PlaceholderSnapshot.Factory {
+        PlaceholderSnapshot.stream(isMock: isMock, { await sink.catalog() }, sections: sections)
     }
 
     @Sendable static func sections(_ catalog: ComposerCatalog) -> [PlaceholderSection] {

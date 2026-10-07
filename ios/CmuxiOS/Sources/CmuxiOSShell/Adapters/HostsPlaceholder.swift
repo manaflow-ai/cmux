@@ -3,8 +3,8 @@ import Foundation
 
 /// Hosts tab placeholder over `HostsStore`: grouped by how a host is reached.
 enum HostsPlaceholder {
-    static func stream(_ store: any HostsStore, isMock: Bool) -> PlaceholderStream.Factory {
-        PlaceholderStream.map(isMock: isMock, { await store.updates() }, sections: sections)
+    static func stream(_ store: any HostsStore, isMock: Bool) -> PlaceholderSnapshot.Factory {
+        PlaceholderSnapshot.stream(isMock: isMock, { await store.updates() }, sections: sections)
     }
 
     @Sendable static func sections(_ hosts: [HostRecord]) -> [PlaceholderSection] {

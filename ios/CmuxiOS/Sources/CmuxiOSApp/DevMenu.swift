@@ -33,7 +33,7 @@ enum DevMenu {
             title: String(localized: "dev.menu.sources", defaultValue: "Feature Sources and Flags", bundle: .module),
             style: .default
         ) { [weak presenter] _ in
-            presenter?.present(DevSourcesScreen.make(model: ShellComposition.devModel(container: container)), animated: true)
+            presenter?.present(ShellComposition.devModel(container: container).makeScreen(), animated: true)
         })
         // DEBUG-only: a ghostty-next terminal fed by the mock session host.
         sheet.addAction(UIAlertAction(title: "Terminal (mock host)", style: .default) { [weak presenter] _ in

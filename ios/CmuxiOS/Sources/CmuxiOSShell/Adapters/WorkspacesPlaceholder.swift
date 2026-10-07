@@ -3,8 +3,8 @@ import Foundation
 
 /// Workspaces tab placeholder over `WorkspaceSource`: one section per host.
 enum WorkspacesPlaceholder {
-    static func stream(_ source: any WorkspaceSource, isMock: Bool) -> PlaceholderStream.Factory {
-        PlaceholderStream.map(isMock: isMock, { await source.updates() }, sections: sections)
+    static func stream(_ source: any WorkspaceSource, isMock: Bool) -> PlaceholderSnapshot.Factory {
+        PlaceholderSnapshot.stream(isMock: isMock, { await source.updates() }, sections: sections)
     }
 
     @Sendable static func sections(_ hosts: [HostWorkspaces]) -> [PlaceholderSection] {

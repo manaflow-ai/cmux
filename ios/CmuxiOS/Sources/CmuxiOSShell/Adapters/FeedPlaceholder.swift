@@ -3,8 +3,8 @@ import Foundation
 
 /// Feed tab placeholder over `FeedSource`: open requests first.
 enum FeedPlaceholder {
-    static func stream(_ source: any FeedSource, isMock: Bool) -> PlaceholderStream.Factory {
-        PlaceholderStream.map(isMock: isMock, { await source.updates() }, sections: sections)
+    static func stream(_ source: any FeedSource, isMock: Bool) -> PlaceholderSnapshot.Factory {
+        PlaceholderSnapshot.stream(isMock: isMock, { await source.updates() }, sections: sections)
     }
 
     @Sendable static func sections(_ items: [FeedItem]) -> [PlaceholderSection] {
