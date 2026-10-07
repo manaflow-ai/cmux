@@ -11,6 +11,8 @@ final class ReplyThreadOverlay: UIView {
     let dim = UIView()
     let content = UIScrollView()
     var contentHeight: CGFloat = 0
+    /// The bubble that lifts out of the transcript and settles back into it.
+    var anchorMessageID: String?
     var onClose: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -42,12 +44,14 @@ extension ConversationViewController {
         view.subviews.compactMap { $0 as? ReplyThreadOverlay }.first
     }
 
-    func enterReplyMode(for message: ConversationMessage) {
+    /// `dragOffset` is how far a swipe-to-reply had carried the bubble, so
+    /// the lifted copy leaves from exactly where the finger let go.
+    func enterReplyMode(for message: ConversationMessage, dragOffset: CGFloat = 0) {
         let rootID = message.replyToID ?? message.id
-        openThread(rootID: rootID, replyTo: message)
+        openThread(rootID: rootID, replyTo: message, dragOffset: dragOffset)
     }
 
-    func openThread(rootID: String, replyTo: ConversationMessage? = nil) {
+    func openThread(rootID: String, replyTo: ConversationMessage? = nil, dragOffset: CGFloat = 0) {
         guard let root = store.message(id: rootID) else { return }
         replyTarget = replyTo ?? root
         let overlay = replyOverlay ?? {
@@ -61,15 +65,60 @@ extension ConversationViewController {
         populate(overlay, rootID: rootID)
         composer.isReplyMode = true
         header.setTrailingMode(.close, animated: true)
-        overlay.content.alpha = 0
-        overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
+        // The replied-to bubble is one continuous object: its sharp copy
+        // starts exactly over the transcript bubble and rides up to the
+        // composer while the rest of the thread fades in around it.
+        let anchorID = (replyTo ?? root).id
+        overlay.anchorMessageID = anchorID
+        let others = overlay.content.subviews.filter { ($0 as? MessageCell)?.model?.message.id != anchorID }
+        let chrome = threadOnlyChrome(of: anchorID, in: overlay)
+        if let lift = transcriptOffset(of: anchorID, in: overlay) {
+            overlay.content.alpha = 1
+            overlay.content.transform = CGAffineTransform(translationX: lift.x + dragOffset, y: lift.y)
+            others.forEach { $0.alpha = 0 }
+            chrome.forEach { $0.alpha = 0 }
+        } else {
+            overlay.content.alpha = 0
+            overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
+        }
         composer.textView.becomeFirstResponder()
         UIView.animate(withDuration: 0.37, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             overlay.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
             overlay.dim.alpha = 1
             overlay.content.alpha = 1
             overlay.content.transform = .identity
+            others.forEach { $0.alpha = 1 }
+            chrome.forEach { $0.alpha = 1 }
         }
+    }
+
+    /// The sender name and avatar the thread shows on the anchor bubble but
+    /// its transcript row doesn't (mid-run rows hide both); they fade so the
+    /// lifted bubble matches its transcript row at both ends of the move.
+    private func threadOnlyChrome(of messageID: String, in overlay: ReplyThreadOverlay) -> [UIView] {
+        guard let copy = overlay.content.subviews.lazy.compactMap({ $0 as? MessageCell }).first(where: { $0.model?.message.id == messageID }),
+              let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == messageID } else { return false } }),
+              case let .message(source) = rows[index] else { return [] }
+        var views: [UIView] = []
+        if !source.showsSenderName, !copy.senderLabel.isHidden { views.append(copy.senderLabel) }
+        if !source.showsAvatar, !copy.avatar.isHidden { views.append(copy.avatar) }
+        return views
+    }
+
+    /// The translation that puts the overlay's copy of `messageID` exactly
+    /// over its bubble in the transcript, or nil when that row isn't on screen.
+    private func transcriptOffset(of messageID: String, in overlay: ReplyThreadOverlay) -> CGPoint? {
+        guard let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == messageID } else { return false } }),
+              let source = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell,
+              let sourceBubble = source.cellLayout?.contentFrame,
+              let copy = overlay.content.subviews.lazy.compactMap({ $0 as? MessageCell }).first(where: { $0.model?.message.id == messageID }),
+              let copyBubble = copy.cellLayout?.contentFrame else { return nil }
+        let saved = overlay.content.transform
+        overlay.content.transform = .identity
+        defer { overlay.content.transform = saved }
+        let from = source.convert(sourceBubble, to: view)
+        let to = copy.convert(copyBubble, to: view)
+        return CGPoint(x: from.minX - to.minX, y: from.minY - to.minY)
     }
 
     private func populate(_ overlay: ReplyThreadOverlay, rootID: String) {
@@ -120,15 +169,29 @@ extension ConversationViewController {
         overlay.content.contentOffset = CGPoint(x: 0, y: max(-inset, y - available))
     }
 
-    func exitReplyMode() {
+    /// `settling` returns the bubble to its transcript row; a send passes
+    /// false because the transcript scrolls to the new reply underneath, so
+    /// the thread just fades as the reply flies in.
+    func exitReplyMode(settling: Bool = true) {
         guard let overlay = replyOverlay else { return }
         replyTarget = nil
         composer.isReplyMode = false
         header.setTrailingMode(isSelecting ? .close : .action, animated: true)
+        // The bubble settles back onto its transcript row as the blur clears;
+        // with that row off screen the thread just fades.
+        let settle = settling ? overlay.anchorMessageID.flatMap { transcriptOffset(of: $0, in: overlay) } : nil
+        let others = overlay.content.subviews.filter { ($0 as? MessageCell)?.model?.message.id != overlay.anchorMessageID }
+        let chrome = overlay.anchorMessageID.map { threadOnlyChrome(of: $0, in: overlay) } ?? []
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             overlay.blur.effect = nil
             overlay.dim.alpha = 0
-            overlay.content.alpha = 0
+            if let settle {
+                overlay.content.transform = CGAffineTransform(translationX: settle.x, y: settle.y)
+                others.forEach { $0.alpha = 0 }
+                chrome.forEach { $0.alpha = 0 }
+            } else {
+                overlay.content.alpha = 0
+            }
         } completion: { _ in
             overlay.removeFromSuperview()
         }

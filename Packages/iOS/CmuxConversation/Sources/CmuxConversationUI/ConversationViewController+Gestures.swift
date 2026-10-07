@@ -98,6 +98,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     private func endHorizontalPan(committed: Bool) {
         if let rowID = replyDragRowID {
             let commit = replyDragOffset >= 60 && committed
+            let releasedAt = replyDragOffset
             let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
             UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
                 cell?.replyDrag = 0
@@ -105,7 +106,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             replyDragRowID = nil
             replyDragOffset = 0
             if commit, case let .message(model)? = row(for: rowID) {
-                enterReplyMode(for: model.message)
+                enterReplyMode(for: model.message, dragOffset: releasedAt)
             }
         } else {
             setTimestampReveal(0, animated: true)
