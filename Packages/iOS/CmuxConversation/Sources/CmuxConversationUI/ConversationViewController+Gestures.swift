@@ -165,6 +165,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             openThread(rootID: parent)
             return
         }
+        if let card = cell.cellLayout?.linkCardFrame, card.contains(local), let preview = model.message.linkPreview {
+            switch preview.state {
+            case .tapToLoad: store.loadLinkPreview(messageID: model.message.id)
+            case .loaded, .loading: UIApplication.shared.open(preview.url)
+            }
+            return
+        }
         if let textFrame = cell.cellLayout?.textFrame, textFrame.contains(local), let url = link(in: model, at: cell.textLabel.convert(local, from: cell)) {
             UIApplication.shared.open(url)
         }

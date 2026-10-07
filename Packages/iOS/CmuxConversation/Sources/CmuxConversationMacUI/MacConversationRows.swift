@@ -236,7 +236,7 @@ extension NSAttributedString.Key {
 }
 
 extension MacMessageLayout {
-    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
 
     static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
         let t = MacConversationTheme.self
@@ -248,7 +248,7 @@ extension MacMessageLayout {
         linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-            if let url = match.url { result.addAttribute(.macConversationLink, value: url, range: match.range) }
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.macConversationLink, value: url, range: match.range) }
         }
         return result
     }

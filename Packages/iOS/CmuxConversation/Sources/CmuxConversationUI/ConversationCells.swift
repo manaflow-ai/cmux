@@ -15,6 +15,7 @@ final class MessageCell: UICollectionViewCell {
     let bubble = BubbleBackgroundView()
     let textLabel = UILabel()
     let emojiLabel = UILabel()
+    let linkCard = ConversationLinkPreviewView()
     let avatar = ConversationAvatarView()
     let reactionBadge = ReactionBadgeView()
     let footerLabel = UILabel()
@@ -74,6 +75,7 @@ final class MessageCell: UICollectionViewCell {
         for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel] {
             shiftable.addSubview(view)
         }
+        shiftable.insertSubview(linkCard, belowSubview: reactionBadge)
         shiftable.bringSubviewToFront(reactionBadge)
         for view in [footerLabel, failedBadge, timeLabel, replyArrow] {
             contentView.addSubview(view)
@@ -154,7 +156,7 @@ final class MessageCell: UICollectionViewCell {
             bubble.isHidden = false
             textLabel.isHidden = false
             bubble.side = model.isOutgoing ? .trailing : .leading
-            bubble.hasTail = model.showsTail
+            bubble.hasTail = model.showsTail && !layout.linkCardIsLast
             bubble.fillColor = model.isOutgoing
                 ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
                 : ConversationTheme.incomingBubble
@@ -164,6 +166,16 @@ final class MessageCell: UICollectionViewCell {
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
+        }
+
+        if let frame = layout.linkCardFrame, let card = layout.linkCard, let preview = message.linkPreview {
+            linkCard.isHidden = false
+            linkCard.frame = model.showsTail && layout.linkCardIsLast
+                ? CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + ConversationTheme.tailDrop)
+                : frame
+            linkCard.configure(preview: preview, layout: card, side: model.isOutgoing ? .trailing : .leading, tail: model.showsTail && layout.linkCardIsLast)
+        } else {
+            linkCard.isHidden = true
         }
 
         emojiLabel.isHidden = layout.emojiFrame == nil

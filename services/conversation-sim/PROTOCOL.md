@@ -80,6 +80,8 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
+- `POST /admin/say` JSON `{conversation, senderId, text}`: one scripted message
+  from a participant (deterministic link, data detector and layout fixtures).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate}`.
 

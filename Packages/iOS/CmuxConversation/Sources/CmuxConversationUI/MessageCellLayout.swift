@@ -24,6 +24,11 @@ struct MessageCellLayout {
     var failedBadgeFrame: CGRect?
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
+    /// Rich link balloon (tail area included, like `bubbleFrame`) and its inner layout.
+    var linkCardFrame: CGRect? = nil
+    var linkCard: ConversationLinkCardLayout? = nil
+    /// The card is the last balloon, so it (not the text bubble) carries the tail.
+    var linkCardIsLast = false
 }
 
 @MainActor
@@ -49,11 +54,11 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, value) = attributed[cacheKey], text == model.message.text {
+        if let (text, value) = attributed[cacheKey], text == model.bodyText {
             return value
         }
-        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        attributed[cacheKey] = (model.message.text, value)
+        let value = MessageCellLayout.attributedBody(model.bodyText, outgoing: model.isOutgoing)
+        attributed[cacheKey] = (model.bodyText, value)
         return value
     }
 
@@ -69,7 +74,7 @@ extension NSAttributedString.Key {
 }
 
 extension MessageCellLayout {
-    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
 
     static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -81,7 +86,7 @@ extension MessageCellLayout {
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-            if let url = match.url { result.addAttribute(.conversationLink, value: url, range: match.range) }
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
         }
         return result
     }
@@ -159,6 +164,23 @@ extension MessageCellLayout {
         }
         if !imageFrames.isEmpty, message.text.isEmpty { y -= t.groupedSpacing }
 
+        var linkCardFrame: CGRect?
+        var linkCard: ConversationLinkCardLayout?
+        let bodyText = model.bodyText
+        /// Messages' rich link width: the preview balloon max for this transcript.
+        func placeLinkCard() {
+            guard let split = model.linkSplit, let preview = message.linkPreview else { return }
+            let reserved = model.isGroup && !model.isOutgoing ? t.avatarSize + t.avatarGap : 0
+            let cardMax = 0.85 * (width - 2 * margin - reserved) - 27.83
+            let card = ConversationLinkPreviewView.layout(for: preview, maxWidth: cardMax)
+            if split.cardFirst == false, !bodyText.isEmpty { y += t.groupedSpacing }
+            linkCard = card
+            linkCardFrame = bubbleRect(bodyWidth: card.size.width, y: y, height: card.size.height)
+            y += card.size.height
+            if split.cardFirst, !bodyText.isEmpty { y += t.groupedSpacing }
+        }
+        if model.linkSplit?.cardFirst == true { placeLinkCard() }
+
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
@@ -172,7 +194,7 @@ extension MessageCellLayout {
                 y: y, width: size.width, height: size.height
             )
             y += size.height
-        } else if !message.text.isEmpty {
+        } else if !bodyText.isEmpty {
             let maxTextWidth = maxBubbleWidth - 2 * t.bubbleHorizontalPadding
             let size = measure(text, maxWidth: maxTextWidth)
             let textHeight = max(size.height, t.lineHeight)
@@ -189,12 +211,14 @@ extension MessageCellLayout {
             )
             y += h
         }
+        if model.linkSplit?.cardFirst == false { placeLinkCard() }
+        let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
 
-        let primary = bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
-        let firstContent = imageFrames.first ?? bubbleFrame ?? emojiFrame ?? primary
+        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
+        let firstContent = imageFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
         // Body rect (no tail) of the first content block.
         let firstBody: CGRect = {
-            guard bubbleFrame != nil || !imageFrames.isEmpty else { return firstContent }
+            guard bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty else { return firstContent }
             var body = firstContent
             body.size.width -= t.tailWidth
             if !model.isOutgoing { body.origin.x += t.tailWidth }
@@ -264,9 +288,10 @@ extension MessageCellLayout {
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
+        if let linkCardFrame { content = content.union(linkCardFrame) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
-        if model.showsTail, bubbleFrame != nil {
+        if model.showsTail, bubbleFrame != nil || linkCardFrame != nil {
             y = max(y, primary.maxY + t.tailDrop)
             content.size.height += t.tailDrop
         }
@@ -287,7 +312,10 @@ extension MessageCellLayout {
             editedFrame: editedFrame,
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
-            contentFrame: content
+            contentFrame: content,
+            linkCardFrame: linkCardFrame,
+            linkCard: linkCard,
+            linkCardIsLast: linkCardIsLast
         )
     }
 }

@@ -790,6 +790,17 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     else void burst(store, count, intervalMs);
     return json({ ok: true, conversation: conv, count, headSeq: store.headSeq, headEventSeq: store.headEventSeq });
   }
+  if (path === "/admin/say" && req.method === "POST") {
+    // Scripted message from a participant: {conversation, senderId, text}.
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const store = stores.get(String(body.conversation ?? "group"));
+    if (!store) return json({ error: "unknown conversation" }, 404);
+    const sender = store.conv.participants.find((p) => p.id === body.senderId) ?? store.bots()[0];
+    if (typeof body.text !== "string" || !body.text) return json({ error: "text" }, 400);
+    const m = store.create(sender.id, body.text);
+    if (sender.isMe) afterMySend(store, m);
+    return json({ message: wireMessage(m, base) });
+  }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
   }

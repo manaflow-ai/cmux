@@ -293,3 +293,35 @@ public enum ConversationLinkTint {
         return (lift(rgb.r, max: maxC), lift(rgb.g, max: maxC), lift(rgb.b, max: maxC))
     }
 }
+
+/// Data detectors Messages applies to bubble text: links, phone numbers,
+/// addresses and dates, each underlined and tappable.
+public enum ConversationDataDetection {
+    public static let types: NSTextCheckingTypes =
+        NSTextCheckingResult.CheckingType.link.rawValue
+        | NSTextCheckingResult.CheckingType.phoneNumber.rawValue
+        | NSTextCheckingResult.CheckingType.address.rawValue
+        | NSTextCheckingResult.CheckingType.date.rawValue
+
+    /// What a tap opens: the link, a call, Maps, or Calendar at that date.
+    public static func actionURL(for match: NSTextCheckingResult) -> URL? {
+        switch match.resultType {
+        case .link:
+            return match.url
+        case .phoneNumber:
+            guard let number = match.phoneNumber else { return nil }
+            let dialable = number.filter { $0.isNumber || $0 == "+" }
+            return dialable.isEmpty ? nil : URL(string: "tel:\(dialable)")
+        case .address:
+            let parts = (match.addressComponents ?? [:]).values.joined(separator: " ")
+            var components = URLComponents(string: "https://maps.apple.com/")
+            components?.queryItems = [URLQueryItem(name: "q", value: parts)]
+            return parts.isEmpty ? nil : components?.url
+        case .date:
+            guard let date = match.date else { return nil }
+            return URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))")
+        default:
+            return nil
+        }
+    }
+}
