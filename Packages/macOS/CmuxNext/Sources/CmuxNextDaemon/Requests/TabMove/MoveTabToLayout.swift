@@ -4,6 +4,7 @@ import Foundation
 public struct MoveTabToSplitRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-split"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
     public var surface: SurfaceID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -29,6 +30,7 @@ public enum ColumnDropTarget: Sendable, Hashable {
 public struct MoveTabToColumnRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-column"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
     public var surface: SurfaceID
     public var target: ColumnDropTarget
     /// Insert after this column; nil = after the last one.

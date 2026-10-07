@@ -1,3 +1,4 @@
+import AppKit
 import CmuxHomeCore
 import CmuxNextHome
 import CmuxNextSettings
@@ -6,6 +7,11 @@ import CmuxNextSettings
 /// window shows it (sections, rows, the shown conversation), the user's
 /// Chiefs and team size, for preflights on a never-key test window.
 extension DebugHome {
+    static func frame(_ rect: NSRect) -> CmuxNextSettings.JSONValue {
+        .object(["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
+                 "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
+    }
+
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
@@ -39,8 +45,20 @@ extension DebugHome {
                     "rows": .array(page.list.model.rows.map { .string($0.id.rawValue) }),
                     "selected": page.list.selection.map { .string($0.rawValue) } ?? .null,
                     "width": .number(Double(page.split.sidebarWidth)),
+                    "window": page.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
+                        .map { .string($0) } ?? .null,
+                    "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
                 ])
             } ?? .null,
+            // Every window's Home sidebar: its width and divider (window points from the top-left).
+            "sidebar_windows": .array(services.windows.controllers.compactMap { controller in
+                guard let page = controller.topPages.views[.home] as? TopHomePageView else { return nil }
+                return .object([
+                    "window": .string(controller.state.id),
+                    "width": .number(Double(page.split.sidebarWidth)),
+                    "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
+                ])
+            }),
             "chiefs": .array(home.directory.chiefs.map { chief in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
                          "main_conversation": chief.mainConversation.map { .string($0) } ?? .null])

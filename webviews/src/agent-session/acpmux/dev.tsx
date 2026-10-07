@@ -14,11 +14,12 @@ import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
-import "./searchChats.css";
+import "./composerAttachments.css";
 import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
+import "./threadMinimap/threadMinimap.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 

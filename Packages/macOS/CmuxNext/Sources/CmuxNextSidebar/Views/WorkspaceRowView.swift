@@ -18,6 +18,9 @@ final class WorkspaceRowView: SidebarRowView {
     private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
     private var activityState = StatusIndicatorState.idle
     private let badge = UnreadBadgeView()
+    /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
+    /// in the trailing cluster, in the tertiary text color; hidden otherwise.
+    let mutedMark = NSImageView()
     /// A single colored segment connects grouped workspace rows.
     private let groupRail = CALayer()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
@@ -50,6 +53,9 @@ final class WorkspaceRowView: SidebarRowView {
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
+    /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
+    /// home row shows no close button.
+    private(set) var isClosable = true
     /// A static tonal bar where the title goes (no shimmer).
     private let placeholderBar = NSView()
     /// The bar's share of the text width, varied per row so a column of
@@ -61,7 +67,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.font = SidebarStyle.titleFont
         agentMark.imageScaling = .scaleProportionallyDown
         agentMark.isHidden = true
-        [icon, title, subtitle, activity, agentMark, badge, closeButton, disclosureButton, tabCount, prBadge, placeholderBar].forEach(addSubview)
+        mutedMark.imageScaling = .scaleProportionallyDown
+        mutedMark.isHidden = true
+        mutedMark.setAccessibilityElement(false)
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, disclosureButton, tabCount, prBadge, placeholderBar]
+            .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -126,6 +136,7 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         groupColor = row.groupColor
         isShowingPlaceholder = ws.rowState == .placeholder
+        isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
         // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
@@ -146,6 +157,10 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
+        let config = NSImage.SymbolConfiguration(pointSize: SidebarStyle.indicatorSize - Metrics.space1, weight: .regular)
+        mutedMark.image = ws.muted && !isShowingPlaceholder
+            ? NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)?.withSymbolConfiguration(config) : nil
+        mutedMark.isHidden = mutedMark.image == nil
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.symbol = row.tabDisclosure == .expanded ? "chevron.down" : "chevron.right"
@@ -177,6 +192,7 @@ final class WorkspaceRowView: SidebarRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
+        if ws.muted { parts.append(Strings.muted) }
         return parts.joined(separator: ", ")
     }
 
@@ -218,6 +234,7 @@ final class WorkspaceRowView: SidebarRowView {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
             tabCount.textColor = Palette.textTertiary
+            mutedMark.contentTintColor = Palette.textTertiary
             prBadge.textColor = Palette.textSecondary
             agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, selection, multi-selection, hover.
@@ -288,7 +305,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The x and an unread badge share one slot, as wide as the wider of
         // the two, so hover swaps them in place and the name keeps its width.
-        let showClose = isHovered && !isShowingPlaceholder
+        let showClose = isHovered && !isShowingPlaceholder && isClosable
         closeButton.isHidden = !showClose
         badge.isHidden = showClose || !badge.state.isUnread
         var slot: CGFloat = showClose ? control : 0
@@ -311,6 +328,10 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= ind + Metrics.space2
         } else if activity.showsGlyph {
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            trailing -= ind + Metrics.space2
+        }
+        if !mutedMark.isHidden {
+            mutedMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
 

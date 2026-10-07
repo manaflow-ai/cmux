@@ -13,6 +13,8 @@ public protocol BookmarkManagerSource: AnyObject {
     func openAll(in folder: String)
     /// Asks for an HTML file and imports it (host panel).
     func importHTML()
+    /// Lists the browsers on this Mac and imports the profiles the person picks.
+    func importFromBrowser()
     /// Asks where to save and writes the HTML export (host panel).
     func exportHTML()
     func copy(_ text: String)

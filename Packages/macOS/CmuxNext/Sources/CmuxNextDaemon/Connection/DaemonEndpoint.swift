@@ -7,11 +7,16 @@ public struct DaemonEndpoint: Hashable, Sendable {
     public var socketPath: String
     public var pid: Int32?
     public var generation: DaemonGeneration?
+    /// Connect through this child process instead of `socketPath`
+    /// (``DaemonBridge``: a paired server's owner session through `cmux link
+    /// dial`). `socketPath` then only names what to watch for changes.
+    public var bridge: DaemonBridge?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
+        self.bridge = bridge
     }
 }
 

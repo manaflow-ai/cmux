@@ -1,5 +1,7 @@
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
+import Foundation
 import Testing
 
 /// `sidebar.workspaceRow.*` (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE): one toggle
@@ -31,6 +33,80 @@ import Testing
         #expect(try row(#"{"sidebar": {"showWorkspaceDirectory": true}}"#).base.shows(.directory))
         #expect(try row(#"{"sidebar": {"showCounts": true}}"#).base.shows(.tabCount))
         #expect(try !row(#"{"sidebar": {"showCounts": true, "workspaceRow": {"tabCount": false}}}"#).base.shows(.tabCount))
+    }
+
+    /// Settings > Appearance > Workspace Rows shows what the sidebar draws:
+    /// an S1 key that turns an element on shows its new toggle as on.
+    @Test func theSettingsPageShowsTheS1ValueUntilTheNewKeyIsSet() throws {
+        let directory = try #require(SettingsSchema.descriptor(for: ["sidebar", "workspaceRow", "directory"]))
+        let tabCount = try #require(SettingsSchema.descriptor(for: ["sidebar", "workspaceRow", "tabCount"]))
+        let legacy = try JSONC.parse(#"{"sidebar": {"showWorkspaceDirectory": true, "showCounts": true}}"#)
+        #expect(directory.effectiveValue(in: legacy) == .bool(true))
+        #expect(tabCount.effectiveValue(in: legacy) == .bool(true))
+        let both = try JSONC.parse(#"{"sidebar": {"showCounts": true, "workspaceRow": {"tabCount": false}}}"#)
+        #expect(tabCount.effectiveValue(in: both) == .bool(false))
+        let bad = try JSONC.parse(#"{"sidebar": {"showCounts": "yes"}}"#)
+        #expect(tabCount.effectiveValue(in: bad) == .bool(false))
+    }
+
+    @MainActor @Test func theS1KeysMoveToTheNewKeysOnce() async throws {
+        let (settings, url, cleanup) = try Self.controller(#"""
+        {
+          // mine
+          "sidebar": {"showWorkspaceDirectory": true, "showCounts": false, "workspaceRow": {"branch": true}}
+        }
+        """#)
+        defer { cleanup() }
+        #expect(try await settings.migrateLegacyWorkspaceRowKeys())
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let root = try JSONC.parse(text)
+        #expect(root.value(at: ["sidebar", "workspaceRow", "directory"]) == .bool(true))
+        #expect(root.value(at: ["sidebar", "workspaceRow", "tabCount"]) == .bool(false))
+        #expect(root.value(at: ["sidebar", "workspaceRow", "branch"]) == .bool(true))
+        #expect(root.value(at: ["sidebar", "showWorkspaceDirectory"]) == nil)
+        #expect(root.value(at: ["sidebar", "showCounts"]) == nil)
+        #expect(text.contains("// mine"))
+        #expect(try await !settings.migrateLegacyWorkspaceRowKeys())
+    }
+
+    @MainActor @Test func aSetNewKeyWinsAndABadS1ValueStays() async throws {
+        let (settings, url, cleanup) = try Self.controller(#"""
+        {"sidebar": {"showCounts": true, "showWorkspaceDirectory": "yes", "workspaceRow": {"tabCount": false}}}
+        """#)
+        defer { cleanup() }
+        #expect(try await settings.migrateLegacyWorkspaceRowKeys())
+        let root = try JSONC.parse(try String(contentsOf: url, encoding: .utf8))
+        #expect(root.value(at: ["sidebar", "workspaceRow", "tabCount"]) == .bool(false))
+        #expect(root.value(at: ["sidebar", "showCounts"]) == nil)
+        // A bad value is not moved: it keeps its diagnostic at the S1 key.
+        #expect(root.value(at: ["sidebar", "showWorkspaceDirectory"]) == .string("yes"))
+        #expect(root.value(at: ["sidebar", "workspaceRow", "directory"]) == nil)
+    }
+
+    /// A write of the new toggle (also a reset to the default) removes the S1
+    /// key, so the old key can never apply again behind the page.
+    @MainActor @Test func writingTheNewToggleRemovesTheS1Key() async throws {
+        let (settings, url, cleanup) = try Self.controller(#"{"sidebar": {"showWorkspaceDirectory": true, "showCounts": true}}"#)
+        defer { cleanup() }
+        let directory = try #require(SettingsSchema.descriptor(for: ["sidebar", "workspaceRow", "directory"]))
+        let tabCount = try #require(SettingsSchema.descriptor(for: ["sidebar", "workspaceRow", "tabCount"]))
+        try await settings.setSetting(directory, to: nil, by: .user)
+        try await settings.setSetting(tabCount, to: .bool(true), by: .user)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let root = try JSONC.parse(text)
+        #expect(root.value(at: ["sidebar", "showWorkspaceDirectory"]) == nil)
+        #expect(root.value(at: ["sidebar", "showCounts"]) == nil)
+        #expect(root.value(at: ["sidebar", "workspaceRow", "tabCount"]) == .bool(true))
+        #expect(try !row(text).base.shows(.directory))
+    }
+
+    @MainActor static func controller(_ text: String) throws -> (SettingsController, URL, () -> Void) {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-row-migrate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(text.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url)
+        return (settings, url, { try? FileManager.default.removeItem(at: directory) })
     }
 
     @Test func aPartialOrderListsItsItemsFirst() throws {

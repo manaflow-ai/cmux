@@ -46,10 +46,13 @@ impl Hub {
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
+        let (recorded, fork) = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
-            Adoption::Found(recorded) => recorded,
+            Adoption::Found { cwd, fork } => (cwd, fork),
         };
+        // A fork resumes nothing as itself: its process forks the adopted id
+        // into a new conversation, so the adopted id is not this session's.
+        let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         let cwd = session_cwd(cwd, recorded, &family)?;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
@@ -69,7 +72,10 @@ impl Hub {
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
             // Set before the first spawn, so the harness resumes it.
-            agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
+            agent_session_id: adopt
+                .as_ref()
+                .filter(|_| fork_from.is_none())
+                .map(|a| a.agent_session_id.clone()),
             policy,
             remote,
         });
@@ -99,7 +105,7 @@ impl Hub {
             }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
-            if let Some(a) = &adopt
+            if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
                 && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
             {
                 return Ok(existing);
@@ -123,6 +129,8 @@ impl Hub {
                 },
             };
             let session = self.make_session(meta);
+            *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                fork_from.clone();
             sessions.insert(id.clone(), session.clone());
             session
         };
@@ -132,7 +140,12 @@ impl Hub {
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
-            self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
+            let adopted = if fork_from.is_some() {
+                json!({"agentSessionId": a.agent_session_id, "fork": true})
+            } else {
+                json!({"agentSessionId": a.agent_session_id})
+            };
+            self.append(&session, "mux", "adopted", adopted);
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
@@ -145,7 +158,7 @@ impl Hub {
             return Err(e);
         }
         // An agent that started fresh instead of resuming fails creation.
-        if let Some(a) = &adopt {
+        if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
         }
         // Defaults and explicit values, applied once the harness is up. A bad
@@ -184,46 +197,6 @@ impl Hub {
             self.pool_note_used(&session);
         }
         Ok(session)
-    }
-
-    /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a
-    /// bare model id, or `HEAD/MODEL` may be a full id such as
-    /// `opencode-go/deepseek-v4-flash`.
-    pub(super) fn with_model_hint(
-        &self,
-        cfg: &crate::config::Config,
-        head: &str,
-        model: Option<&str>,
-        err: String,
-    ) -> String {
-        let spec = match model {
-            Some(m) => format!("{head}/{m}"),
-            None => head.to_owned(),
-        };
-        let known = self.known_models.lock().unwrap();
-        let mut hits: Vec<String> = Vec::new();
-        for (name, p) in &cfg.harnesses {
-            let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
-            match p.kind {
-                crate::config::HarnessKind::ClaudeStdio => {
-                    ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
-                }
-                crate::config::HarnessKind::Acp => {
-                    ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
-                }
-                crate::config::HarnessKind::Terminal => {}
-            }
-            if ids.contains(&spec)
-                || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
-            {
-                hits.push(format!("{name}/{spec}"));
-            }
-        }
-        if hits.is_empty() {
-            err
-        } else {
-            format!("{err}. {spec:?} is a model id: write {}", hits.join(" or "))
-        }
     }
 
     /// Every model id a profile can run: declared in config, then reported
@@ -343,7 +316,7 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
-            let plan = self.remote_chain_plan(session, profile, plan).await?;
+            let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -356,7 +329,7 @@ impl Hub {
                 };
                 self.spawn_hosted_child(
                     session,
-                    profile,
+                    &profile,
                     &meta,
                     Some((plan.program.clone(), plan.args.clone())),
                     Some(translator),
@@ -375,7 +348,7 @@ impl Hub {
                 }
                 ChildAgent::spawn_with(
                     &meta.harness,
-                    profile,
+                    &profile,
                     &meta.cwd,
                     session.inbound_tx.clone(),
                     tap,
@@ -436,6 +409,9 @@ impl Hub {
                         // permission policy and rules gate every harness's
                         // edits, not only the ones it chooses to ask about.
                         "fs": {"readTextFile": true, "writeTextFile": true},
+                        // Subagents arrive as their own sessions (ACP draft #1992),
+                        // attributed by `crate::subagents`.
+                        "subagents": {},
                         "terminal": false
                     },
                     "clientInfo": {"name": "acpmux", "version": VERSION}
