@@ -1,0 +1,66 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // cmux VM API. Top level is local development (`wrangler dev`) and tests.
+  // Secrets, set per environment by the deploy workflow from GitHub
+  // environment secrets (never committed, never printed):
+  //   UPSTREAM_API_KEY, STACK_PROJECT_ID, STACK_SECRET_SERVER_KEY
+  "name": "cmux-vm-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "ENVIRONMENT": "local",
+    "STACK_API_URL": "https://api.stack-auth.com",
+    "UPSTREAM_API_URL": "https://api.freestyle.sh"
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+      "localConnectionString": "postgres://cmux_vm:cmux_vm@127.0.0.1:5432/cmux_vm"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "enabled": true, "invocation_logs": true }
+  },
+  "env": {
+    // One Worker per lane push on workers.dev. The Hyperdrive id is a
+    // placeholder until the preview Hyperdrive config exists.
+    "preview": {
+      "name": "cmux-vm-preview",
+      "workers_dev": true,
+      "vars": {
+        "ENVIRONMENT": "preview",
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+      },
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000001" }]
+    },
+    // vm-staging.cmux.com is attached when DNS is set up; no route here yet.
+    "staging": {
+      "name": "cmux-vm-staging",
+      "workers_dev": false,
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+      },
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000002" }]
+    },
+    // vm.cmux.com is attached when DNS is set up; no route here yet.
+    "production": {
+      "name": "cmux-vm-production",
+      "workers_dev": false,
+      "vars": {
+        "ENVIRONMENT": "production",
+        "STACK_API_URL": "https://api.stack-auth.com",
+        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+      },
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000003" }]
+    }
+  }
+}
