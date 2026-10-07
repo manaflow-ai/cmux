@@ -83,6 +83,25 @@ test("the chat's images are exactly the images the reply draws", () => {
   expect(chatImages(rows).map((image) => image.alt)).toEqual(["after", "shot", "chart", "bold", "body", "note", "up"]);
 });
 
+test("a long data URL image is listed, and images past the reply's 8 MB budget are not, as the reply draws them", () => {
+  const sized = (tag: string, length: number) => png(tag + "A".repeat(length));
+  const long = sized("L", 10_000);
+  const big = ["P", "Q", "R", "S", "T"].map((tag) => sized(tag, MAX_DATA_URL_LENGTH - 100_000));
+  const rows: AcpmuxRow[] = [
+    reply("a", `A long one ![long](${long}) and **![long bold](${sized("M", 10_000)})**`),
+    reply("b", big.map((src, index) => `![big ${index}](${src})`).join("\n\n")),
+  ];
+  const drawn = (text: string) =>
+    [
+      ...renderToStaticMarkup(createElement(Markdown, null, text)).matchAll(
+        /<img class="cv-img" src="([^"]+)" alt="([^"]*)"/g,
+      ),
+    ].map(([, src, alt]) => ({ src: src!, alt: alt! }));
+  expect(chatImages(rows)).toEqual(rows.flatMap((row) => drawn(row.text!)));
+  expect(chatImages(rows).map((image) => image.alt)).toEqual(["long", "long bold", "big 0", "big 1", "big 2", "big 3"]);
+  expect(chatImages(rows)[0]!.src).toBe(long);
+});
+
 test("zooming keeps the point under the pointer still, stays in range and recenters when fitted", () => {
   const zoomed = zoomAbout({ scale: 1, x: 0, y: 0 }, 2, { x: 100, y: 50 });
   expect(zoomed).toEqual({ scale: 2, x: -100, y: -50 });
