@@ -35,11 +35,12 @@ extension AgentPaneModel {
     }
 
     /// The chat's folder as the start of another tab (a terminal or split opened from the chat,
-    /// #16620): nil for an agent-home folder, so that tab keeps its own default (the user's shell
-    /// default, `~`) and never makes agent-home the workspace's folder.
+    /// #16620). For an agent-home folder, the home folder: a terminal's normal default (the app's
+    /// `defaultCwd`, the shell's `~`), never the daemon's own working folder, and agent-home never
+    /// becomes the workspace's folder.
     public func folderForOtherTabs(_ cwd: String?) -> String? {
-        guard let cwd, !isAgentHome(cwd) else { return nil }
-        return cwd
+        guard let cwd, isAgentHome(cwd) else { return cwd }
+        return transport.homeFolder
     }
 
     /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
