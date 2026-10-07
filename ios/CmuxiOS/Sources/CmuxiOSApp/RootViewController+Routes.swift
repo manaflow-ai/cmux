@@ -8,7 +8,9 @@ extension RootViewController {
     func handle(_ route: ShellRoute) {
         switch route {
         case .home: select(.home)
-        case .feed: select(.feed)
+        case .feed(let item):
+            select(.feed)
+            if let item { container.feedNavigator.open(item) }
         // C5 pushes the workspace and surface once its screen lands.
         case .workspaces, .workspace: select(.workspaces)
         // C8 pre-fills host and workspace once its screen lands.

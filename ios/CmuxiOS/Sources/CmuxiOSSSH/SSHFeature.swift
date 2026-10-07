@@ -1,6 +1,7 @@
 public import CmuxiOSFeatureKit
 public import CmuxiOSSSHCore
 import CmuxMobileSSH
+public import CmuxTerminalRenderCore
 import SwiftUI
 public import UIKit
 
@@ -11,14 +12,18 @@ public import UIKit
 public final class SSHFeature {
     let hosts: any HostsStore
     let device: SSHDeviceState
+    /// The device's terminal settings (lane C11); nil keeps renderer defaults.
+    let appearance: (any TerminalAppearanceProviding)?
     private weak var navigation: UINavigationController?
     private(set) lazy var prompter = SSHTrustAlertPrompter { [weak self] in
         self?.navigation?.topmostPresented
     }
 
-    public init(hosts: any HostsStore, device: SSHDeviceState) {
+    public init(hosts: any HostsStore, device: SSHDeviceState,
+                appearance: (any TerminalAppearanceProviding)? = nil) {
         self.hosts = hosts
         self.device = device
+        self.appearance = appearance
     }
 
     /// The Hosts tab root (a navigation controller with large titles).
@@ -71,7 +76,8 @@ public final class SSHFeature {
             let verifier = TOFUHostKeyVerifier(knownHosts: device.knownHosts, prompter: prompter, names: chain.names)
             let connector = NIOSSHShellConnector(chain: chain, credentials: device.credentials, verifier: verifier)
             let source = SSHTerminalByteSource(terminalID: "ssh-" + host.id.rawValue, title: host.name, connector: connector)
-            let screen = SSHTerminalViewController(source: source, title: host.name) { [weak self, weak list] in
+            let screen = SSHTerminalViewController(source: source, title: host.name,
+                                                   appearance: appearance) { [weak self, weak list] in
                 guard let self, let list else { return }
                 self.showEditor(.edit(host.id), records: records, from: list.topmostPresented)
             }

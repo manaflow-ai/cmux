@@ -45,6 +45,17 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
     public var fontSizing = TerminalFontSizing() {
         didSet { applyFontSize() }
     }
+    /// `font-family` from Settings; nil keeps Ghostty's embedded font.
+    public var fontFamily: String? {
+        didSet { if fontFamily != oldValue { applyConfig() } }
+    }
+    /// `cursor-style` from Settings; nil keeps Ghostty's default.
+    public var cursorStyle: TerminalCursorStyle? {
+        didSet { if cursorStyle != oldValue { applyConfig() } }
+    }
+    public var cursorBlink = false {
+        didSet { if cursorBlink != oldValue { applyConfig() } }
+    }
     public var linkPolicy = TerminalLinkPolicy()
     /// Opens an allowed link (injected so tests and previews never leave the app).
     public var openLink: (URL) -> Void = { UIApplication.shared.open($0) }
@@ -63,7 +74,11 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
     public var keyboardKind: UIKeyboardType = .asciiCapable
     /// The key bar's keys (setting `ios.terminal.accessoryKeys`).
     public var keyBarKeys: [TerminalKeyBarKey] = TerminalKeyBarKey.defaultKeys {
-        didSet { keyBarView = nil }
+        didSet {
+            guard keyBarKeys != oldValue else { return }
+            keyBarView = nil
+            if isFirstResponder { reloadInputViews() }
+        }
     }
     /// Option sends Meta (setting `ios.terminal.optionAsMeta`, default true).
     public var optionAsMeta: Bool {
@@ -223,7 +238,7 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
             // Focused; visible only while presented (the renderer draws only for a visible surface).
             ghostty_surface_set_occlusion(surface, isPresented)
             ghostty_surface_set_focus(surface, true)
-            if theme != nil { applyConfig() }
+            if needsConfig { applyConfig() }
         }
         syncSize()
         requestFrame()
@@ -256,10 +271,18 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         reportViewport()
     }
 
-    /// Applies the theme (and the phone's scrollback budget) to the surface.
+    /// True when the surface needs more than the app config (a theme or a
+    /// Settings choice).
+    private var needsConfig: Bool {
+        theme != nil || fontFamily != nil || cursorStyle != nil || cursorBlink
+    }
+
+    /// Applies the theme, font family, cursor (and the phone's scrollback
+    /// budget) to the surface.
     private func applyConfig() {
         guard let surface else { return }
-        let settings = TerminalGhosttyConfig(fontSize: fontSize, theme: theme)
+        let settings = TerminalGhosttyConfig(fontSize: fontSize, theme: theme, cursorBlink: cursorBlink,
+                                             fontFamily: fontFamily, cursorStyle: cursorStyle)
         guard let config = GhosttyNextApp.makeConfig(settings) else { return }
         ghostty_surface_update_config(surface, config)
         if let old = surfaceConfig { ghostty_config_free(old) }

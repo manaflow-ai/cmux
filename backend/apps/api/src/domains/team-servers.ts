@@ -124,6 +124,24 @@ export const serverPlacementActive = (state: TeamState, rows: RowReader | undefi
   return h?.kind === "server" && h.enrolled_by === install && !state.server_revocations?.[install]
 }
 
+/** A HostDO control socket's role (b1-control-do.md 2), resolved from this team's directory. */
+export interface HostAccess {
+  readonly role: "host" | "device"
+  readonly host: { readonly id: string; readonly name: string; readonly platform: string; readonly owner_user: string; readonly enrolled_by: string }
+}
+
+/**
+ * `host` for the install that enrolled the host (never a session or a chief token), `device` for
+ * any member of this team (a personal team has only its user: same account), null otherwise.
+ */
+export const hostAccessFor = (state: TeamState, rows: RowReader | undefined, host: string, p: { user?: string; install?: string; kind?: string; agent?: string }): HostAccess | null => {
+  const h = hostOf(state, rows, host)
+  if (!h || !p.user || !memberOf(state, rows, p.user) || state.server_revocations?.[h.enrolled_by]) return null
+  const summary = { id: h.id, name: h.name, platform: h.platform, owner_user: h.owner_user, enrolled_by: h.enrolled_by }
+  if (p.kind === "install" && !p.agent && p.install === h.enrolled_by) return { role: "host", host: summary }
+  return p.agent ? null : { role: "device", host: summary }
+}
+
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */
 export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   const p = ctx.principal

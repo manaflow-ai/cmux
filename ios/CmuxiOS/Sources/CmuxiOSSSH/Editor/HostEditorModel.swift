@@ -47,7 +47,7 @@ final class HostEditorModel {
             case .ssh(let endpoint, let jump):
                 fill(endpoint)
                 jumpHost = jump
-            case .direct(let endpoint):
+            case .direct(let endpoint, _):
                 fill(endpoint)
             case .pairedMac:
                 break

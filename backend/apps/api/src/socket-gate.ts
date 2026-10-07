@@ -138,6 +138,20 @@ export class SocketGate {
     this.checks.clear()
   }
 
+  /**
+   * Whether a socket may receive a direct answer to its own request (forwarded results, relayed
+   * signals): not expired and not known revoked. Unlike `live`, a stale status does not hold the
+   * frame; a revoke closes the socket through the registry at once anyway.
+   */
+  answerable(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
+    const p = a.principal
+    if (p.expires_at !== undefined && p.expires_at <= now) {
+      closeQuietly(ws, 4401, "token expired")
+      return false
+    }
+    return !(this.watched(p) && this.checks.get(this.key(p))?.active === false)
+  }
+
   /** Whether a socket may receive a frame now. */
   live(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
     const p = a.principal
@@ -217,7 +231,8 @@ export class SocketGate {
   sweep(now: number): void {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.principal.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
+      // Sockets without a principal (HostDO's datagram relay) have no token here.
+      if (a?.principal?.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
     }
   }
 
@@ -225,7 +240,7 @@ export class SocketGate {
   nextExpiry(): number | null {
     let at: number | null = null
     for (const ws of this.ctx.getWebSockets()) {
-      const e = (ws.deserializeAttachment() as Attachment | null)?.principal.expires_at
+      const e = (ws.deserializeAttachment() as Attachment | null)?.principal?.expires_at
       if (typeof e === "number" && e > Date.now() && (at === null || e < at)) at = e
     }
     return at

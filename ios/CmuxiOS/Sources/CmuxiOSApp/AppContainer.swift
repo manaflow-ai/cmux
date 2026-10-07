@@ -5,11 +5,14 @@ import CMUXMobileCore
 import CmuxiOSAuth
 import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
+import CmuxiOSFeed
+import CmuxiOSFeedCloud
 import CmuxiOSIdentity
 import CmuxiOSPlatform
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
 import CmuxiOSPush
+import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import CmuxiOSWorkspaces
@@ -59,11 +62,24 @@ final class AppContainer {
     /// Real seam implementations. Each feature lane sets its slot here when
     /// its carrier lands; an empty slot keeps that seam on its mock.
     let realFactories: RealFeatureFactories
+    /// Opens feed items from push taps (lane C6).
+    let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
     /// Lane C1 sets the cmux session host's byte sources (`.host` over
     /// `CmuxLink`); nil keeps A2's mock host behind workspace terminals.
     var terminalSources: (any WorkspaceTerminalSourceFactory)?
+    /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
+    /// terminal surface, and the crash-report consent (shared key).
+    let terminalPreferences = TerminalPreferencesStore()
+    let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+    /// C7 fills this with the push owner's per-device filter; nil keeps the
+    /// notification preferences on this device.
+    var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?
+    private(set) lazy var notificationPreferences = NotificationPreferencesStore(sink: notificationPreferencesSinkFactory?())
+    /// B5/D1 fill this with the live path badge per device once they hold a
+    /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
+    var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
@@ -121,16 +137,6 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
-        // Lane C5: workspaces of the account's paired Macs over the control
-        // plane. B1 replaces the channel factory with its ControlPlaneClient
-        // adapter (c5-workspaces.md section 4); until then each Mac shows as
-        // unreachable with this reason.
-        let unavailable = WorkspacesFeature.controlPlaneUnavailable
-        factories.workspaces = { devices in
-            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices),
-                                        channels: UnavailableWorkspaceChannelFactory(reason: unavailable))
-        }
-        realFactories = factories
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
@@ -145,6 +151,8 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
+        realFactories = Self.addingWorkspaces(to: Self.addingFeed(to: factories, base: base, identity: madeIdentity),
+                                              base: base, identity: madeIdentity)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -188,9 +196,39 @@ final class AppContainer {
         // The last account's config applies before auth restores; sign-out clears it.
         if let cached = remoteConfigCache.load() { applyRemoteConfig(cached) }
         feedResponder.openItem = { item in
-            // The feed list is not on iPhone yet; Home stays in front.
+            // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+    }
+
+    /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
+    /// authenticated as this install. Without an API origin the slot stays
+    /// empty and the DEV screen shows the seam on its mock.
+    private static func addingFeed(to factories: RealFeatureFactories, base: URL?,
+                                   identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = factories
+        if let base, let identity {
+            let device = UIDevice.current.name
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            factories.feed = {
+                CloudFeedSource(apiBaseURL: base, device: device, clientVersion: version) {
+                    try await identity.token(for: nil)
+                }
+            }
+        }
+        return factories
+    }
+
+    /// C5: workspaces of the account's paired Macs over the control plane.
+    private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
+                                         identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = factories
+        let unavailable = WorkspacesFeature.controlPlaneUnavailable
+        factories.workspaces = { devices in
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices),
+                                        channels: UnavailableWorkspaceChannelFactory(reason: unavailable))
+        }
+        return factories
     }
 
     /// Follows the account's remote config until sign-out.

@@ -45,6 +45,12 @@ export interface Env {
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
+  /** Secret: Cloudflare Realtime TURN key id (b1-control-do.md 6). Absent: TURN mints answer signal.turn_unavailable. */
+  readonly CLOUDFLARE_TURN_KEY_ID?: string
+  /** Secret: the API token of that TURN key. Never logged or returned. */
+  readonly CLOUDFLARE_TURN_KEY_API_TOKEN?: string
+  /** Var: JSON `{version, flags, min_app_version?}` served by GET /v1/mobile/config over the defaults (C16 remote flags). */
+  readonly MOBILE_REMOTE_CONFIG?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**

@@ -1,40 +1,38 @@
 import CmuxiOSFeatureKit
+import CmuxLink
 import SwiftUI
 
-/// One device in Settings: platform glyph, name, trust state.
+/// One device in Settings: platform glyph, name, trust and last seen, and
+/// the live path with its round-trip time when a link is up.
 struct DeviceRow: View {
     let device: DeviceRecord
+    let badge: PathBadge?
 
     var body: some View {
-        HStack {
-            Image(systemName: symbol)
+        HStack(spacing: 12) {
+            Image(systemName: SettingsText.symbol(of: device.platform))
                 .foregroundStyle(.secondary)
+                .frame(minWidth: 24)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
-                Text(detail)
+                Text(SettingsText.status(of: device))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                if let badge {
+                    Text(SettingsText.pathSummary(badge))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
     }
 
-    private var symbol: String {
-        switch device.platform {
-        case .mac: "desktopcomputer"
-        case .iPhone: "iphone"
-        case .iPad: "ipad"
-        case .cloudVM: "cloud"
-        }
-    }
-
-    private var detail: String {
-        if device.isThisDevice { return SettingsText.thisDevice }
-        switch device.trust {
-        case .trusted: return SettingsText.trusted
-        case .discovered: return SettingsText.notPaired
-        case .revoked: return SettingsText.revoked
-        }
+    private var accessibilityText: String {
+        var parts = [device.name, SettingsText.status(of: device)]
+        if let badge { parts.append(SettingsText.pathSpoken(badge)) }
+        return parts.joined(separator: ", ")
     }
 }

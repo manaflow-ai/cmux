@@ -41,6 +41,8 @@ export const mobileCatalog = {
       { name: "host.presence.set", kind: "owner", plane: "control", dir: "s2c", owner: "HostDO" },
       { name: "host.caps.set", kind: "owner", plane: "control", dir: "s2c", owner: "HostDO" },
       { name: "host.wake", kind: "op", plane: "control", dir: "c2s", owner: "HostDO", errors: ["host.not_wakeable"] },
+      { name: "host.device.set", kind: "owner", plane: "control", dir: "s2c", owner: "HostDO" },
+      { name: "host.device.remove", kind: "owner", plane: "control", dir: "s2c", owner: "HostDO" },
     ] },
     { name: "workspace", plane: "control", owner: "mac-workspace-store", stream: "workspace:<host>", messages: [
       { name: "workspace.upsert", kind: "owner", plane: "control", dir: "s2c", owner: "mac-workspace-store" },
@@ -121,7 +123,7 @@ export const mobileCatalog = {
       { name: "pairing.revoke", kind: "op", plane: "control", dir: "c2s", owner: "UserDO", errors: ["pairing.device_not_found"] },
     ] },
     { name: "signal", plane: "control", owner: "HostDO", messages: [
-      { name: "signal.turn_credentials", kind: "read", plane: "control", dir: "c2s", owner: "UserDO" },
+      { name: "signal.turn_credentials", kind: "read", plane: "control", dir: "c2s", owner: "HostDO", errors: ["signal.turn_unavailable"] },
       { name: "signal.offer", kind: "signal", plane: "control", dir: "both", owner: "HostDO" },
       { name: "signal.answer", kind: "signal", plane: "control", dir: "both", owner: "HostDO" },
       { name: "signal.ice", kind: "signal", plane: "control", dir: "both", owner: "HostDO" },

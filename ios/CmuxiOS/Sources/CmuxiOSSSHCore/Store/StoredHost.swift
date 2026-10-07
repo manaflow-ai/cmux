@@ -16,6 +16,8 @@ struct StoredHost: Codable, Hashable, Sendable {
     var port: UInt16?
     var user: String?
     var jumpHost: String?
+    /// Pinned X25519 host key of a direct host (lane B4), standard base64.
+    var hostKey: String?
 
     init?(_ record: HostRecord) {
         id = record.id.rawValue
@@ -29,20 +31,28 @@ struct StoredHost: Codable, Hashable, Sendable {
             port = endpoint.port
             user = endpoint.user
             jumpHost = jump?.rawValue
-        case .direct(let endpoint):
+            hostKey = nil
+        case .direct(let endpoint, let key):
             kind = .direct
             address = endpoint.address
             port = endpoint.port
             user = endpoint.user
             jumpHost = nil
+            hostKey = key.rawValue
         }
     }
 
-    var record: HostRecord {
+    /// Nil for a direct record without a valid pinned key (written before
+    /// lane B4 required one); such a record cannot be dialed and is dropped.
+    var record: HostRecord? {
         let endpoint = HostEndpoint(address: address, port: port, user: user)
-        let hostKind: HostKind = switch kind {
-        case .ssh: .ssh(endpoint: endpoint, jumpHost: jumpHost.map(HostID.init(rawValue:)))
-        case .direct: .direct(endpoint: endpoint)
+        let hostKind: HostKind
+        switch kind {
+        case .ssh:
+            hostKind = .ssh(endpoint: endpoint, jumpHost: jumpHost.map(HostID.init(rawValue:)))
+        case .direct:
+            guard let key = hostKey.flatMap(DirectHostKey.init(rawValue:)) else { return nil }
+            hostKind = .direct(endpoint: endpoint, hostKey: key)
         }
         return HostRecord(id: HostID(id), name: name, kind: hostKind, reachability: .unknown)
     }

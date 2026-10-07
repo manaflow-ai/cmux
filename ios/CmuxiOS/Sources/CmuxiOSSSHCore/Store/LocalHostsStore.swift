@@ -24,7 +24,7 @@ public actor LocalHostsStore: HostsStore {
         self.url = url
         self.sync = sync
         let file = (try? JSONDecoder().decode(StoredHostsFile.self, from: Data(contentsOf: url)))
-        hosts = file?.hosts.map(\.record) ?? []
+        hosts = file?.hosts.compactMap(\.record) ?? []
         revision = file?.revision ?? 0
     }
 
@@ -104,7 +104,7 @@ public actor LocalHostsStore: HostsStore {
         switch draft.kind {
         case .pairedMac:
             return .pairedMac
-        case .direct(let endpoint):
+        case .direct(let endpoint, _):
             return Self.trimmed(endpoint.address).isEmpty ? .emptyAddress : nil
         case .ssh(let endpoint, let jump):
             if Self.trimmed(endpoint.address).isEmpty { return .emptyAddress }
@@ -184,7 +184,7 @@ public actor LocalHostsStore: HostsStore {
         switch kind {
         case .pairedMac: return .pairedMac
         case .ssh(let endpoint, let jump): return .ssh(endpoint: clean(endpoint), jumpHost: jump)
-        case .direct(let endpoint): return .direct(endpoint: clean(endpoint))
+        case .direct(let endpoint, let key): return .direct(endpoint: clean(endpoint), hostKey: key)
         }
     }
 }

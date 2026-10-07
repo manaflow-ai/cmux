@@ -44,8 +44,8 @@ final class RootViewController: UIViewController {
         container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
         container.onDemoChange = { [weak self] in self?.rebuildShell() }
         container.feedResponder.openItem = { [weak container] item in
-            // The Feed tab owns item navigation once lane C6 lands; the
-            // router opens the tab (deferred until signed in).
+            // The router opens the Feed tab on the item (deferred until
+            // signed in); the Feed screen parks it until its mirror has it.
             container?.router.open(.feed(item: item))
         }
         container.router.install { [weak self] route in self?.handle(route) }
