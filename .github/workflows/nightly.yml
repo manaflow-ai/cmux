@@ -1654,6 +1654,9 @@ jobs:
 
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.build_only != 'true'
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
