@@ -62,7 +62,7 @@ import Testing
         let web = try JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: .newTabPage).payloadJSON.utf8))
         #expect(event.value["web"] == web)
         // The New Tab page is transparent: its pane backs it (the previous content, blurred).
-        #expect(web["variables"]?["--cmux-surface-background"]?.stringValue?.hasSuffix(", 0)") == true)
+        #expect(web["variables"]?["--cmux-surface-background"]?.stringValue?.hasSuffix(", 0.0)") == true)
         #expect(AgentPaneTheme.pageColor(tokens, surface: .newTabPage, backgrounds: .none).alpha == 0)
         #expect(event.value["agent"] == JSONValue(foundation: AgentPaneTheme.values(tokens, surface: .newTabPage)))
     }
