@@ -69,6 +69,7 @@ extension SettingsSchema {
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
+        "appearance.appTheme",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
