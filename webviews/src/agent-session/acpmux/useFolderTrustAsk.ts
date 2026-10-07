@@ -88,9 +88,9 @@ export function useFolderTrustAsk(
       ? { reason: "trust.answerFirst" }
       : ask?.state === "remote"
         ? { reason: "trust.remote" }
-      : ask?.state === "decided" && ask.level === "untrusted"
-        ? { reason: "trust.untrustedNoPrompts" }
-        : undefined;
+        : ask?.state === "decided" && ask.level === "untrusted"
+          ? { reason: "trust.untrustedNoPrompts" }
+          : undefined;
 
   return {
     ask,

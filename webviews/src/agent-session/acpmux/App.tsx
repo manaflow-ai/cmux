@@ -962,12 +962,16 @@ function AcpmuxPane() {
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
-  const trustAsk = useFolderTrustAsk(trustSource, {
-    sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
-    family: snapshot.summary?.family || snapshot.summary?.harness,
-    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
-  }, snapshot.origin !== "remote");
+  const trustAsk = useFolderTrustAsk(
+    trustSource,
+    {
+      sessionId: snapshot.sessionId,
+      cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
+      family: snapshot.summary?.family || snapshot.summary?.harness,
+      prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+    },
+    snapshot.origin !== "remote",
+  );
   trustRecheck.current = trustAsk.recheck;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -1493,8 +1497,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
-        if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd)
-          setProjectDraft(host.cwd);
+        if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
         setHandshaken(true);
         if (

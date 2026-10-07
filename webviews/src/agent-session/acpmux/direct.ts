@@ -789,7 +789,10 @@ export class AcpmuxDirectClient {
 
   /// Whether the user trusts `cwd` (folderTrust.ts).
   trustGet(cwd: string): Promise<unknown> {
-    return this.request("acp.trust.get", { cwd, ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}) });
+    return this.request("acp.trust.get", {
+      cwd,
+      ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
+    });
   }
 
   /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
