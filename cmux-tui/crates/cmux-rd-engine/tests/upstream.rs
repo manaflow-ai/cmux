@@ -98,3 +98,20 @@ fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
     viewer.on_datagram(&ack, 71_000).expect("feedback for this stream");
     assert_eq!(viewer.stats().acked_frame, 1);
 }
+
+#[test]
+fn an_upstream_cannot_reuse_a_display_stream_id() {
+    use cmux_rd_engine::{MAX_UPSTREAMS, StreamError};
+    let mut e = MediaEngine::new(EngineConfig::default(), 0);
+    // Stream 0 is the main display: the viewer routes feedback by id.
+    assert_eq!(e.add_upstream(0), Err(StreamError::Exists(0)));
+    assert_eq!(StreamError::Exists(0).reason(), "in_use");
+    for s in 0..MAX_UPSTREAMS as u16 {
+        e.add_upstream(MIC + s).expect("upstream");
+    }
+    assert_eq!(e.add_upstream(MIC + 10), Err(StreamError::TooMany));
+    assert_eq!(StreamError::TooMany.reason(), "too_many");
+    // Removing one frees its slot and its id.
+    e.remove_upstream(MIC);
+    e.add_upstream(MIC).expect("the slot is free again");
+}
