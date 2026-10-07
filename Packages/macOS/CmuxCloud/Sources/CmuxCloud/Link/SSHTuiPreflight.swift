@@ -17,7 +17,7 @@ public struct SSHTuiPreflight: Sendable {
     ///   - timeout: The maximum time allowed for the route check.
     public init(connection: SSHTuiConnection, commands: (any CommandRunning)? = nil, timeout: TimeInterval = 30) {
         self.connection = connection
-        self.commands = commands ?? CommandRunner(childEnvironment: connection.sshProcessEnvironment)
+        self.commands = commands ?? CommandRunner()
         self.timeout = timeout
     }
 
@@ -32,6 +32,12 @@ public struct SSHTuiPreflight: Sendable {
         // The child inherits the app environment, so the caller's agent is
         // passed the same way the carrier receives it.
         if let agent = connection.configuration.agentSocketPath {
+            arguments = ["SSH_AUTH_SOCK=" + agent, executable] + arguments
+            executable = "/usr/bin/env"
+        } else if let agent = connection.sshProcessEnvironment["SSH_AUTH_SOCK"],
+                  !agent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Pin an inherited agent captured with the route so preflight and
+            // the carrier cannot select different credentials.
             arguments = ["SSH_AUTH_SOCK=" + agent, executable] + arguments
             executable = "/usr/bin/env"
         } else if connection.configuration.agentSocketPathOverrideIsSet {

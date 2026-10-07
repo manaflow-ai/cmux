@@ -116,6 +116,19 @@ struct SSHTuiPreflightTests {
         #expect(call.arguments == ["SSH_AUTH_SOCK=/tmp/agent.sock"] + connection.preflightArguments)
     }
 
+    @Test("Pins an inherited agent captured by the connection")
+    func passesCapturedInheritedAgentSocket() async throws {
+        let commands = ScriptedPreflightCommands(exitStatus: 0)
+        let connection = SSHTuiConnection(
+            configuration: configuration(agent: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent.sock"]
+        )
+        try await SSHTuiPreflight(connection: connection, commands: commands).run()
+        let call = try #require(await commands.calls.first)
+        #expect(call.executable == "/usr/bin/env")
+        #expect(call.arguments == ["SSH_AUTH_SOCK=/tmp/inherited-agent.sock"] + connection.preflightArguments)
+    }
+
     /// Explicit disable removes the inherited socket before OpenSSH starts.
     @Test("Removes an explicitly disabled agent socket from the preflight child")
     func removesDisabledAgentSocket() async throws {
