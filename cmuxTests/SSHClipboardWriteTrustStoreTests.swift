@@ -15,7 +15,7 @@ struct SSHClipboardWriteTrustStoreTests {
     func trustPolicy() throws {
         let suiteName = "cmux.ssh-clipboard-trust-test-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = SSHClipboardWriteTrustStore(defaults: defaults)
         let trusted = SurfaceMachineID.ssh("endpoint-a")
         let differentEndpoint = SurfaceMachineID.ssh("endpoint-b")

@@ -199,6 +199,23 @@ struct TerminalSurfaceRemoteOutputTests {
         #expect(cloud.allowsAutomaticClipboardWrite)
     }
 
+    @Test
+    @MainActor
+    func remoteClipboardWriteGrantCanBeRevokedOnALiveSurface() {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let remote = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: runtimeSurface),
+            isRemoteTerminal: true
+        )
+        defer { remote.surface!.deallocate() }
+
+        #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(true)
+        #expect(remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(false)
+        #expect(!remote.allowsAutomaticClipboardWrite)
+    }
+
     @MainActor
     private func makeSurface(
         runtimeSurfaceBits: UInt,

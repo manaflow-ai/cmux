@@ -2218,6 +2218,7 @@
 		265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */; };
 		C75200010000000000000001 /* GhosttyNSView+RevealInFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */; };
 		C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */; };
+		35D59C2CE1241369A2E258AB /* GhosttyNSView+SSHClipboardTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */; };
 		EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */; };
 		C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */; };
 		C0DE12220000000000000003 /* GhosttyNumericLocaleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE12220000000000000004 /* GhosttyNumericLocaleController.swift */; };
@@ -3504,6 +3505,7 @@
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
 		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
+		70947E9A814D510034B314C5 /* SSHClipboardWriteTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */; };
 		B2AC454B21E6D28A10AE1CCA /* SSHClipboardWriteTrustStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18853FDEADE94462B183BD86 /* SSHClipboardWriteTrustStoreTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
@@ -6665,6 +6667,7 @@
 		47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+RemoteReconnect.swift"; sourceTree = "<group>"; };
 		C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+RevealInFinder.swift"; sourceTree = "<group>"; };
 		C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+SelectionTranslation.swift"; sourceTree = "<group>"; };
+		6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+SSHClipboardTrust.swift"; sourceTree = "<group>"; };
 		EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+TerminalCustomUpload.swift"; sourceTree = "<group>"; };
 		C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNSViewSurfaceLinkCopy.swift; sourceTree = "<group>"; };
 		C0DE12220000000000000004 /* GhosttyNumericLocaleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNumericLocaleController.swift; sourceTree = "<group>"; };
@@ -7933,6 +7936,7 @@
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
 		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
+		BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTui/SSHClipboardWriteTrustStore.swift; sourceTree = "<group>"; };
 		18853FDEADE94462B183BD86 /* SSHClipboardWriteTrustStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHClipboardWriteTrustStoreTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
@@ -11995,6 +11999,8 @@
 				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
 				6C858D764447A3E9A2C7EE35 /* CmuxSettingsFileStore+FontSections.swift */,
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
+				6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */,
+				BBC8561F9940E6A92756AEAF /* SSHClipboardWriteTrustStore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15428,6 +15434,7 @@
 				265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */,
 				C75200010000000000000001 /* GhosttyNSView+RevealInFinder.swift in Sources */,
 				C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */,
+				35D59C2CE1241369A2E258AB /* GhosttyNSView+SSHClipboardTrust.swift in Sources */,
 				EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */,
 				C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */,
 				C0DE12220000000000000003 /* GhosttyNumericLocaleController.swift in Sources */,
@@ -16251,6 +16258,7 @@
 					A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */,
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
 				A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */,
+				70947E9A814D510034B314C5 /* SSHClipboardWriteTrustStore.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,

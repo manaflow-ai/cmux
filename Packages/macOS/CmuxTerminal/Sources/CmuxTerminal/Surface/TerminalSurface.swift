@@ -25,6 +25,30 @@ struct TerminalSurfacePendingRemoteReplayCompletion: Sendable {
     let discarded: @MainActor @Sendable () -> Void
 }
 
+/// Thread-safe write-only permission sampled by Ghostty's clipboard callback.
+/// The callback can arrive off the main actor while a context-menu action
+/// revokes or grants the permission on the main actor.
+private final class TerminalRemoteClipboardWritePermission: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+
+    init(_ value: Bool) {
+        self.value = value
+    }
+
+    func read() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func update(_ value: Bool) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+}
+
 public final class TerminalSurface: Identifiable, ObservableObject {
     static let committedTextInputChunkByteLimit = 96
 
@@ -229,7 +253,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
     /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
     /// remain denied by the runtime policy regardless of this flag.
-    public let allowsRemoteClipboardWrites: Bool
+    private let remoteClipboardWritePermission: TerminalRemoteClipboardWritePermission
+
+    public var allowsRemoteClipboardWrites: Bool {
+        remoteClipboardWritePermission.read()
+    }
+
+    /// Updates the write-only remote clipboard grant for a live mirror. The
+    /// callback reads this value on the runtime callback thread, while callers
+    /// change it on the main actor alongside the surface's other UI-owned
+    /// state.
+    @MainActor
+    public func setAllowsRemoteClipboardWrites(_ allowed: Bool) {
+        remoteClipboardWritePermission.update(allowed)
+    }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -633,7 +670,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
         self.isRemoteTerminal = isRemoteTerminal
-        self.allowsRemoteClipboardWrites = allowsRemoteClipboardWrites
+        self.remoteClipboardWritePermission = TerminalRemoteClipboardWritePermission(allowsRemoteClipboardWrites)
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry

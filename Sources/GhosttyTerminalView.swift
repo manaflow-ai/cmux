@@ -9587,6 +9587,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if appendSSHClipboardWriteTrustMenuItem(to: menu) {
+            menu.addItem(.separator())
+        }
         appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
