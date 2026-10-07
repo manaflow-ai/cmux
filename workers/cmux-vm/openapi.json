@@ -2647,14 +2647,14 @@
             "patternProperties": {
               "": {
                 "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:\\/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:\\/-]{0,63}$"
+                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
+                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
               }
             },
             "propertyNames": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._\\/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._\\/-]{0,62}$"
+              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
+              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
             }
           },
           "ttlSeconds": {
@@ -2721,14 +2721,14 @@
             "patternProperties": {
               "": {
                 "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:\\/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:\\/-]{0,63}$"
+                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
+                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
               }
             },
             "propertyNames": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._\\/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._\\/-]{0,62}$"
+              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
+              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
             }
           },
           "createdAt": {
@@ -2838,14 +2838,14 @@
             "patternProperties": {
               "": {
                 "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:\\/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:\\/-]{0,63}$"
+                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
+                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
               }
             },
             "propertyNames": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._\\/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._\\/-]{0,62}$"
+              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
+              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
             }
           },
           "createdAt": {
