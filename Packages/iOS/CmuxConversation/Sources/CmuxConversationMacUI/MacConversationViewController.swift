@@ -572,9 +572,25 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func presentUndoSend(for message: ConversationMessage) {
+        guard let (alert, actions) = makeUndoSendAlert(for: message) else { return }
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            guard index >= 0, index < actions.count else { return }
+            actions[index]()
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
+    }
+
+    /// The alert and one action per button before Cancel; nil when the
+    /// message can be neither unsent nor edited.
+    func makeUndoSendAlert(for message: ConversationMessage) -> (NSAlert, [() -> Void])? {
         let canUnsend = store.canUnsend(message)
         let canEdit = store.canEdit(message)
-        guard canUnsend || canEdit else { return }
+        guard canUnsend || canEdit else { return nil }
         let alert = NSAlert()
         if canUnsend {
             alert.messageText = String(localized: "conversation.undoSend.title", defaultValue: "Undo Send?", bundle: .module)
@@ -599,16 +615,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             actions.append { [weak self] in self?.store.unsend(messageID: messageID) }
         }
         alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))
-        let handle: (NSApplication.ModalResponse) -> Void = { response in
-            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-            guard index >= 0, index < actions.count else { return }
-            actions[index]()
-        }
-        if let window = view.window {
-            alert.beginSheetModal(for: window, completionHandler: handle)
-        } else {
-            handle(alert.runModal())
-        }
+        return (alert, actions)
     }
 
     private func confirmDelete(_ model: MacMessageRowModel) {

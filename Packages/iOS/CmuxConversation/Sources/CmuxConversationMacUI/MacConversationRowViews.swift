@@ -695,7 +695,7 @@ final class MacTimestampRowView: MacFlippedView {
             if let range = failure.range(of: "(!)"),
                let symbol = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)?
                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: MacConversationTheme.timestampFont.pointSize, weight: .regular)
-                       .applying(NSImage.SymbolConfiguration(paletteColors: [.systemRed]))) {
+                       .applying(NSImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))) {
                 text.append(NSAttributedString(string: String(failure[..<range.lowerBound]), attributes: red))
                 let attachment = NSTextAttachment()
                 attachment.image = symbol

@@ -133,19 +133,20 @@ public enum ConversationPopEffect {
             return
         }
 
+        // The snapshot swells until the break, then is gone (its model
+        // opacity is 0 once the animation ends).
         let breakTime = duration * swellFraction
-        let swell = CAKeyframeAnimation(keyPath: "transform.scale")
-        swell.values = [1, swellScale, swellScale]
-        swell.keyTimes = [0, NSNumber(value: swellFraction), 1]
-        swell.duration = duration
-        let vanish = CAKeyframeAnimation(keyPath: "opacity")
-        vanish.values = [1, 1, 0, 0]
-        vanish.keyTimes = [0, NSNumber(value: swellFraction - 0.001), NSNumber(value: swellFraction), 1]
-        vanish.calculationMode = .discrete
-        vanish.duration = duration
+        let swell = CABasicAnimation(keyPath: "transform.scale")
+        swell.fromValue = 1
+        swell.toValue = swellScale
+        swell.duration = breakTime
+        let hold = CABasicAnimation(keyPath: "opacity")
+        hold.fromValue = 1
+        hold.toValue = 1
+        hold.duration = breakTime
         let snapshotGroup = CAAnimationGroup()
-        snapshotGroup.animations = [swell, vanish]
-        snapshotGroup.duration = duration
+        snapshotGroup.animations = [swell, hold]
+        snapshotGroup.duration = breakTime
         snapshot.opacity = 0
         snapshot.add(snapshotGroup, forKey: "pop")
 
@@ -192,7 +193,6 @@ public enum ConversationPopEffect {
             group.animations = [move, spin, shrink, fade]
             group.beginTime = start
             group.duration = life
-            group.fillMode = .both
             for animation in group.animations ?? [] { animation.duration = life }
             layer.add(group, forKey: "pop")
         }
