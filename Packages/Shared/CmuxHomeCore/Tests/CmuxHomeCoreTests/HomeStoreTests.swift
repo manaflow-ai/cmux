@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 @MainActor
@@ -10,11 +11,6 @@ import Testing
         store.start()
         await waitUntil { store.isOnline && !store.rows.isEmpty }
         return (store, source)
-    }
-
-    /// Waits on observation changes, never on a clock.
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
     @Test func chiefIsPinnedFirst() async {
@@ -96,7 +92,7 @@ import Testing
     @Test func typingIsSentButNeverLogged() async throws {
         let store = HomeStore(source: MockHomeSource(options: .immediate))
         store.start()
-        for _ in 0..<200 where !store.isOnline { await Task.yield() }
+        await waitUntil { store.isOnline }
         try await store.perform(.setTyping(conversation: ConversationID("conv_aziz"), on: true))
         #expect(store.log.isEmpty)
     }
