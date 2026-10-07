@@ -54,6 +54,26 @@ import Testing
         #expect(alphaAt(rep.pixelsHigh / 2) > 0, "selection fill did not render")
     }
 
+    @Test func conversationSectionHeadersHaveNoNativeBackgroundOrDivider() throws {
+        let row = HomeConversationTableRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        row.isGroupRow = true
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 240, pixelsHigh: 24,
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bitmapFormat: [], bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        context.cgContext.clear(row.bounds)
+        row.drawBackground(in: row.bounds)
+        row.drawSeparator(in: row.bounds)
+        context.flushGraphics()
+        for y in 0..<rep.pixelsHigh {
+            #expect(rep.colorAt(x: rep.pixelsWide / 2, y: y)?.alphaComponent == 0)
+        }
+    }
+
     @Test func chiefConversationRowsUseTheRegistryMarkAndKeepTheirChromeBreathingRoom() throws {
         let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         list.update(rows: HomeConversationListTests.rows, me: HomeConversationListTests.me)
