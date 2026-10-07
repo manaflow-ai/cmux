@@ -1706,6 +1706,7 @@
     "user.text_confirm.level.set",
     "user.text_confirm.lower",
     "user.text_confirm.lower.challenge",
+    "workspace.agent_folder.set",
     "workspace.close"
   ]
 }

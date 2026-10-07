@@ -14,6 +14,8 @@ nonisolated enum FocusReducer {
         switch event {
         case .topology(let topology):
             applyTopology(topology, to: &next, effects: &effects)
+        case .restoredPane(let pane, let workspace):
+            if next.remembered[workspace] == nil, workspace != next.topology.workspace { remember(pane, in: workspace, &next) }
         case .focusPane(let pane, let workspace, let source):
             if source.isUserIntent { bump(&next) }
             if let workspace, workspace != next.topology.workspace {
