@@ -69,6 +69,7 @@ impl HostAttachment {
             token: encode_hex(&payload),
             rights: CapabilityRights::RENDERER,
             protocol_version: self.protocol_version,
+            supports_viewer_size_priority: self.record.supports_viewer_size_priority,
         })
     }
 }

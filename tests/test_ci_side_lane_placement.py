@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Side-lane placement: trusted jobs stay on the owned side label while minis drain.
+"""Side-lane placement: trusted jobs use a live side label or the std pool.
 
-Side-lane workflows have no picker. Their macOS jobs took vars.CI_SIDE_LANE_RUNNER
-on attempt 1 blindly, so a busy fleet left them queued until the owned-pool
-rescue cancelled the run and re-ran it on Blacksmith (cmux-next.yml, 2026-10-02:
-49 of 60 runs needed attempt 2). scripts/ci/side_lane_placement.py records the
-idle runners for observability, but a busy fleet remains queued on the owned
-label. The rescue supplies the measured overflow boundary.
+Side-lane workflows have no picker. Their macOS jobs use the live side label
+when it exists, and fall back to the owned std pool label when no online runner
+carries the side label. A busy side label remains queued for the rescue budget.
 """
 from __future__ import annotations
 
@@ -28,7 +25,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 SIDE = "glaeda-side-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 FALLBACK = "blacksmith-6vcpu-macos-26"
-JOBS = ("cmux-scheme-compile", "release-compile", "swift-test")
+JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -70,12 +67,20 @@ class Decide(unittest.TestCase):
         runners = [runner("mini-a-glaeda-3"), runner("mini-b-glaeda-3", busy=True)]
         self.assertEqual(placement.decide(env(), runners)[:2], (JOBS[:1], ()))
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abcd"]
-        self.assertEqual(placement.decide(env(), idle)[:2], (JOBS, ()))
+        self.assertEqual(placement.decide(env(), idle)[:2], (JOBS[:4], ()))
 
     def test_only_runners_carrying_the_side_label_count(self):
         # A root runner of the same mini (std label, no side label) is not a side runner.
         runners = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-26.6")), runner("mini-a-glaeda-3")]
         self.assertEqual(placement.decide(env(), runners)[:2], (JOBS[:1], ()))
+
+    def test_route_falls_back_to_the_owned_pool_when_side_label_is_absent(self):
+        runners = [runner("mini-a-glaeda", labels=(STD,)),
+                   runner("mini-b-glaeda", labels=(STD,), busy=True)]
+        self.assertEqual(placement.route_label(SIDE, runners), STD)
+
+    def test_route_keeps_side_label_when_any_online_runner_carries_it(self):
+        self.assertEqual(placement.route_label(SIDE, [runner("mini-a-glaeda")]), SIDE)
 
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
@@ -110,6 +115,7 @@ class Decide(unittest.TestCase):
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
             self.assertEqual(lines["fallback_jobs"], "")
+            self.assertEqual(lines["runner"], SIDE)
             self.assertEqual(lines["watch"], "true")
             # Every job on the fallback: no owned job for the rescue to watch.
             output.write_text("")
@@ -117,82 +123,123 @@ class Decide(unittest.TestCase):
             with mock.patch.object(placement.pool, "GitHub", return_value=fake):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            self.assertEqual((lines["owned_jobs"], lines["fallback_jobs"], lines["watch"]), ("", "", "true"))
+            self.assertEqual((lines["owned_jobs"], lines["fallback_jobs"], lines["runner"], lines["watch"]),
+                             ("", "", STD, "true"))
             # Unreadable: no decision, today's route, watched.
             output.write_text("")
             fake.runners.side_effect = RuntimeError("HTTP 403")
             with mock.patch.object(placement.pool, "GitHub", return_value=fake):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            self.assertEqual((lines["fallback_jobs"], lines["watch"]), ("", "true"))
+            self.assertEqual((lines["fallback_jobs"], lines["runner"], lines["watch"]), ("", "", "true"))
 
 
 class CmuxNextWiring(unittest.TestCase):
-    """cmux-next's Mac jobs go straight to the side label; no placement job sits before them.
-
-    The placement job's fallback_jobs output was read by no runs-on, so it was a
-    Linux hop on every run's critical path. Its one real effect, the opt-in
-    owned-pool watch marker, moved into path_route.
-    """
-    MAC_JOBS = (*JOBS, "daemon-test", "generated-files")
+    PLACEMENT = "macos-placement"
 
     def workflow(self) -> dict:
         return yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8"))
 
-    def context(self, attempt: str = "1", fork: bool = False, triggering_actor: str = "teamleaderleo",
-                rescue: str = "1", macos: str = "true") -> dict:
+    def context(self, attempt: str = "1", fallback_jobs: str | None = "", runner: str = "",
+                fork: bool = False,
+                triggering_actor: str = "teamleaderleo") -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
-                                 CI_SIDE_LANE_RUNNER=SIDE, CMUX_NEXT_POOL_RESCUE=rescue)
+                                 CI_SIDE_LANE_RUNNER=SIDE)
         context["vars"].pop("MACOS_RUNNER_PR")
         head = "someone/cmux" if fork else "manaflow-ai/cmux"
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                  triggering_actor=triggering_actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
-        context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": macos}}}
-        context["steps"] = {"route": {"outputs": {"macos": macos}}}
-        workflow = self.workflow()
-        context["env"]["CMUX_NEXT_SIDE_ROUTE"] = evaluate(workflow["env"]["CMUX_NEXT_SIDE_ROUTE"], context)
+        outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
+        # path_route (#17164) gates every Mac job; these cases are native changes.
+        context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
+                                                            "swift": "true", "daemon": "true", "generated": "true"}},
+                            "push-head-preflight": {"outputs": {"current": "true"}},
+                            "same-tree-cmux-tui": {"result": "success", "outputs": {"superseded": "false"}},
+                            self.PLACEMENT: {"outputs": outputs}}
         return context
 
-    def test_mac_jobs_start_right_after_routing(self):
+    def test_every_mac_job_reads_the_placement(self):
         jobs = self.workflow()["jobs"]
-        self.assertNotIn("macos-placement", jobs)
-        for name in self.MAC_JOBS:
+        placement_job = jobs[self.PLACEMENT]
+        place = next(step for step in placement_job["steps"] if step.get("id") == "place")
+        self.assertIn("python3 scripts/ci/side_lane_placement.py", place["run"])
+        placed = tuple(place["env"]["JOBS"].split())
+        self.assertEqual(set(placed), set(JOBS))
+        for name in placed:
             job = jobs[name]
             with self.subTest(job=name):
-                self.assertNotIn("macos-placement", job["needs"])
-                self.assertIn("path_route", job["needs"])
+                self.assertIn(self.PLACEMENT, job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
+                # A failed placement job must not skip the Mac jobs: they keep today's route.
                 self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+                self.assertIn("needs.macos-placement.outputs.runner", job["runs-on"])
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
                 self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
 
-    def test_trusted_attempts_stay_on_the_side_label_until_overflow(self):
+    def test_trusted_attempts_use_the_live_route_until_overflow(self):
         jobs = self.workflow()["jobs"]
-        for name in self.MAC_JOBS:
+        for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context()), SIDE)
+                # A live side label remains preferred; no live side label routes to the std pool.
+                self.assertEqual(evaluate(runs_on, self.context(runner=SIDE)), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context(runner=STD)), STD)
+                # Skipped or unreadable placement keeps today's configured route.
+                self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("2")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), SIDE)
                 # The rescue's third attempt is the measured overflow route.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
+                                                                 triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
-    def test_the_watch_marker_is_opt_in_and_only_where_mac_jobs_take_the_side_label(self):
-        route = self.workflow()["jobs"]["path_route"]["steps"]
-        mark = next(step for step in route if step.get("id") == "marker")
-        self.assertTrue(evaluate(mark["if"], self.context()))
+    def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
+        # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
+        jobs = self.workflow()["jobs"]
+        gate = jobs[self.PLACEMENT]["if"]
+        self.assertTrue(evaluate(gate, self.context()))
         push = self.context()
         push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
-        push["env"]["CMUX_NEXT_SIDE_ROUTE"] = evaluate(self.workflow()["env"]["CMUX_NEXT_SIDE_ROUTE"], push)
-        self.assertTrue(evaluate(mark["if"], push))
-        for why, context in {"rescue not opted in": self.context(rescue=""), "fork": self.context(fork=True),
-                             "attempt 2": self.context("2"), "no Mac work": self.context(macos="false")}.items():
-            self.assertFalse(evaluate(mark["if"], context), why)
-        upload = next(step for step in route if step.get("uses", "").startswith("actions/upload-artifact"))
+        self.assertTrue(evaluate(gate, push))
+        other_owner = self.context()
+        other_owner["github"]["repository_owner"] = "someone"
+        owned_off = self.context()
+        owned_off["vars"]["CI_PR_POOL_OWNED"] = "0"
+        dispatch_elsewhere = self.context()
+        dispatch_elsewhere["github"].update(event_name="workflow_dispatch", ref="refs/heads/main")
+        no_mac_work = self.context()
+        no_mac_work["needs"]["path_route"]["outputs"].update(native="false", macos="false")
+        for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
+                             "attempt 3": self.context("3"), "another owner": other_owner,
+                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere,
+                             "no Mac work on the path route": no_mac_work}.items():
+            self.assertFalse(evaluate(gate, context), why)
+        # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
+        # every context above that skips it routes every Mac job to the fallback.
+        for name in JOBS:
+            runs_on = jobs[name]["runs-on"]
+            for why, context in {"fork": self.context(fork=True), "attempt 3": self.context("3", triggering_actor="github-actions[bot]"),
+                                 "another owner": other_owner, "owned pools off": owned_off}.items():
+                context["needs"] = {}  # the skipped placement has no outputs
+                self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
+            # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
+            self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
+            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
+
+    def test_the_watch_marker_follows_the_placement(self):
+        steps = self.workflow()["jobs"][self.PLACEMENT]["steps"]
+        names = [step.get("name") for step in steps]
+        mark = next(step for step in steps if step.get("id") == "marker")
+        # The marker comes after the placement and skips a run with every job on the fallback.
+        self.assertLess(names.index(next(step["name"] for step in steps if step.get("id") == "place")),
+                        names.index(mark["name"]))
+        self.assertIn("steps.place.outputs.watch != 'false'", mark["if"])
+        upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact"))
         self.assertEqual(upload["with"]["name"], "owned-pool-watch")
-        self.assertEqual(upload["if"], "${{ steps.marker.outputs.path != '' }}")
+        checks = self.workflow()["jobs"]["checks"]["steps"]
+        self.assertFalse(any(step.get("with", {}).get("name") == "owned-pool-watch" for step in checks))
 
     def test_a_re_push_cancels_each_superseded_job_not_the_whole_run(self):
         workflow = self.workflow()
@@ -205,6 +252,7 @@ class CmuxNextWiring(unittest.TestCase):
                 group = job["concurrency"]["group"]
                 self.assertEqual(group, "cmux-next-${{ github.event.pull_request.number || github.run_id }}-" + name)
                 self.assertEqual(job["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+
 
 if __name__ == "__main__":
     unittest.main()
