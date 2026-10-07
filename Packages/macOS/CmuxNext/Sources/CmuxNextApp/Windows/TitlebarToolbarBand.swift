@@ -9,7 +9,11 @@ import Observation
 /// not in the sidebar that animates), then the band's other items. A
 /// strip under it starts its tabs after it (`TitlebarAccessoryHosting`).
 final class TitlebarToolbarBand: NSView {
-    let sidebarToggle = TitlebarBandButton(symbol: "sidebar.left")
+    let sidebarToggle = TitlebarBandButton(symbol: TitlebarToolbarBand.collapseSymbol)
+    /// The toggle's glyph while the sidebar shows: collapse it to the left.
+    static let collapseSymbol = "rectangle.lefthalf.inset.filled.arrow.left"
+    /// The toggle's glyph while the sidebar is hidden: the sidebar.
+    static let expandSymbol = "sidebar.left"
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
@@ -65,6 +69,12 @@ final class TitlebarToolbarBand: NSView {
     /// retargets from what is on screen.
     @objc func toggle() { onToggleSidebar?() }
 
+    /// The toggle's glyph follows the sidebar: collapse-left while it
+    /// shows, the sidebar glyph while it is hidden (Leo, T3 Code ref).
+    func showSidebarState(hidden: Bool) {
+        sidebarToggle.symbol = hidden ? Self.expandSymbol : Self.collapseSymbol
+    }
+
     /// The band's width for its items: the toggle first (its frame is the
     /// band's origin and never moves), then Back and Forward.
     static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space1 * 2 }
@@ -107,7 +117,10 @@ final class TitlebarToolbarBand: NSView {
 /// An icon button of the toolbar band: the chrome's hover and pressed look.
 final class TitlebarBandButton: NSButton {
     static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    private let symbol: String
+    /// The SF Symbol it draws.
+    var symbol: String {
+        didSet { if symbol != oldValue { renderedIconSize = 0; renderSymbol() } }
+    }
     private var renderedIconSize: CGFloat = 0
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
 

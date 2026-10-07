@@ -1533,10 +1533,11 @@ fi
 # stale or missing copy (cx-vn5). A warm tree skips the build in about a second.
 # Until the committed copies are deleted, a host without the pinned bun or
 # node (fleet hosts before the recipe provides them) warns and builds with the
-# committed bundles.
+# committed bundles: CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 makes a missing tool a
+# warning, so the log shows no "error:" line that is not the build's failure.
 if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
   echo "==> cmux-next: web bundles"
-  if ! "$PWD/scripts/cmux-next/build-web-bundles.sh"; then
+  if ! CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 "$PWD/scripts/cmux-next/build-web-bundles.sh"; then
     echo "warning: the web bundles were not built from the sources (error above); this build ships the committed bundles" >&2
   fi
 fi
