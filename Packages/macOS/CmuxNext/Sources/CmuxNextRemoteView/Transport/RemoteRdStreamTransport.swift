@@ -3,19 +3,6 @@ import CmuxNextWakeups
 import Network
 import Synchronization
 
-/// A development host on this Mac's loopback interface (remote-desktop.md
-/// 11.0: phase-1 hosts listen only on loopback). The transport connects to a
-/// literal 127.0.0.1, never a resolved name.
-public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
-    public let port: UInt16
-
-    /// Nil for a privileged port (the host refuses ports below 1024 too).
-    public init?(port: UInt16) {
-        guard port >= 1024 else { return nil }
-        self.port = port
-    }
-}
-
 /// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
 /// connection carries control JSON and datagrams as `u8 type, u32 len`
 /// frames (until the overlay datagram service carries media). The shared Rust
@@ -28,17 +15,22 @@ public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
 /// contract; the pane drives it through `RemoteUpstreamControl`.
 public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, RemoteUpstreamControl {
     private let endpoint: RemoteRdLoopbackEndpoint
-    private let hello: RemoteRdHello
+    // internal for the +Service extension file
+    let hello: RemoteRdHello
     private let startKey: String
     private let control: Bool
     private let nowMicros: @Sendable () -> UInt64
-    private let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
+    // internal for the +Service extension file
+    let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
-    private let state: Mutex<Continuations>
+    // internal for the +Service extension file
+    let state: Mutex<Continuations>
+    // internal for the +Service extension file
     // crash-allow: confined to the serial `queue`; every access runs in a queue block or an NWConnection callback started on it.
-    private nonisolated(unsafe) let engine: Engine
+    nonisolated(unsafe) let engine: Engine
 
-    private struct Continuations {
+    // internal for the +Service extension file
+    struct Continuations {
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
@@ -48,7 +40,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     /// Queue-confined session state: the Rust core, the input channel, the
     /// handshake and the connection.
-    private nonisolated final class Engine {
+    // internal for the +Service extension file
+    nonisolated final class Engine {
         let core: RemoteRdCore
         let input: RemoteRdInput
         var handshake: RemoteRdHandshake
@@ -130,66 +123,6 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             }
             pump()
         }
-    }
-
-    // MARK: Service (rd changes B3.2 and C2)
-
-    /// The bodies of the session service's control messages (`service`
-    /// messages whose service is the hello's), in order and never dropped.
-    /// Subscribe before `connect()`: bodies that arrive with no subscriber
-    /// are not kept. A new call finishes the previous stream.
-    public func serviceMessages() -> AsyncStream<RemoteRdJSON> {
-        // concurrency-allow: rb/1 control bodies (page state, menus, dialogs), not frames; the session drains them at once into its reducer, and a dropped body would desync it
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdJSON.self, bufferingPolicy: .unbounded)
-        let previous = state.withLock { state in
-            defer { state.services = continuation }
-            return state.services
-        }
-        previous?.finish()
-        return stream
-    }
-
-    /// Sends one control message of the session's service (`body` is an
-    /// rb/1 message such as `rb.navigate`). Dropped after the session ended.
-    public func sendService(_ body: RemoteRdJSON) {
-        queue.async { [self] in
-            guard !engine.handshake.isEnded else { return }
-            sendControl(.service(service: hello.service, body: body))
-        }
-    }
-
-    /// Queues one service input event (opaque bytes, tag 0x80) and returns
-    /// its rd input sequence number, which the service's answers name (rb's
-    /// `rb.key_unhandled {input_seq}`). Nil before the welcome, after the
-    /// end, when the host's welcome does not list `input.service`, or for
-    /// bytes the core refuses. Waits for the transport queue, so call it
-    /// from outside that queue (the main actor).
-    public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
-        dispatchPrecondition(condition: .notOnQueue(queue))
-        return queue.sync { [self] in
-            guard !engine.handshake.isEnded,
-                  engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true,
-                  let seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
-            pump()
-            return seq
-        }
-    }
-
-    /// The rd cap that allows service input events (rd change C2).
-    public static let inputServiceCap = "input.service"
-    /// The remote browser tab service (`cmux.rb/1`, remote-tab-protocol.md).
-    public static let remoteBrowserService = "rb/1"
-
-    /// A transport for one remote browser tab: hello for service `rb/1` with
-    /// the `input.service` cap, in control mode. The rb session itself
-    /// (`rb.open`, menus, pages) runs over `serviceMessages` and
-    /// `sendService`; frames of the page arrive as access units.
-    public static func remoteBrowser(
-        endpoint: RemoteRdLoopbackEndpoint, user: String, install: String, token: String? = nil,
-        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
-    ) -> RemoteRdStreamTransport? {
-        let hello = RemoteRdHello(user: user, install: install, token: token, service: remoteBrowserService, caps: [inputServiceCap])
-        return RemoteRdStreamTransport(endpoint: endpoint, hello: hello, startKey: "tab", control: true, nowMicros: nowMicros)
     }
 
     // MARK: RemoteUpstreamControl
@@ -315,7 +248,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     /// Hands out ready frames and messages, sends due feedback and input, and
     /// arms the one timer for the next deadline.
-    private func pump() {
+    // internal for the +Service extension file
+    func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
         while let unit = try? engine.core.popAccessUnit(codec: .h264) {
@@ -392,7 +326,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
-    private func sendControl(_ control: RemoteRdControl) {
+    // internal for the +Service extension file
+    func sendControl(_ control: RemoteRdControl) {
         guard let json = try? control.json(), let frame = try? RemoteRdCore.streamFrame(json, control: true) else { return }
         sendRaw(frame)
     }
