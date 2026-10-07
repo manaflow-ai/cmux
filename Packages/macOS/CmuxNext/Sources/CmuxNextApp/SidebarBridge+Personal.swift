@@ -31,7 +31,7 @@ extension SidebarBridge {
                                                         group: .set(id))
                 }
             }
-        case .createGroup(let group, let name, let color, let ids, _):
+        case .createGroup(let group, let name, let color, let ids, _, _):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
             // Mixed order: the new group's place where the model formed it,
