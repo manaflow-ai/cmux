@@ -118,6 +118,26 @@ extension ConversationViewController {
         overlay.present()
     }
 
+    /// Opens a photo full screen. On iOS 18+ it zooms out of its bubble and
+    /// back, and swiping down dismisses interactively, as in Messages.
+    func presentPhotoViewer(from imageView: UIImageView) {
+        guard let image = imageView.image else { return }
+        dismissPhotoDrawer()
+        view.endEditing(true)
+        let viewer = ConversationPhotoViewerController(image: image)
+        viewer.modalPresentationStyle = .fullScreen
+        if #available(iOS 18.0, *) {
+            let options = UIViewController.Transition.ZoomOptions()
+            options.interactiveDismissShouldBegin = { [weak viewer] _ in viewer?.allowsInteractiveDismiss ?? true }
+            options.alignmentRectProvider = { [weak viewer] context in
+                guard let viewer else { return .zero }
+                return viewer.photoView.convert(viewer.photoView.bounds, to: context.zoomedViewController.view)
+            }
+            viewer.preferredTransition = .zoom(options: options) { [weak imageView] _ in imageView }
+        }
+        present(viewer, animated: true)
+    }
+
     func presentPhotoDrawer() {
         guard photoDrawer == nil else { return }
         view.endEditing(true)

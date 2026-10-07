@@ -153,6 +153,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             presentRetry(for: model)
             return
         }
+        if let imageView = cell.imageViews.first(where: { !$0.isHidden && $0.image != nil && $0.bounds.contains($0.convert(point, from: collectionView)) }) {
+            presentPhotoViewer(from: imageView)
+            return
+        }
         if !cell.reactionBadge.isHidden, cell.reactionBadge.frame.insetBy(dx: -6, dy: -6).contains(cell.shiftable.convert(local, from: cell)) {
             presentActions(for: model, cell: cell, mode: .reactionDetail)
             return
