@@ -1,5 +1,5 @@
-import AppKit
-import CmuxAgentQuestion
+public import AppKit
+public import CmuxAgentQuestion
 
 extension AgentQuestionCardView {
     /// The reducer input for a key the card owns, or nil to let it fall

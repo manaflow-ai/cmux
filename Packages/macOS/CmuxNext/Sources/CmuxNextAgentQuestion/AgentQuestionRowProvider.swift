@@ -1,5 +1,5 @@
-import AppKit
-import CmuxAgentQuestion
+public import AppKit
+public import CmuxAgentQuestion
 
 /// The question card as a transcript row, in the shape of the MessagesLab
 /// custom-row seam (measure, make, configure, height change): Home registers

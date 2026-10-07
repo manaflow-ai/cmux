@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Fonts and metrics of the question card at one text scale. Colors come
 /// from the theme at draw time (`AgentQuestionCardView.applyColors`); these

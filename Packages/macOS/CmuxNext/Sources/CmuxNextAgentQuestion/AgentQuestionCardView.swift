@@ -1,5 +1,5 @@
-import AppKit
-import CmuxAgentQuestion
+public import AppKit
+public import CmuxAgentQuestion
 import CmuxNextDesign
 
 /// The question card: one view for Home transcript rows, agent panes and the
@@ -146,6 +146,7 @@ public final class AgentQuestionCardView: NSView {
         for view in [chip, meta, prompt, previewBox, previewText, hint, skipButton, submitButton] as [NSView] {
             view.isHidden = !pending
         }
+        hint.isHidden = layout.hint == nil
         check.isHidden = layout.mode != .answered
         otherField.isHidden = layout.otherField == nil
         if pending { configurePending(state, layout) } else { rowViews.forEach { $0.isHidden = true } }

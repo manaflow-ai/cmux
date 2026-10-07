@@ -1,5 +1,5 @@
-import AppKit
-import CmuxAgentQuestion
+public import AppKit
+public import CmuxAgentQuestion
 
 /// Every frame of a question card for one (question, interaction state,
 /// width, style), in flipped coordinates (origin top left). The view draws
@@ -134,7 +134,11 @@ public struct AgentQuestionCardLayout: Equatable {
         skip = CGRect(x: width - p - submitWidth - style.size(6) - skipWidth, y: y, width: skipWidth, height: style.buttonHeight)
         let hintHeight = measure.lineHeight(style.metaFont)
         let hintWidth = max((skip?.minX ?? width) - p - style.gap, 0)
-        hint = CGRect(x: p, y: y + (style.buttonHeight - hintHeight) / 2, width: hintWidth, height: hintHeight)
+        let hintText = state.item.multiSelect ? strings.multiHint : strings.hint
+        // A key hint that does not fit is left out (the keycaps still show the numbers).
+        if measure.width(hintText, font: style.metaFont) <= hintWidth {
+            hint = CGRect(x: p, y: y + (style.buttonHeight - hintHeight) / 2, width: hintWidth, height: hintHeight)
+        }
         height = y + style.buttonHeight + p
     }
 

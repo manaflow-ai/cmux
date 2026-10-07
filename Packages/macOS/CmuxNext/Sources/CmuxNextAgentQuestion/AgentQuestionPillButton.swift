@@ -32,9 +32,10 @@ final class AgentQuestionPillButton: NSButton {
 
     func applyColors() {
         performWithTheme {
+            // The secondary fill is translucent by design: dim it, never make it opaque.
             let fill = isPrimary ? Palette.textPrimary : Palette.hoverFill
             let text = isPrimary ? Palette.windowBackground : Palette.textPrimary
-            layer?.backgroundColor = fill.withAlphaComponent(isEnabled ? 1 : 0.35).cgColor
+            layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * (isEnabled ? 1 : 0.35)).cgColor
             attributedTitle = NSAttributedString(string: title, attributes: [
                 .foregroundColor: text.withAlphaComponent(isEnabled ? 1 : 0.6),
                 .font: font ?? NSFont.systemFont(ofSize: 12, weight: .semibold),
