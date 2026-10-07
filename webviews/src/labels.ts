@@ -1,4 +1,4 @@
-// Generated from Resources/Localizable.xcstrings by scripts/pages/gen-strings.mjs.
+// Strings come from pages/diff/Localizable.xcstrings through scripts/pages/gen-strings.mjs.
 import english from "./pages/diff/generated/locales/en.json";
 import { diffLocaleLoaders } from "./pages/diff/generated/localeLoaders";
 import { resolveLanguage } from "./pages/shared/i18n";
