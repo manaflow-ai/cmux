@@ -14379,6 +14379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return notificationStore?.notifications.first(where: { $0.id == openedId })
     }
 
+    /// Installs the production responder guards plus the test window-routing override.
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
@@ -14404,6 +14405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Installs event routing and stale SwiftUI proxy guards once during application setup.
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle

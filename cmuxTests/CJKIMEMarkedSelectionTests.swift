@@ -17,6 +17,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
+    /// Creates an attached terminal with a live native surface and reconciled geometry for IME input.
     private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 

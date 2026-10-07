@@ -11,8 +11,12 @@ import ObjectiveC
 /// observer all walk the chain, so the crash surfaces from many call sites.
 ///
 /// While the proxy is attached, its host is its superview and that is the value `nextResponder`
-/// returns. A freed host clears its subviews' `superview`, so a proxy with no superview cannot
-/// reach a live host. The guard ends the chain there and leaves attached proxies untouched.
+/// returns. A freed host clears its subviews' `superview`, so forwarding from a detached proxy
+/// is unsafe. The guard conservatively ends the chain while detached, including during a
+/// temporary detach from a still-live host, and leaves attached proxies untouched.
+///
+/// Focus recovery belongs to window event routing. This getter must not change first responder
+/// while AppKit or SwiftUI is traversing the responder chain.
 enum SwiftUIKeyViewProxyResponderGuard {
     private static let proxyClassName = "SwiftUI.KeyViewProxy"
 

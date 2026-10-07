@@ -26,10 +26,12 @@ import Testing
         }
     }
 
+    /// Identifies the private proxy class so the fixture cannot silently test a different responder.
     private func isKeyViewProxy(_ view: NSView) -> Bool {
         String(cString: class_getName(type(of: view))) == "SwiftUI.KeyViewProxy"
     }
 
+    /// Requests keyboard focus before waiting for SwiftUI's lazily created focus proxy.
     private func focusProxy(in window: NSWindow, host: NSView) async throws -> NSView {
         host.layoutSubtreeIfNeeded()
         // SwiftUI can create its proxy lazily when keyboard focus is requested.
@@ -79,6 +81,7 @@ import Testing
         return proxy
     }
 
+    /// Exercises responder-chain access only after the proxy's unowned host has deallocated.
     @Test func walkingAProxyThatOutlivedItsHostEndsTheChain() async throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         let proxy = try await makeProxyThatOutlivedItsHost()
@@ -87,6 +90,7 @@ import Testing
         #expect(proxy.nextResponder == nil)
     }
 
+    /// Verifies that the guard preserves responder forwarding while the hosting view is alive.
     @Test func attachedProxyStillForwardsToItsHost() async throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         let window = NSWindow(

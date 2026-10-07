@@ -12,6 +12,7 @@ actor CloudFilePreviewCache {
     private var cleanupTask: Task<Void, Never>?
     private var refreshTasks: [URL: Task<Void, Error>] = [:]
 
+    /// Reserves a unique cache root without creating files or scanning until a preview is requested.
     init(directory: URL = FileManager.default.temporaryDirectory, maximumEntries: Int = 32) {
         let owner = ProcessInfo.processInfo.processIdentifier
         root = directory.appendingPathComponent(
@@ -21,6 +22,7 @@ actor CloudFilePreviewCache {
         self.maximumEntries = maximumEntries
     }
 
+    /// Removes old preview directories owned by exited processes, preserving every live owner's files.
     private static func removeStaleDirectories(in directory: URL) {
         guard !Task.isCancelled else { return }
         guard let urls = try? FileManager.default.contentsOfDirectory(
@@ -44,6 +46,7 @@ actor CloudFilePreviewCache {
         }
     }
 
+    /// Downloads a read-only preview held by a lease and starts this cache's one-time stale-file cleanup.
     func materialize(path: String, provider: any RemoteFileExplorerProvider) async throws -> CloudFilePreviewLease {
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
