@@ -59,7 +59,11 @@ public struct BrowserReplPageURL: Sendable, Equatable {
 
 /// The terms of a `history.search` query. The history is the user's and
 /// every session's, so no reader gets its URLs as written
-/// (``BrowserReplPageURL/creator`` is nil for every entry).
+/// (``BrowserReplPageURL/creator`` is nil for every entry), and a term is
+/// matched only against the URL as the reader gets it
+/// (``BrowserReplPageURL/credentialFree``): matched against the URL as
+/// written, whether a row comes back would tell the reader whether a
+/// guessed token, password or signature is in it.
 public struct BrowserReplHistoryQuery: Sendable, Equatable {
     /// The lowercased, non-empty terms; an entry matches when any term is in
     /// its URL or its title. No term matches every entry.
@@ -72,7 +76,7 @@ public struct BrowserReplHistoryQuery: Sendable, Equatable {
     /// Whether the entry at `url` titled `title` matches.
     public func matches(url: String, title: String?) -> Bool {
         guard !terms.isEmpty else { return true }
-        let url = url.lowercased()
+        let url = BrowserReplPageURL(url, creator: nil).credentialFree.lowercased()
         let title = (title ?? "").lowercased()
         return terms.contains { url.contains($0) || title.contains($0) }
     }
