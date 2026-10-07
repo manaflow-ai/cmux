@@ -183,6 +183,10 @@ public final class ConversationStore {
     /// Inserts or merges a message. Returns true when a new row appeared.
     @discardableResult
     private func upsert(_ incoming: ConversationMessage) -> Bool {
+        // Deleted on this device: no update, ack or refetch brings it back.
+        if deletedMessageIDs.contains(incoming.id) || incoming.clientMessageID.map(deletedClientIDs.contains) == true {
+            return false
+        }
         if let index = indexByID[incoming.id] {
             messages[index] = merged(existing: messages[index], incoming: incoming)
             return false
@@ -214,6 +218,14 @@ public final class ConversationStore {
         }
         if incoming.attachments.isEmpty, !existing.attachments.isEmpty, incoming.seq == nil {
             result.attachments = existing.attachments
+        }
+        // Unsending is final: a stale echo of the original never brings the
+        // text back (a refused unsend restores the original directly).
+        if let unsentAt = existing.unsentAt, incoming.unsentAt == nil {
+            result.unsentAt = unsentAt
+            result.text = ""
+            result.attachments = []
+            result.reactions = []
         }
         return result
     }
@@ -385,7 +397,7 @@ public final class ConversationStore {
     private func applyOlder(_ page: ConversationHistoryPage, expectedOldest: Int) {
         olderWanted = false
         var inserted = false
-        for message in page.messages where indexByID[message.id] == nil {
+        for message in page.messages where indexByID[message.id] == nil && !deletedMessageIDs.contains(message.id) {
             guard let seq = message.seq, seq < expectedOldest else { continue }
             messages.append(message)
             inserted = true
@@ -453,13 +465,29 @@ public final class ConversationStore {
 
     /// Removes a failed local send (never acknowledged by the server).
     public func discardFailed(rowID: String) {
-        guard let index = messages.firstIndex(where: { $0.rowID == rowID }),
-              messages[index].seq == nil, messages[index].delivery?.isFailed == true else { return }
-        failedAnchorSeq[messages[index].id] = nil
-        messages.remove(at: index)
-        sortAndReindex()
-        notify(.live(insertedRowIDs: [], sentByMe: true))
+        guard let message = message(rowID: rowID), message.seq == nil, message.delivery?.isFailed == true else { return }
+        deleteLocally(rowIDs: [rowID])
     }
+
+    /// Delete for me (select mode's trash, a failed send's Delete): the rows
+    /// leave this device's transcript for good; nothing is sent. A send still
+    /// in flight is dropped when its ack arrives.
+    public func deleteLocally(rowIDs: Set<String>) {
+        let doomed = messages.filter { rowIDs.contains($0.rowID) }
+        guard !doomed.isEmpty else { return }
+        for message in doomed {
+            deletedMessageIDs.insert(message.id)
+            if let clientID = message.clientMessageID { deletedClientIDs.insert(clientID) }
+            failedAnchorSeq[message.id] = nil
+            unsendOriginals[message.id] = nil
+        }
+        messages.removeAll { rowIDs.contains($0.rowID) }
+        sortAndReindex()
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+    }
+
+    private var deletedMessageIDs: Set<String> = []
+    private var deletedClientIDs: Set<String> = []
 
     /// The previous send's work; each send waits for it so the server numbers
     /// messages in the order they were sent (it assigns seq on arrival).
@@ -527,7 +555,7 @@ public final class ConversationStore {
     public static let editWindow: TimeInterval = 15 * 60
 
     public func canEdit(_ message: ConversationMessage, now: Date = Date()) -> Bool {
-        message.senderID == meID && message.seq != nil && message.attachments.isEmpty
+        message.senderID == meID && message.seq != nil && message.attachments.isEmpty && !message.isUnsent
             && now.timeIntervalSince(message.sentAt) < Self.editWindow
     }
 
@@ -549,6 +577,42 @@ public final class ConversationStore {
                 self.messages[index] = original
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: true))
+        }
+    }
+
+    /// Messages lets you take a message back for 2 minutes after sending.
+    public static let undoSendWindow: TimeInterval = 2 * 60
+
+    public func canUnsend(_ message: ConversationMessage, now: Date = Date()) -> Bool {
+        message.senderID == meID && message.seq != nil && !message.isUnsent
+            && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
+    }
+
+    /// The pre-unsend message, kept until the backend confirms.
+    private var unsendOriginals: [String: ConversationMessage] = [:]
+
+    /// Undo Send: the bubble becomes a notice at once; the original comes
+    /// back if the backend refuses (for example, the window closed).
+    public func unsend(messageID: String) {
+        guard let index = indexByID[messageID], canUnsend(messages[index]) else { return }
+        unsendOriginals[messageID] = messages[index]
+        messages[index].unsentAt = Date()
+        messages[index].text = ""
+        messages[index].attachments = []
+        messages[index].reactions = []
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await self.backend.unsend(messageID: messageID)
+                self.unsendOriginals[messageID] = nil
+                self.upsert(updated)
+            } catch {
+                guard let original = self.unsendOriginals.removeValue(forKey: messageID),
+                      let index = self.indexByID[messageID] else { return }
+                self.messages[index] = original
+            }
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
         }
     }
 

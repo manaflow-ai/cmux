@@ -38,6 +38,7 @@ interface Message {
   replyToId?: string;
   replyCount: number;
   editedAt?: number;
+  unsentAt?: number;
   reactions: { participantId: string; reaction: Reaction }[];
   attachments: AttachmentRef[];
   status?: "sent" | "delivered" | "read";
@@ -395,6 +396,7 @@ function wireMessage(m: Message, base: string) {
   if (m.clientMessageId) out.clientMessageId = m.clientMessageId;
   if (m.replyToId) out.replyToId = m.replyToId;
   if (m.editedAt) out.editedAt = m.editedAt;
+  if (m.unsentAt) out.unsentAt = m.unsentAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
   return out;
@@ -478,6 +480,19 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       await sleep(lat(120, 600));
       m.text = p.text;
       m.editedAt = Date.now();
+      store.emit("message.updated", m);
+      return { message: wireMessage(m, conn.base) };
+    }
+    case "unsend": {
+      const m = store.byId.get(p?.messageId);
+      if (!m) throw invalid("unknown messageId");
+      if (m.senderId !== ME.id) throw invalid("can only unsend my messages");
+      if (Date.now() - m.sentAt > 2 * 60_000) throw new RpcError(-32003, "undo send window closed");
+      await sleep(lat(120, 600));
+      m.unsentAt = Date.now();
+      m.text = "";
+      m.attachments = [];
+      m.reactions = [];
       store.emit("message.updated", m);
       return { message: wireMessage(m, conn.base) };
     }

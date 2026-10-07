@@ -46,6 +46,11 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
 
+    public func unsend(messageID: String) async throws -> ConversationMessage {
+        let result = try await core.request("unsend", params: JSONBox(["messageId": messageID]), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
     public func setTyping(_ isTyping: Bool) async {
         _ = try? await core.request("typing", params: JSONBox(["isTyping": isTyping]), timeout: .seconds(5))
     }
@@ -316,6 +321,7 @@ enum WireDecoding {
             replyToID: raw["replyToId"] as? String,
             replyCount: raw["replyCount"] as? Int ?? 0,
             editedAt: date(raw["editedAt"]),
+            unsentAt: date(raw["unsentAt"]),
             reactions: reactions,
             attachments: attachments,
             delivery: delivery

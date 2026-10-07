@@ -326,6 +326,21 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         return message
     }
 
+    private var _failNextUnsend = false
+    var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
+
+    func unsend(messageID: String) async throws -> ConversationMessage {
+        let fail = lock.withLock { () -> Bool in
+            defer { _failNextUnsend = false }
+            return _failNextUnsend
+        }
+        if fail { throw ConversationBackendError(code: -32003, message: "too late") }
+        var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
+        message.text = ""
+        message.unsentAt = Date()
+        return message
+    }
+
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
@@ -455,5 +470,103 @@ extension ConversationStoreWindowTests {
         store.apply(.message(later, eventSeq: 1))
         #expect(store.messages.last?.id == "m4")
         #expect(store.messages[store.messages.count - 2].rowID == rowID)
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreUnsendDeleteTests {
+    private func loadedStore(_ backend: ScriptedBackend) async throws -> ConversationStore {
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        return store
+    }
+
+    @Test func undoSendTakesBackMyMessageAtOnceWithinTwoMinutes() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = try await loadedStore(backend)
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date().addingTimeInterval(-30)
+        store.apply(.message(mine, eventSeq: 1))
+        #expect(store.canUnsend(mine))
+        #expect(!store.canUnsend(mine, now: mine.sentAt.addingTimeInterval(ConversationStore.undoSendWindow + 1)))
+        #expect(!store.canUnsend(backend.makeMessage(seq: 5, sender: "lc")))
+
+        store.unsend(messageID: "m7")
+        let unsent = try #require(store.message(id: "m7"))
+        #expect(unsent.isUnsent)
+        #expect(unsent.text.isEmpty)
+        // The row stays (as a notice) and can't be edited or unsent again.
+        #expect(store.messages.count == 7)
+        #expect(!store.canEdit(unsent))
+        #expect(!store.canUnsend(unsent))
+        // A late echo of the original text must not resurrect it.
+        var echo = mine
+        echo.reactions = [ConversationReactionMark(participantID: "lc", reaction: .heart)]
+        store.apply(.message(echo, eventSeq: 2))
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        #expect(store.message(id: "m7")?.text.isEmpty == true)
+    }
+
+    @Test func refusedUndoSendRestoresTheMessage() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = try await loadedStore(backend)
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        backend.failNextUnsend = true
+        store.unsend(messageID: "m7")
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        try await waitUntil { store.message(id: "m7")?.isUnsent == false }
+        #expect(store.message(id: "m7")?.text == "message 7")
+    }
+
+    @Test func deletingSelectedMessagesRemovesThemForGood() async throws {
+        let backend = ScriptedBackend(total: 10)
+        let store = try await loadedStore(backend)
+        let doomed = ["m4", "m5"].compactMap { store.message(id: $0)?.rowID }
+        #expect(doomed.count == 2)
+        store.deleteLocally(rowIDs: Set(doomed))
+        #expect(store.messages.compactMap(\.seq) == [1, 2, 3, 6, 7, 8, 9, 10])
+        // A later update (tapback) or a refetch must not bring it back.
+        var update = backend.makeMessage(seq: 5, sender: "lc")
+        update.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(update, eventSeq: 1))
+        #expect(store.message(id: "m5") == nil)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.messages.count == 8 }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(store.message(id: "m4") == nil && store.message(id: "m5") == nil)
+    }
+
+    @Test func deletingAFailedSendDropsItAndItsRetryState() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-d" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "nope"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        store.deleteLocally(rowIDs: [rowID])
+        #expect(store.message(rowID: rowID) == nil)
+        #expect(store.messages.count == 3)
+    }
+
+    @Test func anUnsentMessageBreaksRunsAndCarriesNoStatus() {
+        func message(_ seq: Int, unsent: Bool = false, delivery: ConversationDelivery? = .delivered) -> ConversationMessage {
+            ConversationMessage(
+                id: "m\(seq)", seq: seq, clientMessageID: nil, senderID: "me",
+                sentAt: Date(timeIntervalSince1970: TimeInterval(seq)), text: unsent ? "" : "t",
+                unsentAt: unsent ? Date() : nil, delivery: delivery
+            )
+        }
+        let plan = ConversationRunPlan(messages: [message(1), message(2, unsent: true), message(3)], meID: "me")
+        // The bubble above the notice closes its run (tail); the one below starts a new run.
+        #expect(plan.entries[0].isLastInRun)
+        #expect(plan.entries[2].isFirstInRun)
+        #expect(plan.entries[1].status == .none)
+        let lastUnsent = ConversationRunPlan(messages: [message(1), message(2, unsent: true)], meID: "me")
+        #expect(lastUnsent.entries[0].status == .delivered)
+        #expect(lastUnsent.entries[1].status == .none)
     }
 }
