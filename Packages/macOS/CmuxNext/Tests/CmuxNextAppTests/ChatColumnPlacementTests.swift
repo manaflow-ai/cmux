@@ -71,6 +71,15 @@ import Testing
         #expect(resolve(from: "solo", [column("c9", ["solo"])]) == .here)
     }
 
+    /// A new workspace's screen is one split tree, not columns: the chat
+    /// alone there still sees its (implicit) column.
+    @Test func aSplitTreeScreenIsOneImplicitColumn() {
+        let screen = LayoutScreen(id: "s", name: "1", layout: .splits(.leaf(LayoutPaneID("chat"))))
+        let columns = ChatColumnPlacement.columns(of: screen, containing: LayoutPaneID("chat"))
+        #expect(columns.map(\.id) == [screen.implicitColumnID])
+        #expect(ChatColumnPlacement.resolve(from: LayoutPaneID("chat"), columns: columns) { _ in true } == .dockChat)
+    }
+
     @Test func aPaneOutsideTheColumnsStaysHere() {
         #expect(resolve(from: "gone", [column("c1", ["chat"], dock: chatDock)]) == .here)
     }

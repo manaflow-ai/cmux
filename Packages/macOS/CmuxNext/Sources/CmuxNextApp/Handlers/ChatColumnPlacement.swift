@@ -37,14 +37,19 @@ enum ChatColumnPlacement: Equatable {
 }
 
 extension ChatColumnPlacement {
+    /// `screen`'s columns in strip order. A screen stored as one split tree
+    /// is one implicit column.
+    static func columns(of screen: LayoutScreen, containing pane: LayoutPaneID) -> [LayoutColumn] {
+        screen.layout.columns.isEmpty
+            ? screen.layout.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
+    }
+
     /// What a person's new tab from `controller`'s pane becomes.
     @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
         guard let content = controller.workspace,
               content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
-              let layout = content.layoutModel.screen(containing: controller.layoutPaneID)?.layout else { return .here }
-        // A screen stored as one split tree is one implicit column.
-        let columns = layout.columns.isEmpty
-            ? layout.column(containing: controller.layoutPaneID).map { [$0] } ?? [] : layout.columns
+              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
+        let columns = columns(of: screen, containing: controller.layoutPaneID)
         let agentTabs = services.agentTabs
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes) { column in
             guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
