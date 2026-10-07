@@ -273,6 +273,10 @@ final class SidebarBridge {
                                                 machine: sshMachine(session, machines: machines), selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
+        for session in machines.servers {
+            sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
+                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab)
+        }
         return sections
     }
 
@@ -308,6 +312,8 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
         case .section(.machine(let machine)) where services.machines.sshSession(machine.rawValue) != nil:
             return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
+        case .section(.machine(let machine)) where services.machines.server(machine.rawValue) != nil:
+            return registry.makeContextMenu(for: .sidebarBackground)
         case .section(.machine(let machine)) where machine.rawValue != MachineRegistry.localID:
             return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
         case .section, .background:

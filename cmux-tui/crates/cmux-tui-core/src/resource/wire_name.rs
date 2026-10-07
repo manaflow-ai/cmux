@@ -149,6 +149,8 @@ impl ResourceOperation {
             Self::WindowRecordList => "window_record.list",
             Self::WindowRecordPut => "window_record.put",
             Self::WindowRecordDelete => "window_record.delete",
+            Self::SidebarLayoutGet => "sidebar_layout.get",
+            Self::SidebarLayoutUpdate => "sidebar_layout.update",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

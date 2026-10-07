@@ -921,6 +921,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_api_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1066,4 +1070,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_tree_notify.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_free_step_lockfiles.py"
 lane = "linux-guard"
