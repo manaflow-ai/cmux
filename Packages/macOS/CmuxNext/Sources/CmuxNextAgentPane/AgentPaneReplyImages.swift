@@ -78,7 +78,8 @@ nonisolated struct AgentPaneReplyImages {
     static func pdfThumbnail(_ url: URL) -> Result<String, AgentPaneReplyError> {
         guard let document = CGPDFDocument(url as CFURL), !document.isEncrypted || document.isUnlocked,
               let page = document.page(at: 1) else { return .failure(.imageFailed) }
-        var box = page.getBoxRect(.cropBox)
+        let crop = page.getBoxRect(.cropBox)
+        var box = crop
         if page.rotationAngle % 180 != 0 { box = CGRect(x: 0, y: 0, width: box.height, height: box.width) }
         guard box.width > 0, box.height > 0 else { return .failure(.imageFailed) }
         let scale = CGFloat(thumbnailSide) / max(box.width, box.height)
@@ -88,8 +89,13 @@ nonisolated struct AgentPaneReplyImages {
                                       bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return .failure(.imageFailed) }
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        let target = CGRect(x: 0, y: 0, width: width, height: height)
-        context.concatenate(page.getDrawingTransform(.cropBox, rect: target, rotate: 0, preserveAspectRatio: true))
+        // By hand, since getDrawingTransform never scales a page up: centre the crop box, turn it
+        // clockwise by the page's /Rotate, scale it to the canvas and draw only what it shows.
+        context.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        context.rotate(by: -CGFloat(page.rotationAngle) * .pi / 180)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -crop.midX, y: -crop.midY)
+        context.clip(to: crop)
         context.drawPDFPage(page)
         guard let image = context.makeImage() else { return .failure(.imageFailed) }
         let output = NSMutableData()
