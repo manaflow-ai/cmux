@@ -91,6 +91,60 @@ import Testing
         #expect(daemon.state == .unavailable)
     }
 
+    /// The socket lives under a predictable /tmp path: a directory there
+    /// that is a symlink (or not this user's) could hand the socket to
+    /// another user, so the helper does not start.
+    @Test func aSocketDirectoryThatIsNotThisUsersPrivateDirectoryStopsTheStart() async throws {
+        let id = UUID().uuidString.prefix(8)
+        let elsewhere = "/tmp/cu-else-\(id)"
+        let linked = "/tmp/cu-link-\(id)"
+        try FileManager.default.createDirectory(atPath: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: linked, withDestinationPath: elsewhere)
+        defer { unlink(linked); try? FileManager.default.removeItem(atPath: elsewhere) }
+        let launcher = FakeLauncher()
+        let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { $0 == Self.nightly }, candidates: { [Self.nightly] },
+                                             launcher: launcher, socketPath: "\(linked)/s/cua.sock",
+                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"),
+                                             exportEnvironment: { _, _ in })
+        await daemon.apply(enabled: true)
+        #expect(launcher.launches.isEmpty, "the helper started in a symlinked socket directory")
+        #expect(daemon.state == .unavailable)
+    }
+
+    /// A socket directory this user already has, but open to others, is made private.
+    @Test func anExistingSocketDirectoryIsMadePrivate() async throws {
+        let id = UUID().uuidString.prefix(8)
+        let directory = "/tmp/cu-open-\(id)"
+        try FileManager.default.createDirectory(atPath: "\(directory)/s", withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o777])
+        chmod(directory, 0o777)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let launcher = FakeLauncher()
+        let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity { $0 == Self.nightly }, candidates: { [Self.nightly] },
+                                             launcher: launcher, socketPath: "\(directory)/s/cua.sock",
+                                             stateDirectory: FileManager.default.temporaryDirectory.appending(path: "cu-st-\(id)"),
+                                             exportEnvironment: { _, _ in })
+        defer { daemon.stop() }
+        await daemon.apply(enabled: true)
+        #expect(launcher.launches.count == 1)
+        for path in [directory, "\(directory)/s"] {
+            let mode = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
+            #expect(mode == 0o700, "\(path) is not private")
+        }
+    }
+
+    /// Each start mints new tokens (a stopped helper's token is useless).
+    @Test func eachStartMintsNewTokens() async throws {
+        let launcher = FakeLauncher()
+        let (daemon, socket) = Self.daemon(signed: [Self.nightly], launcher: launcher) { _, _ in }
+        defer { daemon.stop(); try? FileManager.default.removeItem(atPath: (socket as NSString).deletingLastPathComponent) }
+        await daemon.apply(enabled: true)
+        await daemon.apply(enabled: false)
+        await daemon.apply(enabled: true)
+        let tokens = launcher.launches.map { $0.environment["CMUX_CUA_SOCKET_AUTH_TOKEN"] }
+        #expect(tokens.count == 2 && tokens[0] != nil && tokens[0] != tokens[1])
+    }
+
     @Test func turningItOffOrQuittingStopsTheHelper() async {
         let launcher = FakeLauncher()
         var exported: [String: String] = [:]
