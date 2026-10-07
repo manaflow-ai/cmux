@@ -463,6 +463,7 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
     m.text = "";
     m.editedAt = undefined;
     delete m.mentions; // they indexed the replaced text
+    delete m.effect; // effects belong to text messages
     m.attachments = [makeAudioAttachment(`aud_${conv.id}_${i + 1}`, rng)];
   };
   for (let i = 0; i < drafts.length - 40; i++) if (rng() < 0.015 && !drafts[i].attachments.length) toAudio(i);
