@@ -21,7 +21,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "CmuxConversationCore", swiftSettings: swiftSettings),
-        .target(name: "CmuxConversationGeometry", swiftSettings: swiftSettings),
+        .target(name: "CmuxConversationGeometry", dependencies: ["CmuxConversationCore"], swiftSettings: swiftSettings),
         .target(
             name: "CmuxConversationUI",
             dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],

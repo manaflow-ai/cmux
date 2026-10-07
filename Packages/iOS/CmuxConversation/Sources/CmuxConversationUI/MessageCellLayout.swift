@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Precomputed frames for one message row, in cell coordinates. Computing
@@ -35,7 +36,7 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (String, NSAttributedString)] = [:]
+    private var attributed: [String: (String, [ConversationTextRun], NSAttributedString)] = [:]
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -49,11 +50,11 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, value) = attributed[cacheKey], text == model.message.text {
+        if let (text, runs, value) = attributed[cacheKey], text == model.message.text, runs == model.message.textRuns {
             return value
         }
-        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        attributed[cacheKey] = (model.message.text, value)
+        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, runs: model.message.textRuns)
+        attributed[cacheKey] = (model.message.text, model.message.textRuns, value)
         return value
     }
 
@@ -71,12 +72,16 @@ extension NSAttributedString.Key {
 extension MessageCellLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
+    static func attributedBody(_ text: String, outgoing: Bool, runs: [ConversationTextRun] = []) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bodyFont,
             .foregroundColor: outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText,
             .paragraphStyle: ConversationTheme.bodyParagraph,
         ])
+        if !runs.isEmpty {
+            ConversationRichText.apply(runs, to: result)
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bodyFont, lineHeight: ConversationTheme.lineHeight)
+        }
         let range = NSRange(text.startIndex..., in: text)
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match else { return }

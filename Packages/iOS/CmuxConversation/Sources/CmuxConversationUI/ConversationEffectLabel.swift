@@ -1,0 +1,68 @@
+#if canImport(UIKit)
+import CmuxConversationCore
+import CmuxConversationGeometry
+import UIKit
+
+/// A label whose text-effect glyphs (drawn clear by the label) are drawn and
+/// looped by a `ConversationTextEffectLayer` riding on its layer, so they
+/// follow every move, scale and snapshot of the label.
+final class ConversationEffectLabel: UILabel {
+    private let effectLayer = ConversationTextEffectLayer()
+    /// Keys explode and jitter randomness to the message.
+    var effectSeed: UInt64 = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(effectLayer)
+        NotificationCenter.default.addObserver(self, selector: #selector(reduceMotionChanged), name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var attributedText: NSAttributedString? {
+        didSet { setNeedsLayout() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        refreshEffects(restart: false)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { refreshEffects(restart: false) }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+            refreshEffects(restart: true)
+        }
+    }
+
+    @objc private func reduceMotionChanged() {
+        refreshEffects(restart: true)
+    }
+
+    private func refreshEffects(restart: Bool) {
+        effectLayer.frame = bounds
+        guard let text = attributedText, text.length > 0, bounds.width > 0 else {
+            effectLayer.clear()
+            return
+        }
+        let scale = window?.screen.scale ?? traitCollection.displayScale
+        // Dynamic colors resolve while rendering the glyph images.
+        traitCollection.performAsCurrent {
+            effectLayer.update(
+                text: text,
+                textSize: bounds.size,
+                scale: max(1, scale),
+                animated: !UIAccessibility.isReduceMotionEnabled,
+                seed: effectSeed,
+                restart: restart
+            )
+        }
+    }
+}
+#endif
