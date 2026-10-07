@@ -71,7 +71,7 @@ extension TerminalViewController {
         guard composerController == nil, let composerProvider else { return }
         let controller = composerProvider.makeComposer(for: self)
         addChild(controller)
-        let bar = controller.view!
+        let bar: UIView = controller.view
         bar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bar)
         NSLayoutConstraint.activate([

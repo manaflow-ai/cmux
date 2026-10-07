@@ -34,8 +34,10 @@ final class SFTPComposition {
 
     /// The Hosts tab's Files action: registers the host's opener, shows its
     /// login folder, and releases the session when the screen goes away.
+    /// Holds the composition strongly: it lives for the process and never
+    /// holds the screens back, so there is no cycle.
     var screens: SSHFileScreens {
-        SSHFileScreens { [unowned self] host, name, opener in
+        SSHFileScreens { [self] host, name, opener in
             let directory = directory
             let lease = await directory.register(opener, for: host)
             let target = ViewerTarget(hostID: host, hostName: name, workspaceID: SFTPViewerContentSource.rootID, title: name)
