@@ -231,6 +231,7 @@ impl Workspaces for DaemonWorkspaces {
                     key: Optional::Value(key.clone()),
                     name: Optional::Value(name.to_owned()),
                     mutation_id: Optional::Value(format!("optchat-subagent-ws-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("create-workspace: {e}"))?
@@ -240,6 +241,7 @@ impl Workspaces for DaemonWorkspaces {
                     workspace: Optional::Value(workspace),
                     cwd: Optional::Value(cwd.display().to_string()),
                     mutation_id: Optional::Value(format!("optchat-subagent-term-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("create-terminal: {e}"))?;
@@ -260,6 +262,7 @@ impl Workspaces for DaemonWorkspaces {
                             .map_or(Optional::Missing, Optional::Value),
                     }),
                     mutation_id: Optional::Value(format!("optchat-subagent-tab-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("new-conversation-tab: {e}"))?;
@@ -296,6 +299,10 @@ pub fn host_name() -> String {
 pub fn still_running(error: &str) -> bool {
     error.contains("did not finish within")
 }
+
+/// The origin of this host's workspace mutations: the session daemon needs one with every
+/// mutation_id (server.rs workspace_mutation), so a retried create replays instead of doubling.
+const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
