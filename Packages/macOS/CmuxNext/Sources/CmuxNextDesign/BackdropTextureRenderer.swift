@@ -1,15 +1,15 @@
-import AppKit
 import CoreImage
 
-/// Applies one Core Image texture pass before AppKit paints a backdrop.
-struct BackdropTextureRenderer {
+/// Applies one Core Image texture pass to a decoded backdrop, off the main actor
+/// (``BackdropImageStore``).
+nonisolated struct BackdropTextureRenderer {
     let context: CIContext
 
-    func render(_ source: NSImage, texture: BackdropTexture) -> NSImage? {
-        guard texture.filter != .none, texture.strength > 0,
-              let tiff = source.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let input = CIImage(bitmapImageRep: bitmap) else { return source }
+    /// `source` with `texture`'s pass, rendered into a bitmap; nil when `texture` is no pass or
+    /// the pass fails (the caller keeps `source`).
+    func render(_ source: CGImage, texture: BackdropTexture) -> CGImage? {
+        guard texture.filter != .none, texture.strength > 0 else { return nil }
+        let input = CIImage(cgImage: source)
 
         let output: CIImage?
         switch texture.filter {
@@ -23,13 +23,10 @@ struct BackdropTextureRenderer {
         case .grain:
             output = grain(input, strength: texture.strength)
         }
-        guard let output else { return source }
-        // Keep the Core Image representation lazy. Material application runs
-        // on AppKit's main actor; forcing a CGImage here performs a synchronous
-        // GPU readback and blocks that actor.
-        let image = NSImage(size: source.size)
-        image.addRepresentation(NSCIImageRep(ciImage: output.cropped(to: input.extent)))
-        return image
+        guard let output else { return nil }
+        // Rendered here, off the main actor: a lazy Core Image representation would make AppKit
+        // render it (a GPU readback) in the main actor's commit.
+        return context.createCGImage(output.cropped(to: input.extent), from: input.extent)
     }
 
     /// Sets key only when the filter declares it. CIFilter raises an

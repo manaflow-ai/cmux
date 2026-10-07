@@ -22,47 +22,4 @@ struct BackdropTextureTests {
         #expect(BackdropTexture(filter: .grain, strength: .infinity).strength == 1)
         #expect(BackdropTexture(filter: .grain, strength: .nan).strength == 0)
     }
-
-    @Test func textureCacheRendersOncePerSourceAndPlan() throws {
-        let source = try #require(Self.image())
-        let cache = BackdropTextureCache()
-        let texture = BackdropTexture(filter: .orderedDither4x4, strength: 0.2)
-        let first = try #require(cache.image(for: "fixture", source: source, texture: texture))
-        let second = try #require(cache.image(for: "fixture", source: source, texture: texture))
-        #expect(first === second)
-        #expect(cache.renderCount == 1)
-        #expect(first.size == source.size)
-    }
-
-    @Test func changingFilterCreatesASeparateCachedImage() throws {
-        let source = try #require(Self.image())
-        let cache = BackdropTextureCache()
-        let dithered = try #require(cache.image(for: "fixture", source: source,
-                                                texture: BackdropTexture(filter: .orderedDither4x4, strength: 0.2)))
-        let halftone = try #require(cache.image(for: "fixture", source: source,
-                                                texture: BackdropTexture(filter: .halftone, strength: 0.2)))
-        #expect(dithered !== halftone)
-        #expect(cache.renderCount == 2)
-    }
-
-    /// Every filter renders through the cache without raising (CIFilter
-    /// raises for a key it does not declare, which ends the process).
-    @Test(arguments: BackdropTextureFilter.allCases)
-    func everyFilterRendersTheSourceSize(_ filter: BackdropTextureFilter) throws {
-        let source = try #require(Self.image())
-        let rendered = try #require(BackdropTextureCache().image(for: "fixture", source: source,
-                                                                  texture: BackdropTexture(filter: filter, strength: 0.5)))
-        #expect(rendered.size == source.size)
-    }
-
-    private static func image() -> NSImage? {
-        let image = NSImage(size: NSSize(width: 32, height: 20))
-        image.lockFocus()
-        NSColor(calibratedRed: 0.2, green: 0.35, blue: 0.7, alpha: 1).setFill()
-        NSRect(x: 0, y: 0, width: 32, height: 20).fill()
-        NSColor(calibratedRed: 0.9, green: 0.75, blue: 0.15, alpha: 1).setFill()
-        NSRect(x: 8, y: 5, width: 16, height: 10).fill()
-        image.unlockFocus()
-        return image
-    }
 }

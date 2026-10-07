@@ -29,7 +29,6 @@ public final class WindowMaterialView: NSView {
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
     private var artImage: NSImage?
-    private let textureCache = BackdropTextureCache()
     private let images: BackdropImageStore
     /// Loads the art the last `apply` asked for when it was not decoded yet.
     private var artLoad: Task<Void, Never>?
@@ -104,15 +103,18 @@ public final class WindowMaterialView: NSView {
             artLoad = nil
             let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
             let texture = backdrop.texture
-            // A painting not decoded yet loads off the main actor and fades
-            // in; until then the window shows the theme's colors.
-            showArt(shown.flatMap(images.cached), id: shown?.id, texture: texture)
-            if let shown, artImage == nil {
+            // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
+            // first frame, and the full image replaces it in place; without one the window shows
+            // the theme's colors until the art, decoded off the main actor, fades in.
+            let ready = shown.flatMap { images.cached($0, texture: texture) }
+            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture) }))
+            if let shown, ready == nil {
+                let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown)
+                    let image = await images.image(shown, texture: texture)
                     guard !Task.isCancelled, let self, let image else { return }
-                    self.showArt(image, id: shown.id, texture: texture)
-                    self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn")
+                    self.showArt(image)
+                    if fades { self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn") }
                 }
             }
         }
@@ -137,8 +139,8 @@ public final class WindowMaterialView: NSView {
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
     }
 
-    private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
-        artImage = source.flatMap { textureCache.image(for: id ?? "none", source: $0, texture: texture) }
+    private func showArt(_ image: NSImage?) {
+        artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
         updateArtCrop()
