@@ -37,6 +37,12 @@ nonisolated enum NewTabSubmit: Equatable {
 }
 
 extension NewTabSubmit {
+    /// The `openBrowser` run that opens `url` for `invocation`, or nil when
+    /// the tab is opened here directly.
+    static func browserInvocation(_ url: URL, from invocation: ActionInvocation) -> ActionInvocation? {
+        nil
+    }
+
     /// Runs the action in the invocation's pane.
     @MainActor
     static func run(_ invocation: ActionInvocation, _ ctx: AppActionContext) {

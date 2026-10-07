@@ -133,6 +133,12 @@ extension PaneController {
     /// an explicit browser profile (else the workspace's, the room's or
     /// `default`); `notice` shows on the new page; `then` runs with the new
     /// surface once the daemon made the tab.
+    /// Whether a session-local (WebKit) tab may stand in when the daemon
+    /// cannot make browser tabs.
+    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
+        true
+    }
+
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
