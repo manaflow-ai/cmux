@@ -302,6 +302,17 @@ impl Mux {
                     );
                 }
             }
+            // A host loss is logged once, with the signals its host recorded
+            // (cx-6so.49); best effort, after the exit latch.
+            #[cfg(unix)]
+            if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
+                crate::terminal_loss_log::record_host_loss(
+                    &root.join(format!("{terminal_id}.json")),
+                    terminal_id,
+                    incarnation,
+                    end,
+                );
+            }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);
             }
