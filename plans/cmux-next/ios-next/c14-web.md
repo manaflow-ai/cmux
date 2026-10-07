@@ -111,6 +111,11 @@ screen of that route is open, and stop when it closes.
 ### 4.1 Pieces
 
 - FeatureKit `TunnelStream` / `TunnelDialer` / `SSHDirectTCPIPOpener` (seams, Foundation only).
+- `CmuxMobileTunnel` generic SOCKS route: `MobileTunnelSocksBackend` adapts a route's
+  `TunnelDialer` to the bounded relay; loopback targets use the paired Mac/SSH path, while
+  non-loopback targets are denied unless the composition explicitly supplies a direct backend.
+  `WebRoute.startSocks` creates a per-launch RFC 1929 credential and returns a `WebSocksEndpoint`;
+  credentials are required before a channel can open and are discarded when the route stops.
 - `CmuxiOSWebCore` (no UIKit; tests on macOS): `LinkTunnelDialer` (A0 `tcp.forward` over the per-Mac
   `MobileLinkClient`), `SSHTunnelDialer` (direct-tcpip to `127.0.0.1:<port>` on the SSH server through
   an opener), `LoopbackProxy` + `ProxyRequestHead` (head parse, token, Host rewrite), `WebRoute`
@@ -195,3 +200,12 @@ endpoints no longer stop at the Hosts action. `*.localhost` navigation uses the 
 as address parsing, so a tunneled subframe is not misclassified as an external link. Focused address and
 navigation tests, Swift syntax parsing, package-convention lint, and diff checks pass in
 `864c3eddbf`; live direct-host and WKWebView verification remains pending.
+
+Follow-up on 2026-10-07: the generic SOCKS parity seam is now wired into `WebRoute`. `CmuxMobileTunnel`
+  is a direct `CmuxiOSWebCore` dependency; the route starts a credentialed SOCKS5 listener, maps
+  loopback destinations through its existing `TunnelDialer`, rejects non-loopback destinations by
+  default, and accepts an explicit direct backend for Tailscale/LAN/WireGuard routing. Package tests
+  cover RFC 1929 success and refusal, backend failures, caps, half-close and bounded relay behavior;
+  `ProxyForwardingTests.genericSocksRouteUsesCredentialsAndKeepsNonLoopbackDefaultDeny` covers the
+  route adapter and a byte-for-byte SOCKS exchange. Manifest validation, Swift syntax parsing and
+  `git diff --check` pass. Tagged WKWebView/SOCKS and live reconnect verification remain pending.

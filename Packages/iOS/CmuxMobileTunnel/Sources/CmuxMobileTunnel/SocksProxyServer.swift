@@ -5,9 +5,11 @@ import NIOTransportServices
 /// A SOCKS5 proxy on the phone's loopback whose connections are opened by a
 /// `SocksConnectBackend` at its exit point (an SSH server, a paired Mac).
 ///
-/// Implements RFC 1928 with the no-authentication method and `CONNECT`
-/// only (IPv4, IPv6, and domain-name address types). The host is passed to
-/// the backend as sent, so domain names resolve at the exit.
+/// Implements RFC 1928 with `CONNECT` only (IPv4, IPv6, and domain-name
+/// address types). By default it offers no authentication; callers that bind
+/// on a shared loopback must pass a ``SocksCredential`` to require RFC 1929
+/// username/password authentication. The host is passed to the backend as
+/// sent, so domain names resolve at the exit.
 public final class SocksProxyServer: Sendable {
     /// The bound loopback port.
     public let port: Int
@@ -28,6 +30,7 @@ public final class SocksProxyServer: Sendable {
         backend: any SocksConnectBackend,
         port: Int = 0,
         maximumConnections: Int = 256,
+        credential: SocksCredential? = nil,
         onConnect: (@Sendable (String, Int) -> Void)? = nil
     ) async throws -> SocksProxyServer {
         let relays = TunnelTaskSet(limit: maximumConnections)
@@ -35,7 +38,7 @@ public final class SocksProxyServer: Sendable {
             .childChannelInitializer { inbound in
                 inbound.eventLoop.makeCompletedFuture {
                     try inbound.pipeline.syncOperations.addHandler(
-                        SocksHandshakeHandler(backend: backend, relays: relays, onConnect: onConnect)
+                        SocksHandshakeHandler(backend: backend, relays: relays, credential: credential, onConnect: onConnect)
                     )
                 }
             }
@@ -73,17 +76,20 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
-    private enum State { case greeting, request, connecting, done }
+    private enum State { case greeting, authentication, request, connecting, done }
 
     private let backend: any SocksConnectBackend
     private let relays: TunnelTaskSet
+    private let credential: SocksCredential?
     private let onConnect: (@Sendable (String, Int) -> Void)?
     private var state = State.greeting
     private var pending: [UInt8] = []
 
-    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, onConnect: (@Sendable (String, Int) -> Void)?) {
+    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, credential: SocksCredential?,
+         onConnect: (@Sendable (String, Int) -> Void)?) {
         self.backend = backend
         self.relays = relays
+        self.credential = credential
         self.onConnect = onConnect
     }
 
@@ -105,7 +111,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     func channelReadComplete(context: ChannelHandlerContext) {
         // Keep pulling until the request is complete.
-        if state == .greeting || state == .request { context.read() }
+        if state == .greeting || state == .authentication || state == .request { context.read() }
     }
 
     private func advance(context: ChannelHandlerContext) {
@@ -115,11 +121,44 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
             case .needMoreData:
                 return
             case .greeting(let acceptsNoAuth, let consumed):
+                let offeredMethods = pendingGreetingMethods(consumed: consumed)
                 pending.removeFirst(consumed)
                 var reply = context.channel.allocator.buffer(capacity: 2)
-                // 0xFF: no acceptable method (only no-auth is offered).
-                reply.writeBytes([0x05, acceptsNoAuth ? 0x00 : 0xFF])
-                guard acceptsNoAuth else {
+                // A credentialed route must not silently downgrade to
+                // unauthenticated SOCKS. Select RFC 1929 (0x02) when the
+                // client offered it; no-auth routes retain the old 0x00 path.
+                let method: UInt8
+                if let credential {
+                    let offeredUserPassword = offeredMethods.contains(0x02)
+                    method = offeredUserPassword ? 0x02 : 0xFF
+                    if offeredUserPassword { state = .authentication }
+                } else {
+                    method = acceptsNoAuth ? 0x00 : 0xFF
+                    if method == 0x00 { state = .request }
+                }
+                reply.writeBytes([0x05, method])
+                guard method != 0xFF else {
+                    state = .done
+                    let channel = context.channel
+                    context.writeAndFlush(wrapOutboundOut(reply)).whenComplete { _ in channel.close(promise: nil) }
+                    return
+                }
+                context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                advance(context: context)
+            default:
+                state = .done
+                context.close(promise: nil)
+            }
+        case .authentication:
+            switch SocksParse.authentication(pending) {
+            case .needMoreData:
+                return
+            case .authentication(let username, let password, let consumed):
+                pending.removeFirst(consumed)
+                let accepted = credential?.matches(username: username, password: password) == true
+                var reply = context.channel.allocator.buffer(capacity: 2)
+                reply.writeBytes([0x01, accepted ? 0x00 : 0x01])
+                guard accepted else {
                     state = .done
                     let channel = context.channel
                     context.writeAndFlush(wrapOutboundOut(reply)).whenComplete { _ in channel.close(promise: nil) }
@@ -201,6 +240,14 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
+    }
+
+    /// `SocksParse.greeting` returns only whether no-auth was offered. Keep
+    /// the raw method list locally so a credentialed listener can select 0x02
+    /// without changing the public parse result used by existing callers.
+    private func pendingGreetingMethods(consumed: Int) -> ArraySlice<UInt8> {
+        guard consumed >= 2, pending.count >= consumed else { return [] }
+        return pending[2..<consumed]
     }
 }
 

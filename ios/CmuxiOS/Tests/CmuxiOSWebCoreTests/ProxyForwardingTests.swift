@@ -1,5 +1,6 @@
 import CmuxiOSFeatureKit
 import CmuxiOSWebCore
+import CmuxMobileTunnel
 import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileHost
@@ -7,6 +8,7 @@ import CmuxMobileLink
 import CmuxMobileWire
 import CryptoKit
 import Foundation
+@preconcurrency import Network
 import Testing
 
 @Suite("Loopback proxy over the Mac tunnel and SSH", .serialized)
@@ -122,6 +124,74 @@ struct ProxyForwardingTests {
         let request = try #require(await opener.streams.first?.request)
         #expect(!request.contains("__cmux_tunnel"))
     }
+
+    @Test func genericSocksRouteUsesCredentialsAndKeepsNonLoopbackDefaultDeny() async throws {
+        let dialer = EchoTunnelDialer()
+        let route = WebRoute(id: .mac(HostID("h_mac1")), dialer: dialer)
+        defer { Task { await route.stop() } }
+        let endpoint = try await route.startSocks()
+        #expect(endpoint.port > 0)
+        #expect(!endpoint.username.isEmpty)
+        #expect(!endpoint.password.isEmpty)
+
+        let payload = Array("socks-route".utf8)
+        let echoed = try await within {
+            try await rawSocksExchange(endpoint: endpoint, host: "app.localhost", port: 5173, payload: payload)
+        }
+        #expect(echoed == payload)
+        let opened = await dialer.opened
+        #expect(opened.count == 1)
+        #expect(opened.first?.0 == "app.localhost")
+        #expect(opened.first?.1 == 5173)
+
+        let backend = MobileTunnelSocksBackend(tunnel: dialer)
+        await #expect(throws: TunnelOpenError.notAllowed) {
+            _ = try await backend.open(host: "example.com", port: 443)
+        }
+        #expect((await dialer.opened).count == 1)
+    }
+}
+
+/// A small SOCKS5 client used only to prove WebRoute's generic endpoint is
+/// actually connected to the FeatureKit tunnel. Package-level tests cover the
+/// protocol parser and failure replies in more detail.
+private func rawSocksExchange(endpoint: WebSocksEndpoint, host: String, port: UInt16, payload: [UInt8]) async throws -> [UInt8] {
+    let connection = NWConnection(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: endpoint.port)!, using: .tcp)
+    connection.start(queue: DispatchQueue(label: "c14.socks.client"))
+    defer { connection.cancel() }
+    try await send(connection, bytes: [5, 2, 0, 2])
+    #expect(try await receive(connection, count: 2) == [5, 2])
+    let username = Array(endpoint.username.utf8)
+    let password = Array(endpoint.password.utf8)
+    try await send(connection, bytes: [1, UInt8(username.count)] + username + [UInt8(password.count)] + password)
+    #expect(try await receive(connection, count: 2) == [1, 0])
+    let name = Array(host.utf8)
+    try await send(connection, bytes: [5, 1, 0, 3, UInt8(name.count)] + name + [UInt8(port >> 8), UInt8(port & 0xff)] )
+    #expect((try await receive(connection, count: 10)).prefix(2) == [5, 0])
+    try await send(connection, bytes: payload)
+    return try await receive(connection, count: payload.count)
+}
+
+private func send(_ connection: NWConnection, bytes: [UInt8]) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        connection.send(content: Data(bytes), completion: .contentProcessed { error in
+            if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+        })
+    }
+}
+
+private func receive(_ connection: NWConnection, count: Int) async throws -> [UInt8] {
+    var bytes: [UInt8] = []
+    while bytes.count < count {
+        let chunk: Data = try await withCheckedThrowingContinuation { continuation in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: count - bytes.count) { data, _, _, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: data ?? Data()) }
+            }
+        }
+        bytes.append(contentsOf: chunk)
+    }
+    return bytes
 }
 
 struct Signer: MobileDeviceSigner {

@@ -94,7 +94,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
 | 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (E3 discovery/attach is landed; tmux control mode and SSH target lifecycle remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
-| 1.15 | SOCKS proxy and local port forward | C14 | seam only (C14's authenticated local port forward is implemented; a generic SOCKS route is not wired into cmux-next) |
+| 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
 | 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
 | 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
@@ -118,19 +118,22 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.19 | Localization (en, ja translated) | all | done (section 4) |
 | 1.19 | Background modes, protected data | kept, C7, A2 | done |
 
-Counts (98 rows): done 83, mocked 4, seam only 6, missing 1, dropped 4. (Rows with partial notes
+Counts (98 rows): done 84, mocked 4, seam only 5, missing 1, dropped 4. (Rows with partial notes
 count under their main status. “Done” means implementation and package/static evidence; it remains
 device-unverified unless the row says otherwise.)
 
 Open implementation gaps, grouped by owner:
 - C9: tmux control mode is still missing from the SSH workspace projection; E3 supplies discovery
   and safe attach for tmux, screen and cmux-tui, but not create/rename/kill or control-mode tabs.
-- C14: local port forwarding and simulator/browser seams are landed; the generic SOCKS proxy remains
-  a seam because `CmuxMobileTunnel` is not wired into the cmux-next browser route.
+- C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
+  landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
+  loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
+  non-loopback destinations. Package and route-focused tests pass; live device/reconnect evidence is
+  still required.
 - Mocked rows: Mac capabilities/version gate, Keep Mac Awake (onboarding and per-Mac power assertion),
   and StoreKit plans remain behind their DEV/mock owners.
 - Seam-only rows: remote feature flags (B1 config read), Cloud machines in the workspace list, Cloud
-  VM terminal/files attach, task composer attachments, generic SOCKS, and analytics upload.
+  VM terminal/files attach, task composer attachments, and analytics upload.
 
 ## 2. Device verification checklist
 

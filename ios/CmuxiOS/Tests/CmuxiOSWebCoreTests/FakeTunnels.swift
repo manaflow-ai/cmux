@@ -62,3 +62,51 @@ actor CountingDialer: TunnelDialer {
         throw TunnelDialError.refused(code: "tunnel.port_not_allowed", retryable: false)
     }
 }
+
+/// Byte-for-byte backend used by the generic SOCKS route test. It records the
+/// requested exit and echoes writes so the test exercises authentication,
+/// backend adaptation and the bounded relay together.
+actor EchoTunnelDialer: TunnelDialer {
+    private(set) var opened: [(String, UInt16)] = []
+
+    func dial(port: UInt16) async throws -> any TunnelStream {
+        opened.append(("app.localhost", port))
+        return EchoTunnelStream()
+    }
+}
+
+private actor EchoTunnelStream: TunnelStream {
+    private var queue: [Data?] = []
+    private var waiter: CheckedContinuation<Data?, any Error>?
+
+    func read() async throws -> Data? {
+        if !queue.isEmpty { return queue.removeFirst() }
+        return await withCheckedContinuation { continuation in waiter = continuation }
+    }
+
+    func write(_ data: Data) async throws {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: data)
+        } else {
+            queue.append(data)
+        }
+    }
+
+    func finishWriting() async {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: nil)
+        } else {
+            queue.append(nil)
+        }
+    }
+
+    func close() async {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: nil)
+        }
+        queue.removeAll()
+    }
+}

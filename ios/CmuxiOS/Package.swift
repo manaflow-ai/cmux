@@ -44,6 +44,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
+        .package(path: "../../Packages/iOS/CmuxMobileTunnel"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
         .package(path: "../../Packages/Shared/CmuxSentryTelemetry"),
@@ -528,6 +529,7 @@ let package = Package(
             name: "CmuxiOSWebCore",
             dependencies: [
                 "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileTunnel", package: "CmuxMobileTunnel"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
@@ -538,6 +540,7 @@ let package = Package(
             dependencies: [
                 "CmuxiOSWebCore",
                 "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileTunnel", package: "CmuxMobileTunnel"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
