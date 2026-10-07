@@ -16,7 +16,7 @@ actor LoopbackPipe {
     }
 
     private(set) var path: LinkPath
-    private let continuations: [AsyncStream<TransportEvent>.Continuation]
+    private let inboxes: [TransportInbox]
     private var conditions: NetworkConditions?
     private let clock: LinkClock
     private let maxFrameBytes: Int
@@ -30,16 +30,19 @@ actor LoopbackPipe {
     private var lastDeliveryAt: [LaneKey: Duration] = [:]
     private var linkFreeAt: [Duration] = [.zero, .zero]
     private var tracks: [LoopbackMediaTrack] = []
+    /// Reliable bytes scheduled but not yet delivered, per receiving side.
+    private var inFlightReliableBytes = [0, 0]
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         path: LinkPath,
-        continuations: [AsyncStream<TransportEvent>.Continuation],
+        inboxes: [TransportInbox],
         conditions: NetworkConditions?,
         clock: LinkClock,
         maxFrameBytes: Int
     ) {
         self.path = path
-        self.continuations = continuations
+        self.inboxes = inboxes
         self.conditions = conditions
         self.clock = clock
         self.maxFrameBytes = maxFrameBytes
@@ -56,8 +59,20 @@ actor LoopbackPipe {
         guard !closed, closingSide == nil else { throw LoopbackError.closed }
         guard frame.bytes.count <= maxFrameBytes else { throw LoopbackError.frameTooLarge(frame.bytes.count) }
         let to = 1 - side
+        // Back-pressure: a receiver that stopped reading suspends reliable
+        // sends; frames still in flight count against its room.
+        while frame.lane.reliability.isReliable {
+            if !inboxes[to].hasRoom {
+                await inboxes[to].waitForRoom()
+            } else if inFlightReliableBytes[to] >= inboxes[to].limits.reliableBytes {
+                await withCheckedContinuation { releaseWaiters.append($0) }
+            } else {
+                break
+            }
+            guard !closed, closingSide == nil else { throw LoopbackError.closed }
+        }
         guard let conditions else {
-            continuations[to].yield(.frame(frame))
+            deliver(frame, to: to)
             return
         }
         if let rate = conditions.bytesPerSecond, rate > 0 {
@@ -90,6 +105,7 @@ actor LoopbackPipe {
         let now = clock.now
         var deliverAt = now + delay
         if reliable {
+            inFlightReliableBytes[to] += frame.bytes.count
             orderedLanes[key, default: []].append(seq)
             deliverAt = max(deliverAt, lastDeliveryAt[key] ?? .zero)
             lastDeliveryAt[key] = deliverAt
@@ -114,7 +130,7 @@ actor LoopbackPipe {
         }
         guard item.frame.lane.reliability.isReliable else {
             inFlight[seq] = nil
-            continuations[item.to].yield(.frame(item.frame))
+            deliver(item.frame, to: item.to)
             return
         }
         item.ready = true
@@ -123,16 +139,28 @@ actor LoopbackPipe {
         while let head = orderedLanes[key]?.first, let ready = inFlight[head], ready.ready {
             orderedLanes[key]?.removeFirst()
             inFlight[head] = nil
-            continuations[ready.to].yield(.frame(ready.frame))
+            inFlightReliableBytes[ready.to] -= ready.frame.bytes.count
+            deliver(ready.frame, to: ready.to)
         }
+        resumeReleaseWaiters()
         if let side = closingSide, inFlight.isEmpty { close(from: side) }
+    }
+
+    private func resumeReleaseWaiters() {
+        let waiters = releaseWaiters
+        releaseWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func deliver(_ frame: TransportFrame, to: Int) {
+        if inboxes[to].yield(.frame(frame)) == .overflow { drop("receive buffer overflow") }
     }
 
     func publishMediaTrack(_ descriptor: MediaTrackDescriptor, from side: Int) throws -> MediaTrackHandle {
         guard !closed else { throw LoopbackError.closed }
         let backing = LoopbackMediaTrack()
         tracks.append(backing)
-        continuations[1 - side].yield(.mediaTrack(MediaTrackHandle(descriptor: descriptor, backing: backing)))
+        inboxes[1 - side].yield(.mediaTrack(MediaTrackHandle(descriptor: descriptor, backing: backing)))
         return MediaTrackHandle(descriptor: descriptor, backing: backing)
     }
 
@@ -140,17 +168,17 @@ actor LoopbackPipe {
     func changePath(to kind: PathKind) {
         guard !closed else { return }
         path = LinkPath(kind: kind, carrier: path.carrier)
-        for continuation in continuations { continuation.yield(.pathChanged(path)) }
+        for inbox in inboxes { inbox.yield(.pathChanged(path)) }
     }
 
     func reportRTT(_ rtt: Duration) {
         guard !closed else { return }
-        for continuation in continuations { continuation.yield(.rtt(rtt)) }
+        for inbox in inboxes { inbox.yield(.rtt(rtt)) }
     }
 
     func reportHealth(_ health: LinkHealth) {
         guard !closed else { return }
-        for continuation in continuations { continuation.yield(.health(health)) }
+        for inbox in inboxes { inbox.yield(.health(health)) }
     }
 
     func close(from side: Int) {
@@ -174,9 +202,11 @@ actor LoopbackPipe {
         closed = true
         inFlight.removeAll()
         orderedLanes.removeAll()
-        for (index, continuation) in continuations.enumerated() {
-            continuation.yield(.closed(reasons[index]))
-            continuation.finish()
+        inFlightReliableBytes = [0, 0]
+        resumeReleaseWaiters()
+        for (index, inbox) in inboxes.enumerated() {
+            inbox.yield(.closed(reasons[index]))
+            inbox.finish()
         }
         let ending = tracks
         tracks.removeAll()
