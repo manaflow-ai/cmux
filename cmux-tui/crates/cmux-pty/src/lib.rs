@@ -258,6 +258,75 @@ mod tests {
 
     use super::*;
 
+    /// A PTY child starts with default dispositions and an empty signal
+    /// mask even when its parent ignores or blocks signals (a terminal host
+    /// ignores HUP, INT and QUIT for itself). Ignored dispositions and the
+    /// mask survive `exec`, so without the reset a shell would not die on a
+    /// hangup or Ctrl-C. The probe runs in a re-executed copy of this test
+    /// binary, so the parent-side SIG_IGN never touches other tests.
+    #[test]
+    fn a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent() {
+        const PROBE: &str = "CMUX_PTY_SIGNAL_PROBE";
+        if std::env::var_os(PROBE).is_some() {
+            // SAFETY: SIG_IGN and sigprocmask on this probe process only.
+            unsafe {
+                libc::signal(libc::SIGHUP, libc::SIG_IGN);
+                libc::signal(libc::SIGINT, libc::SIG_IGN);
+                let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+                libc::sigemptyset(set.as_mut_ptr());
+                libc::sigaddset(set.as_mut_ptr(), libc::SIGHUP);
+                libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), std::ptr::null_mut());
+            }
+            let pair =
+                open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 }).unwrap();
+            let mut command = PtyCommand::new("/bin/sh");
+            command.args(["-c", "echo probe: $(ps -o ignored= -o blocked= -p $$)"]);
+            let mut spawned = pair.spawn(command).unwrap();
+            let mut reader = spawned.master.try_clone_reader().unwrap();
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = io::Read::read(&mut reader, &mut buffer) {
+                if count == 0 {
+                    break;
+                }
+                output.extend_from_slice(&buffer[..count]);
+                if output.windows(6).any(|w| w == b"probe:") && output.ends_with(b"\n") {
+                    break;
+                }
+            }
+            let _ = spawned.child.wait();
+            println!("{}", String::from_utf8_lossy(&output).trim());
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(PROBE, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line =
+            stdout.lines().find_map(|line| line.split("probe:").nth(1)).unwrap_or_else(|| {
+                panic!(
+                    "probe printed no masks: {stdout}{}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
+        let masks = line
+            .split_whitespace()
+            .map(|hex| u64::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(masks.len(), 2, "{line}");
+        let (ignored, blocked) = (masks[0], masks[1]);
+        let bit = |signal: libc::c_int| 1u64 << (signal - 1);
+        assert_eq!(ignored & (bit(libc::SIGHUP) | bit(libc::SIGINT)), 0, "child ignores {line}");
+        assert_eq!(blocked & bit(libc::SIGHUP), 0, "child blocks HUP: {line}");
+    }
+
     #[test]
     fn pty_capacity_errors_preserve_an_actionable_classification() {
         for errno in [libc::ENXIO, libc::ENOSPC, libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
