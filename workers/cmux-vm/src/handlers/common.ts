@@ -38,7 +38,11 @@ export const rateLimit = (principal: Principal, rateClass: RateClass) =>
       .pipe(Effect.catchAll(dependencyDown("limits.rate")));
     if (!decision.ok) {
       return yield* Effect.fail(
-        new QuotaExceeded({ message: "Too many requests for this team; retry later", retryAfterSeconds: decision.retryAfterSeconds }),
+        new QuotaExceeded({
+          message: "Too many requests for this team; retry later",
+          retryAfterSeconds: decision.retryAfterSeconds,
+          budget: "rate",
+        }),
       );
     }
   });
