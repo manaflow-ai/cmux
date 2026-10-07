@@ -54,7 +54,8 @@ export const MobileSubscribe = Schema.Struct({
   t: Schema.Literal("subscribe"),
   stream: Schema.optionalKey(Schema.String),
   after_seq: Schema.optionalKey(Seq),
-  pending: Schema.optionalKey(Pending)
+  pending: Schema.optionalKey(Pending),
+  epoch: Schema.optionalKey(Schema.String)
 })
 
 export const MobileUnsubscribe = Schema.Struct({ t: Schema.Literal("unsubscribe"), stream: Schema.optionalKey(Schema.String) })
@@ -118,7 +119,8 @@ export const MobileEvent = Schema.Struct({
   actor: JsonObject,
   origin: Origin,
   at: Schema.Int,
-  effects: Schema.optionalKey(Json)
+  effects: Schema.optionalKey(Json),
+  epoch: Schema.optionalKey(Schema.String)
 })
 
 export const MobileSnapshot = Schema.Struct({
@@ -127,7 +129,8 @@ export const MobileSnapshot = Schema.Struct({
   seq: Seq,
   state: Json,
   decided: Schema.Array(Schema.Struct({ idempotency_key: Schema.String, ok: Schema.Boolean, sequence: Seq })),
-  rows: Schema.optionalKey(Json)
+  rows: Schema.optionalKey(Json),
+  epoch: Schema.optionalKey(Schema.String)
 })
 
 export const MobilePresenceSet = Schema.Struct({

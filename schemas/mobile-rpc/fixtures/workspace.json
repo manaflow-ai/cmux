@@ -1,7 +1,7 @@
 {
   "family": "workspace",
   "cases": [
-    { "phase": "state", "frame": { "t": "snapshot", "stream": "workspace:h_mac1A2b", "seq": 120, "decided": [{ "idempotency_key": "01JB7Q2W8M0000WSNEW001", "ok": true, "sequence": 118 }], "state": { "host": "h_mac1A2b", "workspaces": [
+    { "phase": "state", "frame": { "t": "snapshot", "stream": "workspace:h_mac1A2b", "seq": 120, "epoch": "ep_1791331200000_a1b2c3d4", "decided": [{ "idempotency_key": "01JB7Q2W8M0000WSNEW001", "ok": true, "sequence": 118 }], "state": { "host": "h_mac1A2b", "workspaces": [
       { "id": "ws_main01", "name": "cmux", "color": "#7a7a7a", "pinned": true, "order": 0, "group": { "id": "grp_app", "name": "App" }, "activity_at": 1791331200000, "panes": [
         { "id": "pane_p01", "tabs": [
           { "id": "tab_t01", "kind": "terminal", "title": "zsh", "terminal": "term_t01", "status": "running", "unread": 0, "preview": "42 tests passed" },
@@ -14,7 +14,7 @@
     { "message": "workspace.tab.upsert", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 123, "tx": "tx_12", "op": "workspace.tab.upsert", "params": { "workspace": "ws_main01", "pane": "pane_p01", "index": 2, "tab": { "id": "tab_a01", "kind": "agent", "title": "Fix tests", "status": "needs_input", "unread": 1 } }, "actor": { "identity": "in_mac01" }, "origin": "cli", "at": 1791331203000 } },
     { "message": "workspace.tab.remove", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 124, "tx": "tx_13", "op": "workspace.tab.remove", "params": { "tab": "tab_b01" }, "actor": { "identity": "in_mac01" }, "origin": "user", "at": 1791331204000 } },
     { "message": "workspace.status.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 125, "tx": "tx_14", "op": "workspace.status.set", "params": { "tab": "tab_t01", "status": "idle", "unread": 3 }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331205000 } },
-    { "message": "workspace.preview.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 126, "tx": "tx_17", "op": "workspace.preview.set", "params": { "tab": "tab_t01", "preview": "Compiling (12/40)" }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331206000 } },
+    { "message": "workspace.preview.set", "frame": { "t": "event", "stream": "workspace:h_mac1A2b", "seq": 126, "epoch": "ep_1791331200000_a1b2c3d4", "tx": "tx_17", "op": "workspace.preview.set", "params": { "tab": "tab_t01", "preview": "Compiling (12/40)" }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331206000 } },
     { "message": "workspace.create", "frame": { "t": "op", "op": "workspace.create", "params": { "host": "h_mac1A2b", "name": "scratch", "cwd": "~/src" }, "idempotency_key": "01JB7Q2W8M0000WSNEW002", "origin": "user", "stream": "workspace:h_mac1A2b" } },
     { "message": "workspace.create", "phase": "result", "frame": { "t": "result", "tx": "tx_15", "idempotency_key": "01JB7Q2W8M0000WSNEW002", "value": { "workspace": "ws_new03" }, "revision": "126", "replayed": false } },
     { "message": "workspace.rename", "frame": { "t": "op", "op": "workspace.rename", "params": { "workspace": "ws_main01", "name": "cmux main" }, "idempotency_key": "01JB7Q2W8M0000WSREN001", "origin": "user", "expected_revision": "126" } },

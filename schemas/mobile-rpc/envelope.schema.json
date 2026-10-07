@@ -86,7 +86,8 @@
         "t": { "const": "subscribe" },
         "stream": { "$ref": "common.schema.json#/$defs/StreamId" },
         "after_seq": { "$ref": "common.schema.json#/$defs/Seq" },
-        "pending": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/IdempotencyKey" } }
+        "pending": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/IdempotencyKey" } },
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
       }
     },
     "Unsubscribe": {
@@ -188,7 +189,8 @@
         "actor": { "type": "object", "required": ["identity"], "properties": { "identity": { "type": "string" } } },
         "origin": { "$ref": "common.schema.json#/$defs/Origin" },
         "at": { "$ref": "common.schema.json#/$defs/Timestamp" },
-        "effects": {}
+        "effects": {},
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
       }
     },
     "Snapshot": {
@@ -207,7 +209,8 @@
             "properties": { "idempotency_key": { "type": "string" }, "ok": { "type": "boolean" }, "sequence": { "$ref": "common.schema.json#/$defs/Seq" } }
           }
         },
-        "rows": {}
+        "rows": {},
+        "epoch": { "$ref": "common.schema.json#/$defs/Epoch" }
       }
     },
     "PresenceSet": {
