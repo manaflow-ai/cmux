@@ -650,6 +650,23 @@ pre.cv-math-source {
   margin-top: 6px;
   text-align: right;
 }
+/* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
+   transcript stays light; a click opens the image viewer. */
+.cv-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.cv-tool-images .cv-img {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+  margin: 0;
+  object-fit: contain;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;
@@ -988,6 +1005,130 @@ pre.cv-math-source {
   height: auto;
   margin: 6px 0;
   border-radius: 8px;
+}
+/* A reply image that opens the image viewer (ImageViewer.tsx). */
+.cv-img-open {
+  all: unset;
+  display: block;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.cv-img-open:focus-visible .cv-img {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+
+/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
+   and arrows through the chat's images at the sides. */
+.acpmux-image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  color: var(--agent-text);
+  outline: none;
+}
+.acpmux-image-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+.acpmux-image-viewer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-image-viewer-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 10px 0 16px;
+  font-size: 13px;
+}
+.acpmux-image-viewer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-image-viewer-count {
+  margin-right: 8px;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-image-viewer-action,
+.acpmux-image-viewer-step {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-image-viewer-action:hover,
+.acpmux-image-viewer-step:hover {
+  color: var(--agent-text);
+  background: var(--agent-control-hover);
+}
+.acpmux-image-viewer-action:focus-visible,
+.acpmux-image-viewer-step:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+}
+.acpmux-image-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
+  padding: 16px 56px;
+  overflow: hidden;
+  touch-action: none;
+}
+.acpmux-image-viewer-stage.is-zoomed {
+  cursor: grab;
+}
+.acpmux-image-viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+.acpmux-image-viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.acpmux-image-viewer-stage:not(.is-zoomed) .acpmux-image-viewer-image {
+  cursor: zoom-in;
+}
+.acpmux-image-viewer-step {
+  position: absolute;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--agent-control);
+}
+.acpmux-image-viewer-step.is-previous {
+  left: 12px;
+}
+.acpmux-image-viewer-step.is-next {
+  right: 12px;
 }
 
 /* A shell mode command's block (shell/ShellRow.tsx): the command in mono after a `!` in the

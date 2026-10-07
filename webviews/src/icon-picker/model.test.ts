@@ -16,7 +16,7 @@ const top = (query: string, n = 1) =>
 
 describe("emoji table", () => {
   test("is pinned, versioned and complete", () => {
-    expect(table.unicode).toEqual({ emoji: "17.0", cldr: "48.2.0", shortcodes: "17.0.0" });
+    expect(table.unicode).toEqual({ emoji: "18.0", cldr: "48.2.0", shortcodes: "17.0.0" });
     expect(table.records.length).toBeGreaterThan(1800);
     expect(table.groups).toContain("flags");
   });
