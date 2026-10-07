@@ -26,11 +26,20 @@ extension SettingsController {
     public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?, by writer: SettingWriter) async throws {
         if let source = managedKeys[descriptor.id] { throw SettingManaged(key: descriptor.id, source: source) }
         guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
+        // A renamed key's old key goes with the write, so it can never apply
+        // again behind the new value (or behind a reset to the default).
+        var legacy: [String]?
+        if let old = WorkspaceRowSetting.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
         if let value {
             guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
-            try await file.set(value, at: descriptor.path)
+            if let legacy {
+                try await file.apply([(path: descriptor.path, value: value), (path: legacy, value: nil)])
+            } else {
+                try await file.set(value, at: descriptor.path)
+            }
             await reloadAfterWrite()
         } else {
+            if let legacy { try await file.remove(legacy) }
             try await removePruning(descriptor.path)
         }
         validatedWrites[descriptor.id, default: 0] += 1

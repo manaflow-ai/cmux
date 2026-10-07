@@ -910,6 +910,16 @@
       "title" : "New Column Sizing",
       "type" : "string"
     },
+    "layout.newPanePlacement" : {
+      "default" : "tab",
+      "description" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout).",
+      "enum" : [
+        "tab",
+        "split"
+      ],
+      "title" : "New Terminals and Browsers",
+      "type" : "string"
+    },
     "layout.paneBorder" : {
       "default" : "subtle",
       "description" : "layout.paneBorder",
@@ -984,6 +994,12 @@
       ],
       "title" : "Column Scroll Bar",
       "type" : "string"
+    },
+    "layout.tileBrowsers" : {
+      "default" : false,
+      "description" : "With Split Automatically, new browsers also get their own pane instead of a tab.",
+      "title" : "Split for Browsers Too",
+      "type" : "boolean"
     },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
@@ -2022,6 +2038,12 @@
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
+    },
+    "updates.showWhatsNew" : {
+      "default" : true,
+      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "title" : "Show What's New After Updates",
+      "type" : "boolean"
     },
     "window.titlebar" : {
       "default" : "minimal",

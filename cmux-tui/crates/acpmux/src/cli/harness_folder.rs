@@ -8,14 +8,14 @@
 //! only the bytes it showed.
 
 use std::io::{BufRead, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::json;
 
-use crate::config::Config;
 use crate::config::folder_profiles::{self, FolderGate, FolderProfile, FolderState};
 use crate::config::profiles::Severity;
+use crate::config::{Config, HarnessProfile};
 
 fn gate(cfg: &Config) -> Result<&FolderGate> {
     cfg.folder_gate.as_ref().ok_or_else(|| anyhow!("no home folder: folder profiles are off"))
@@ -70,21 +70,40 @@ pub fn next_step(r: &FolderProfile) -> Option<String> {
     }
 }
 
+/// What `enable` shows before it asks: the confirmation text and the hash
+/// it confirms, or that these bytes are already enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Confirmation {
+    AlreadyEnabled { folder: String },
+    Ask { text: String, sha256: String },
+}
+
+/// The confirmation `enable` shows for folder profile `id` of `folder`: the
+/// text of the shared prompt (`folder_profiles::prepare_enable`), the same
+/// text the app's Enable sheet gets from `_acpmux/harness_enable`.
+pub fn confirmation(cfg: &Config, folder: &Path, id: &str) -> Result<Confirmation> {
+    let shown = folder_profiles::prepare_enable(cfg, gate(cfg)?, folder, id)
+        .map_err(|e| anyhow!(e.message().to_owned()))?;
+    let fp = shown.profile;
+    match (fp.state, fp.sha256) {
+        (FolderState::Enabled, _) => Ok(Confirmation::AlreadyEnabled { folder: fp.folder }),
+        (FolderState::NeedsEnable, Some(sha256)) => {
+            let text = shown.prompt["text"].as_str().unwrap_or_default().to_owned();
+            Ok(Confirmation::Ask { text, sha256 })
+        }
+        _ => bail!("cannot enable {id}"),
+    }
+}
+
 pub fn enable_cmd(id: &str, folder: &Path, yes: bool, json_out: bool) -> Result<()> {
     let cfg = Config::load()?;
     let gate = gate(&cfg)?;
-    let fp = folder_profiles::load_one(&cfg, gate, folder, id).ok_or_else(|| {
-        anyhow!("{} has no {id}.toml", folder_profiles::profile_dir(folder).display())
-    })?;
-    let program = fp.profile.as_ref().and_then(|p| super::harness::find_program(&p.argv[0]));
-    let text = folder_profiles::confirmation_text(&fp, program.as_deref());
-    let sha = match (fp.state, fp.sha256.clone()) {
-        (FolderState::Enabled, _) => {
-            println!("{id} is already enabled for {}", fp.folder);
+    let (text, sha) = match confirmation(&cfg, folder, id)? {
+        Confirmation::AlreadyEnabled { folder } => {
+            println!("{id} is already enabled for {folder}");
             return Ok(());
         }
-        (FolderState::NeedsEnable, Some(sha)) => sha,
-        _ => bail!(folder_profiles::refusal(&fp).unwrap_or_else(|| format!("cannot enable {id}"))),
+        Confirmation::Ask { text, sha256 } => (text, sha256),
     };
     eprint!("{text}");
     if !yes {
@@ -117,4 +136,47 @@ pub fn disable_cmd(id: &str, folder: &Path) -> Result<()> {
         println!("{id} was not enabled for {}", folder.display());
     }
     Ok(())
+}
+
+/// An enabled folder profile that `cmux harness doctor` checks.
+pub struct DoctorTarget {
+    pub profile: HarnessProfile,
+    /// The folder that holds `.cmux/harnesses`; doctor starts the harness in it.
+    pub folder: PathBuf,
+    pub path: String,
+}
+
+/// `cmux harness doctor ID` for an id the catalog does not have: folder
+/// profile `id` of `start` or its nearest parent that has the file. None: no
+/// folder has it. Err((detail, fix)): it may not run now; `fix` is the next
+/// step (`next_step`), or the file's own fix for an invalid file.
+pub fn doctor_target(
+    cfg: &Config,
+    id: &str,
+    start: &Path,
+) -> Option<Result<DoctorTarget, (String, Option<String>)>> {
+    let gate = cfg.folder_gate.as_ref()?;
+    let fp = folder_profiles::find_nearest(cfg, gate, id, start)?;
+    Some(match (fp.state, fp.profile.clone()) {
+        (FolderState::Enabled, Some(profile)) => {
+            Ok(DoctorTarget { profile, folder: PathBuf::from(&fp.folder), path: fp.path })
+        }
+        (FolderState::NeedsEnable, _) => Err((
+            format!(
+                "{id} is a folder profile in {} that is not enabled (or changed since it was enabled)",
+                fp.folder
+            ),
+            next_step(&fp),
+        )),
+        (FolderState::NeedsTrust, _) => {
+            Err((folder_profiles::refusal(&fp).unwrap_or_default(), next_step(&fp)))
+        }
+        _ => {
+            let fix = fp.diagnostics.iter().find(|d| d.severity == Severity::Error);
+            let fix = fix.and_then(|d| d.fix.clone());
+            let detail = folder_profiles::refusal(&fp)
+                .unwrap_or_else(|| format!("{}: the profile cannot be used", fp.path));
+            Err((detail, fix))
+        }
+    })
 }
