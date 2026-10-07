@@ -8,18 +8,35 @@ import Testing
 
 /// acpmux turn state (`_acpmux/watch` + `session_changed`) reduced per session.
 struct AgentTurnStatesTests {
-    static func summary(_ id: String, status: String, pending: Int = 0) -> [String: Any] {
-        ["sessionId": id, "status": status, "pendingPermissions": pending]
+    static func summary(_ id: String, status: String, pending: Int = 0, lastTurn: String? = nil) -> [String: Any] {
+        var summary: [String: Any] = ["sessionId": id, "status": status, "pendingPermissions": pending]
+        if let lastTurn { summary["lastTurn"] = ["turnId": "t-1", "status": lastTurn] }
+        return summary
     }
 
     @Test func summariesMapToTurnStates() {
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "running")) == .working)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "waiting")) == .needsInput)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "running", pending: 1)) == .needsInput)
-        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected")) == .failed)
         for status in ["idle", "ready", "closed"] {
             #expect(AgentTurnState.of(summary: Self.summary("s", status: status)) == nil)
         }
+    }
+
+    /// The next prompt respawns a disconnected agent, so a disconnect alone
+    /// is normal and looks idle. Only a turn that really failed is an error.
+    @Test func aDisconnectLooksIdleUnlessTheLastTurnFailed() {
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected")) == nil)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "unreachable")) == nil)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "completed")) == nil)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "cancelled")) == nil)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "failed")) == .failed)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "ready", lastTurn: "failed")) == .failed)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "idle", lastTurn: "failed")) == .failed)
+        // A new turn replaces the old outcome; a closed chat shows nothing.
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "running", lastTurn: "failed")) == .working)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "waiting", lastTurn: "failed")) == .needsInput)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "closed", lastTurn: "failed")) == nil)
     }
 
     @Test func watchResultThenPushesKeepTheStatesCurrent() {
