@@ -9,6 +9,8 @@ final class ConversationHeaderView: UIView {
     enum TrailingMode {
         case action
         case close
+        /// Select mode ("More…"): the same X, read as Cancel.
+        case cancel
     }
 
     let backGlass = makeGlassView(cornerRadius: 22, interactive: true)
@@ -127,10 +129,13 @@ final class ConversationHeaderView: UIView {
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool) {
         trailingMode = mode
-        let symbol = mode == .close ? "xmark" : trailingSymbol
+        let isX = mode != .action
+        let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
-            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: mode == .close ? 17 : 19, weight: mode == .close ? .semibold : .regular)), for: .normal)
-            self.trailingButton.accessibilityLabel = mode == .close
+            self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: isX ? 17 : 19, weight: isX ? .semibold : .regular)), for: .normal)
+            self.trailingButton.accessibilityLabel = mode == .cancel
+                ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
+                : mode == .close
                 ? String(localized: "conversation.header.close", defaultValue: "Close", bundle: .module)
                 : (self.trailingSymbol.hasPrefix("video")
                     ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
@@ -197,6 +202,15 @@ final class ConversationHeaderView: UIView {
         chevron.frame = CGRect(x: pillWidth2 - 10.9 - chevronInk / 2 - chevronSize.width / 2, y: (pillHeight - chevronSize.height) / 2, width: chevronSize.width, height: chevronSize.height)
         nameButton.frame = namePillGlass.bounds
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
+    }
+
+    /// Select mode hides the back button; the trailing X (Cancel) is the way out.
+    func setBackHidden(_ hidden: Bool, animated: Bool) {
+        let apply = { self.backGlass.alpha = hidden ? 0 : 1 }
+        backGlass.isUserInteractionEnabled = !hidden
+        backGlass.accessibilityElementsHidden = hidden
+        guard animated else { apply(); return }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
     }
 
     /// The avatar (or group cluster) and name capsule, which the details

@@ -186,7 +186,7 @@ extension ConversationViewController {
         guard let overlay = replyOverlay else { return }
         replyTarget = nil
         composer.isReplyMode = false
-        header.setTrailingMode(isSelecting ? .close : .action, animated: true)
+        header.setTrailingMode(isSelecting ? .cancel : .action, animated: true)
         collectionView.accessibilityElementsHidden = false
         UIAccessibility.post(notification: .screenChanged, argument: nil)
         // The bubble settles back onto its transcript row as the blur clears;

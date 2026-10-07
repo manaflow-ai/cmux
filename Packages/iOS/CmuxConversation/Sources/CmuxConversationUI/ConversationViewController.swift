@@ -29,6 +29,9 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Select mode's Forward button. The host presents New Message prefilled
+    /// with the draft; when unset, a minimal placeholder sheet stands in.
+    public var onForward: ((ConversationForwardDraft) -> Void)?
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()
@@ -100,6 +103,8 @@ public final class ConversationViewController: UIViewController {
     var revealRowID: String?
     var isSelecting = false
     var selectedRowIDs: Set<String> = []
+    /// The long-press menu's "Select": in-bubble text selection, if active.
+    var textSelection: BubbleTextSelectionView?
     var photoDrawer: ConversationPhotoGridView?
     var pickedAssets: [String: UUID] = [:]
     var drawerHeightConstraint: NSLayoutConstraint?

@@ -54,7 +54,7 @@ extension ConversationViewController {
             composer.text = argument
             composerDidTapSend(composer)
             return "ok"
-        case "edit", "unsend", "select", "toggle", "retry", "discard":
+        case "edit", "unsend", "select", "toggle", "retry", "discard", "textselect":
             guard let message = labMessage(matching: argument) else { return "error no row" }
             switch verb {
             case "edit":
@@ -64,6 +64,11 @@ extension ConversationViewController {
                 guard store.canUnsend(message) else { return "error not unsendable" }
                 store.unsend(messageID: message.id)
             case "select": setSelecting(true, initial: message.rowID)
+            case "textselect":
+                guard let indexPath = indexPath(for: message.rowID),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+                      canSelectText(in: cell) else { return "error no text" }
+                beginTextSelection(rowID: message.rowID)
             case "toggle": toggleSelection(message.rowID)
             case "retry": store.retry(rowID: message.rowID)
             default: store.discardFailed(rowID: message.rowID)
@@ -82,6 +87,26 @@ extension ConversationViewController {
             guard isSelecting, !selectedRowIDs.isEmpty else { return "error nothing selected" }
             deleteSelection(selectedRowIDs)
             return "ok"
+        case "textselection":
+            guard let selection = textSelection else { return "none" }
+            let menus = selection.interactions.filter { $0 is UIEditMenuInteraction }.count
+            return "range \(selection.selectedRange.location),\(selection.selectedRange.length) of \((selection.text as NSString).length) first=\(selection.isFirstResponder) editMenus=\(menus) frame=\(selection.frame)"
+        case "textmenu":
+            guard let selection = textSelection else { return "none" }
+            selection.showEditMenu()
+            return "ok"
+        case "endtextselect":
+            endTextSelection()
+            return "ok"
+        case "forward":
+            guard isSelecting, !selectedRowIDs.isEmpty else { return "error nothing selected" }
+            forwardSelection()
+            return "ok"
+        case "forwardsheet":
+            let placeholder = (presentedViewController as? UINavigationController)?.viewControllers.first as? ConversationForwardPlaceholderController
+            return placeholder.map { "placeholder text=\($0.messageField.text.replacingOccurrences(of: "\n", with: "|"))" } ?? "none"
+        case "selectstate":
+            return "selecting=\(isSelecting) selected=\(selectedRowIDs.count) trailing=\(header.trailingMode) backAlpha=\(header.backGlass.alpha)"
         case "endselect":
             setSelecting(false)
             return "ok"

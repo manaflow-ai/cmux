@@ -551,6 +551,7 @@ extension ConversationViewController {
         }
         guard let snapshot else { return }
         let source = cell.convert(contentFrame, to: view)
+        endTextSelection()
         let message = model.message
         let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
         var items: [MessageActionOverlay.MenuItem] = [
@@ -560,10 +561,14 @@ extension ConversationViewController {
             .init(title: String(localized: "conversation.menu.copy", defaultValue: "Copy", bundle: .module), symbol: "doc.on.doc") {
                 UIPasteboard.general.string = message.text
             },
-            .init(title: String(localized: "conversation.menu.select", defaultValue: "Select", bundle: .module), symbol: "checkmark.circle") { [weak self] in
-                self?.setSelecting(true, initial: model.rowID)
-            },
         ]
+        // "Select" selects the bubble's text in place; "More…" (below) is the
+        // multi-message select mode. Messages offers Select only for text.
+        if canSelectText(in: cell) {
+            items.append(.init(title: String(localized: "conversation.menu.select", defaultValue: "Select", bundle: .module), symbol: "selection.pin.in.out") { [weak self] in
+                self?.beginTextSelection(rowID: model.rowID)
+            })
+        }
         if store.canEdit(message) {
             items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
                 self?.enterEditMode(for: message)
