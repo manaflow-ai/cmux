@@ -243,3 +243,22 @@ body {
 .gallery-empty {
   padding: 24px;
 }
+.gallery-replay {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-play {
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-play--fail {
+  color: #e5534b;
+}
+.gallery-play--warn {
+  color: #c69026;
+}
