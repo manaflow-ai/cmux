@@ -306,7 +306,12 @@ function capDataUrls(text: string, refs: string[]): string {
     URL_END.lastIndex = start;
     const end = URL_END.exec(text)?.index ?? text.length;
     const url = text.slice(start, end);
-    const short = url.length > MAX_DATA_URL_LENGTH ? OVERSIZED_DATA_URL : url.length > DATA_REF_FROM ? `${DATA_REF}${refs.push(url) - 1}` : url;
+    const short =
+      url.length > MAX_DATA_URL_LENGTH
+        ? OVERSIZED_DATA_URL
+        : url.length > DATA_REF_FROM
+          ? `${DATA_REF}${refs.push(url) - 1}`
+          : url;
     out += text.slice(from, start) + short;
     from = end;
   }
@@ -361,8 +366,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           </code>
         ),
       );
-    }
-    else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
+    } else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
     else if (m[3]) out.push(<del key={k++}>{renderInline(t.slice(2, -2), opts)}</del>);
     else if (m[4]) out.push(<em key={k++}>{renderInline(t.slice(1, -1), opts)}</em>);
     else if (m[5]?.startsWith("!")) out.push(<InlineImage key={k++} source={t} opts={opts} />);
@@ -383,7 +387,11 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
       else
         out.push(
-          <UrlChip key={k++} href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
+          <UrlChip
+            key={k++}
+            href={href}
+            icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
+          >
             {renderInline(lm[1], opts)}
           </UrlChip>,
         );

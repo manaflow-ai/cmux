@@ -3,6 +3,7 @@ export * from "./acp.ts";
 export * from "./conversation.ts";
 export * from "./core.ts";
 export * from "./corpus.ts";
+export * from "./policy.ts";
 export * from "./rules.ts";
 export * from "./state.ts";
 export { canonicalJson, compareCodePoints } from "./text.ts";
