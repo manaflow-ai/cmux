@@ -160,7 +160,7 @@ final class ServerReachService {
             // A read that a sign-out or an account switch overtook applies nothing.
             guard !Task.isCancelled, signedInUser() == user else { return }
             let link = await linkPeers()
-            _ = link?.peersFile // RED: the pairing file is not watched
+            watchPeers(link?.peersFile)
             guard !Task.isCancelled, signedInUser() == user else { return }
             let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan

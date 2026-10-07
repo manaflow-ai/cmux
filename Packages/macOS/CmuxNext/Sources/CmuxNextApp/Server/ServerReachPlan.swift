@@ -98,7 +98,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         let shownByHost = Dictionary(shown.map { ($0.hostID, $0) }, uniquingKeysWith: { first, _ in first })
         let desiredHosts = Set(desired.map(\.hostID))
         let add = desired.filter { shownByHost[$0.hostID] == nil }
-        let reroute = desired.filter { _ in false } // RED: routes are never re-resolved
+        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.route != reach.route } ?? false }
         return (add, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID), reroute)
     }
 
