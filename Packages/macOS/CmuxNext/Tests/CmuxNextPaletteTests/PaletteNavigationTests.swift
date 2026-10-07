@@ -342,7 +342,8 @@ import Testing
         #expect(command(space, empty: true) == nil)
         #expect(command(try key(36, "\r")) == .submit)
         #expect(command(try key(36, "\r", .command)) == .submitAlternate)
-        #expect(command(try key(40, "k", .command)) == .toggleActions)
+        // Decision K1: Cmd-K is no palette key; Tab opens the Actions menu.
+        #expect(command(try key(40, "k", .command)) == nil)
         #expect(command(try key(48, "\t")) == .openActions)
         #expect(command(try key(53, "\u{1B}")) == .escape)
         #expect(command(try key(51, "\u{7F}"), empty: true) == .back)

@@ -297,6 +297,8 @@ pub struct Hub {
     pub(super) pool: Arc<pool::PoolState>,
     /// The merged asking-mode table for Web connections (`web_control.rs`).
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
+    /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
+    pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -367,6 +369,7 @@ impl Hub {
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
+            trust_gate: StdMutex::new(None),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -392,6 +395,18 @@ impl Hub {
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
         *self.idle_child.lock().unwrap() = idle;
         self.idle_wake.notify_one();
+    }
+
+    /// Turns on the folder-trust gate for the app's agent pane, reading the
+    /// agents' files and acpmux's record at `paths` (the daemon passes the
+    /// user's; tests pass fixtures). None turns it off.
+    pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
+        *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
+    }
+
+    /// The gate's paths, while the gate is on.
+    pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
+        self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
