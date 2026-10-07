@@ -128,9 +128,16 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         case let .send(message):
             transport.sendService(message)
         case let .showMenu(token, menu):
-            // popUp tracks the menu modally; run it after this effect list.
-            // task-owner: one menu's tracking; the answer goes back through the reducer.
-            Task { [nativeUI] in nativeUI.showMenu(token: token, menu: menu) }
+            // popUp tracks the menu modally; run it after this effect list,
+            // from a run loop block, not a main-actor task: tracking inside a
+            // main-queue callout stops GCD (and so every main-actor task,
+            // host messages and control requests included) until it closes.
+            let main = CFRunLoopGetMain()
+            CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [nativeUI] in
+                // crash-allow: CFRunLoopGetMain blocks run on the main thread
+                MainActor.assumeIsolated { nativeUI.showMenu(token: token, menu: menu) }
+            }
+            CFRunLoopWakeUp(main)
         case let .closeMenu(token):
             nativeUI.closeMenu(token: token)
         case let .showDialog(token, dialog):
