@@ -567,15 +567,21 @@
     // redirect hop, caps the body at 64 MiB and masks secrets in text bodies.
     // `bound` ({ page, origin }, site tools only) uses that tab's cookies and
     // that origin instead of the current tab's; a closed tab fails.
+    // Unbound, the request goes through the current page's tab. A lazy page
+    // (no tab yet) opens its tab once the URL passed the domain policy, so
+    // its cookies come from, and the request is bound to, that tab's store;
+    // if the tab cannot open, fetch fails with that error. Without a tab
+    // both would use the active tab's store, another site's.
     async function fetchWithCookies(input, init = {}, bound = null) {
       if (bound && (!bound.page || bound.page.isClosed())) throw new Error("fetch: the tab this request is bound to was closed");
-      const page = bound ? bound.page : state.current && !state.current.isClosed() ? state.current : null;
+      const page = bound ? bound.page : currentPage();
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
       const credentials = init.credentials === undefined ? "include" : init.credentials;
       if (!["include", "same-origin", "omit"].includes(credentials)) throw new TypeError(`fetch: credentials: expected "include", "same-origin" or "omit", got ${JSON.stringify(credentials)}`);
       const origin = bound ? bound.origin || undefined : base ? new core.URL(base).origin : undefined;
       if (session.agentTools) session.agentTools.checkURL("fetch", url);
+      const targetId = String(page._targetId).startsWith("lazy:") ? await session._materialize(page) : page._targetId;
       const headers = {};
       const src = init.headers || {};
       if (typeof src.forEach === "function" && !Array.isArray(src)) src.forEach((v, k) => (headers[k] = v));
@@ -583,12 +589,10 @@
       else Object.assign(headers, src);
       const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
       if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
-        const scope = page && !String(page._targetId).startsWith("lazy:") ? { targetId: page._targetId } : {};
-        const cookies = await session.call("cookies.get", { ...scope, urls: [url] }).catch(() => []);
+        const cookies = await session.call("cookies.get", { targetId, urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
-      const targetId = page && !String(page._targetId).startsWith("lazy:") ? page._targetId : undefined;
       const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId, credentials, origin });
       const bytes = Buffer.from(r.base64 || "", "base64");
       return {
