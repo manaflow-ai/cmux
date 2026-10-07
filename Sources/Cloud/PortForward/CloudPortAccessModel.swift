@@ -23,6 +23,7 @@ final class CloudPortAccessModel {
     private(set) var phase: Phase = .needsVPN
     private(set) var tunnelState: CloudTunnelState = .off
     let route: CloudPortAccessRoute
+    let allowsLoopback: Bool
     private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
@@ -39,7 +40,8 @@ final class CloudPortAccessModel {
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
         stopForward: @escaping @MainActor () async -> Void,
         route: CloudPortAccessRoute = .privateNetwork,
-        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil
+        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil,
+        allowsLoopback: Bool = false
     ) {
         self.target = target
         self.coordinator = coordinator
@@ -48,6 +50,7 @@ final class CloudPortAccessModel {
         self.stopForward = stopForward
         self.route = startBrowserProxy == nil ? route : .browserProxy
         self.startBrowserProxy = startBrowserProxy
+        self.allowsLoopback = allowsLoopback
     }
 
     var failureMessage: String? {
@@ -184,7 +187,12 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct, .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .direct, .proxied:
+            return CloudPortRoutePolicy().privateURL(
+                remoteURL.absoluteString,
+                address: target.host,
+                allowLoopback: allowsLoopback
+            )
         case .forwarded(let port): return CloudPortRoutePolicy().localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
         }
