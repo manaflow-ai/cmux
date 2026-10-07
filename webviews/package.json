@@ -12,6 +12,7 @@
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
     "dev:settings": "vp dev --config vite.config.settings-page.mjs",
+    "dev:pages": "vp dev --config vite.config.pages-dev.ts",
     "strings:settings": "node scripts/pages/gen-strings.mjs settings",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
     "fmt": "vp fmt",

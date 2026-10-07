@@ -2357,6 +2357,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
   fi
+  # ... and every other page from the `bun run dev:pages` server (PageDevServer).
+  if [[ -n "${CMUX_NEXT_PAGES_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_PAGES_DEV_URL="$CMUX_NEXT_PAGES_DEV_URL")
+  fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
   fi

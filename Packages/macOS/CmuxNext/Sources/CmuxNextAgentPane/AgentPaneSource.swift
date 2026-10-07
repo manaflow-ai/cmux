@@ -1,5 +1,6 @@
 public import Foundation
 import WebKit
+import CmuxNextPages
 
 /// Where an agent pane's page comes from.
 ///
@@ -78,20 +79,10 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     }
 
     /// The dev server's root URL, or nil unless `string` is a loopback `http`
-    /// origin: the page receives the daemon token, so no other host may serve
-    /// it. Path and query are kept, a fragment is dropped.
+    /// origin (the pages' rule, ``PageDevServer/loopbackURL(_:)``): the page
+    /// receives the daemon token, so no other host may serve it.
     static func devServerURL(_ string: String) -> URL? {
-        guard var components = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)),
-              components.scheme?.lowercased() == "http",
-              let host = components.host, AcpmuxWebEndpoint.isLoopback(host),
-              components.port != nil,
-              components.user == nil, components.password == nil
-        else { return nil }
-        components.scheme = "http"
-        components.host = host.lowercased()
-        components.fragment = nil
-        if components.path.isEmpty { components.path = "/" }
-        return components.url
+        PageDevServer.loopbackURL(string)
     }
 
     /// True when `url` is this source's page: the bundled page under
