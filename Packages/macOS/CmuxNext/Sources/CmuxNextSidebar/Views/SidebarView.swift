@@ -37,9 +37,11 @@ public final class SidebarView: NSView {
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list
     /// (plans/cmux-next/sidebar-sections.md); each scrolls inside past its
-    /// share of the height.
+    /// share of the height. The footer section never scrolls: it is pinned
+    /// at the bottom, under the band below (`footerRegion`).
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
+    let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
@@ -139,7 +141,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
-            for region in [aboveRegion, belowRegion] {
+            for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             needsLayout = true
@@ -170,8 +172,7 @@ public final class SidebarView: NSView {
         set {
             list.contextMenuProvider = newValue
             profileBar.contextMenuProvider = newValue
-            aboveRegion.contextMenuProvider = newValue
-            belowRegion.contextMenuProvider = newValue
+            for region in bandRegions { region.contextMenuProvider = newValue }
         }
     }
 
@@ -258,11 +259,12 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
+        updateBands()
         let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
-        // From the bottom up (R112/R114): the footer band (the profile
-        // control, then the dots), the staged update card (UPDATE-CARD),
-        // the cards.
+        // From the bottom up (R112/R114): the pinned footer section (the
+        // profile control, then the dots), the band below the list, the
+        // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
@@ -273,7 +275,6 @@ public final class SidebarView: NSView {
         scrollView.tile()
         syncListSize()
     }
-
 
     // MARK: Titlebar row
 

@@ -23,7 +23,7 @@ import Testing
         view.layoutSubtreeIfNeeded()
         view.layout()
         let dots = view.profileBar.convert(view.profileBar.bounds, to: view)
-        let band = view.belowFade.frame
+        let band = view.footerRegion.frame
         #expect(!view.profileBar.isHidden)
         #expect(abs(band.maxY - view.bounds.maxY) < 0.5, "the footer band is at the bottom")
         #expect(dots.minY >= band.minY - 0.5 && dots.maxY <= band.maxY + 0.5 && dots.height > 0, "the dots are in the band's row")
