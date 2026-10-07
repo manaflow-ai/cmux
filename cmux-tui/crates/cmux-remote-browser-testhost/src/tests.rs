@@ -123,7 +123,9 @@ fn right_click_opens_a_context_menu_with_increasing_tokens() {
 fn cmd_click_opens_a_background_tab_and_a_plain_click_does_nothing() {
     let mut page = Page::default();
     let click = |modifiers: u32| {
-        format!(r#"{{"e":"pointer","surface":0,"kind":"down","x":5.0,"y":5.0,"button":0,"buttons":1,"click_count":1,"modifiers":{modifiers},"pointer_type":"mouse"}}"#)
+        format!(
+            r#"{{"e":"pointer","surface":0,"kind":"down","x":5.0,"y":5.0,"button":0,"buttons":1,"click_count":1,"modifiers":{modifiers},"pointer_type":"mouse"}}"#
+        )
     };
     assert_eq!(page.input(click(0).as_bytes()), None);
     let tab = page.input(click(8).as_bytes()).expect("open_tab");
@@ -137,7 +139,9 @@ fn cmd_click_opens_a_background_tab_and_a_plain_click_does_nothing() {
 #[test]
 fn navigate_answers_with_the_page_and_other_messages_are_ignored() {
     let mut page = Page::default();
-    let reply = page.control(&serde_json::json!({"t": "rb.navigate", "url": "https://example.com/typed"})).expect("page");
+    let reply = page
+        .control(&serde_json::json!({"t": "rb.navigate", "url": "https://example.com/typed"}))
+        .expect("page");
     assert_eq!(reply["t"], "rb.page");
     assert_eq!(reply["url"], "https://example.com/typed");
     assert_eq!(reply["loading"], false);

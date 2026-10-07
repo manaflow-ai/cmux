@@ -29,13 +29,13 @@ use cmux_encode::openh264::{OpenH264, OpenH264Api};
 use cmux_encode::{EncCfg, H264Encoder, I420};
 use cmux_rd_core::service::negotiate;
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::control::Control;
 use cmux_rd_proto::InputEvent;
-use serde_json::{Value, json};
+use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, OVERLAY_PORT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     StreamDeframer, encode_stream_frame,
 };
+use serde_json::{Value, json};
 
 type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -296,14 +296,41 @@ struct Page {
 
 impl Page {
     /// One rb input event (JSON in an rd service event).
-    fn input(&mut self, _bytes: &[u8]) -> Option<Value> {
-        let _ = (self.menus, self.tabs, MOD_COMMAND, json!(null));
-        None
+    fn input(&mut self, bytes: &[u8]) -> Option<Value> {
+        let event: Value = serde_json::from_slice(bytes).ok()?;
+        if event["e"] != "pointer" || event["kind"] != "down" {
+            return None;
+        }
+        let (x, y) = (event["x"].as_f64()?, event["y"].as_f64()?);
+        match event["button"].as_u64()? {
+            2 => {
+                self.menus += 1;
+                let item = |id: i64, label: &str| json!({"id": id, "type": "command", "label": label, "enabled": true, "checked": false, "items": []});
+                Some(json!({"t": "rb.menu.show", "token": self.menus, "menu": {
+                    "kind": "context", "anchor": {"x": x, "y": y, "width": 0.0, "height": 0.0}, "surface": 0,
+                    "items": [item(100, "Back"), item(102, "Reload"),
+                              {"id": -1, "type": "separator", "label": "", "enabled": true, "checked": false, "items": []},
+                              item(50150, "Copy")],
+                    "selected": null, "multiple": false, "right_aligned": false}}))
+            }
+            0 if event["modifiers"].as_u64()? & MOD_COMMAND != 0 => {
+                self.tabs += 1;
+                Some(json!({"t": "rb.open_tab", "request": self.tabs,
+                    "url": format!("https://example.com/link-{}", self.tabs),
+                    "disposition": "background_tab", "user_gesture": true}))
+            }
+            _ => None,
+        }
     }
 
     /// One rb control message from the viewer.
-    fn control(&mut self, _body: &Value) -> Option<Value> {
-        None
+    fn control(&mut self, body: &Value) -> Option<Value> {
+        if body["t"] != "rb.navigate" {
+            return None;
+        }
+        let url = body["url"].as_str()?;
+        Some(json!({"t": "rb.page", "url": url, "title": format!("Test host: {url}"),
+            "loading": false, "can_go_back": true, "can_go_forward": false}))
     }
 }
 
