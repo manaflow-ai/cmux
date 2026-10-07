@@ -39,11 +39,9 @@ export function receiveModelCatalog(value: unknown): void {
 
 /** Asks the host for its catalog; one request at a time. `refresh` makes the host fetch first. */
 export function loadModelCatalog(refresh = false): Promise<void> {
+  if (pending) return refresh ? pending.then(() => loadModelCatalog(true)) : pending;
   pending ??= postNative<ModelCatalogDelivery>("models.catalog", refresh ? { refresh: true } : {})
     .then(receiveModelCatalog)
-    .catch(() => {
-      // An older host or a page outside the app: the bundled catalog stays.
-    })
     .finally(() => {
       pending = undefined;
     });
@@ -52,7 +50,7 @@ export function loadModelCatalog(refresh = false): Promise<void> {
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  if (state.provisional) void loadModelCatalog();
+  if (state.provisional) void loadModelCatalog().catch(() => undefined);
   return () => listeners.delete(listener);
 }
 
@@ -74,7 +72,7 @@ export function resetModelCatalogForTests(): void {
 export function usePickerCatalog(
   acpmux: AcpmuxSnapshot["catalog"],
   session?: { harness?: string; configOptions?: NonNullable<AcpmuxSnapshot["summary"]>["configOptions"] },
-): { catalog: PickerCatalog; refresh(): void } {
+): { catalog: PickerCatalog; date?: string; refresh(): Promise<void> } {
   const { catalog, user, provisional } = useModelCatalogState();
   const queryClient = useQueryClient();
   const picker = useMemo(
@@ -83,9 +81,12 @@ export function usePickerCatalog(
   );
   return {
     catalog: picker,
-    refresh() {
-      void loadModelCatalog();
-      void queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+    date: catalog.generatedAt,
+    async refresh() {
+      await Promise.all([
+        loadModelCatalog(true),
+        queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] }),
+      ]);
     },
   };
 }

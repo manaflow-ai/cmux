@@ -12,6 +12,7 @@ import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState } from "./modelPickerLayout";
+import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -102,6 +103,8 @@ type Props = {
   onCompact?(): void;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
   catalogRefresh?: CatalogRefreshState;
+  /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
+  pickerCatalog?: PickerCatalog;
 };
 
 /// The composer bar's controls: the
@@ -122,6 +125,7 @@ export function ComposerPickers({
   showPlan = true,
   onCompact,
   catalogRefresh,
+  pickerCatalog,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
@@ -252,7 +256,7 @@ export function ComposerPickers({
     <div className="acpmux-chips">
       {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
         <ModelPicker
-          catalog={snapshot.catalog}
+          catalog={pickerCatalog ?? snapshot.catalog}
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}

@@ -15,6 +15,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import type { PickerCatalog, PickerHarness } from "./modelCatalogData";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { usePopoverTrigger } from "./popoverTrigger";
@@ -25,6 +26,7 @@ type HarnessChoice = {
   name: string;
   models: { id: string; name?: string; unavailable?: string }[];
   unavailable?: string;
+  acpmuxHarness?: string;
 };
 
 type ModelChoice = {
@@ -73,9 +75,26 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
+  const entries: HarnessChoice[] = Array.isArray(catalog)
+    ? catalog.map((entry) => ({
+        id: entry.id,
+        ids: [entry.id],
+        name: entry.name,
+        models: entry.models,
+        unavailable: entry.unavailable,
+        acpmuxHarness: entry.id,
+      }))
+    : (catalog as PickerCatalog).harnesses.map((entry: PickerHarness) => ({
+        id: entry.id,
+        ids: [entry.id, ...(entry.acpmuxHarness ? [entry.acpmuxHarness] : [])],
+        name: entry.name,
+        models: entry.models,
+        unavailable: entry.unavailable,
+        acpmuxHarness: entry.acpmuxHarness ?? undefined,
+      }));
   const result: HarnessChoice[] = [];
   const byName = new Map<string, HarnessChoice>();
-  for (const entry of catalog) {
+  for (const entry of entries) {
     const name = agentName(entry.id, entry.name);
     const existing = byName.get(name);
     if (!existing) {
@@ -91,6 +110,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       continue;
     }
     existing.ids.push(entry.id);
+    if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
     const known = new Set(existing.models.map((model) => model.id));
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
     existing.unavailable ??= entry.unavailable;
@@ -232,7 +252,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     if (model.unavailable) return;
     if (!selected?.ids.includes(harness ?? "")) {
-      onHarness?.(selected?.id ?? "");
+      if (selected?.acpmuxHarness) onHarness?.(selected.acpmuxHarness);
       close();
       return;
     }
