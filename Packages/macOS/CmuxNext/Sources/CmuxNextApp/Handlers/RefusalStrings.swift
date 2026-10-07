@@ -33,6 +33,10 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// A page asked for a person-only action (import, file picker) without a click or key in it.
+    static var personOnlyFromPage: String {
+        text("handlers.refusal.personOnlyFromPage", "Only you can start this, with a click or key in the page.")
+    }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
     static var homeAttachNoHome: String {
