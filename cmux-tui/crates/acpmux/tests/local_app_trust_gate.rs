@@ -185,9 +185,7 @@ async fn a_new_chat_in_a_fresh_agent_home_folder_is_not_asked_about() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join(acpmux::trust::AGENT_HOME_MARKER), b"").unwrap();
     let mut app = Client::new(&hub, Origin::LocalApp);
-    let new = |cwd: &Path| {
-        json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}})
-    };
+    let new = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
     let r = app.call("session/new", new(&home)).await;
     assert!(r.get("error").is_none(), "agent-home session/new: {r}");
     let s = r["result"]["sessionId"].as_str().unwrap().to_owned();

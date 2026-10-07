@@ -165,9 +165,8 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
     let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
     // acpmux's own decision answers first; then a folder cmux made for a chat (trusted by
     // construction); then the stricter of the agents' levels.
-    let level = decided.unwrap_or_else(|| {
-        if agent_home { Level::Trusted } else { claude.stricter(codex) }
-    });
+    let level =
+        decided.unwrap_or_else(|| if agent_home { Level::Trusted } else { claude.stricter(codex) });
     Ok(json!({
         "cwd": cwd,
         "level": level.as_str(),
