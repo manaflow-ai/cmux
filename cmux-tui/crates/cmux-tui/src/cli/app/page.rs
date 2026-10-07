@@ -20,6 +20,19 @@ const DEFAULT_WAIT_MS: u64 = 5_000;
 const WAIT_MARGIN: Duration = Duration::from_secs(5);
 /// The app gives a screenshot 30 s (a full page is captured tile by tile).
 pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
+/// The input verbs and the old CLI's aliases (`input_verb`).
+const INPUT_VERBS: &[&str] = &[
+    "hover",
+    "scroll-into-view",
+    "scrollintoview",
+    "scrollinto",
+    "check",
+    "uncheck",
+    "select",
+    "press",
+    "key",
+    "scroll",
+];
 
 pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
@@ -91,13 +104,14 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        (verb, _) if INPUT_VERBS.contains(&verb) => input_verb(verb, rest, &mut params, usage)?,
         ("cookies", _) => cookies(rest, &mut params, usage)?,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
-    if !matches!(verb.as_str(), "snapshot" | "wait" | "cookies" | "storage")
-        && words.len() != rest.len()
-    {
+    let flagged = matches!(verb.as_str(), "snapshot" | "wait" | "cookies" | "storage")
+        || INPUT_VERBS.contains(&verb.as_str());
+    if !flagged && words.len() != rest.len() {
         return Err(usage());
     }
     Ok(AppCommand::Call {
@@ -159,6 +173,94 @@ fn parse_wait(
         params.insert("timeout_ms".into(), json!(timeout_ms));
     }
     Ok(timeout_ms)
+}
+
+/// Positional words and `--flags` in any order; a valued flag takes the next word.
+fn words_and_options(
+    args: &[String],
+    valued: &[&str],
+    flags: &[&str],
+) -> Result<(Vec<String>, Options), UsageError> {
+    let (mut words, mut options) = (Vec::new(), Vec::new());
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.strip_prefix("--") {
+            Some(name) => {
+                options.push(arg.clone());
+                if valued.contains(&name) && index + 1 < args.len() {
+                    options.push(args[index + 1].clone());
+                    index += 1;
+                }
+            }
+            None => words.push(arg.clone()),
+        }
+        index += 1;
+    }
+    Ok((words, Options::parse(&options, valued, flags)?))
+}
+
+/// `hover|check|uncheck|scroll-into-view SELECTOR`, `select SELECTOR VALUE`,
+/// `press KEY`, `scroll [SELECTOR|DY] [--dx N] [--dy N]`. Each positional
+/// also takes the old CLI's flag (`--selector`, `--value`, `--key`).
+/// `press` is TEMPORARY (bead cx-i3d): the app sends untrusted page-world key
+/// events until it moves to the browser host's trusted `input.key` at step e.
+fn input_verb(
+    verb: &str,
+    args: &[String],
+    params: &mut Map<String, Value>,
+    usage: impl Fn() -> UsageError,
+) -> Result<&'static str, UsageError> {
+    let (words, options) = words_and_options(args, &["selector", "value", "key", "dx", "dy"], &[])?;
+    let mut words = words.into_iter();
+    let mut take = |flag: &str| options.value(flag).map(str::to_owned).or_else(|| words.next());
+    let (method, needs): (&'static str, &[&str]) = match verb {
+        "hover" => ("browser.page.hover", &["selector"]),
+        "check" => ("browser.page.check", &["selector"]),
+        "uncheck" => ("browser.page.uncheck", &["selector"]),
+        "select" => ("browser.page.select", &["selector", "value"]),
+        "press" | "key" => ("browser.page.press", &["key"]),
+        "scroll" => ("browser.page.scroll", &[]),
+        _ => ("browser.page.scroll_into_view", &["selector"]),
+    };
+    for key in needs {
+        params.insert((*key).into(), json!(take(key).ok_or_else(&usage)?));
+    }
+    if method == "browser.page.press"
+        && let Some(selector) = options.value("selector")
+    {
+        params.insert("selector".into(), json!(selector));
+    }
+    if method == "browser.page.scroll" {
+        // The old `scroll N` scrolled by N down; any other word is a selector.
+        let mut dy = options.value("dy").map(str::to_owned);
+        let mut selector = options.value("selector").map(str::to_owned);
+        if let Some(word) = words.next() {
+            match word.parse::<f64>() {
+                Ok(_) if dy.is_none() => dy = Some(word),
+                _ if selector.is_none() => selector = Some(word),
+                _ => return Err(usage()),
+            }
+        }
+        if let Some(selector) = selector {
+            params.insert("selector".into(), json!(selector));
+        }
+        for (key, offset) in [("dx", options.value("dx").map(str::to_owned)), ("dy", dy)] {
+            let Some(offset) = offset else { continue };
+            let offset: f64 =
+                offset.parse().ok().filter(|offset: &f64| offset.is_finite()).ok_or_else(&usage)?;
+            params.insert(key.into(), json!(offset));
+        }
+        if !params.contains_key("dx") && !params.contains_key("dy") {
+            return Err(usage());
+        }
+    } else if options.value("dx").or(options.value("dy")).is_some() {
+        return Err(usage());
+    }
+    if words.next().is_some() {
+        return Err(usage());
+    }
+    Ok(method)
 }
 
 /// Leading words, then `--flags`.

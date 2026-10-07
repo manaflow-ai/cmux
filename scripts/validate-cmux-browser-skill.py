@@ -32,9 +32,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app.rs parse_page).
 PAGE_VERBS = frozenset(
     {
-        "back", "click", "cookies", "eval", "fill", "focus", "forward", "goto", "navigate",
-        "open", "reload", "screenshot", "snapshot", "state", "storage", "text", "title", "type",
-        "url", "value", "wait",
+        "back", "check", "click", "cookies", "eval", "fill", "focus", "forward", "goto",
+        "hover", "navigate", "open", "press", "reload", "screenshot", "scroll",
+        "scroll-into-view", "select", "snapshot", "state", "storage", "text", "title", "type",
+        "uncheck", "url", "value", "wait",
     }
 )
 

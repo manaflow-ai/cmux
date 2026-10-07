@@ -231,14 +231,14 @@ On `feat-cmux-next-browser-wait` (browser group 1):
   [--url-contains U] [--load-state interactive|complete] [--function JS] [--timeout-ms N]`:
   the old CLI's one-condition precedence and 5 s default (at most 120 s). The page
   rechecks on DOM mutations and load/navigation events, and for `--function` and URLs on a
-  100 ms page timer (`BrowserTab.evaluateAsync`, an awaited async function). Page waits last
+  100 ms page timer (`BrowserPageAutomation.evaluateAsync`, an awaited async function). Page waits last
   at most 4 s each (Chromium's DevTools calls end at 5 s) and restart for the rest of the
   time, as does a navigation, spaced by `Backoff`. Timeout is `timeout` with `timeout_ms`
   and the page's `last_error`.
 - `browser.page.screenshot` (`png_base64`, `width`, `height`) and `cmux browser … screenshot
   [--out PATH|-] [--selector S|--full-page]`: viewport by default, an element cropped from
   the viewport after scrolling it into view, or the whole document
-  (`BrowserTab.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
+  (`BrowserPageAutomation.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
   like the old app's fallback; at most 25M CSS px and 48 tiles). The app saves the PNG in
   its temporary directory and returns `path`, as the old app did, with `png_base64` only
   under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
@@ -255,11 +255,25 @@ On `feat-cmux-next-browser-storage` (browser group 3):
   (RFC 6265 domain, path, secure and expiry), `domain` that domain and its subdomains. A
   filter of the wrong type, or a url without a host, is `invalid_params`, never ignored.
   A hibernated tab is `unavailable`: its engine store is reached through its page. Cookies come from the tab's
-  profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or
+  profile store (`BrowserPageAutomation.cookies|setCookie|deleteCookies`: `WKHTTPCookieStore`, or
   Chromium's `Network` domain).
 - `browser.page.storage.get|set|clear` and `cmux browser … storage [local|session] [get
   [KEY]|set KEY VALUE|clear]` (`type` or the old `storage` param), run in the page;
   storage the page cannot reach is `invalid_state`.
+
+On `feat-cmux-next-browser-input` (browser group 4):
+
+- `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck` and the CLI verbs
+  `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
+  `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
+  `click`, with the old app's events and errors (`not_checkable`, `disabled`,
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPageKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
+  events, which needs engine input support (not done). Selector actions do not retry for
+  an element that has not appeared yet (`wait` covers that). `press` is TEMPORARY (chief
+  decision 2026-10-07, bead cx-i3d): it moves to the browser host's trusted `input.key` at
+  step e.
 
 ## Remaining
 
@@ -267,9 +281,8 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser tab verbs, the remaining input verbs and downloads have no new-CLI equivalent
-   yet (the compat layer had partial ones). Waits, screenshots, cookies and storage are
-   done (above). Workspace status/log/progress are done. A screenshot of an app tab no
+4. Browser tab verbs and downloads have no new-CLI equivalent yet (the compat layer had
+   partial ones). Waits, screenshots, cookies, storage and input verbs are done (above). Workspace status/log/progress are done. A screenshot of an app tab no
    window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.

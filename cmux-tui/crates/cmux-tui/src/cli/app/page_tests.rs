@@ -201,10 +201,7 @@ fn input_verbs_take_the_old_cli_forms() {
     );
     assert_eq!(
         tab_page(&["press", "Space", "--selector", "#agree"]).unwrap(),
-        (
-            "browser.page.press",
-            json!({ "tab": "tab_01ab", "key": "Space", "selector": "#agree" })
-        )
+        ("browser.page.press", json!({ "tab": "tab_01ab", "key": "Space", "selector": "#agree" }))
     );
     assert_eq!(
         tab_page(&["hover", "#menu"]).unwrap(),
@@ -216,10 +213,7 @@ fn input_verbs_take_the_old_cli_forms() {
     );
     assert_eq!(
         tab_page(&["select", "#size", "m"]).unwrap(),
-        (
-            "browser.page.select",
-            json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
-        )
+        ("browser.page.select", json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" }))
     );
     assert_eq!(tab_page(&["check", "#a"]).unwrap().0, "browser.page.check");
     assert_eq!(tab_page(&["uncheck", "#a"]).unwrap().0, "browser.page.uncheck");
@@ -239,10 +233,7 @@ fn input_verbs_take_the_old_cli_forms() {
     assert_eq!(tab_page(&["key", "Tab"]).unwrap().0, "browser.page.press");
     assert_eq!(
         tab_page(&["select", "--selector", "#size", "--value", "m"]).unwrap(),
-        (
-            "browser.page.select",
-            json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
-        )
+        ("browser.page.select", json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" }))
     );
     assert_eq!(
         tab_page(&["scrollintoview", "--selector", "#f"]).unwrap(),
