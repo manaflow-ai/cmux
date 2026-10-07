@@ -492,6 +492,28 @@ struct CoderouterSidebarSectionTests {
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
     }
 
+    @Test("Direct team add uses the pinned CLI even when PATH has no cmux")
+    func directTeamAddUsesPinnedCLI() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pinned-add-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("a cli's cmux")
+        try "#!/bin/sh\nprintf '%s\\n' \"$@\"\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        for provider in [CoderouterProvider.codex, .claude] {
+            let command = provider.addCommand(
+                for: "team's-id", supportsTeamOption: true, cmuxExecutable: executable.path
+            )
+            let result = try await CoderouterCLIAccountReader.runProcess(
+                executable: "/bin/sh",
+                arguments: ["-lc", command],
+                environment: ["PATH": "/usr/bin:/bin", "HOME": root.path]
+            )
+            #expect(String(decoding: result.stdout, as: UTF8.self) == "cr\nadd\n\(provider.id)\n--team\nteam's-id\n")
+        }
+    }
+
     @Test("Team-scoped add preserves the parent shell and shared config")
     func teamScopedAddCommandIsContained() throws {
         let organizationID = "team's-id"
@@ -501,7 +523,7 @@ struct CoderouterSidebarSectionTests {
                     let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-coderouter-add-\(UUID().uuidString)")
             let configDirectory = root.appendingPathComponent("coderouter")
-            let binDirectory = root.appendingPathComponent("bin")
+            let binDirectory = root.appendingPathComponent("a bin's")
             try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
@@ -528,9 +550,9 @@ struct CoderouterSidebarSectionTests {
             let error = Pipe()
             let terminated = DispatchSemaphore(value: 0)
             process.executableURL = URL(fileURLWithPath: shell)
-            process.arguments = ["-fc", "\(CoderouterProvider(id: providerID).addCommand(for: organizationID)); printf 'sentinel:%s\\n' \"$?\""]
+            process.arguments = ["-fc", "\(CoderouterProvider(id: providerID).addCommand(for: organizationID, cmuxExecutable: fakeCmux.path)); printf 'sentinel:%s\\n' \"$?\""]
             process.environment = [
-                "PATH": "\(binDirectory.path):/usr/bin:/bin",
+                "PATH": "/usr/bin:/bin",
                 "HOME": root.path,
                 "CODEROUTER_DATA_DIR": root.path,
                 "CMUX_TEST_LOG": log.path,

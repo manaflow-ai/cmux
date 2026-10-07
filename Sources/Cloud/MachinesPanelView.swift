@@ -618,7 +618,14 @@ struct MachinesPanelView: View {
         // Pass the matched organization explicitly. The CodeRouter CLI config
         // is shared with terminals, so relying on its active organization can
         // send a new account to another team's pool during a concurrent switch.
-        let command = provider.addCommand(for: destination.organizationID, supportsTeamOption: destination.supportsTeamOption)
+        // A login shell can reorder PATH. Pin the same app whose bundled core
+        // established supportsTeamOption instead of resolving another cmux.
+        let cliPath = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux").path
+        let command = provider.addCommand(
+            for: destination.organizationID,
+            supportsTeamOption: destination.supportsTeamOption,
+            cmuxExecutable: cliPath
+        )
 
         // Setup needs this Mac's credentials and an interactive shell. The
         // focused terminal might instead be remote or running an agent/editor.

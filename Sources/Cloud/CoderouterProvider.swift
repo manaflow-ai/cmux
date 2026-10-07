@@ -43,7 +43,14 @@ struct CoderouterProvider: Hashable {
         }
     }
 
-    func addCommand(for organizationID: String?, supportsTeamOption: Bool = false) -> String {
+    func addCommand(
+        for organizationID: String?,
+        supportsTeamOption: Bool = false,
+        cmuxExecutable: String = "cmux"
+    ) -> String {
+        let cli = cmuxExecutable == "cmux" ? "cmux" : Self.shellQuote(cmuxExecutable)
+        let provider = id == "opencode-go" ? "opencode" : id
+        let addCommand = "\(cli) cr add \(provider)"
         guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !organizationID.isEmpty else {
             return addCommand
@@ -58,7 +65,7 @@ struct CoderouterProvider: Hashable {
         // the selected team and the user's shared active organization is never
         // changed by a sidebar click. A successful team-scoped account read
         // selects the direct command above for newer CLIs.
-        let script = "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\") || exit 1; cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'CodeRouter is not signed in on this Mac.' >&2; exit 1; fi; if ! mkdir -p \"$tmp/coderouter\"; then exit 1; fi; if ! cp \"$source_config\" \"$tmp/coderouter/config.json\"; then exit 1; fi; result=0; if CODEROUTER_DATA_DIR=\"$tmp\" cmux cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || result=$?; else result=$?; fi; exit \"$result\""
+        let script = "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\") || exit 1; cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'CodeRouter is not signed in on this Mac.' >&2; exit 1; fi; if ! mkdir -p \"$tmp/coderouter\"; then exit 1; fi; if ! cp \"$source_config\" \"$tmp/coderouter/config.json\"; then exit 1; fi; result=0; if CODEROUTER_DATA_DIR=\"$tmp\" \(cli) cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || result=$?; else result=$?; fi; exit \"$result\""
         return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
