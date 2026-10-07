@@ -145,4 +145,31 @@ describe("fixture coverage", () => {
     expect(workflowPaths().length).toBeGreaterThanOrEqual(130);
     expect(localActionPaths().length).toBeGreaterThanOrEqual(5);
   });
+
+  it("plans a non-trivial number of jobs across all workflows and triggers", () => {
+    const totals = { plans: 0, jobs: 0, run: 0, skipped: 0, deferred: 0, blocked: 0, linuxCandidates: 0, linuxUnsupported: 0, other: 0 };
+    for (const path of workflowPaths()) {
+      const workflow = load(path);
+      for (const { event, inputs } of eventsFor(workflow)) {
+        totals.plans += 1;
+        const simulation = simulateRun(workflow, inputs === undefined ? { event, files: workingTree } : { event, inputs, files: workingTree });
+        for (const job of simulation.jobs) {
+          totals.jobs += 1;
+          if (job.status === "run") {
+            totals.run += 1;
+            if (job.label?.kind === "linux") {
+              if (job.unsupported.length === 0) totals.linuxCandidates += 1;
+              else totals.linuxUnsupported += 1;
+            } else totals.other += 1;
+          } else if (job.status === "skipped") totals.skipped += 1;
+          else if (job.status === "deferred") totals.deferred += 1;
+          else if (job.status === "blocked") totals.blocked += 1;
+        }
+      }
+    }
+    console.log(`cmux-actions plan totals: ${JSON.stringify(totals)}`);
+    expect(totals.plans).toBeGreaterThanOrEqual(100);
+    expect(totals.jobs).toBeGreaterThanOrEqual(300);
+    expect(totals.linuxCandidates).toBeGreaterThanOrEqual(30);
+  });
 });
