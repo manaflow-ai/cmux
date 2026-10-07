@@ -35,6 +35,7 @@ public final class ConversationViewController: UIViewController {
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
     let topEdgeFade = ConversationTopEdgeFade()
+    var detailsOverlay: ConversationDetailsOverlay?
     let composer = ConversationComposerView()
     let composerContainer = UIView()
     var composerHeightConstraint: NSLayoutConstraint?
@@ -600,6 +601,7 @@ public final class ConversationViewController: UIViewController {
     // MARK: Header actions
 
     private func handleBack() {
+        if closeInfo() { return }
         if let onBack {
             onBack()
         } else if let navigationController, navigationController.viewControllers.count > 1 {
@@ -620,14 +622,26 @@ public final class ConversationViewController: UIViewController {
     }
 
     func openInfo() {
-        guard let info = store.info else { return }
-        let controller = ConversationInfoViewController(info: info, meID: store.meID)
-        if let navigationController {
-            navigationController.setNavigationBarHidden(false, animated: true)
-            navigationController.pushViewController(controller, animated: true)
-        } else {
-            present(UINavigationController(rootViewController: controller), animated: true)
-        }
+        guard let info = store.info, detailsOverlay == nil else { return }
+        view.endEditing(true)
+        let overlay = ConversationDetailsOverlay(info: info, meID: store.meID)
+        overlay.frame = view.bounds
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(overlay, belowSubview: header)
+        detailsOverlay = overlay
+        header.setDetailsShown(true, animated: true)
+        overlay.present(from: header.convert(header.detailsSourceFrame, to: view))
+    }
+
+    /// Closes the details panel; returns false when none is open.
+    @discardableResult
+    func closeInfo() -> Bool {
+        guard let overlay = detailsOverlay else { return false }
+        detailsOverlay = nil
+        header.setDetailsShown(false, animated: true)
+        overlay.dismiss(to: header.convert(header.detailsSourceFrame, to: view)) {}
+        UIAccessibility.post(notification: .screenChanged, argument: header)
+        return true
     }
 }
 

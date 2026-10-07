@@ -171,6 +171,22 @@ final class ConversationHeaderView: UIView {
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
     }
 
+    /// The avatar (or group cluster) and name capsule, which the details
+    /// panel grows out of and shrinks back into.
+    var detailsSourceFrame: CGRect {
+        avatars.map(\.frame).reduce(namePillGlass.frame) { $0.union($1) }
+    }
+
+    /// While details are open only the back button stays; it closes them.
+    func setDetailsShown(_ shown: Bool, animated: Bool) {
+        let views: [UIView] = avatars + [clusterDisc, namePillGlass, avatarTapButton, trailingGlass, statusLabel]
+        let apply = {
+            for view in views { view.alpha = shown ? 0 : (view === self.statusLabel ? (self.statusLabel.text == nil ? 0 : 1) : 1) }
+        }
+        guard animated else { apply(); return }
+        UIView.animate(withDuration: shown ? 0.12 : 0.2, delay: shown ? 0 : 0.08, options: [.beginFromCurrentState], animations: apply)
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // Pass touches through the empty header area to the transcript.
         let view = super.hitTest(point, with: event)
