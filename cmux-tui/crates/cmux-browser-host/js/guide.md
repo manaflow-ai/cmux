@@ -76,6 +76,10 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site
   only, `{ all: true }` the whole profile, `{ urls }` those URLs. `downloads()` lists downloads.
+  `page.context().clearCookies()` clears the tab's site and returns `{ restoreIds }`; on the
+  host's own browsers the cleared cookies are kept in an encrypted backup, and
+  `page.context().restoreCookies(result)` puts them back (cookies set since are kept). Only
+  the person deletes a backup.
   `record()` returns a recorder; `stop()` writes `trace.jsonl`, a PNG per
   action and `run.png`, an animated PNG of the run.
 - `secrets.set(name, value, { domains, totp })` or `secrets.load(file)`

@@ -77,27 +77,63 @@
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
-        return labelIndex(this);
+        // An index the budget cut short has no answer, and WebKit's getter
+        // would scan the whole document for each control: the cut read gets
+        // no labels (it already says it was cut).
+        const found = labelIndex(this);
+        return found === null ? [] : found;
       },
     });
+  }
+  // Building it reads every <label> of the tree, which the page sets the
+  // number of, so each one is charged to the read's budget (the snapshot's,
+  // else a page-read budget of its own; classic 7f37c374e9f5). An index the
+  // budget cut short answers null, and that control has no labels in this
+  // read. The labels are read one at a time, never listed whole first: a
+  // document's from its live <label> collection; a shadow root (which has
+  // no such collection) by a walk of its elements, each one also counted
+  // against MAX_NODES.
+  let labelBudget = null;
+  function* treeLabels(root, cut) {
+    if (root.nodeType === 9 /* DOCUMENT_NODE */) {
+      const labels = root.getElementsByTagName("label");
+      for (let i = 0, label = labels[0]; label; label = labels[++i]) yield label;
+      return;
+    }
+    if (root.nodeType !== 11 /* DOCUMENT_FRAGMENT_NODE */) return;
+    let left = MAX_NODES;
+    const walker = document.createTreeWalker(root, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+      if (--left < 0) {
+        cut.done = true;
+        return;
+      }
+      if (el.localName === "label") yield el;
+    }
   }
   function createLabelIndex() {
     const byRoot = new Map();
     return (el) => {
       const root = el.getRootNode();
       let map = byRoot.get(root);
-      if (!map) {
+      if (map === undefined) {
         map = new Map();
-        const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
-        for (const label of labels) {
+        const b = labelBudget || (labelBudget = readBudget());
+        const cut = { done: false };
+        for (const label of treeLabels(root, cut)) {
+          if (!spend(b, 1)) {
+            cut.done = true;
+            break;
+          }
           const control = label.control;
           if (!control) continue;
           if (!map.has(control)) map.set(control, []);
           map.get(control).push(label);
         }
+        if (cut.done) map = null;
         byRoot.set(root, map);
       }
-      return map.get(el) || [];
+      return map === null ? null : map.get(el) || [];
     };
   }
   // Runs `fn` with the label index, Playwright's aria caches and a computed
@@ -106,6 +142,7 @@
   function withReadCaches(fn) {
     if (labelIndex) return fn();
     labelIndex = createLabelIndex();
+    labelBudget = null;
     styleCache = new Map();
     if (ariaCaches) ariaCaches.begin();
     try {
@@ -113,6 +150,7 @@
     } finally {
       if (ariaCaches) ariaCaches.end();
       labelIndex = null;
+      labelBudget = null;
       styleCache = null;
     }
   }
@@ -1319,6 +1357,8 @@
       nest: Math.min(MAX_DEPTH, Math.max(0, Math.floor(Number(opts.nest)) || 0)),
       work: [],
     });
+    // The label index charges this snapshot's budget.
+    labelBudget = ctx;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     runWork(ctx);

@@ -24,6 +24,19 @@ enum HomePageMenus {
         }
         return menu
     }
+
+    /// The menu around the conversations: New Message, New Chief and Invite,
+    /// each its catalog action (the toolbar's compose button runs New Message).
+    static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
+        let menu = NSMenu()
+        for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope")] {
+            guard let title = registry.descriptor(for: id)?.title else { continue }
+            menu.addItem(HomeMenuTarget.item(title: title, symbol: symbol) {
+                _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
+            })
+        }
+        return menu
+    }
 }
 
 /// A menu item's closure, run by `HomeMenuTarget`.
