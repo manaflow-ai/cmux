@@ -229,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
         services.themes.start()
+        services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()

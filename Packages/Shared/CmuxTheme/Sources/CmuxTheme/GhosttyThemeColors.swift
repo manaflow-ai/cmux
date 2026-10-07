@@ -49,22 +49,6 @@ public struct GhosttyThemeColors: Hashable, Sendable {
         cursorText = values["cursor-text"]
     }
 
-    /// The theme as the Settings page takes it (`cmux.settings.theme.colors`): lower-case `#rrggbb`
-    /// strings, a 16-entry palette with nulls for missing slots, optional colors left out.
-    public var pageJSON: [String: Any] {
-        var json: [String: Any] = [
-            "name": name,
-            "background": AppTheme.hex(background),
-            "foreground": AppTheme.hex(foreground),
-            "palette": palette.map { $0.map(AppTheme.hex) as Any? ?? NSNull() },
-        ]
-        for (key, color) in [("selectionBackground", selectionBackground), ("selectionForeground", selectionForeground),
-                             ("cursorColor", cursorColor), ("cursorText", cursorText)] {
-            if let color { json[key] = AppTheme.hex(color) }
-        }
-        return json
-    }
-
     /// The app theme of these colors.
     public var appTheme: AppTheme { AppTheme.derive(background: background, foreground: foreground, palette: palette) }
 

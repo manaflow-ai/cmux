@@ -128,6 +128,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
+    /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
+    /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
+    public var chromeTheme: String?
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -278,6 +281,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
+        let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
+        snapshot.chromeTheme = chromeTheme
+        if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.appTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apptema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App-Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème de l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema dell’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アプリのテーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបរាងកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱 테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apptema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motyw aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema do App"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีมของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulama Teması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ đề ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "应用主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App 主題"
+          }
+        }
+      }
+    },
+    "settings.default.followTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Terminal Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مطابقة سمة الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prati temu terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg terminaltemaet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Terminal-Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual que el terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comme le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come il terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルに合わせる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរូបរាងទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 테마에 맞추기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som terminaltemaet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak motyw terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual ao Terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как у терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตามธีมเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Temasına Uy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як у термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo chủ đề terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与终端主题一致"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與終端機主題一致"
+          }
+        }
+      }
+    },
+    "settings.appearance.appTheme.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألوان صفحات cmux نفسها. تصلح هنا كل سمة مضمّنة، وكل لون يستوفي تباين WCAG AA."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boje za vlastite stranice cmuxa. Ovdje radi svaka ugrađena tema, a svaka boja ispunjava WCAG AA kontrast."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farver til cmux' egne sider. Alle medfølgende temaer virker her, og hver farve opfylder WCAG AA-kontrast."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farben für die eigenen Seiten von cmux. Jedes mitgelieferte Design funktioniert hier, und jede Farbe erfüllt den WCAG-AA-Kontrast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colores de las páginas propias de cmux. Aquí sirve cualquier tema incluido y cada color cumple el contraste WCAG AA."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleurs des pages de cmux. Chaque thème fourni fonctionne ici, et chaque couleur respecte le contraste WCAG AA."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colori delle pagine di cmux. Qui funziona ogni tema incluso e ogni colore rispetta il contrasto WCAG AA."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身のページの色です。同梱のどのテーマも使え、どの色も WCAG AA のコントラストを満たします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌សម្រាប់ទំព័ររបស់ cmux ផ្ទាល់។ រូបរាងភ្ជាប់មកជាមួយនីមួយៗប្រើបាននៅទីនេះ ហើយពណ៌នីមួយៗបំពេញកម្រិតពណ៌ WCAG AA។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 자체 페이지의 색상입니다. 기본 제공 테마를 모두 쓸 수 있으며 모든 색상이 WCAG AA 대비를 충족합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farger for cmux sine egne sider. Alle medfølgende temaer fungerer her, og hver farge oppfyller WCAG AA-kontrast."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolory własnych stron cmux. Działa tu każdy wbudowany motyw, a każdy kolor spełnia kontrast WCAG AA."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cores das páginas do próprio cmux. Todo tema incluído funciona aqui, e cada cor atende ao contraste WCAG AA."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвета собственных страниц cmux. Подходит любая встроенная тема, и каждый цвет соответствует контрасту WCAG AA."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีของหน้าต่าง ๆ ของ cmux เอง ใช้ธีมในตัวได้ทุกธีม และทุกสีผ่านค่าความต่างสี WCAG AA"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kendi sayfalarının renkleri. Her yerleşik tema burada çalışır ve her renk WCAG AA kontrastını karşılar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольори власних сторінок cmux. Підходить будь-яка вбудована тема, і кожен колір відповідає контрасту WCAG AA."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu cho các trang của chính cmux. Mọi chủ đề có sẵn đều dùng được, và mọi màu đều đạt độ tương phản WCAG AA."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身页面的颜色。所有内置主题都可用于此处,每种颜色都达到 WCAG AA 对比度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身頁面的顏色。所有內建主題都可用於此處,每種顏色都達到 WCAG AA 對比度。"
+          }
+        }
+      }
+    },
     "settings.app.globalHotKey": {
       "extractionState": "manual",
       "localizations": {

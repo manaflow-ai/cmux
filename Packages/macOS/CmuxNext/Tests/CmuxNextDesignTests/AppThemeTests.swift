@@ -89,7 +89,7 @@ import Testing
         #expect(colors.palette[4].map(AppTheme.hex) == "#3366ff")
         #expect(colors.palette[1] == nil)
         #expect(colors.cursorColor.map(AppTheme.hex) == "#ff0000")
-        #expect(colors.pageJSON["selectionBackground"] as? String == "#3f638b")
+        #expect(colors.selectionBackground.map(AppTheme.hex) == "#3f638b")
         #expect(GhosttyThemeColors(name: "Empty", themeFile: "palette = 0=#000000") == nil)
     }
 }
