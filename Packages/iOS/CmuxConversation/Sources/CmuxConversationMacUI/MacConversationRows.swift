@@ -118,7 +118,7 @@ enum MacConversationRowBuilder {
             let sender = info.participant(message.senderID)
             let quote = message.replyToID.flatMap(quoted).map {
                 MacReplyQuote(
-                    text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text,
+                    text: $0.text.isEmpty ? ($0.audioAttachment != nil ? MacAudioStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text,
                     isOutgoing: $0.senderID == meID,
                     senderInitials: info.participant($0.senderID)?.initials ?? "",
                     senderColorHex: info.participant($0.senderID)?.colorHex,
@@ -200,6 +200,10 @@ struct MacMessageLayout {
     var footerFrame: CGRect?
     var failedBadgeFrame: CGRect?
     var contentFrame: CGRect
+    /// Audio messages: the play/waveform/duration row inside the bubble.
+    var audioFrame: CGRect? = nil
+    /// Audio messages: "Expires in 2m  Keep" (or "Kept") under the bubble.
+    var audioExpiryFrame: CGRect? = nil
 }
 
 @MainActor
@@ -217,11 +221,12 @@ final class MacMessageLayoutCache {
     }
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
-        if let (text, outgoing, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing {
+        let body = model.message.macBodyText
+        if let (text, outgoing, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing {
             return value
         }
-        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        texts[model.rowID] = (model.message.text, model.isOutgoing, value)
+        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing)
+        texts[model.rowID] = (body, model.isOutgoing, value)
         return value
     }
 
@@ -310,7 +315,7 @@ extension MacMessageLayout {
         if !model.reactionKinds.isEmpty { y += 14 }
 
         var imageFrames: [CGRect] = []
-        for attachment in model.message.attachments {
+        for attachment in model.message.macImageAttachments {
             var w = min(t.maxImageWidth, floor(available * 0.55))
             var h = w / CGFloat(attachment.aspectRatio)
             if h > t.maxImageHeight {
@@ -325,7 +330,16 @@ extension MacMessageLayout {
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
-        if model.isEmojiOnly {
+        var audioFrame: CGRect?
+        if let audio = model.message.audioAttachment?.audio {
+            let audioLayout = MacAudioBubbleLayout.compute(audio: audio, text: text, maxBubble: maxBubble)
+            let frame = bubbleRect(bodyWidth: audioLayout.bodyWidth, y: y, height: audioLayout.height)
+            bubbleFrame = frame
+            let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            audioFrame = CGRect(x: bodyMinX, y: y, width: audioLayout.bodyWidth, height: MacAudioBubbleLayout.rowHeight)
+            textFrame = audioLayout.transcript?.offsetBy(dx: bodyMinX, dy: y)
+            y += audioLayout.height
+        } else if model.isEmojiOnly {
             let emoji = NSAttributedString(string: model.message.text, attributes: [.font: NSFont.systemFont(ofSize: t.emojiOnlyFontSize)])
             var size = measure(emoji, maxWidth: maxBubble)
             size.width += 6
@@ -378,6 +392,11 @@ extension MacMessageLayout {
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?
+        var audioExpiryFrame: CGRect?
+        if let audio = model.message.audioAttachment?.audio, audio.expiresAt != nil || audio.isKept {
+            audioExpiryFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
         if model.message.editedAt != nil {
             editedFrame = footerRect(y + 2)
             y += 2 + 14
@@ -442,7 +461,9 @@ extension MacMessageLayout {
             repliesFrame: repliesFrame,
             footerFrame: footerFrame,
             failedBadgeFrame: failedBadgeFrame,
-            contentFrame: content
+            contentFrame: content,
+            audioFrame: audioFrame,
+            audioExpiryFrame: audioExpiryFrame
         )
     }
 }
