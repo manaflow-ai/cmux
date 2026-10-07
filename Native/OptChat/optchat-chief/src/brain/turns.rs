@@ -128,6 +128,8 @@ impl Brain {
                         match &outcome.error {
                             Some(e) if marked && is_marker_limit_error(e) => {
                                 marker_refused.store(true, Ordering::SeqCst);
+                                // The inspector lays this turn out unmarked.
+                                trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
                                     "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
                                     start.key
@@ -287,13 +289,14 @@ impl Brain {
             .then_some(self.settings.turn_preset.as_deref())
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
+        let marker = !self.marker_refused.load(Ordering::SeqCst);
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
                 let layout = cached_layout(
                     &self.settings.system_text,
                     &view.text,
                     &texts.join("\n\n"),
-                    !self.marker_refused.load(Ordering::SeqCst),
+                    marker,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
@@ -310,6 +313,7 @@ impl Brain {
                 (turn_blocks(&view.text, &texts), None, preset)
             }
         };
+        let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
@@ -321,13 +325,24 @@ impl Brain {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }
         }
+        // How the prompt was laid out, so the inspector can lay it out again
+        // from the trace (inspect.rs): the cached layout and its marker, or
+        // the view's pieces then the messages.
+        let mut layout = if system_prompt.is_some() {
+            serde_json::json!({"kind": "cached", "marker": marker})
+        } else {
+            serde_json::json!({"kind": "blocks"})
+        };
+        layout["images"] = serde_json::json!(image_count);
         self.trace_start(
             &key,
             first,
-            &view.text,
+            &view,
             &texts,
+            &done.ids,
             &items_sources,
             system_prompt.as_deref(),
+            layout,
         );
         Some(TurnStart {
             prompt_id: format!("optchat:{first}"),
@@ -506,15 +521,19 @@ impl Brain {
     /// The trace's `turn.start`: what the turn reads, the view's size and
     /// the hash of each cached piece, how much of the previous turn's view
     /// is unchanged, and how long the settle wait took.
+    #[allow(clippy::too_many_arguments)]
     fn trace_start(
         &mut self,
         key: &str,
         first: u64,
-        view: &str,
+        rendered: &optchat_host::RenderedView,
         texts: &[String],
+        ids: &[u64],
         sources: &[&'static str],
         system: Option<&str>,
+        layout: serde_json::Value,
     ) {
+        let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
         let settle_ms = self
             .settle_clock
@@ -539,12 +558,18 @@ impl Brain {
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
+                // The log ids of the messages (the prompt's last block).
+                "message_ids": ids,
                 "sources": sources,
+                "layout": layout,
                 "view": {
                     "bytes": view.len(),
                     "lines": view.lines().count(),
                     "hash": crate::trace::hash(view),
                     "pieces": crate::trace::pieces(view),
+                    // The tree node of each line, oldest first (`id+n`): with
+                    // the stored node texts they render this view again.
+                    "parts": rendered.parts.iter().map(|p| p.name()).collect::<Vec<_>>(),
                     "unchanged_prefix_bytes": unchanged.map(|u| u.0),
                     "prev_bytes": unchanged.map(|u| u.1),
                 },

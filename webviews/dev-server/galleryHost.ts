@@ -12,6 +12,10 @@
 //                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
 //                                          roots, the Swift packages' Fixtures folders) by repo path
+//   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
+//                                          read when the module loads; the live server pushes newer
+//                                          ones (galleryLive.ts)
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +39,7 @@ const METRICS_SWIFT = path.join(
 );
 const THEMES_ID = "virtual:cmux-gallery/themes";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
+const REVISION_ID = "virtual:cmux-gallery/revision";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
 // The CSS id is a path under the gallery (no file there), so Vite's CSS pipeline takes it.
 const PANE_CSS_PATH = path.join(galleryDir, "agent-pane.virtual.css");
@@ -113,6 +118,31 @@ export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
   return [path.join(webviewsRoot, "src/pages/shared/desktop.css"), ...files];
 }
 
+export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
+
+/** The checkout's HEAD: sha, subject, commit time (unix seconds) and branch (empty when detached). */
+export function readRevision(root = repoRoot): Revision {
+  try {
+    const [sha = "", committedAt = "0", subject = ""] = execFileSync(
+      "git",
+      ["-C", root, "log", "-1", "--format=%H%x00%ct%x00%s", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    )
+      .trim()
+      .split("\0");
+    // CMUX_GALLERY_BRANCH: the live host's checkouts are detached on the branch they follow.
+    let branch = process.env.CMUX_GALLERY_BRANCH ?? "";
+    if (!branch)
+      branch = execFileSync("git", ["-C", root, "branch", "--show-current"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    return { sha, subject, committedAt: Number(committedAt) || 0, branch };
+  } catch {
+    return { sha: "unknown", subject: "", committedAt: 0, branch: "" };
+  }
+}
+
 function agentPaneCSS(): string {
   return agentPaneStylesheets()
     .map((file) => {
@@ -128,7 +158,7 @@ export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
     resolveId(source) {
-      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID].includes(source)) return `\0${source}`;
+      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID].includes(source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },
@@ -137,6 +167,7 @@ export function galleryModules(): Plugin {
       if (id === `\0${METRICS_ID}`) return `export default ${JSON.stringify(readChromeMetrics())};`;
       if (id === `\0${FIXTURES_ID}`) return `export default ${JSON.stringify(readSharedFixtures())};`;
       if (id === `\0${WEB_THEME_ID}`) return `export default ${JSON.stringify(readWebThemeBootstrap())};`;
+      if (id === `\0${REVISION_ID}`) return `export default ${JSON.stringify(readRevision())};`;
       if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
       return null;
     },
@@ -175,25 +206,32 @@ export function galleryModules(): Plugin {
   };
 }
 
-/** /gallery/ and /gallery/frame.html in the dev server. */
-export function galleryHost(): Plugin {
+/**
+ * The shell and a stage in the dev server: `<mount>` and `<mount>frame.html`. `bun run dev` mounts
+ * them at /gallery/; the live gallery (vite.config.gallery-dev.ts) at its base, `/live/` or
+ * `/wt/<name>/`, where the base is also every module URL's prefix.
+ */
+export function galleryHost({ mount = "/gallery/" }: { mount?: string } = {}): Plugin {
+  const escaped = mount.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
+  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html)?$`);
   return {
     name: "cmux-dev-gallery",
     apply: "serve",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
-        if (url.pathname === "/gallery") {
+        if (url.pathname === mount.slice(0, -1)) {
           response.statusCode = 302;
-          response.setHeader("Location", `/gallery/${url.search}`);
+          response.setHeader("Location", `${mount}${url.search}`);
           return response.end();
         }
-        const page = /^\/gallery\/(index\.html|frame\.html)?$/.exec(url.pathname);
-        if (!page) return next();
-        const name = page[1] ?? "index.html";
+        const match = page.exec(url.pathname);
+        if (!match) return next();
+        const name = match[1] ?? "index.html";
         try {
           let html = fs.readFileSync(path.join(galleryDir, name), "utf8");
-          // The page's relative script sources are relative to src/gallery, not /gallery/.
+          // The page's relative script sources are relative to src/gallery, not the mount. (Vite
+          // puts its base before a root-absolute URL.)
           html = html.replace(/(\bsrc=")\.\//g, "$1/src/gallery/");
           html = await server.transformIndexHtml(`/src/gallery/${name}`, html, request.originalUrl);
           response.statusCode = 200;
