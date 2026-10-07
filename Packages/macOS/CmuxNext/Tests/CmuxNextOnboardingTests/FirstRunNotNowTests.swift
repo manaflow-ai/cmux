@@ -33,6 +33,25 @@ import Testing
         #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
     }
 
+    /// A launch that showed the run is one of the two, whether the person
+    /// closed the window again or quit with it open (a quit can close it too).
+    @Test func eachShownLaunchCountsWhetherClosedOrQuit() throws {
+        let file = Self.stateFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        try file.markProgress(.chats, interacted: true)
+        try file.markNotNow()
+        // Launch 2: shown, then closed again.
+        #expect(Self.launch(file) == .resume(.chats))
+        try file.markProgress(.chats, interacted: false)
+        try file.markNotNow()
+        // Launch 3: shown, then the quit closes the open window.
+        #expect(Self.launch(file) == .resume(.chats))
+        try file.markProgress(.chats, interacted: false)
+        try file.markNotNow()
+        #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
+        #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
+    }
+
     @Test func aQuitMidStepResumesRegardlessOfTheCounter() throws {
         let file = Self.stateFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
@@ -60,8 +79,9 @@ import Testing
     @Test func theCloseButtonIsNotNowAndARebuildIsNot() {
         let services = MockOnboardingServices()
         let controller = OnboardingWindowController(model: OnboardingModel(services: services))
-        controller.window?.close()
+        controller.window?.standardWindowButton(.closeButton)?.performClick(nil)
         #expect(services.leftNotNow == true)
+        #expect(controller.window?.isVisible == false)
         let rebuilt = MockOnboardingServices()
         let other = OnboardingWindowController(model: OnboardingModel(services: rebuilt))
         other.closeForRebuild()
