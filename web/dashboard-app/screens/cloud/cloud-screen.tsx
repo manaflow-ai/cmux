@@ -1,18 +1,58 @@
 "use client";
 
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
-import { EmptyState } from "../../components/page-states";
-import { cloudDevicesQuery, type CloudDevice } from "../../queries/cloud";
+import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
+import { EmptyState, SectionError } from "../../components/page-states";
+import { cloudDevicesQuery, cloudMachinesQuery, type CloudDevice, type CloudMachine } from "../../queries/cloud";
 import { CloudPageFrame } from "./cloud-frame";
 import { CloudDeviceActions } from "./device-actions";
+import { MachineNetworkControl } from "./network-policy-editor";
 
 export function CloudScreen() {
+  const t = useTranslations("dashboard.cloud");
   const { data: devices } = useSuspenseQuery(cloudDevicesQuery);
   return (
     <CloudPageFrame>
+      <h2 className="mb-2 text-xs font-medium text-muted">{t("machines.title")}</h2>
+      <CloudMachinesRegion />
+      <h2 className="mb-2 mt-6 text-xs font-medium text-muted">{t("macAccessTitle")}</h2>
       <CloudDevicesSection devices={devices} />
     </CloudPageFrame>
+  );
+}
+
+/**
+ * Machines load beside the Mac list, not in the route loader, so a failing
+ * machine list never hides Mac access (and the reverse).
+ */
+function CloudMachinesRegion() {
+  const t = useTranslations("dashboard.cloud.machines");
+  const query = useQuery(cloudMachinesQuery);
+  if (query.isPending) return <DashboardSectionSkeleton variant="list" rows={2} />;
+  if (query.isError) return <SectionError error={query.error} section={t("title")} onRetry={() => query.refetch()} />;
+  return <CloudMachinesSection machines={query.data} />;
+}
+
+export function CloudMachinesSection({ machines }: { readonly machines: readonly CloudMachine[] }) {
+  const t = useTranslations("dashboard.cloud.machines");
+  if (machines.length === 0) {
+    return <p className="border border-border p-3 text-muted">{t("empty")}</p>;
+  }
+  return (
+    <div className="divide-y divide-border border border-border">
+      {machines.map((machine) => (
+        <div key={machine.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{machine.name}</p>
+            <p className="mt-1 text-xs text-muted">
+              {[t(machine.teamId ? "team" : "personal"), t(`status.${machine.status}`), machine.id].join(" · ")}
+            </p>
+          </div>
+          <MachineNetworkControl vmId={machine.id} teamId={machine.teamId} name={machine.name} />
+        </div>
+      ))}
+    </div>
   );
 }
 

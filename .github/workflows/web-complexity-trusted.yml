@@ -33,9 +33,11 @@ jobs:
     # Keep the required context literal and evaluate the real verdict on edits.
     # GitHub can publish an unevaluated name expression when a job is skipped.
     name: Web complexity
-    # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
-    # hosted runner and never allow a repository variable to select the host.
-    runs-on: ubuntu-24.04
+    # The job reads untrusted source bytes, so it needs an ephemeral runner;
+    # no repository variable may select a persistent host. CI_TRUSTED_RUNNER
+    # only chooses GitHub-hosted or a one-job Blacksmith VM from the list
+    # below (anything else falls back to Blacksmith).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     env:
       # The policy comes from the base of a pull request or merge group, and
@@ -58,11 +60,12 @@ jobs:
           fetch-depth: ${{ github.event_name != 'push' && 1 || 0 }}
           persist-credentials: false
 
-      - name: Require GitHub-hosted runner
-        if: runner.environment != 'github-hosted'
+      - name: Require an ephemeral runner
+        # Blacksmith VMs report self-hosted; their runner names identify them.
+        if: runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')
         run: |
           set -euo pipefail
-          echo "::error::Web complexity requires a GitHub-hosted runner"
+          echo "::error::Web complexity requires a GitHub-hosted or Blacksmith runner"
           exit 1
 
       - name: Verify trusted checkout
