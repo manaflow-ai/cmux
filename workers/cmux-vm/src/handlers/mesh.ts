@@ -10,9 +10,10 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Option } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceEnrollment, DeviceList, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { Acl, AclApplied, Device, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { TeamMembership } from "../auth/credentials.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import { OwnershipStore } from "../db/stores.ts";
@@ -26,10 +27,14 @@ import {
   NotFound,
   PaymentRequired,
   QuotaExceeded,
+  ServiceUnavailable,
   unavailable,
   vmNotFound,
 } from "../errors.ts";
 import {
+  ApiKeyId,
+  UserId,
+  randomIdBody,
   newDeviceId,
   newMeshId,
   newTunnelId,
@@ -45,11 +50,14 @@ import {
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { compileAcl, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
-import { MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
+import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
+import { sha256Hex } from "../mesh/signed-request.ts";
+import { deviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
+import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamMesh, type TunnelInfo } from "../upstream/mesh.ts";
 import { audited, dependencyDown, rateLimit } from "./common.ts";
@@ -120,7 +128,7 @@ const withOwnedDevice = <const S extends Scope, A, E, R>(
   k: <C, D>(
     caller: Named<C, Principal>,
     device: Named<D, DeviceId>,
-    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, S> },
+    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, S>; readonly acts: CallerActsOnDevice<C, D> },
     row: MeshDeviceRow,
   ) => Effect.Effect<A, E, R>,
 ) =>
@@ -135,7 +143,10 @@ const withOwnedDevice = <const S extends Scope, A, E, R>(
           if (owns === null) return yield* Effect.fail(deviceNotFound());
           const row = yield* store.getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
           if (Option.isNone(row)) return yield* Effect.fail(deviceNotFound());
-          return yield* k(caller, device, { owns, scope: granted }, row.value);
+          // Inside the tenant, only the enrolling principal or a tenant admin sees the device (cx-0op.4).
+          const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(() => unavailable()));
+          if (acts === null) return yield* Effect.fail(deviceNotFound());
+          return yield* k(caller, device, { owns, scope: granted, acts }, row.value);
         }),
       );
     }),
@@ -164,6 +175,7 @@ const toDevice = (row: MeshDeviceRow) =>
     meshId: MeshId_(row.meshId),
     name: row.name,
     wgPublicKey: row.wgPublicKey,
+    installPublicKey: row.installPublicKey,
     tunnelId: TunnelId_(row.tunnelId),
     createdAt: row.createdAt.toISOString(),
   });
@@ -346,6 +358,180 @@ const withSlot = <C, K extends "mesh" | "device", A, E, R, E2, R2>(
     return yield* k(decided.proof).pipe(Effect.ensuring(limits.release(tenantId, decided.proof.reservationId)));
   });
 
+/** A refused install-key signature: stale or forged is 403, a replay 409. */
+const signatureRefused = (reason: "stale" | "invalid" | "replayed") =>
+  reason === "replayed"
+    ? new Conflict({ message: "This signed request was already used; sign a new one" })
+    : new Forbidden({
+        message: reason === "stale" ? "The request's signedAt is more than 120 s from the server's clock; sign it again" : "The install-key signature does not verify",
+      });
+
+interface EnrollPayload {
+  readonly name: string;
+  readonly wgPublicKey: string;
+  readonly installPublicKey: string;
+  readonly signedAt: number;
+  readonly nonce: string;
+  readonly signature: string;
+}
+
+/**
+ * Enrolls a device into `mesh` for `caller`, who becomes its owner: the
+ * install key must have signed this request (fresh, never seen), then the
+ * device budget, then the provider tunnel with exactly the signed key, then
+ * the rows, then the ACL, then the config. Used by the credential route and by
+ * the enrollment-code route (where the caller is the code's creator).
+ */
+const enrollInto = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
+  payload: EnrollPayload,
+  beforeCreate: Effect.Effect<void, NotFound | ServiceUnavailable, MeshStore> = Effect.void,
+) =>
+  Effect.gen(function* () {
+    const principal = caller.value;
+    const store = yield* MeshStore;
+    const ownership = yield* OwnershipStore;
+    const upstream = yield* UpstreamMesh;
+    const held = yield* deviceHoldsKey(
+      caller,
+      mesh,
+      { purpose: "enroll", wgPublicKey: payload.wgPublicKey, installPublicKey: payload.installPublicKey, name: payload.name, signedAt: payload.signedAt, nonce: payload.nonce },
+      payload.signature,
+      null,
+    ).pipe(Effect.catchAll(dependencyDown("mesh.claimSignedRequest")));
+    if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
+    const existing = yield* store.listDevices(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
+    if (existing.some((device) => device.wgPublicKey === payload.wgPublicKey)) {
+      return yield* Effect.fail(new Conflict({ message: "A device with this public key is already in the mesh" }));
+    }
+    const cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf")));
+    if (Option.isNone(cidr)) return yield* Effect.fail(unavailable());
+    yield* beforeCreate;
+    return yield* withSlot(tenantMayCreateDevice(caller, mesh), principal.tenantId, "device.perMesh", (mayCreate) =>
+      Effect.uninterruptible(
+        name(newDeviceId(), (device) =>
+          Effect.gen(function* () {
+            const tunnelId = newTunnelId();
+            const created = yield* upstream
+              .createTunnel(mesh, { owns: proofs.owns, scope: proofs.scope, mayCreate, holds: held.proof }, {
+                tenantId: principal.tenantId,
+                deviceId: device.value,
+                routes: [cidr.value],
+              })
+              .pipe(Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The tunnel could not be created for this mesh" }) : unavailable())));
+            const createdAt = yield* now;
+            const createdBy = actorRef(principal.actor);
+            const row: MeshDeviceRow = {
+              deviceId: device.value,
+              meshId: mesh.value,
+              tunnelId,
+              name: payload.name,
+              wgPublicKey: payload.wgPublicKey,
+              installPublicKey: payload.installPublicKey,
+              createdBy,
+              createdAt,
+            };
+            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: {} };
+            const undo = (event: string) =>
+              Effect.gen(function* () {
+                yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));
+                const at = yield* now;
+                yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
+                yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
+                yield* store.markDeviceDeleted(principal.tenantId, device.value, at).pipe(Effect.ignore);
+                yield* logEvent(event, { deviceId: device.value });
+              });
+            yield* Effect.all([
+              ownership.record({ ...base, kind: "tunnel", cmuxId: tunnelId, displayName: null }),
+              ownership.record({ ...base, kind: "device", cmuxId: device.value, displayName: payload.name }),
+              store.recordDevice(principal.tenantId, row),
+            ]).pipe(
+              Effect.tapError(() => undo("mesh_device_record_failed")),
+              Effect.mapError(() => unavailable()),
+            );
+            // ACL first, then config: the device's rules exist before it learns its endpoint.
+            yield* reconcileCurrent(caller, mesh, proofs.owns).pipe(Effect.tapError(() => undo("mesh_device_reconcile_failed")));
+            return new DeviceEnrollment({ device: toDevice(row), tunnel: toTunnel(row, created.info) });
+          }),
+        ),
+      ),
+    );
+  });
+
+/** The creator recorded on a code (`user:<id>` or `key:<id>`), as the actor the enroll runs as. */
+const actorOf = (createdBy: string): Option.Option<Principal["actor"]> => {
+  const [kind, ...rest] = createdBy.split(":");
+  const id = rest.join(":");
+  if (kind === "user") return Option.map(Schema.decodeUnknownOption(UserId)(id), (userId) => ({ kind: "session" as const, userId }));
+  if (kind === "key") return Option.map(Schema.decodeUnknownOption(ApiKeyId)(id), (keyId) => ({ kind: "api_key" as const, keyId }));
+  return Option.none();
+};
+
+/**
+ * The unauthenticated enrollment-code route (M2). The code is the credential:
+ * found by its SHA-256 for this mesh, unused and unexpired, in a tenant with the
+ * experiment on. The enroll then runs as the code's creator with only
+ * `mesh:join` and `mesh:read`, so the device belongs to the creator. A session
+ * creator must still be a member of the team. The code is used up only after
+ * the signature is accepted, so a refused request leaves it valid.
+ */
+export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", (handlers) =>
+  handlers.handle("codeEnrollDevice", ({ path, payload }) =>
+    Effect.gen(function* () {
+      const config = yield* MeshConfig;
+      if (!config.experiment) return yield* Effect.fail(experimentOff());
+      const parsed = parseMeshId(path.meshId);
+      if (Option.isNone(parsed)) return yield* Effect.fail(experimentOff());
+      const store = yield* MeshStore;
+      const codeSha256 = yield* sha256Hex(payload.code);
+      const found = yield* store.findEnrollmentCode(codeSha256, parsed.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.findEnrollmentCode")));
+      if (Option.isNone(found) || !config.enabledFor(found.value.tenantId)) return yield* Effect.fail(experimentOff());
+      const code = found.value;
+      const actor = actorOf(code.createdBy);
+      if (Option.isNone(actor)) return yield* Effect.fail(experimentOff());
+      const creator = actor.value;
+      if (creator.kind === "session") {
+        const member = yield* (yield* TeamMembership).isMember(code.tenantId, creator.userId).pipe(Effect.mapError(() => unavailable()));
+        if (!member) return yield* Effect.fail(experimentOff());
+      }
+      const principal: Principal = {
+        tenantId: code.tenantId,
+        actor: creator,
+        scopes: new Set<Scope>(["mesh:join", "mesh:read"]),
+        resourceAllowlist: null,
+        credentialExpiresAt: code.expiresAt,
+      };
+      return yield* name(principal, (caller) =>
+        Effect.gen(function* () {
+          const scope = keyHasScope(caller, "mesh:join");
+          if (scope === null) return yield* Effect.fail(missingScope("mesh:join"));
+          yield* rateLimit(principal, "write");
+          return yield* name(parsed.value, (mesh) =>
+            audited(
+              "device.create",
+              mesh.value,
+              Effect.gen(function* () {
+                const owns = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+                if (owns === null) return yield* Effect.fail(meshNotFound());
+                const consume = Effect.gen(function* () {
+                  const used = yield* store.consumeEnrollmentCode(codeSha256, mesh.value, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.consumeEnrollmentCode")));
+                  if (!used) return yield* Effect.fail(experimentOff());
+                });
+                const enrollment = yield* enrollInto(caller, mesh, { owns, scope }, payload, consume);
+                yield* store.recordEnrollmentCodeDevice(codeSha256, enrollment.device.id).pipe(Effect.ignore);
+                return enrollment;
+              }),
+              (enrollment) => enrollment.device.id,
+            ),
+          );
+        }),
+      ).pipe(Effect.provideService(CurrentPrincipal, principal));
+    }),
+  ),
+);
+
 export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =>
   handlers
     .handle("createMesh", ({ payload }) =>
@@ -468,68 +654,89 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
         audited(
           "device.create",
           mesh.value,
+          enrollInto(caller, mesh, proofs, payload),
+          (enrollment) => enrollment.device.id,
+        ),
+      ),
+    )
+    .handle("createEnrollmentCode", ({ path }) =>
+      withOwnedMesh(path.meshId, "mesh:join", "write", (caller, mesh) =>
+        audited(
+          "enrollment_code.create",
+          mesh.value,
           Effect.gen(function* () {
             const principal = caller.value;
             const store = yield* MeshStore;
-            const ownership = yield* OwnershipStore;
-            const upstream = yield* UpstreamMesh;
-            const existing = yield* store.listDevices(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-            if (existing.some((device) => device.wgPublicKey === payload.wgPublicKey)) {
-              return yield* Effect.fail(new Conflict({ message: "A device with this public key is already in the mesh" }));
+            const config = yield* MeshConfig;
+            const started = yield* Clock.currentTimeMillis;
+            const recent = yield* store
+              .enrollmentCodesSince(principal.tenantId, mesh.value, new Date(started - 3_600_000))
+              .pipe(Effect.catchAll(dependencyDown("mesh.enrollmentCodesSince")));
+            if (recent.length >= config.budgets.enrollmentCodesPerHour) {
+              const oldest = recent.reduce((min, at) => (at < min ? at : min), recent[0] ?? new Date(started));
+              return yield* Effect.fail(
+                new QuotaExceeded({
+                  message: `This mesh made ${recent.length} enrollment codes in the last hour; the limit is ${config.budgets.enrollmentCodesPerHour}`,
+                  retryAfterSeconds: Math.max(1, Math.ceil((oldest.getTime() + 3_600_000 - started) / 1000)),
+                  budget: "enrollmentCode.perMeshPerHour",
+                }),
+              );
             }
-            const cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf")));
-            if (Option.isNone(cidr)) return yield* Effect.fail(unavailable());
-            return yield* withSlot(tenantMayCreateDevice(caller, mesh), principal.tenantId, "device.perMesh", (mayCreate) =>
-              Effect.uninterruptible(
-                name(newDeviceId(), (device) =>
-                  Effect.gen(function* () {
-                    const tunnelId = newTunnelId();
-                    const created = yield* upstream
-                      .createTunnel(mesh, { owns: proofs.owns, scope: proofs.scope, mayCreate }, {
-                        tenantId: principal.tenantId,
-                        deviceId: device.value,
-                        clientPublicKey: payload.wgPublicKey,
-                        routes: [cidr.value],
-                      })
-                      .pipe(Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The tunnel could not be created for this mesh" }) : unavailable())));
-                    const createdAt = yield* now;
-                    const createdBy = actorRef(principal.actor);
-                    const row: MeshDeviceRow = {
-                      deviceId: device.value,
-                      meshId: mesh.value,
-                      tunnelId,
-                      name: payload.name,
-                      wgPublicKey: payload.wgPublicKey,
-                      createdBy,
-                      createdAt,
-                    };
-                    const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: {} };
-                    const undo = (event: string) =>
-                      Effect.gen(function* () {
-                        yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));
-                        const at = yield* now;
-                        yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
-                        yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
-                        yield* store.markDeviceDeleted(principal.tenantId, device.value, at).pipe(Effect.ignore);
-                        yield* logEvent(event, { deviceId: device.value });
-                      });
-                    yield* Effect.all([
-                      ownership.record({ ...base, kind: "tunnel", cmuxId: tunnelId, displayName: null }),
-                      ownership.record({ ...base, kind: "device", cmuxId: device.value, displayName: payload.name }),
-                      store.recordDevice(principal.tenantId, row),
-                    ]).pipe(
-                      Effect.tapError(() => undo("mesh_device_record_failed")),
-                      Effect.mapError(() => unavailable()),
-                    );
-                    // ACL first, then config: the device's rules exist before it learns its endpoint.
-                    yield* reconcileCurrent(caller, mesh, proofs.owns).pipe(Effect.tapError(() => undo("mesh_device_reconcile_failed")));
-                    return new DeviceEnrollment({ device: toDevice(row), tunnel: toTunnel(row, created.info) });
-                  }),
-                ),
-              ),
-            );
+            // 128 random bits; only the SHA-256 is stored, the code is shown once.
+            const code = `mec_${randomIdBody()}`;
+            const createdAt = new Date(started);
+            const expiresAt = new Date(started + ENROLLMENT_CODE_TTL_MS);
+            yield* store
+              .insertEnrollmentCode({
+                codeSha256: yield* sha256Hex(code),
+                tenantId: principal.tenantId,
+                meshId: mesh.value,
+                createdBy: actorRef(principal.actor),
+                createdAt,
+                expiresAt,
+              })
+              .pipe(Effect.catchAll(dependencyDown("mesh.insertEnrollmentCode")));
+            return new EnrollmentCode({ code, meshId: MeshId_(mesh.value), expiresAt: expiresAt.toISOString() });
           }),
-          (enrollment) => enrollment.device.id,
+        ),
+      ),
+    )
+    .handle("rotateDeviceKey", ({ path, payload }) =>
+      withOwnedDevice(path.deviceId, "mesh:join", "write", (caller, device, proofs, row) =>
+        audited(
+          "device.rotate_key",
+          device.value,
+          Effect.gen(function* () {
+            const tenantId = caller.value.tenantId;
+            const store = yield* MeshStore;
+            const upstream = yield* UpstreamMesh;
+            if (row.installPublicKey === null) {
+              return yield* Effect.fail(new Conflict({ message: "This device was enrolled without an install key; enroll it again to rotate its key" }));
+            }
+            const held = yield* deviceHoldsKey(
+              caller,
+              device,
+              { purpose: "rotate-key", wgPublicKey: payload.newPublicKey, installPublicKey: row.installPublicKey, name: "", signedAt: payload.signedAt, nonce: payload.nonce },
+              payload.signature,
+              row.installPublicKey,
+            ).pipe(Effect.catchAll(dependencyDown("mesh.claimSignedRequest")));
+            if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
+            const devices = yield* store.listDevices(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
+            if (devices.some((other) => other.wgPublicKey === payload.newPublicKey)) {
+              return yield* Effect.fail(new Conflict({ message: "A device of this mesh already has this public key" }));
+            }
+            const info = yield* upstream
+              .rotateTunnelKey(device, { ...proofs, holds: held.proof })
+              .pipe(Effect.mapError((error) => (error.status === 404 ? deviceNotFound() : unavailable())));
+            const at = yield* now;
+            const recorded = yield* store.updateDeviceKey(tenantId, device.value, payload.newPublicKey, at).pipe(Effect.catchAll(dependencyDown("mesh.updateDeviceKey")));
+            if (!recorded) {
+              // The provider has the new key but the row could not take it (a concurrent enroll took the key): the operator reconciles.
+              yield* logEvent("mesh_rotate_record_failed", { deviceId: device.value });
+              return yield* Effect.fail(unavailable());
+            }
+            return toTunnel({ ...row, wgPublicKey: payload.newPublicKey }, info);
+          }),
         ),
       ),
     )
@@ -538,7 +745,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
         Effect.gen(function* () {
           const store = yield* MeshStore;
           const rows = yield* store.listDevices(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-          return new DeviceList({ items: rows.map(toDevice) });
+          // A tenant admin sees every device; any other principal only the devices it enrolled (cx-0op.4).
+          const own = rows.filter((row) => enrolledBy(caller.value, row));
+          const all = own.length === rows.length || (yield* isTenantAdmin(caller.value).pipe(Effect.mapError(() => unavailable())));
+          return new DeviceList({ items: (all ? rows : own).map(toDevice) });
         }),
       ),
     )
@@ -614,8 +824,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
               if (owns === null) return yield* Effect.fail(tunnelNotFound());
               const row = yield* store.getDeviceByTunnel(caller.value.tenantId, tunnel.value).pipe(Effect.catchAll(dependencyDown("mesh.getDeviceByTunnel")));
               if (Option.isNone(row)) return yield* Effect.fail(tunnelNotFound());
+              const acts = yield* callerActsOnTunnel(caller, tunnel, owns, row.value).pipe(Effect.mapError(() => unavailable()));
+              if (acts === null) return yield* Effect.fail(tunnelNotFound());
               const info = yield* upstream
-                .getTunnel(tunnel, { owns, scope })
+                .getTunnel(tunnel, { owns, scope, acts })
                 .pipe(Effect.mapError((error) => (error.status === 404 ? tunnelNotFound() : unavailable())));
               return toTunnel(row.value, info);
             }),

@@ -88,6 +88,24 @@ import Testing
         model.finish(completed: true)
     }
 
+    /// A helper that does not speak this build's protocol: the step says
+    /// the versions do not match instead of showing nothing.
+    @Test func aHelperVersionMismatchIsShown() async {
+        let source = MockComputerUsePermissionSource(current: .helperVersionMismatch)
+        let services = MockOnboardingServices()
+        services.computerUseSource = source
+        let model = OnboardingModel(services: services, start: .computerUse)
+        let view = ComputerUseStepView(model: model.computerUse)
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
+        model.stepDidAppear()
+        await settle { Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch) }
+        #expect(Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch))
+        source.current = .none
+        await settle { !Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch) }
+        #expect(!Self.shownText(view).contains(OnboardingStrings.computerUseHelperVersionMismatch))
+        model.finish(completed: true)
+    }
+
     static func shownText(_ view: NSView) -> [String] {
         var found: [String] = []
         if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field.stringValue) }
