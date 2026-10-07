@@ -52,7 +52,7 @@ type OpenCodeDependencies = {
   readonly resolveProviderURL?: (value: string) => Promise<URL | null>;
   /**
    * Whether the caller can see any OpenCode account, in any state. False
-   * turns an empty first selection into a terminal 403 instead of a 503.
+   * turns an empty selection into a terminal 403 instead of a 503.
    */
   readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
@@ -126,23 +126,16 @@ export async function openCodeClientConfig(
       true,
     );
   }
-  if (resolved === NO_ACCOUNT_CONFIGURED) {
-    recordCoderouterOutcome({
-      outcome: "no_usable_account",
-      failureStage: "provider_config",
-      status: 403,
-      provider: "opencode-go",
-      attempts: 0,
-    });
-    return noOpenCodeAccountResponse();
-  }
   if (!resolved) {
-    return apiError(
-      "no_usable_account",
-      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
-      503,
-      true,
-    );
+    return await noUsableOpenCodeAccount(dependencies, auth.identity, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => recordCoderouterOutcome({
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+        status,
+        provider: "opencode-go",
+        attempts: 0,
+      }),
+    });
   }
   let remote: Record<string, unknown>;
   try {
@@ -264,10 +257,19 @@ export async function proxyOpenCodeRequest(
   recordCoderouterSpan({
     name: "account_selection",
     startedAt: selectStartedAt,
-    attributes: selectionAttributes(resolved),
+    attributes: { provider: "opencode-go", attempts: resolved?.attempts ?? 0, healthy: resolved !== null },
   });
-  if (!resolved || resolved === NO_ACCOUNT_CONFIGURED) {
-    return noUsableOpenCodeAccount(resolved, { requestId, identity: auth, startedAt });
+  if (!resolved) {
+    return await noUsableOpenCodeAccount(dependencies, auth, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => captureOpenCodeHealth({
+        requestId,
+        identity: auth,
+        startedAt,
+        status,
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+      }),
+    });
   }
   let config: Record<string, unknown>;
   const configStartedAt = performance.now();
@@ -491,12 +493,9 @@ export async function proxyOpenCodeRequest(
   });
 }
 
-/** The caller can see no OpenCode account at all; nothing to wait for. */
-const NO_ACCOUNT_CONFIGURED = Symbol("no OpenCode account configured");
-
 async function openCodeAccount(
   teamId: string,
-  dependencies: Pick<OpenCodeDependencies, "select" | "credential" | "hasConfiguredAccount"> = defaultDependencies,
+  dependencies: Pick<OpenCodeDependencies, "select" | "credential"> = defaultDependencies,
   signal?: AbortSignal,
   access?: CoderouterAccountAccess,
 ) {
@@ -505,12 +504,7 @@ async function openCodeAccount(
     throwIfAborted(signal);
     const account = await dependencies.select(teamId, "opencode-go", attempted, signal, access);
     throwIfAborted(signal);
-    if (!account) {
-      if (attempt === 0 && !await callerSeesOpenCodeAccount(dependencies, teamId, signal, access)) {
-        return NO_ACCOUNT_CONFIGURED;
-      }
-      return null;
-    }
+    if (!account) return null;
     attempted.push(account.id);
     try {
       const credential = await dependencies.credential({
@@ -532,74 +526,52 @@ async function openCodeAccount(
 }
 
 /**
- * False only when the lookup proves the caller can see no OpenCode account.
- * An unknown answer keeps the retryable 503 rather than telling a client to stop.
+ * The answer when no OpenCode account served. A caller that can see no
+ * account at all gets a terminal 403; one whose accounts are cooling,
+ * refreshing, or broken gets a retryable 503. An unknown lookup answer keeps
+ * the 503 rather than telling a client to stop.
  */
-async function callerSeesOpenCodeAccount(
+async function noUsableOpenCodeAccount(
   dependencies: Pick<OpenCodeDependencies, "hasConfiguredAccount">,
-  teamId: string,
-  signal: AbortSignal | undefined,
-  access: CoderouterAccountAccess | undefined,
-): Promise<boolean> {
-  if (!dependencies.hasConfiguredAccount) return true;
-  try {
-    return await dependencies.hasConfiguredAccount({ teamId, provider: "opencode-go", signal, access });
-  } catch {
-    throwIfAborted(signal);
-    return true;
+  identity: RouteTokenIdentity,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+  telemetry: { readonly record: (status: number, terminal: boolean) => void },
+): Promise<Response> {
+  const lookup = dependencies.hasConfiguredAccount;
+  let configured = true;
+  if (lookup) {
+    try {
+      configured = await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
+        teamId: identity.teamId,
+        provider: "opencode-go",
+        access: accountAccessForIdentity(identity),
+        signal,
+      }));
+    } catch (error) {
+      if (requestSignal.aborted) throw error;
+    }
   }
-}
-
-function selectionAttributes(
-  resolved: Awaited<ReturnType<typeof openCodeAccount>>,
-): Record<string, string | number | boolean> {
-  const found = resolved !== null && resolved !== NO_ACCOUNT_CONFIGURED;
-  return { provider: "opencode-go", attempts: found ? resolved.attempts : 0, healthy: found };
-}
-
-/**
- * The proxy's answer when no account served: a terminal 403 when the caller
- * can see none at all, otherwise a retryable 503 while accounts recover.
- */
-function noUsableOpenCodeAccount(
-  resolved: null | typeof NO_ACCOUNT_CONFIGURED,
-  health: { readonly requestId: string; readonly identity: RouteTokenIdentity; readonly startedAt: number },
-): Response {
-  if (resolved === NO_ACCOUNT_CONFIGURED) {
-    captureOpenCodeHealth({
-      ...health,
-      status: 403,
-      outcome: "no_usable_account",
-      failureStage: "provider_config",
-    });
-    return noOpenCodeAccountResponse();
+  if (!configured) {
+    telemetry.record(403, true);
+    // OpenCode providers use the OpenAI-compatible SDK, so the terminal
+    // answer uses the OpenAI error shape. No retry-after: it surfaces once.
+    return Response.json({
+      error: {
+        message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    }, { status: 403, headers: { "cache-control": "no-store" } });
   }
-  captureOpenCodeHealth({
-    ...health,
-    status: 503,
-    outcome: "no_usable_account",
-    failureStage: "account_selection",
-  });
+  telemetry.record(503, false);
   return apiError(
     "no_usable_account",
     "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
     503,
     true,
   );
-}
-
-/**
- * OpenCode providers use the OpenAI-compatible SDK, so the terminal answer
- * uses the OpenAI error shape. A 403 with no retry-after surfaces once.
- */
-function noOpenCodeAccountResponse(): Response {
-  return Response.json({
-    error: {
-      message: "No OpenCode account is configured for this team or shared with this caller. Add one with `cr add opencode` or at coderouter.dev.",
-      type: "invalid_request_error",
-      code: "no_account_configured",
-    },
-  }, { status: 403, headers: { "cache-control": "no-store" } });
 }
 
 async function remoteConfig(
