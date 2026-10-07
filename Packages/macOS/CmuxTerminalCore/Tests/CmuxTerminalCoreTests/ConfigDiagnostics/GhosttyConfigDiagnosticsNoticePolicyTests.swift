@@ -40,6 +40,18 @@ import Testing
         #expect(GhosttyConfigDiagnostic(message: "sidebar-font-size: unknown field").key == nil)
     }
 
+    @Test func pathlessCmuxOwnedKeyDiagnosticsAreFilteredWithoutHidingRealErrors() {
+        let diagnostics = GhosttyConfigDiagnosticsNoticePolicy.userFacingDiagnostics(
+            fromMessages: [
+                "sidebar-font-size: unknown field",
+                "surface-tab-bar-font-size: unknown field",
+                "font-sise: unknown field",
+            ]
+        )
+
+        #expect(diagnostics.map(\.message) == ["font-sise: unknown field"])
+    }
+
     @Test func recognizesCmuxInlineFragments() {
         let diagnostic = GhosttyConfigDiagnostic(
             message: "/__cmux_inline__/cmux-renderer-bg.conf:1:macos-background-from-layer: unknown field"
