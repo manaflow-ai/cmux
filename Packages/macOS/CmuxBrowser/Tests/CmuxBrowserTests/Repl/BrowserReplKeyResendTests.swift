@@ -147,6 +147,40 @@ struct BrowserReplKeyResendTests {
         #expect(webView.commands == ["selectAll:"])
     }
 
+    /// Playwright picks a shortcut's command by the key's code and the
+    /// modifiers held (`Meta+KeyA` is Select All), and an uppercase letter
+    /// does not add Shift: `Meta+A` is Select All with `shiftKey` false, as
+    /// `Meta+a` is. Only a Shift in the combo makes it `Shift+Meta+A`.
+    @Test func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
+        let webView = try await load("""
+            <input id=i value=abc><script>\(Self.countKeys)
+            window.shifts = []; addEventListener('keydown', e => { if (e.metaKey && e.code === 'KeyA') window.shifts.push(e.shiftKey); });</script>
+            """)
+        try await press(["Meta", "A"], in: webView)
+        try await settle(webView, keys: 2)
+        #expect(webView.commands == ["selectAll:"], "cmux browser press Meta+A ran \(webView.commands)")
+        try await press(["Meta", "Shift", "A"], in: webView)
+        try await settle(webView, keys: 5)
+        #expect(webView.commands == ["selectAll:"], "cmux browser press Shift+Meta+A ran \(webView.commands)")
+        #expect(try await webView.evaluateJavaScript("window.shifts") as? [Bool] == [false, true])
+        // The REPL resolves the same keys the same way.
+        let upper = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Meta"]))
+        let lower = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
+        #expect(upper.editingCommand == "selectAll:", "REPL Meta+A ran \(String(describing: upper.editingCommand))")
+        #expect(!upper.modifierFlags.contains(.shift))
+        #expect(upper.modifierFlags.rawValue == lower.modifierFlags.rawValue)
+        let control = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Control"]))
+        #expect(!control.modifierFlags.contains(.shift))
+        #expect(control.characters == "\u{1}")
+        let shifted = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Meta", "Shift"]))
+        #expect(shifted.modifierFlags.contains(.shift))
+        #expect(shifted.editingCommand == nil)
+        // Without Meta or Control, A is still Shift+a and types "A".
+        let plain = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: "A", modifiers: []))
+        #expect(plain.modifierFlags.contains(.shift))
+        #expect(plain.characters == "A")
+    }
+
     // A page that handles the shortcut (it cancels the keydown) does not get
     // the editing command as well, as in a browser: run twice, a Copy or
     // Paste would reach the pasteboard behind the page's back.
