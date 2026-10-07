@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentBrands
+import CmuxNextAgentPane
 import CmuxNextSidebar
 
 /// One window's Recents section (`SidebarRecentsView.contribution`): the
