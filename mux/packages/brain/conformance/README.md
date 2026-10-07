@@ -82,6 +82,9 @@ Adapters: `inbox` (the messages the brain wakes on and logs equal the corpus's p
 | children: a permission from a session not known yet fetches the session list; a known child's is handled at once | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
 | children: on reconnect a lost child is marked failed and one that finished meanwhile is finished | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
 | children: a running child that closes is marked failed; acpmux loss finishes a child whose events were being fetched | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
+| prompts: a refused prompt that acpmux then accepts and runs: its pending retry timer sends nothing | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| prompts: a refusal of a prompt acpmux accepted and queued is ignored | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| prompts: a prompt accepted only in the attach replay and refused after the resend retries on the clock | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
 
 ## Deviations
 

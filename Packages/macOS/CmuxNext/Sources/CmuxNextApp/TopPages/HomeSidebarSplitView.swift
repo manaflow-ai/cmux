@@ -15,9 +15,14 @@ final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// Half the grab area on each side of the 1 pt divider.
     static let grab: CGFloat = 4
     private var placed = false
+    /// The list's own limits (MessagesLab's `minimumWidth`, `preferredWidth`).
+    let minimum: CGFloat
+    let standard: CGFloat
 
-    init(sidebar: NSView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth()) {
+    init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth()) {
         self.widths = widths
+        minimum = sidebar.minimumWidth
+        standard = sidebar.preferredWidth
         super.init(frame: .zero)
         isVertical = true
         dividerStyle = .thin
@@ -39,8 +44,10 @@ final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     /// The width to show now: the saved one (else the standard), clamped to this window.
     private var wantedWidth: CGFloat {
-        HomeSidebarWidth.clamp(widths.width(window: windowKey()) ?? HomeSidebarWidth.standard, window: bounds.width)
+        clamp(widths.width(window: windowKey()) ?? standard)
     }
+
+    private func clamp(_ width: CGFloat) -> CGFloat { HomeSidebarWidth.clamp(width, window: bounds.width, minimum: minimum) }
 
     override func layout() {
         super.layout()
@@ -48,9 +55,9 @@ final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         if !placed {
             placed = true
             setPosition(wantedWidth, ofDividerAt: 0)
-        } else if sidebarWidth > HomeSidebarWidth.clamp(sidebarWidth, window: bounds.width) {
+        } else if sidebarWidth > clamp(sidebarWidth) {
             // The window shrank: the sidebar stays within half of it (the saved width is kept).
-            setPosition(HomeSidebarWidth.clamp(sidebarWidth, window: bounds.width), ofDividerAt: 0)
+            setPosition(clamp(sidebarWidth), ofDividerAt: 0)
         }
     }
 
@@ -66,17 +73,17 @@ final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// Back to the standard width (the divider's double-click).
     func resetWidth() {
         widths.reset(window: windowKey())
-        setPosition(HomeSidebarWidth.clamp(HomeSidebarWidth.standard, window: bounds.width), ofDividerAt: 0)
+        setPosition(clamp(standard), ofDividerAt: 0)
     }
 
     // MARK: NSSplitViewDelegate
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        HomeSidebarWidth.minimum
+        minimum
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        HomeSidebarWidth.clamp(.greatestFiniteMagnitude, window: bounds.width)
+        clamp(.greatestFiniteMagnitude)
     }
 
     func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
