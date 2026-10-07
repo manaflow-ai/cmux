@@ -7,7 +7,10 @@ pub(super) fn args(words: &[&str]) -> Vec<String> {
 pub(super) fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+        AppCommand::Open { .. }
+        | AppCommand::Events { .. }
+        | AppCommand::DebugCall { .. }
+        | AppCommand::Screenshot { .. } => {
             panic!("expected a call")
         }
     }

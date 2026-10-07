@@ -113,21 +113,38 @@ or any large DOM change, because refs go stale.
 
 ## Waiting
 
-The per-tab commands have no wait: `navigate` returns as soon as the load
-starts. Use the REPL's Playwright waits (`page.waitForURL`,
-`locator.waitFor`) when you can. After a scripted `navigate`, the templates mark the old document with
-`eval`, then poll `eval` a bounded number of times until a new document reports
-`document.readyState === "complete"`. Do not poll `eval` in an open-ended loop
-for anything else. Take a new `snapshot` when the page is ready, and if an
-element is missing, report that instead of retrying blindly.
+`navigate` returns as soon as the load starts. `wait` blocks until one
+condition holds, then returns; do not poll with `eval`.
+
+```bash
+cmux browser "$TAB" wait "#results"
+cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
+cmux browser "$TAB" wait --text "Saved"
+cmux browser "$TAB" wait --load-state complete
+```
+
+The default timeout is 5000 ms; `wait` exits 1 with `timeout` when the
+condition does not hold in time. Then take a `snapshot` and report what the
+page shows instead of retrying blindly. In the REPL, use its Playwright waits
+(`page.waitForURL`, `locator.waitFor`).
+
+## Screenshots
+
+```bash
+cmux browser "$TAB" screenshot --out page.png
+cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
+cmux browser "$TAB" screenshot --full-page --out full.png
+```
+
+Without `--out` the PNG goes to a new file in the temporary directory and the
+command prints its path; `--out -` writes the PNG to stdout.
 
 ## What the per-tab CLI does not cover
 
-The per-tab commands have no waits, cookies, storage, saved state, console
-capture, dialogs, downloads, screenshots to a file, recording, hover, scroll
-or proxies. The REPL has all of them (see "Pick the surface"). Network
-routing, geolocation, offline and viewport emulation, `identify` and profiles
-have no agent surface yet.
+The per-tab commands have no cookies, storage, saved state, console
+capture, dialogs, downloads, recording, hover, scroll or proxies. The REPL has
+all of them (see "Pick the surface"). Network routing, geolocation, offline
+and viewport emulation, `identify` and profiles have no agent surface yet.
 
 Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
