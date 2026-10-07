@@ -10,6 +10,7 @@ import type { Named } from "@gdp-ts/core";
 import { Context, type Effect } from "effect";
 import type { DeviceId, MeshId, TenantId, TunnelId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { MeshProtocol } from "../mesh/acl.ts";
+import type { CallerActsOnDevice } from "../proofs/device-owner.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
@@ -81,12 +82,16 @@ export interface UpstreamMeshService {
   readonly discardCreatedTunnel: (created: CreatedTunnel) => Effect.Effect<void, UpstreamError>;
   readonly getTunnel: <C, T>(
     tunnel: Named<T, TunnelId>,
-    proofs: { readonly owns: TenantOwnsResource<C, T>; readonly scope: KeyHasScope<C, "mesh:read"> | KeyHasScope<C, "mesh:join"> },
+    proofs: {
+      readonly owns: TenantOwnsResource<C, T>;
+      readonly scope: KeyHasScope<C, "mesh:read"> | KeyHasScope<C, "mesh:join">;
+      readonly acts: CallerActsOnDevice<C, T>;
+    },
   ) => Effect.Effect<TunnelInfo, UpstreamError>;
   /** A device's provider id is its tunnel's: this deletes exactly that tunnel (and the provider drops its rules). */
   readonly deleteDeviceTunnel: <C, D>(
     device: Named<D, DeviceId>,
-    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, "mesh:join"> },
+    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, "mesh:join">; readonly acts: CallerActsOnDevice<C, D> },
   ) => Effect.Effect<void, UpstreamError>;
 
   /** Puts the VM on the mesh's network (live; a VM is on at most one). Returns its IPv4 address there. */

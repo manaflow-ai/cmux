@@ -1,17 +1,30 @@
 /**
- * Exact plan of .github/workflows/cmux-tui.yml, the proof target (DESIGN.md
- * section 18): which jobs run for a focused dispatch, which legs are Linux,
- * and how the local reusable workflow cmux-tui-build-package.yml is inlined.
+ * Exact plan of cmux-tui.yml, the proof target (DESIGN.md section 18): which
+ * jobs run for a focused dispatch, which legs are Linux, and how the local
+ * reusable workflow cmux-tui-build-package.yml is inlined.
+ *
+ * The input is the frozen copy under test/fixtures/cmux-tui (cmux-tui.yml,
+ * cmux-tui-build-package.yml and setup-cmux-tui-rust, taken from main at
+ * 4419961c2466), not the live workflow, so the expectations hold on every
+ * branch. workflows.test.ts covers the live cmux-tui.yml: it parses and plans
+ * every trigger with zero errors. Refresh the fixture only to cover new
+ * engine behavior, and update the expectations with it.
  */
 
 import { describe, expect, it } from "vitest";
 import { type SimulatedJob, simulateRun, workflowDispatchEvent } from "../src/plan/index.ts";
 import { parseWorkflow, type Workflow } from "../src/workflow/model.ts";
-import { REPOSITORY, SHA_A, workingTree } from "./support/repo.ts";
+import { fixtureTree, REPOSITORY, SHA_A } from "./support/repo.ts";
 
 const PATH = ".github/workflows/cmux-tui.yml";
 
-const workflow = (): Workflow => parseWorkflow(workingTree.read(PATH) ?? "", PATH);
+const files = fixtureTree("cmux-tui");
+
+const workflow = (): Workflow => {
+  const text = files.read(PATH);
+  if (text === undefined) throw new Error(`missing fixture ${PATH}`);
+  return parseWorkflow(text, PATH);
+};
 
 const PLAN_BUILD_OUTPUTS = {
   matrix: JSON.stringify({ include: [{ target: "aarch64-apple-darwin", runner: "blacksmith-6vcpu-macos-15" }] }),
@@ -29,7 +42,7 @@ const plan = (mode: "focused" | "full", fail: ReadonlySet<string> = new Set()) =
   return simulateRun(workflow(), {
     event: dispatch.event,
     inputs: dispatch.inputs,
-    files: workingTree,
+    files,
     outcome: (job) => ({
       result: fail.has(job.key) ? "failure" : "success",
       ...(job.key === "build-artifacts/plan-build" ? { outputs: PLAN_BUILD_OUTPUTS } : {}),
