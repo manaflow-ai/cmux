@@ -152,11 +152,15 @@ impl ConversationStore {
             };
             let human =
                 head.participant(&message.author).is_some_and(|p| p.kind == ParticipantKind::Human);
-            if human {
-                head.agent_text_streak = 0;
-            } else {
-                head.agent_text_streak = head.agent_text_streak.saturating_add(1);
-                head.last_agent_text_at = Some(message.created_at.clone());
+            // The loop guard counts what the TS core counts: text or question messages are turns,
+            // work cards and attachments are not (home-core import corpus, cx-weuj).
+            if message.parts.iter().any(Part::counts_as_turn) {
+                if human {
+                    head.agent_text_streak = 0;
+                } else {
+                    head.agent_text_streak = head.agent_text_streak.saturating_add(1);
+                    head.last_agent_text_at = Some(message.created_at.clone());
+                }
             }
             write_message(
                 &transaction,
