@@ -4,6 +4,10 @@ import CmuxNextDesign
 // Pinned item sections above and below the workspace list
 // (plans/cmux-next/sidebar-sections.md).
 extension SidebarView {
+    /// The footer section's region (`SidebarLayoutDocument.bottomSectionID`).
+    /// Stub: still the scrolling bottom band.
+    var footerRegion: SidebarRegionView { belowRegion }
+
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
