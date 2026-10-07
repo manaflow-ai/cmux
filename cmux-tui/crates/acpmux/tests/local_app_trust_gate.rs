@@ -252,7 +252,9 @@ async fn a_web_prompt_waits_for_the_folders_trust_and_the_web_cannot_answer() {
     // The user's own CLI answers the question; the remote browser cannot.
     let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
-    let s = local.new_session(&work, "fclaude").await;
+    local.trust(&work, "trusted").await;
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let s = app.new_session(&work, "fclaude").await;
     local.trust(&work, "unknown").await;
 
     let r = web.prompt(&s, "web-before-trust").await;
