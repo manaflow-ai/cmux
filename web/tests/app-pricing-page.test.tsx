@@ -251,8 +251,6 @@ describe("app pricing page", () => {
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -261,21 +259,22 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain('data-testid="pricing-controls"');
-    expect(html).not.toContain("Save 20%");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("does not advertise annual savings", async () => {
+  test("defaults the Pro card to yearly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
-        interval: "month",
       }),
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toContain("Save 20%");
+    expect(html).not.toMatch(/billed yearly, save/);
+    expect(html).toContain("$40");
+    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).not.toMatch(/plan%253D(go|max|team)[^"]*interval%253Dyear/);
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {
