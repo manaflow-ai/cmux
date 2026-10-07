@@ -78,18 +78,20 @@ pub enum Confirmation {
     Ask { text: String, sha256: String },
 }
 
-/// The confirmation `enable` shows for folder profile `id` of `folder`.
+/// The confirmation `enable` shows for folder profile `id` of `folder`: the
+/// text of the shared prompt (`folder_profiles::prepare_enable`), the same
+/// text the app's Enable sheet gets from `_acpmux/harness_enable`.
 pub fn confirmation(cfg: &Config, folder: &Path, id: &str) -> Result<Confirmation> {
-    let gate = gate(cfg)?;
-    let fp = folder_profiles::load_one(cfg, gate, folder, id).ok_or_else(|| {
-        anyhow!("{} has no {id}.toml", folder_profiles::profile_dir(folder).display())
-    })?;
-    let program = fp.profile.as_ref().and_then(|p| super::harness::find_program(&p.argv[0]));
-    let text = folder_profiles::confirmation_text(&fp, program.as_deref());
-    match (fp.state, fp.sha256.clone()) {
+    let shown = folder_profiles::prepare_enable(cfg, gate(cfg)?, folder, id)
+        .map_err(|e| anyhow!(e.message().to_owned()))?;
+    let fp = shown.profile;
+    match (fp.state, fp.sha256) {
         (FolderState::Enabled, _) => Ok(Confirmation::AlreadyEnabled { folder: fp.folder }),
-        (FolderState::NeedsEnable, Some(sha256)) => Ok(Confirmation::Ask { text, sha256 }),
-        _ => bail!(folder_profiles::refusal(&fp).unwrap_or_else(|| format!("cannot enable {id}"))),
+        (FolderState::NeedsEnable, Some(sha256)) => {
+            let text = shown.prompt["text"].as_str().unwrap_or_default().to_owned();
+            Ok(Confirmation::Ask { text, sha256 })
+        }
+        _ => bail!("cannot enable {id}"),
     }
 }
 

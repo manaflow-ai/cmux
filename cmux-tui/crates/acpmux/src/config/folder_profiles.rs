@@ -276,6 +276,85 @@ pub fn disable(gate: &FolderGate, folder: &Path, id: &str) -> Result<bool, Strin
     Ok(true)
 }
 
+/// What `enable` shows before it records anything, gathered once for the
+/// CLI (`cmux harness enable`) and the app's sheet (`_acpmux/harness_enable`)
+/// so both show the same facts: the profile and its prompt (`prompt`).
+#[derive(Debug, Clone)]
+pub struct EnablePrompt {
+    pub profile: FolderProfile,
+    pub prompt: serde_json::Value,
+}
+
+/// Why `prepare_enable` has no prompt to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnableRefusal {
+    /// The folder has no such profile file.
+    NotFound(String),
+    /// No trusted answer, or the file is invalid (`refusal`).
+    Refused(String),
+}
+
+impl EnableRefusal {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::NotFound(m) | Self::Refused(m) => m,
+        }
+    }
+}
+
+/// Loads folder profile `id` of `folder`, refuses it like `enable` does, and
+/// builds the prompt with the program a spawn would run (`resolve_program`).
+pub fn prepare_enable(
+    cfg: &Config,
+    gate: &FolderGate,
+    folder: &Path,
+    id: &str,
+) -> Result<EnablePrompt, EnableRefusal> {
+    let fp = load_one(cfg, gate, folder, id).ok_or_else(|| {
+        EnableRefusal::NotFound(format!("{} has no {id}.toml", profile_dir(folder).display()))
+    })?;
+    if let Some(reason) = refusal(&fp) {
+        return Err(EnableRefusal::Refused(reason));
+    }
+    let base = PathBuf::from(&fp.folder);
+    let program = fp.profile.as_ref().and_then(|p| resolve_program(p, Some(&base)));
+    let prompt = prompt(&fp, program.as_deref());
+    Ok(EnablePrompt { profile: fp, prompt })
+}
+
+/// The program a spawn of `profile` runs, found the way the spawn finds it:
+/// an absolute path as is, a relative one from `base` (else the current
+/// folder), a bare name on the profile's own plain PATH (relative entries
+/// from `base`) else the login PATH. Only an executable regular file counts.
+/// The one resolver of `enable`, the app's Enable sheet and `harness doctor`.
+pub fn resolve_program(profile: &HarnessProfile, base: Option<&Path>) -> Option<PathBuf> {
+    let program = profile.argv.first().filter(|p| !p.is_empty())?;
+    if program.contains('/') {
+        let path = match base {
+            Some(base) if !Path::new(program).is_absolute() => base.join(program),
+            _ => PathBuf::from(program),
+        };
+        return executable(&path).then_some(path);
+    }
+    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
+        Some(own) => std::ffi::OsString::from(own),
+        None => crate::login_env::path()?,
+    };
+    std::env::split_paths(&path)
+        .map(|dir| match base {
+            Some(base) if !dir.is_absolute() => base.join(dir),
+            _ => dir,
+        })
+        .map(|dir| dir.join(program))
+        .find(|candidate| executable(candidate))
+}
+
+/// An executable regular file (a link counts by its target).
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
 /// The profile a session named `id` with folder `cwd` may run: an enabled
 /// folder profile of the nearest folder (cwd or a parent) that has
 /// `.cmux/harnesses/<id>.toml`. None: no folder has that file (the caller
@@ -324,7 +403,7 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     out.push_str(&format!("  command: {}\n", line.join(" ")));
     match resolved_program {
         Some(p) => out.push_str(&format!("  program: {}\n", visible(&p.to_string_lossy()))),
-        None => out.push_str("  program: not found on PATH now\n"),
+        None => out.push_str("  program: no executable file found now\n"),
     }
     for file in &fp.checked_files {
         out.push_str(&format!("  checked: {} (a change asks again)\n", visible(file)));
@@ -474,7 +553,7 @@ const MAX_CHECKED_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Every regular file inside `folder` that the command line runs or names:
 /// the program (absolute, or found on the profile's PATH, else the login
-/// PATH) and each argument (or the value after `=`) taken as a path, relative
+/// PATH, `resolve_program`) and each argument (or the value after `=`) taken as a path, relative
 /// ones from the folder. Each comes with the sha256 of its bytes, sorted by
 /// path. A link inside the folder counts by its target, whose path joins the
 /// hash, so retargeting it asks again.
@@ -484,7 +563,7 @@ fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String,
         if Path::new(program).is_absolute() {
             candidates.push(PathBuf::from(program));
         } else if !program.contains('/') {
-            candidates.extend(on_path(folder, profile, program));
+            candidates.extend(resolve_program(profile, Some(folder)));
         }
     }
     for arg in profile.argv.iter().skip(1) {
@@ -529,20 +608,6 @@ fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String,
     }
     files.sort();
     Ok(files)
-}
-
-/// Where a bare program name resolves inside `folder`: the profile's own
-/// plain PATH (as the spawn uses it), else the login PATH. Relative PATH
-/// entries count from the folder.
-fn on_path(folder: &Path, profile: &HarnessProfile, program: &str) -> Option<PathBuf> {
-    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
-        Some(own) => std::ffi::OsString::from(own),
-        None => crate::login_env::path()?,
-    };
-    std::env::split_paths(&path)
-        .map(|dir| if dir.is_absolute() { dir } else { folder.join(dir) })
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
 }
 
 /// The launcher that downloads and runs a package on each launch, when the

@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
@@ -478,7 +479,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     }
     // 2. The program.
     let program = profile.argv.first().cloned().unwrap_or_default();
-    match find_program(&program) {
+    match folder_profiles::resolve_program(profile, None) {
         Some(path) => r.push("command", StepStatus::Pass, &path.to_string_lossy(), None),
         None => {
             r.push(
@@ -579,24 +580,6 @@ fn install_hint(cfg: &Config, id: &str, program: &str) -> String {
         None => hint.push_str(", or set command to its absolute path"),
     }
     hint
-}
-
-/// `program` as an existing executable: an absolute or relative path, or a
-/// name looked up on PATH.
-pub fn find_program(program: &str) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    let executable = |p: &Path| {
-        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
-    if program.is_empty() {
-        return None;
-    }
-    if program.contains('/') {
-        let p = PathBuf::from(program);
-        return executable(&p).then_some(p);
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(program)).find(|p| executable(p))
 }
 
 /// Run a short command with the profile env; Ok(stdout) on exit 0.
