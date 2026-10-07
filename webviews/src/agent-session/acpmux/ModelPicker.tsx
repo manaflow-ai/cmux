@@ -18,6 +18,13 @@ import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { usePopoverTrigger } from "./popoverTrigger";
+import {
+  PickerButton,
+  PickerComboboxInput,
+  PickerDialog,
+  PickerOption,
+  PickerOptionList,
+} from "../../ui/PickerPrimitives";
 
 type HarnessChoice = {
   id: string;
@@ -334,7 +341,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const modelLabel = selected?.ids.includes(harness ?? "") ? label : (selected?.name ?? label);
   return (
     <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
-      <button
+      <PickerButton
         ref={trigger}
         type="button"
         className="acpmux-picker-button"
@@ -343,7 +350,7 @@ export function ModelPicker(props: ModelPickerProps) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onKeyDown={(event) => {
+        keyboard={(event) => {
           if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
             event.preventDefault();
             setQuery(event.key);
@@ -359,14 +366,13 @@ export function ModelPicker(props: ModelPickerProps) {
         <AgentMark agent={current?.id ?? harness} size={15} />
         <span className="acpmux-model-name">{modelLabel}</span>
         <ChevronIcon />
-      </button>
+      </PickerButton>
       {open && (
-        <div
+        <PickerDialog
           ref={menu}
           id={menuId}
           className="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-t3"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
-          role="dialog"
           aria-label={modelText}
           style={menuStyle}
         >
@@ -375,11 +381,9 @@ export function ModelPicker(props: ModelPickerProps) {
             <span className="acpmux-menu-search-value" aria-hidden="true">
               {query || searchText}
             </span>
-            <input
+            <PickerComboboxInput
               ref={search}
               type="search"
-              // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- the combobox role exposes the inline model list.
-              role="combobox"
               aria-label={searchText}
               aria-autocomplete="list"
               aria-controls={`${menuId}-models`}
@@ -391,7 +395,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 setQuery(event.target.value);
                 setActive(0);
               }}
-              onKeyDown={keyDown}
+              keyboard={keyDown}
             />
           </div>
           <div className="acpmux-mp-columns">
@@ -408,19 +412,17 @@ export function ModelPicker(props: ModelPickerProps) {
                 <span aria-hidden="true">★</span>
               </button>
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
-              <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
+              <PickerOptionList className="acpmux-mp-harness-list" aria-label={harnessText}>
                 <div className="acpmux-mp-harness-list-inner">
                   {harnesses.map((entry, index) => (
-                    <button
+                    <PickerOption
                       type="button"
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                      role="option"
                       key={entry.name}
                       aria-selected={entry.ids.includes(selectedHarness ?? "")}
                       disabled={!entry.pickable}
                       className="acpmux-mp-harness"
-                      tabIndex={index === activeHarness ? 0 : -1}
-                      onKeyDown={(event) => {
+                      selected={entry.ids.includes(selectedHarness ?? "")}
+                      keyboard={(event) => {
                         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                           event.preventDefault();
                           const step = event.key === "ArrowDown" ? 1 : -1;
@@ -443,20 +445,19 @@ export function ModelPicker(props: ModelPickerProps) {
                         setQuery("");
                         setActive(0);
                       }}
+                      active={index === activeHarness}
                     >
                       <AgentMark agent={entry.id} size={16} />
                       <span>{entry.name}</span>
                       {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                    </button>
+                    </PickerOption>
                   ))}
                 </div>
-              </div>
+              </PickerOptionList>
             </div>
-            <div
+            <PickerOptionList
               id={`${menuId}-models`}
               className="acpmux-mp-models"
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- model rows carry marks, status and keyboard state.
-              role="listbox"
               aria-label={selected?.name ?? modelText}
             >
               {visible.length === 0 ? (
@@ -464,18 +465,17 @@ export function ModelPicker(props: ModelPickerProps) {
               ) : (
                 visible.map((model, index) => (
                   <div className="acpmux-mp-row-shell" key={model.id}>
-                    <button
+                    <PickerOption
                       type="button"
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                      role="option"
                       id={modelRowId(model.id)}
                       data-key={`model:${model.id}`}
-                      aria-selected={index === active}
+                      selected={index === active}
                       aria-checked={model.id === props.model}
                       className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
                       onPointerEnter={() => setActive(index)}
                       disabled={Boolean(model.unavailable)}
                       onClick={() => selectModel(model)}
+                      active={index === active}
                     >
                       <span className="acpmux-mp-row-main">
                         <span className="acpmux-menu-label">{model.name}</span>
@@ -487,7 +487,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
                       {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
                       {model.id === props.model && <CheckIcon />}
-                    </button>
+                    </PickerOption>
                     <button
                       type="button"
                       className="acpmux-mp-favorite"
@@ -501,7 +501,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   </div>
                 ))
               )}
-            </div>
+            </PickerOptionList>
           </div>
           {(fastMode || catalogRefresh) && (
             <div className="acpmux-mp-footer">
@@ -539,7 +539,7 @@ export function ModelPicker(props: ModelPickerProps) {
               )}
             </div>
           )}
-        </div>
+        </PickerDialog>
       )}
     </span>
   );

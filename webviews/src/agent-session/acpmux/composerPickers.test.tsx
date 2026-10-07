@@ -135,10 +135,6 @@ describe("acpmux composer pickers", () => {
     );
   const button = (label: string) =>
     doc.querySelector<HTMLButtonElement>(`[aria-label="${label}"].acpmux-picker-button`);
-  const options = () =>
-    [...doc.querySelectorAll("[role=option]")].map(
-      (option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
-    );
   /// The model picker's rows by label, the checked one starred.
   const rowLabels = () =>
     [...doc.querySelectorAll(".acpmux-mp-row")].map(
