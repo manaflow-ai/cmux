@@ -193,6 +193,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
+            // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
+            // Projects list buckets its loose rows (`sidebar.groupBy`).
+            ActionDescriptor(
+                id: "sidebar.groupBy.none", title: t("action.sidebar.groupBy.none", "Group by None"),
+                keywords: ["sidebar", "projects", "group", "ungroup", "none", "flat"], category: .sidebar, symbol: "list.bullet",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 110, folder: .group)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.groupBy.folder", title: t("action.sidebar.groupBy.folder", "Group by Folder"),
+                keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"], category: .sidebar, symbol: "folder",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
+            ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),
                 keywords: ["sidebar", "section", "reset", "default", "layout"], category: .sidebar, symbol: "arrow.counterclockwise",

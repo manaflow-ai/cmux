@@ -15,6 +15,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showCountsPath = ["sidebar", "showCounts"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showRecentsPath = ["sidebar", "showRecents"]
+    public static let groupByPath = ["sidebar", "groupBy"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -58,6 +59,14 @@ public nonisolated enum SidebarSectionsSetting {
                               title: SettingsText.keyed("settings.sidebar.showRecents", "Show Recents"),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showRecents),
                               keywords: ["sidebar", "recents", "chats", "section", "hide", "show"]),
+            SettingDescriptor(groupByPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.groupBy", "Group Projects By"),
+                              kind: .choice([
+                                  SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
+                                  SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                              ]),
+                              default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
         ]
     }
 
@@ -112,6 +121,14 @@ public nonisolated enum SidebarSectionsSetting {
         result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         result.showRecents = flag(root, showRecentsPath, fallback: result.showRecents, &diagnostics)
+        if let value = root.value(at: groupByPath) {
+            if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
+                result.groupBy = groupBy
+            } else {
+                let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
         return result
     }
 

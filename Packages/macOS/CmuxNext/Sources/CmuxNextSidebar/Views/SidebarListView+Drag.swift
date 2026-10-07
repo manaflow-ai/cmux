@@ -25,7 +25,7 @@ extension SidebarListView {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
-        case .tab, .section, .emptySection:
+        case .tab, .section, .emptySection, .folder:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))

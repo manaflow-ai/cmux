@@ -59,7 +59,7 @@ extension SidebarListView {
             self.press = nil
             model.send(.selectTab(workspace: workspace, tab: tab))
             return
-        case .section, .emptySection:
+        case .section, .emptySection, .folder:
             break
         }
         self.press = press
@@ -69,7 +69,7 @@ extension SidebarListView {
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
-                  !model.isFiltering else { return }
+                  !model.locksReorder else { return }
             beginDrag(press)
             guard drag != nil else { return }
         }
@@ -102,7 +102,7 @@ extension SidebarListView {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection:
+        case .emptySection, .folder:
             break
         }
         reload(animated: true)

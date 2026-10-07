@@ -137,6 +137,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showCounts` | boolean | `false` |  | Show Tab Counts |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.showRecents` | boolean | `true` |  | Show Recents |
+| `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
 | `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |

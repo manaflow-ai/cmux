@@ -38,6 +38,9 @@ enum SidebarSectionStrings {
     static var alreadyHidden: String {
         String(localized: "sidebarSections.alreadyHidden", defaultValue: "this section is already hidden", table: "SidebarSections", bundle: .module)
     }
+    static var alreadyGrouped: String {
+        String(localized: "sidebarSections.alreadyGrouped", defaultValue: "the list is already grouped this way", table: "SidebarSections", bundle: .module)
+    }
     static var noneHidden: String {
         String(localized: "sidebarSections.noneHidden", defaultValue: "no sidebar section is hidden", table: "SidebarSections", bundle: .module)
     }

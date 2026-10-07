@@ -1331,6 +1331,16 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.groupBy" : {
+      "default" : "none",
+      "description" : "sidebar.groupBy",
+      "enum" : [
+        "none",
+        "folder"
+      ],
+      "title" : "Group Projects By",
+      "type" : "string"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",

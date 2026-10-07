@@ -16,6 +16,14 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
     public var hidesBottom: Bool { self == .bottom || self == .both }
 }
 
+/// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
+/// (Leo 2026-10-06).
+public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
+    case none
+    /// A header per folder: the front tab's working directory.
+    case folder
+}
+
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
@@ -35,6 +43,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Recents section shows; its header's menu hides it (`sidebar.showRecents`).
     public var showRecents = true
+    /// The Projects menu's Group By (`sidebar.groupBy`).
+    public var groupBy: SidebarGroupBy = .none
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom

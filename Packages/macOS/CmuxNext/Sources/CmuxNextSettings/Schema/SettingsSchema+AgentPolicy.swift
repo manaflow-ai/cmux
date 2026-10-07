@@ -105,7 +105,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
-        "sidebar.showProjects", "sidebar.showRecents",
+        "sidebar.showProjects", "sidebar.showRecents", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

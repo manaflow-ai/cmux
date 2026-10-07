@@ -68,7 +68,9 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
-            }
+            },
+            // Group by Folder's bucket: the front tab's folder, else any tab's.
+            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
         )
     }
 

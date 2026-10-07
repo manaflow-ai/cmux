@@ -208,7 +208,35 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
 
-            for (index, entry) in nodes.enumerated() where !(categories && isGroup(entry)) { emit(index, entry) }
+            let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
+            guard byFolder else {
+                for (index, entry) in nodes.enumerated() where !(categories && isGroup(entry)) { emit(index, entry) }
+                openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
+                continue
+            }
+            // Group by Folder: groups as they were, then a header per folder
+            // over its loose rows, folders in first-seen order, "no folder" last.
+            for (index, entry) in nodes.enumerated() where !categories && isGroup(entry) { emit(index, entry) }
+            var folders: [String] = []
+            var members: [String: [Int]] = [:]
+            for (index, entry) in nodes.enumerated() {
+                guard case let .workspace(ws) = entry.node else { continue }
+                let folder = ws.folder ?? ""
+                if members[folder] == nil { folders.append(folder) }
+                members[folder, default: []].append(index)
+            }
+            if let none = folders.firstIndex(of: ""), none != folders.count - 1 { folders.append(folders.remove(at: none)) }
+            for folder in folders {
+                let indices = members[folder] ?? []
+                rows.append(SidebarRow(
+                    key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: indices.count, groupColor: nil
+                ))
+                y += m.groupHeaderHeight + m.rowSpacing
+                for index in indices { emit(index, nodes[index]) }
+                y += m.groupBottomPadding
+            }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         y += m.bottomPadding
