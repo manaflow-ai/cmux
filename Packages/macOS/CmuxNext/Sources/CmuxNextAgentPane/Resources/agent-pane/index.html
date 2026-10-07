@@ -2355,7 +2355,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: 40vh;
+  max-height: calc(22px * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;
@@ -2374,7 +2374,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer[data-shell] .acpmux-composer-box {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }
-/* The location row above the composer (ComposerContext.tsx): "This Mac ⌄ · <folder> ⌄", one quiet
+/* The location tray below the composer (ComposerContext.tsx): folder and branch controls, one quiet
    row of text menu buttons that all look alike. A control is a plain text button (no native bezel,
    no fill, no weight change); hover and an open menu lay a soft rounded wash from the theme under
    it, and keyboard focus draws a ring in the theme's text color. The padding is always there, so
@@ -2383,14 +2383,23 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
+  gap: 8px;
   min-width: 0;
-  height: 28px;
-  margin: 0 12px -2px;
+  height: 36px;
+  margin: -12px 0 16px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--acpmux-composer-edge);
+  border-top: 0;
+  border-radius: 0 0 20px 20px;
+  background: var(--acpmux-composer-tray);
   color: var(--agent-muted);
   font-size: 12px;
   line-height: 16px;
 }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; flex: 1 1 0; }
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
+.acpmux-composer-context > .acpmux-location-picker { flex: 1 1 0; min-width: 0; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -2404,6 +2413,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  width: 100%;
   max-width: 220px;
   height: 22px;
   margin: 0;
@@ -2455,6 +2465,37 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+
+/* The shelf sits behind the composer edge instead of reading as a second full row. The composer
+   owns the shadow and the shelf keeps a stable inset, so opening a menu never moves the transcript. */
+.acpmux-composer-box { z-index: 2; }
+.acpmux-composer-context {
+  position: relative;
+  z-index: 1;
+  height: 40px;
+  margin: -14px 2px 12px;
+  padding: 10px 10px 0;
+  border-top: 0;
+  border-radius: 0 0 18px 18px;
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 4px 10px color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-composer-bar {
+  min-height: 52px;
+  height: auto;
+  padding: 6px 12px;
+}
+.acpmux-mode .acpmux-mode-text { display: none; }
+.acpmux-mode .acpmux-picker-button {
+  width: 30px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+.acpmux-mode .acpmux-picker-button .acpmux-icon:last-child { display: none; }
+.acpmux-mode .acpmux-picker-button[aria-expanded="true"],
+.acpmux-mode .acpmux-picker-button:hover { color: var(--agent-text); }
+.acpmux-send { width: 32px; height: 32px; }
+.acpmux-context-ring { width: 32px; height: 32px; }
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
    the row sits inside the composer at the text's own inset, the attachments keep a gap between them
    and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
@@ -2712,7 +2753,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  max-height: 40vh;
+  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
+     leaves the transcript and location shelf anchored while the draft grows. */
+  max-height: calc(22px * 8 + 23px);
   overflow-y: auto;
   padding: 15px 16px 8px;
   font-size: 15px;
