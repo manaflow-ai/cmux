@@ -149,9 +149,9 @@ struct CloudBrowserProxyIntegrationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(model.isReady, "The managed SSH proxy must become ready before replaying the request")
+        #expect(panel.navigate(to: url) != nil)
         #expect(panel.webView.window != nil)
         #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
-        #expect(panel.navigate(to: url) != nil)
 
         let requestDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < requestDeadline {
