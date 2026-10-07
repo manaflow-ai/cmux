@@ -945,4 +945,6 @@ impl Options {
 }
 
 #[cfg(test)]
+mod page_tests;
+#[cfg(test)]
 mod tests;
