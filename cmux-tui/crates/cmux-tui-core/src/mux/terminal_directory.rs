@@ -76,6 +76,9 @@ impl Mux {
             &value,
             &deltas,
         )?;
+        if let Err(error) = registry.record_terminal_relaunch_cwd(&host_id, directory.as_deref()) {
+            eprintln!("cmux-tui: terminal {id} relaunch cwd failed: {error:#}");
+        }
         current.commit_published_directory(directory);
         state.resource_revision = commit.revision;
         drop(state);

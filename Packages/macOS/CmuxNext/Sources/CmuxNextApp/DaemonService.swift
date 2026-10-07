@@ -183,7 +183,8 @@ final class DaemonService {
     /// the same link, and the next event then connects to the new build.
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
-    func start(remote endpoint: @escaping @Sendable () async throws -> String,
+    /// `preamble`: the line each connection sends first (``DaemonEndpoint/preamble``).
+    func start(remote endpoint: @escaping @Sendable () async throws -> String, preamble: String? = nil,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
@@ -206,7 +207,7 @@ final class DaemonService {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
                                                                                     sessionEvents: true)) {
-                        DaemonEndpoint(socketPath: try await endpoint())
+                        DaemonEndpoint(socketPath: try await endpoint(), preamble: preamble)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
@@ -310,7 +311,8 @@ final class DaemonService {
     /// Outcome of a command whose reply may miss its deadline.
     enum CommandOutcome {
         case succeeded
-        case failed
+        /// The daemon refused or failed it; `code` is its `error_code` when it gave one.
+        case failed(code: String?)
         /// The deadline passed: the daemon may still apply the command.
         case unknown
     }
@@ -322,7 +324,7 @@ final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return .failed
+            return .failed(code: nil)
         }
         do {
             try await body(connection)
@@ -335,7 +337,8 @@ final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return .failed
+            if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
+            return .failed(code: nil)
         }
     }
 

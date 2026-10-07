@@ -200,6 +200,22 @@ What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--
 
 A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
 
+## `layout.newPanePlacement` and `layout.tileBrowsers`
+
+Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, the strip's +, the palette).
+
+```json
+{
+  "layout": { "newPanePlacement": "split", "tileBrowsers": false }
+}
+```
+
+- `newPanePlacement: "tab"` (default): a new tab in the focused pane.
+- `newPanePlacement: "split"`: a new pane, the same as New Pane (Auto Layout) (Ctrl-Cmd-N). The largest pane on screen splits along its longer side, like Zellij. A docked column never splits. The new terminal starts in the focused terminal's folder.
+- `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
+
+The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
 How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
@@ -613,3 +629,29 @@ shows the same keys.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
+
+## `agentPane.editedFiles.*`
+
+The card in an agent chat that lists the files a turn edited, with Undo and View changes.
+Settings > General > Agent Chat shows the same keys.
+
+```jsonc
+{
+  "agentPane": {
+    "editedFiles": {
+      "show": "always",
+      "maxRows": 5,
+      "scope": "turn"
+    }
+  }
+}
+```
+
+- `show`: `always` (default) shows the card with its file rows, `collapsed` shows only the
+  header (its chevron shows the rows), and `never` shows no card (the turn keeps its plain
+  tool rows).
+- `maxRows`: file rows shown before "Show N more", `1` to `50`. Default: `5`.
+- `scope`: `turn` (default) gives each turn its own card; `session` shows one card for the
+  whole chat, at its latest edit.
+
+A value cmux does not know keeps that key's default and is reported as a diagnostic.
