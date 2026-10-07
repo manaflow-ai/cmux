@@ -79,18 +79,27 @@ public nonisolated final class RemoteRdUpstream {
     public func datagrams() throws(RemoteRdCoreError) -> [Data] {
         var out: [Data] = []
         var buffer = [UInt8](repeating: 0, count: 2048)
-        while true {
-            var len = 0
-            let code = buffer.withUnsafeMutableBufferPointer { b in
-                cmux_rd_upstream_pop_datagram(handle, b.baseAddress, b.count, &len)
-            }
-            if code == CMUX_RD_ERR_BUFFER {
-                buffer = [UInt8](repeating: 0, count: len)
-                continue
-            }
-            guard try RemoteRdCoreError.check(code) == 1 else { return out }
-            out.append(Data(buffer[0..<len]))
+        while let datagram = try popDatagram(into: &buffer) {
+            out.append(datagram)
         }
+        return out
+    }
+
+    /// The oldest queued datagram, or nil when none is queued. Grows
+    /// `buffer` once when the datagram does not fit.
+    private func popDatagram(into buffer: inout [UInt8]) throws(RemoteRdCoreError) -> Data? {
+        var length = 0
+        var code = buffer.withUnsafeMutableBufferPointer { out in
+            cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
+        }
+        if code == CMUX_RD_ERR_BUFFER {
+            buffer = [UInt8](repeating: 0, count: length)
+            code = buffer.withUnsafeMutableBufferPointer { out in
+                cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
+            }
+        }
+        guard try RemoteRdCoreError.check(code) == 1 else { return nil }
+        return Data(buffer[0..<length])
     }
 
     /// The bitrate the encoder should aim for now.
