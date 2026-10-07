@@ -8,13 +8,30 @@ const dom = new JSDOM("<!doctype html><div id=outside></div><div id=root></div>"
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "getComputedStyle",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
+  Node: dom.window.Node,
   HTMLElement: dom.window.HTMLElement,
+  requestAnimationFrame: (callback: FrameRequestCallback) => {
+    callback(Date.now());
+    return 0;
+  },
+  cancelAnimationFrame: () => undefined,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -22,6 +39,8 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SummaryButton } = await import("./SummaryButton");
+const { UiProvider } = await import("../../../ui/UiProvider");
+const SharedUiProvider = UiProvider as any;
 
 const tool = (fields: Partial<NonNullable<AcpmuxActivity["tool"]>>): AcpmuxActivity => ({
   kind: "tool",
@@ -55,7 +74,13 @@ async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) })),
+      root.render(
+        createElement(
+          SharedUiProvider,
+          { container, dir: "ltr" },
+          createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) }),
+        ),
+      ),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
@@ -107,14 +132,18 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
   const root = createRoot(container);
   await act(async () =>
     root.render(
-      createElement(SummaryButton, {
-        rows,
-        changes: { additions: 3, deletions: 1 },
-        onOpenChanges: () => {
-          opened.push("changes");
-          focused.push(dom.window.document.activeElement?.getAttribute("aria-label") ?? "");
-        },
-      }),
+      createElement(
+        SharedUiProvider,
+        { container, dir: "ltr" },
+        createElement(SummaryButton, {
+          rows,
+          changes: { additions: 3, deletions: 1 },
+          onOpenChanges: () => {
+            opened.push("changes");
+            focused.push(dom.window.document.activeElement?.getAttribute("aria-label") ?? "");
+          },
+        }),
+      ),
     ),
   );
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
