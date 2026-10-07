@@ -566,14 +566,18 @@ struct MachinesPanelView: View {
 
     @MainActor
     private func removeCoderouterAccount(_ account: CloudTreeNode.CoderouterAccount) {
-        guard let scope = currentCoderouterScope else { return }
+        // The row belongs to the shown team. If the selection already moved on,
+        // removing it must not run against the newly selected team.
+        guard let scope = coderouterState.removalScope(selected: currentCoderouterScope) else { return }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
-        let knownOrganizationID = coderouterState.scope == scope ? coderouterState.knownOrganizationID : nil
+        let knownOrganizationID = coderouterState.knownOrganizationID
         guard CloudTreeNodeActions.confirmDestructive(
             title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove “%@” from coderouter?"), account.title),
             message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
             verb: String(localized: "coderouter.removeAccount.verb", defaultValue: "Remove")
         ) else { return }
+        // The confirmation is modal; the team may have changed while it was up.
+        guard coderouterState.removalScope(selected: currentCoderouterScope) == scope else { return }
         // Reflect the user's action immediately. Keep the removed row's index so
         // a failed request can restore the order of the last successful read.
         let previousIndex = coderouterState.removeOptimistically(accountID: account.id, for: scope)

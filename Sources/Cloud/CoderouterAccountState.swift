@@ -90,6 +90,14 @@ struct CoderouterAccountState: Equatable {
         return destination
     }
 
+    /// The team a removal of a shown row runs against: the team whose rows
+    /// are shown, and only while it is still the selected team. Nil while the
+    /// selection has moved on and the old rows have not been cleared yet.
+    func removalScope(selected: CoderouterAccountScope?) -> CoderouterAccountScope? {
+        guard let scope, scope == selected else { return nil }
+        return scope
+    }
+
     /// Hides a row the user is removing; returns where it was so a failed
     /// removal can put it back.
     mutating func removeOptimistically(accountID: String, for removeScope: CoderouterAccountScope) -> Int? {
