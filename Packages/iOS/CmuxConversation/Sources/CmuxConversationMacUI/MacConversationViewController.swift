@@ -2140,6 +2140,9 @@ final class MacReactionPickerView: MacFlippedView {
     private var seed: CGPoint = .zero
     private let onPick: (ConversationReaction) -> Void
     private let current: ConversationReaction?
+    private var choices: [ConversationReaction] = []
+    /// Takes the system emoji picker's insertion while it is open.
+    private let emojiInput = MacEmojiInputView()
 
     init(current: ConversationReaction?, onPick: @escaping (ConversationReaction) -> Void) {
         self.current = current
@@ -2159,7 +2162,10 @@ final class MacReactionPickerView: MacFlippedView {
         stack.orientation = .horizontal
         stack.spacing = 4
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-        for (index, reaction) in ConversationReaction.allCases.enumerated() {
+        // A custom emoji I already gave shows after the classics, selected,
+        // so picking it again removes it (as on iOS).
+        choices = ConversationReaction.allCases + (current.flatMap { $0.emoji == nil ? nil : [$0] } ?? [])
+        for (index, reaction) in choices.enumerated() {
             let button = NSButton(title: "", target: self, action: #selector(picked(_:)))
             button.isBordered = false
             button.attributedTitle = MacReactionPickerView.glyph(reaction)
@@ -2189,17 +2195,38 @@ final class MacReactionPickerView: MacFlippedView {
             dot.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.16).cgColor
             addSubview(dot)
         }
+        addSubview(emojiInput)
         addSubview(circle)
         addSubview(capsule)
         addSubview(clip)
+        // The emoji circle opens the system emoji picker (Messages' "Add
+        // custom emoji reaction"); the picked emoji becomes the tapback.
+        circle.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openEmojiPicker)))
+        circle.setAccessibilityElement(true)
+        circle.setAccessibilityRole(.button)
+        circle.setAccessibilityLabel(String(localized: "conversation.tapback.customEmoji", defaultValue: "Add custom emoji reaction", bundle: .module))
+        circle.setAccessibilityIdentifier("conversation.tapback.custom")
+        emojiInput.onEmoji = { [weak self] emoji in self?.onPick(.emoji(emoji)) }
         setAccessibilityIdentifier("conversation.reactionPicker")
+    }
+
+    /// Focuses an invisible text input over the circle and opens the
+    /// Character Viewer there; its insertion arrives in `emojiInput`.
+    @objc func openEmojiPicker() {
+        emojiInput.frame = circle.frame
+        window?.makeFirstResponder(emojiInput)
+        NSApp.orderFrontCharacterPalette(nil)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        (super.accessibilityChildren() ?? []).filter { ($0 as? NSView) !== emojiInput }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
     var capsuleSize: CGSize {
-        CGSize(width: CGFloat(ConversationReaction.allCases.count) * 36 + 12, height: 42)
+        CGSize(width: CGFloat(choices.count) * 36 + 12, height: 42)
     }
 
     func place(capsule frame: CGRect, circleCenter: CGPoint, outgoing: Bool) {
@@ -2338,7 +2365,7 @@ final class MacReactionPickerView: MacFlippedView {
     }
 
     @objc private func picked(_ sender: NSButton) {
-        onPick(ConversationReaction.allCases[sender.tag])
+        onPick(choices[sender.tag])
     }
 
     private static func glyph(_ reaction: ConversationReaction) -> NSAttributedString {
