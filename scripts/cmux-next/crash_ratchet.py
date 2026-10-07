@@ -18,6 +18,12 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     unowned           unowned references (trap after the owner is gone)
     iuo               implicitly unwrapped declarations (`var x: T!`)
     unchecked         nonisolated(unsafe) and @unchecked Sendable (data races)
+    env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
+                      the baseline and not waived by crash-allow: only the call sites in
+                      env-write-allowlist.json (path, call, count, reason) pass. libghostty
+                      keeps a slice of environ from ghostty_init, so a write after launch
+                      left it reading a NULL or freed entry (SIGSEGV, cx-9dh7). Children
+                      get their variables through their spawn environment.
   Rust (cmux-tui/crates/*/src, code before an inline #[cfg(test)] module, no tests/ folders):
     unwrap            .unwrap()
     expect            .expect(
@@ -54,6 +60,8 @@ RUST = {
     "panic_macro": re.compile(r"\b(panic|unreachable|todo|unimplemented)!\s*[\(\{\[]"),
     "exit": re.compile(r"\bprocess::(exit|abort)\("),
 }
+ENV_WRITE = re.compile(r"\b(setenv|unsetenv|putenv)\s*\(|\benviron\s*(\[[^\]]*\]\s*)?=(?!=)")
+ENV_ALLOWLIST = os.path.join(HERE, "env-write-allowlist.json")
 INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
@@ -104,6 +112,32 @@ def scan_swift(repo, counts):
                 if hits:
                     counts.setdefault(kind, {}).setdefault(rel, 0)
                     counts[kind][rel] += hits
+
+
+def scan_env_writes(repo):
+    """Process environment writes in Swift sources beyond env-write-allowlist.json:
+    ["<swift module> (<path>: <call> <allowed> -> <found>)", ...]. A crash-allow comment
+    does not waive one; only the allowlist (with its reason) does."""
+    sources = os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
+    allow = json.load(open(ENV_ALLOWLIST)) if os.path.exists(ENV_ALLOWLIST) else {}
+    found = {}
+    for path in tracked_files(repo, sources):
+        if not path.endswith(".swift") or not os.path.isfile(path):
+            continue
+        rel = os.path.relpath(path, repo)
+        for line in open(path, encoding="utf-8").read().split("\n"):
+            if line.lstrip().startswith("//"):
+                continue
+            for match in ENV_WRITE.finditer(swift_code(line)):
+                call = match.group(1) or "environ="
+                found[(rel, call)] = found.get((rel, call), 0) + 1
+    over = {}
+    for (rel, call), hits in sorted(found.items()):
+        allowed_hits = allow.get(rel, {}).get(call, 0)
+        if hits > allowed_hits:
+            module = os.path.relpath(rel, "Packages/macOS/CmuxNext/Sources").split(os.sep)[0]
+            over.setdefault(module, []).append(f"{rel}: {call} {allowed_hits} -> {hits}")
+    return over
 
 
 def scan_rust(repo, counts):
@@ -161,11 +195,18 @@ def main():
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1
+    env_over = scan_env_writes(opts.repo)
+    for module, details in sorted(env_over.items()):
+        hits = sum(int(d.rsplit(" ", 1)[1]) for d in details)
+        grown.append(f"swift {module}: env_write 0 -> {hits}")
+        for detail in details:
+            print("crash-ratchet: env_write " + detail + " (not in scripts/cmux-next/env-write-allowlist.json)")
     for line in grown:
         print("crash-ratchet: " + line)
     if grown:
         print(f"crash-ratchet: {len(grown)} module(s) or crate(s) gained a crash-class hit (plans/cmux-next/crash-elimination.md). "
-              "Remove it, or add a reviewed `// crash-allow: <reason>`.")
+              "Remove it, or add a reviewed `// crash-allow: <reason>` (env_write: never; pass the value in the child's "
+              "spawn environment instead).")
         return 1
     note = f"; {shrunk} count(s) went down: run scripts/cmux-next/crash_ratchet.py --update-baseline" if shrunk else ""
     print(f"crash-ratchet: ok{note}")

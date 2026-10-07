@@ -1,0 +1,15 @@
+{
+ "_comment": "Process environment writes allowed in Packages/macOS/CmuxNext/Sources (crash_ratchet.py env_write). Each entry: path -> call -> count, with the reason. Only writes in main before any thread starts and before ghostty_init qualify: libghostty keeps a slice of environ from ghostty_init, and a later setenv/unsetenv crashed it (cx-9dh7). Pass values to a child in its spawn environment instead.",
+ "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift": {
+  "unsetenv": 1,
+  "reason": "stripInheritedEnvironment: the first statement group of CmuxNextApp.main, before any thread and before ghostty_init, drops cmux variables inherited from another cmux."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift": {
+  "unsetenv": 1,
+  "reason": "LaunchMarkSink.shared is created by the first launch mark at the top of CmuxNextApp.main (and forced there again), before any thread; drops the bench's descriptor number so children do not inherit it."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift": {
+  "setenv": 1,
+  "reason": "prepareProcessEnvironment: CmuxNextApp.main calls it before any thread; the second call, just before ghostty_init, writes nothing when the value is already set (it sets it only in processes that skip main, such as tests)."
+ }
+}
