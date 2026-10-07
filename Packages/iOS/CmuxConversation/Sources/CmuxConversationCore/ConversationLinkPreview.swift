@@ -155,7 +155,13 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
         public var thumbnailGap: CGFloat = 16
         public var thumbnailTrailing: CGFloat = 12
         public var glyphSize: CGFloat = 32
+        /// Height of a compact card whose accessory is the fallback glyph.
         public var compactMinHeight: CGFloat = 59
+        /// Vertical padding around a thumbnail in a compact card.
+        public var thumbnailMinPad: CGFloat = 7
+        /// iOS shows a small image as a thumbnail; macOS stretches any image on top.
+        public var smallImagesAsThumbnails = true
+        public var promptSidePad: CGFloat = 19
         public var loadingSize = CGSize(width: 150, height: 111)
         public var spinnerSize: CGFloat = 37
         public var spinnerTop: CGFloat = 35
@@ -168,6 +174,25 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
 
         /// iOS 26 Messages (CKUIBehaviorPhone, Dynamic Type L).
         public static let phone = Metrics()
+
+        /// macOS 26 LinkPresentation (title 11 pt semibold, domain 10 pt).
+        public static let mac: Metrics = {
+            var m = Metrics()
+            m.sideInset = 10
+            m.titleTop = 7
+            m.titleLineHeight = 14
+            m.domainHeight = 13
+            m.captionBottom = 8
+            m.thumbnailGap = 10
+            m.compactMinHeight = 60
+            m.loadingSize = CGSize(width: 140, height: 103)
+            m.spinnerSize = 32
+            m.tapCaptionHeight = 29
+            m.chevronSize = CGSize(width: 7.5, height: 9)
+            m.smallImagesAsThumbnails = false
+            m.promptSidePad = 24
+            return m
+        }()
     }
 
     /// `measureTitle(text, maxWidth)` returns the wrapped title size (unclamped);
@@ -191,7 +216,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
         case .tapToLoad:
             let promptW = ceil(measurePrompt())
             let domainW = ceil(measureDomain(preview.domain))
-            let w = min(maxW, max(m.tapMinWidth, promptW + 2 * 19, m.sideInset + domainW + 8 + m.chevronSize.width + m.thumbnailTrailing))
+            let w = min(maxW, max(m.tapMinWidth, promptW + 2 * m.promptSidePad, m.sideInset + domainW + 8 + m.chevronSize.width + m.thumbnailTrailing))
             let size = CGSize(width: w, height: m.tapPromptHeight + m.tapCaptionHeight)
             var layout = ConversationLinkCardLayout(kind: .tapToLoad, size: size)
             layout.promptAreaFrame = CGRect(x: 0, y: 0, width: w, height: m.tapPromptHeight)
@@ -199,7 +224,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
             layout.promptFrame = CGRect(x: (w - pw) / 2, y: (m.tapPromptHeight - m.domainHeight) / 2, width: pw, height: m.domainHeight)
             let chevron = CGRect(x: w - m.thumbnailTrailing - m.chevronSize.width, y: m.tapPromptHeight + (m.tapCaptionHeight - m.chevronSize.height) / 2, width: m.chevronSize.width, height: m.chevronSize.height)
             layout.chevronFrame = chevron
-            layout.domainFrame = CGRect(x: m.sideInset, y: m.tapPromptHeight + (m.tapCaptionHeight - m.domainHeight) / 2, width: max(0, chevron.minX - 8 - m.sideInset), height: m.domainHeight)
+            layout.domainFrame = CGRect(x: m.sideInset, y: m.tapPromptHeight + ((m.tapCaptionHeight - m.domainHeight) / 2).rounded(), width: max(0, chevron.minX - 8 - m.sideInset), height: m.domainHeight)
             return layout
         case .loaded:
             break
@@ -219,7 +244,8 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
             return (titleFrame, domain, domain.maxY + m.captionBottom - top)
         }
 
-        if preview.showsMediaOnTop, let image = preview.image {
+        let mediaOnTop = m.smallImagesAsThumbnails ? preview.showsMediaOnTop : preview.image != nil
+        if mediaOnTop, let image = preview.image {
             let aspect = CGFloat(image.aspectRatio)
             let w = aspect > 1 ? maxW : (maxWidth * m.narrowWidthFraction).rounded()
             let mediaH = floor(w / aspect)
@@ -232,7 +258,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
         }
 
         // Compact: text column plus a trailing thumbnail (or the fallback glyph).
-        let hasThumb = preview.thumbnail != nil
+        let hasThumb = (m.smallImagesAsThumbnails ? preview.thumbnail : preview.icon) != nil
         let accessory = hasThumb ? m.thumbnailSize : m.glyphSize
         let chrome = m.sideInset + m.thumbnailGap + accessory + m.thumbnailTrailing
         let maxText = maxW - chrome
@@ -243,7 +269,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
         textW = min(textW, maxText)
         let w = textW + chrome
         var cap = caption(width: w, textWidth: textW, top: 0)
-        let h = max(m.compactMinHeight, cap.height)
+        let h = max(hasThumb ? m.thumbnailSize + 2 * m.thumbnailMinPad : m.compactMinHeight, cap.height)
         if h > cap.height {
             // Center the text block when the accessory sets the height.
             let block = cap.domain.maxY - (cap.title?.minY ?? cap.domain.minY)

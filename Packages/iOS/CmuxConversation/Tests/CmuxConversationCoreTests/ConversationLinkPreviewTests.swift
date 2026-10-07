@@ -85,6 +85,37 @@ import Testing
         #expect(tap.promptAreaFrame?.height == 80)
     }
 
+    // macOS 26 LinkPresentation (AppKit LPLinkView, same Messages settings).
+    private func macLayout(_ preview: ConversationLinkPreview, titleWidth: CGFloat, domainWidth: CGFloat) -> ConversationLinkCardLayout {
+        ConversationLinkCardLayout.compute(
+            preview: preview, maxWidth: 300, metrics: .mac,
+            measureTitle: { _, maxW in CGSize(width: min(titleWidth, maxW), height: 14) },
+            measureDomain: { _ in domainWidth },
+            measurePrompt: { 112 }
+        )
+    }
+
+    @Test func macCardsUseTheMacCaptionAndKeepSmallImagesOnTop() {
+        let large = macLayout(ConversationLinkPreview(url: apple, title: "t", image: .init(url: apple, width: 1200, height: 630)), titleWidth: 280, domainWidth: 54)
+        #expect(large.size == CGSize(width: 300, height: 201))
+        #expect(large.titleFrame == CGRect(x: 10, y: 164, width: 280, height: 14))
+        #expect(large.domainFrame?.minY == 180)
+        let small = macLayout(ConversationLinkPreview(url: apple, title: "t", image: .init(url: apple, width: 120, height: 90)), titleWidth: 280, domainWidth: 54)
+        #expect(small.kind == .media && small.size.height == 225 + 44)
+        let icon = macLayout(ConversationLinkPreview(url: apple, title: "t", icon: .init(url: apple, width: 180, height: 180)), titleWidth: 204, domainWidth: 54)
+        #expect(icon.size == CGSize(width: 266, height: 44))
+        #expect(icon.thumbnailFrame == CGRect(x: 224, y: 7, width: 30, height: 30))
+        let bare = macLayout(ConversationLinkPreview(url: apple), titleWidth: 0, domainWidth: 54)
+        #expect(bare.size == CGSize(width: 118, height: 60))
+        #expect(bare.glyphFrame == CGRect(x: 74, y: 14, width: 32, height: 32))
+        let tap = macLayout(ConversationLinkPreview(url: apple, state: .tapToLoad), titleWidth: 0, domainWidth: 54)
+        #expect(tap.size == CGSize(width: 160, height: 109))
+        #expect(tap.domainFrame?.minY == 88)
+        let loading = macLayout(ConversationLinkPreview(url: apple, state: .loading), titleWidth: 0, domainWidth: 58)
+        #expect(loading.size == CGSize(width: 140, height: 103))
+        #expect(loading.spinnerFrame == CGRect(x: 54, y: 35, width: 32, height: 32))
+    }
+
     @Test func domainDropsWWW() {
         #expect(ConversationLinkPreview(url: apple).domain == "apple.com")
         #expect(ConversationLinkPreview(url: apple, siteName: "Apple").domain == "Apple")

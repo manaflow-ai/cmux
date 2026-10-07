@@ -59,6 +59,11 @@ struct MacMessageRowModel: Hashable {
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
     var myReactions: Set<ConversationReaction> = []
+    /// Rich link card and the text left beside it, when the message has one.
+    var linkSplit: ConversationLinkSplit? = nil
+
+    /// Text bubble content: the message text, minus a URL shown as a card.
+    var bodyText: String { linkSplit?.bodyText ?? message.text }
 }
 
 /// Builds rows from store state with the shared Messages grouping rules.
@@ -139,12 +144,13 @@ enum MacConversationRowBuilder {
                 isFirstInRun: entry.isFirstInRun,
                 footer: footers ? footer(entry.status, isGroup: isGroup) : .none,
                 replyQuote: quote,
-                isEmojiOnly: message.attachments.isEmpty && isEmojiOnly(message.text),
+                isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
                 reactionKinds: message.reactions.reduce(into: []) { kinds, mark in
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
-                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction))
+                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction)),
+                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview)
             )))
         }
         return rows
@@ -200,6 +206,11 @@ struct MacMessageLayout {
     var footerFrame: CGRect?
     var failedBadgeFrame: CGRect?
     var contentFrame: CGRect
+    /// Rich link balloon (body only; the tail drops below) and its inner layout.
+    var linkCardFrame: CGRect? = nil
+    var linkCard: ConversationLinkCardLayout? = nil
+    /// The card is the last balloon, so it (not the text bubble) carries the tail.
+    var linkCardIsLast = false
 }
 
 @MainActor
@@ -217,11 +228,11 @@ final class MacMessageLayoutCache {
     }
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
-        if let (text, outgoing, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing {
+        if let (text, outgoing, value) = texts[model.rowID], text == model.bodyText, outgoing == model.isOutgoing {
             return value
         }
-        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        texts[model.rowID] = (model.message.text, model.isOutgoing, value)
+        let value = MacMessageLayout.attributedBody(model.bodyText, outgoing: model.isOutgoing)
+        texts[model.rowID] = (model.bodyText, model.isOutgoing, value)
         return value
     }
 
@@ -322,6 +333,21 @@ extension MacMessageLayout {
         }
         if !imageFrames.isEmpty, model.message.text.isEmpty { y -= t.groupedSpacing }
 
+        var linkCardFrame: CGRect?
+        var linkCard: ConversationLinkCardLayout?
+        let bodyText = model.bodyText
+        /// Messages' rich link width on macOS: CKUIBehaviorMac previewMaxWidth 300.
+        func placeLinkCard() {
+            guard let split = model.linkSplit, let preview = model.message.linkPreview else { return }
+            let card = MacLinkPreviewView.layout(for: preview, maxWidth: min(300, maxBubble))
+            if split.cardFirst == false, !bodyText.isEmpty { y += t.groupedSpacing }
+            linkCard = card
+            linkCardFrame = bubbleRect(bodyWidth: card.size.width, y: y, height: card.size.height)
+            y += card.size.height
+            if split.cardFirst, !bodyText.isEmpty { y += t.groupedSpacing }
+        }
+        if model.linkSplit?.cardFirst == true { placeLinkCard() }
+
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
@@ -335,7 +361,7 @@ extension MacMessageLayout {
                 y: y, width: size.width, height: size.height
             )
             y += size.height
-        } else if !model.message.text.isEmpty {
+        } else if !bodyText.isEmpty {
             let size = measure(text, maxWidth: maxBubble - 2 * t.bubbleHorizontalPadding)
             let textHeight = max(size.height, t.lineHeight)
             let bodyWidth = max(size.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.bubbleVerticalPadding)
@@ -346,11 +372,13 @@ extension MacMessageLayout {
             textFrame = CGRect(x: bodyMinX + (bodyWidth - size.width) / 2, y: y + t.bubbleVerticalPadding - t.bubbleTextLift, width: size.width + 1, height: textHeight)
             y += h
         }
+        if model.linkSplit?.cardFirst == false { placeLinkCard() }
+        let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
 
-        let primary = bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingLeading, y: y, width: 40, height: 1)
-        let first = imageFrames.first ?? bubbleFrame ?? emojiFrame ?? primary
+        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingLeading, y: y, width: 40, height: 1)
+        let first = imageFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
         var firstBody = first
-        if bubbleFrame != nil || !imageFrames.isEmpty {
+        if bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty {
             firstBody.size.width -= t.tailWidth
             if !model.isOutgoing { firstBody.origin.x += t.tailWidth }
         }
@@ -358,7 +386,7 @@ extension MacMessageLayout {
             : (model.isOutgoing ? CGPoint(x: firstBody.minX, y: firstBody.minY) : CGPoint(x: firstBody.maxX, y: firstBody.minY))
 
         // The avatar's bottom lines up with the bottom of the tail.
-        let tailBottom = primary.maxY + (model.showsTail && bubbleFrame != nil ? t.tailDrop : 0)
+        let tailBottom = primary.maxY + (model.showsTail && (bubbleFrame != nil || linkCardFrame != nil) ? t.tailDrop : 0)
         let avatarFrame: CGRect? = model.showsAvatar
             ? CGRect(x: margin, y: tailBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
             : nil
@@ -373,7 +401,7 @@ extension MacMessageLayout {
                 ? CGRect(x: margin, y: y, width: bodyTrailing - 5 - margin, height: 14)
                 : CGRect(x: bodyLeading + 5, y: y, width: width - bodyLeading - 5 - margin, height: 14)
         }
-        let tailExtra: CGFloat = model.showsTail && bubbleFrame != nil ? t.tailDrop : 0
+        let tailExtra: CGFloat = model.showsTail && (bubbleFrame != nil || linkCardFrame != nil) ? t.tailDrop : 0
         y = max(y, primary.maxY + tailExtra)
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
@@ -423,6 +451,7 @@ extension MacMessageLayout {
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
+        if let linkCardFrame { content = content.union(linkCardFrame) }
         if content.isNull { content = primary }
         return MacMessageLayout(
             height: ceil(y),
@@ -442,7 +471,10 @@ extension MacMessageLayout {
             repliesFrame: repliesFrame,
             footerFrame: footerFrame,
             failedBadgeFrame: failedBadgeFrame,
-            contentFrame: content
+            contentFrame: content,
+            linkCardFrame: linkCardFrame,
+            linkCard: linkCard,
+            linkCardIsLast: linkCardIsLast
         )
     }
 }

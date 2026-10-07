@@ -912,6 +912,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showThread(rootID: model.message.id, from: rowView.repliesLabel)
             return true
         }
+        if let card = rowView.rowLayout?.linkCardFrame, card.contains(local), let preview = model.message.linkPreview {
+            if isHold(after: event) {
+                if model.message.seq != nil { showReactionFocus(model, in: rowView) }
+                return true
+            }
+            switch preview.state {
+            case .tapToLoad: store.loadLinkPreview(messageID: model.message.id)
+            case .loaded, .loading: NSWorkspace.shared.open(preview.url)
+            }
+            return true
+        }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
            let url = link(in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
             NSWorkspace.shared.open(url)

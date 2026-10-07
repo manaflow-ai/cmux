@@ -239,6 +239,23 @@
         }
       }
     },
+    "conversation.link.clickToLoad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to Load Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックしてプレビューを読み込む"
+          }
+        }
+      }
+    },
     "conversation.loadingOlder": {
       "extractionState": "manual",
       "localizations": {

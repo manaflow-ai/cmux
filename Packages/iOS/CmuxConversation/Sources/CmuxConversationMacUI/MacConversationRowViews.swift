@@ -160,6 +160,7 @@ enum MacTapbackGlyph {
 final class MacMessageRowView: MacFlippedView {
     let bubble = MacBubbleLayer()
     let textLabel = MacMeasuredTextView()
+    let linkCard = MacLinkPreviewView()
     let emojiLabel = makeMacLabel()
     let senderLabel = makeMacLabel()
     let quoteBubble = MacBubbleLayer()
@@ -199,6 +200,7 @@ final class MacMessageRowView: MacFlippedView {
         quoteBubble.lineWidth = 1
         layer?.addSublayer(bubble)
         addSubview(textLabel)
+        addSubview(linkCard)
         for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, footerLabel] {
             addSubview(label)
         }
@@ -245,7 +247,7 @@ final class MacMessageRowView: MacFlippedView {
 
         if let frame = layout.bubbleFrame, let textFrame = layout.textFrame {
             bubble.isHidden = false
-            bubble.update(rect: frame, side: side, tail: model.showsTail)
+            bubble.update(rect: frame, side: side, tail: model.showsTail && !layout.linkCardIsLast)
             bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
             bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
             textLabel.isHidden = false
@@ -254,6 +256,15 @@ final class MacMessageRowView: MacFlippedView {
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
+        }
+
+        if let frame = layout.linkCardFrame, let card = layout.linkCard, let preview = model.message.linkPreview {
+            let tailed = model.showsTail && layout.linkCardIsLast
+            linkCard.isHidden = false
+            linkCard.frame = tailed ? CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + MacConversationTheme.tailDrop) : frame
+            linkCard.configure(preview: preview, layout: card, side: side, tail: tailed)
+        } else {
+            linkCard.isHidden = true
         }
 
         emojiLabel.isHidden = layout.emojiFrame == nil
