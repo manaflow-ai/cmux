@@ -1,7 +1,8 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `bd9dc02a3c` (B1 rate limits, B2, C3,
-C12, C14, D1b, E3, E4, E5 and F1 are in this ancestry). Plan: [PLAN.md](PLAN.md) D3. No tagged build,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `0b67aecc0e` (B1 session/epoch hardening,
+B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
+Plan: [PLAN.md](PLAN.md) D3. No tagged build,
 simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
 the matrix below separates implementation evidence from the still-pending live-pair gate.
 
@@ -118,7 +119,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.19 | Localization (en, ja translated) | all | done (section 4) |
 | 1.19 | Background modes, protected data | kept, C7, A2 | done |
 
-Counts (98 rows): done 84, mocked 4, seam only 5, missing 1, dropped 4. (Rows with partial notes
+Counts (98 rows): done 85, mocked 4, seam only 4, missing 1, dropped 4. (Rows with partial notes
 count under their main status. “Done” means implementation and package/static evidence; it remains
 device-unverified unless the row says otherwise.)
 
@@ -133,8 +134,8 @@ Open implementation gaps, grouped by owner:
   still required.
 - Mocked rows: Mac capabilities/version gate, Keep Mac Awake (onboarding and per-Mac power assertion),
   and StoreKit plans remain behind their DEV/mock owners.
-- Seam-only rows: remote feature flags (B1 config read), Cloud machines in the workspace list, Cloud
-  VM terminal/files attach, task composer attachments, and analytics upload.
+- Seam-only rows: Cloud machines in the workspace list, Cloud VM terminal/files attach, task composer
+  attachments, and analytics upload.
 
 ## 2. Device verification checklist
 
@@ -339,7 +340,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
-not a test result for current HEAD `bd9dc02a3c`.
+not a test result for current HEAD `0b67aecc0e`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -363,8 +364,8 @@ not a test result for current HEAD `bd9dc02a3c`.
 
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
-(no cargo on this Mac). The current-head backend slice has `26` focused Vitest tests and a clean
-TypeScript typecheck at `bd9dc02a3c`.
+(no cargo on this Mac). The current-head backend slice has `35` focused Vitest tests and a clean
+TypeScript typecheck at `0b67aecc0e`.
 
 Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
 `git diff --check`, `check-concurrency.sh`, `check-crash-safety.sh`, and `check-theme-scope.sh`

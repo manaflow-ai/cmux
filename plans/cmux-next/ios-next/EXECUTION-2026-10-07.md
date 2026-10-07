@@ -26,13 +26,13 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `bd9dc02a3c` reports 84 of 98 parity rows done, with one
-implementation gap (the remaining tmux workspace parity), five seam-only rows, four mocked
-platform rows, and four intentional drops. B1 now rate-limits TURN and pending-snapshot repair
-traffic by authenticated identity. C14's credentialed generic SOCKS route is wired to `WebRoute`,
-and C9 has a bounded tmux control-mode hydration path for safe single-pane attachment; carrier,
-device, multi-pane/history, lifecycle, and other explicitly mocked or seam-only evidence remain
-open.
+The refreshed D3 matrix at HEAD `0b67aecc0e` reports 85 of 98 parity rows done, with one
+implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
+platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
+rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
+repair traffic. C9 has bounded tmux scrollback hydration for safe single-pane attachment, C16 has
+an authenticated cached/fail-closed remote-config source, and E1 bounds SSH session output; carrier,
+device, multi-pane/history, lifecycle, and other explicitly mocked or seam-only evidence remain open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WebRTC-over-WireGuard, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
@@ -61,18 +61,29 @@ The active wave is intentionally independent:
   incoming resource queues. Full package execution remains a fleet/build-host gate.
 - `8017210242` adds identity-keyed B1 limits for TURN credential mints and pending snapshot forwards;
   the backend's focused Vitest suite (26 tests) and TypeScript typecheck pass.
+- `9f9c69ffc0` isolates Stack refresh sessions with server-scoped digests, persists the enrolled
+  HostDO install binding, rejects cross-host read selectors, and requires epochs once a mirrored
+  stream is epoch-scoped; 26 focused backend tests and TypeScript typecheck pass.
 - `0a9575efc3` adds bounded, epoch-checked tmux control-mode discovery, snapshot hydration and
   live pane output; native tests and live SSH verification remain a build-host/device gate.
+- `ae5373dbde` adds up to 256 normal-screen scrollback rows to the tmux attach replay and refuses
+  truncated or ambiguous alternate-screen history; Swift parsing and scoped checks pass.
 - `d0678348d5` wires a credentialed generic SOCKS route through `WebRoute`; syntax and static checks
   pass, while native package tests, WKWebView and live reconnect verification remain pending.
 - `bd9dc02a3c` closes accepted SOCKS handshakes as part of route shutdown and rejects backend opens
   after stop; the focused lifecycle regression and Swift 6 library build pass.
+- `11bcf23602` wires authenticated `/v1/mobile/config` into the shell with cached initial state,
+  five-minute refresh, payload/status bounds, negative-revision clamping, and fail-closed offline
+  behavior; Swift parsing and static guards pass, while the native target remains a hosted-build gate.
+- `0b67aecc0e` bounds CmuxMobileSSH session output at 256 oldest-first events and closes a stalled
+  channel on overflow; the package build and mobile concurrency guard pass. The local TestingMacros
+  plugin prevents executing the new focused Swift Testing target.
 
-The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
-so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain
-explicitly unverified. Static checks and focused syntax/tests for the follow-ups pass. The next
-action is to rerun the same focused tests and D3 journeys when a fleet/build slot is available;
-no local iOS build is substituted.
+The dedicated build host was unavailable during the implementation wave (`cmux-lawrence-2` did not
+resolve), so native iOS package targets, tagged pair installs, visual evidence, and live SSH/browser
+paths remain explicitly unverified. Current static checks pass; the backend slice has 35 focused
+Vitest tests and a clean TypeScript typecheck. The next action is one exact-head fleet iOS build,
+then the D3 journeys when a tagged pair is available; no local iOS build is substituted.
 
 ## Dependency graph for this wave
 
