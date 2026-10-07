@@ -17,7 +17,7 @@ struct CLIVersionSkewErrorTests {
             "methods": ["system.identify", "action.run"],
         ])
         let rejected = try #require(outcome.rejected.last, Comment(rawValue: outcome.stderr))
-        #expect(outcome.status != 0)
+        #expect(outcome.status == 1)
         #expect(outcome.stderr.contains("\(rejected) is not supported by the app on"), Comment(rawValue: outcome.stderr))
         #expect(outcome.stderr.contains(outcome.cliVersion), Comment(rawValue: outcome.stderr))
         #expect(outcome.stderr.contains("cmux-next 0.3.0 (42)"), Comment(rawValue: outcome.stderr))
@@ -32,11 +32,23 @@ struct CLIVersionSkewErrorTests {
             "app_cli_path": "/Applications/cmux.app/Contents/Resources/bin/cmux",
         ])
         let rejected = try #require(outcome.rejected.last, Comment(rawValue: outcome.stderr))
-        #expect(outcome.status != 0)
+        #expect(outcome.status == 1)
         #expect(outcome.stderr.contains("\(rejected) is not supported by the app on"), Comment(rawValue: outcome.stderr))
         #expect(outcome.stderr.contains(outcome.cliVersion), Comment(rawValue: outcome.stderr))
         #expect(outcome.stderr.contains("does not report its version"), Comment(rawValue: outcome.stderr))
         #expect(outcome.stderr.contains("Quit and reopen cmux"), Comment(rawValue: outcome.stderr))
+    }
+
+    @Test("An app whose identity cannot be read is not called older")
+    func unreadableIdentityIsInconclusive() throws {
+        let outcome = try run(identify: nil)
+        let rejected = try #require(outcome.rejected.last, Comment(rawValue: outcome.stderr))
+        #expect(outcome.status == 1)
+        #expect(outcome.stderr.contains("\(rejected) is not supported by the app on"), Comment(rawValue: outcome.stderr))
+        #expect(outcome.stderr.contains("does not answer system.identify"), Comment(rawValue: outcome.stderr))
+        #expect(outcome.stderr.contains("Could not read the app's version"), Comment(rawValue: outcome.stderr))
+        #expect(!outcome.stderr.contains("older than this CLI"), Comment(rawValue: outcome.stderr))
+        #expect(outcome.stderr.contains("method_not_found"), Comment(rawValue: outcome.stderr))
     }
 
     @Test("The same build keeps the plain method_not_found error")
@@ -44,7 +56,7 @@ struct CLIVersionSkewErrorTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let version = try BundledCLITestSupport.appVersion(cliPath: cliPath)
         let outcome = try run(identify: ["app": "cmux", "version": version, "build": "1"])
-        #expect(outcome.status != 0)
+        #expect(outcome.status == 1)
         #expect(outcome.stderr.contains("method_not_found"), Comment(rawValue: outcome.stderr))
         #expect(!outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
     }
@@ -60,7 +72,7 @@ struct CLIVersionSkewErrorTests {
         let rejected: [String]
     }
 
-    private func run(identify: [String: Any], arguments: [String] = ["workspace", "create"]) throws -> Outcome {
+    private func run(identify: [String: Any]?, arguments: [String] = ["workspace", "create"]) throws -> Outcome {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let version = CLIHookProcessRunner.run(
             executablePath: cliPath,
@@ -94,8 +106,8 @@ struct CLIVersionSkewErrorTests {
     }
 }
 
-/// Control-socket fixture: answers `system.identify` with a fixed payload and
-/// every other v2 method with the cmux-next style `method_not_found`.
+/// Control-socket fixture: answers `system.identify` with a fixed payload (or
+/// an error when the payload is nil) and every other v2 method with the cmux-next style `method_not_found`.
 private final class SkewFixture: @unchecked Sendable {
     final class Served: @unchecked Sendable {
         private let done = DispatchSemaphore(value: 0)
@@ -112,11 +124,11 @@ private final class SkewFixture: @unchecked Sendable {
 
     private let socketPath: String
     private let listener: Int32
-    private let identify: [String: Any]
+    private let identify: [String: Any]?
     private let stopped = NSLock()
     private var isStopped = false
 
-    init(socketPath: String, identify: [String: Any]) throws {
+    init(socketPath: String, identify: [String: Any]?) throws {
         self.socketPath = socketPath
         self.identify = identify
         unlink(socketPath)
@@ -191,8 +203,10 @@ private final class SkewFixture: @unchecked Sendable {
         }
         let id = object["id"] ?? NSNull()
         let payload: [String: Any]
-        if method == "system.identify" {
+        if method == "system.identify", let identify {
             payload = ["id": id, "ok": true, "result": identify]
+        } else if method == "system.identify" {
+            payload = ["id": id, "ok": false, "error": ["code": "internal_error", "message": "identify unavailable"]]
         } else {
             served.record(method)
             payload = [
