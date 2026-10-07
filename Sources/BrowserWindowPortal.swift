@@ -190,6 +190,10 @@ enum HostedInspectorDockSide {
     }
 }
 
+// WebKit/AppKit synchronously enter this host from layer commits, layout and
+// hit testing. NSView inherits `@MainActor` in Swift 6, so every framework
+// override below is explicitly `nonisolated`; ownership remains main-thread
+// confined by the portal.
 final class WindowBrowserHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
 
@@ -219,7 +223,7 @@ final class WindowBrowserHostView: NSView {
 
     private typealias DividerCursorKind = PortalDividerCursorKind
 
-    override var isOpaque: Bool { false }
+    nonisolated override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
     private static let hostedInspectorDividerHitExpansion: CGFloat = 6
@@ -287,7 +291,7 @@ final class WindowBrowserHostView: NSView {
     }
 #endif
 
-    override func viewDidMoveToWindow() {
+    nonisolated override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
@@ -297,19 +301,19 @@ final class WindowBrowserHostView: NSView {
         window?.invalidateCursorRects(for: self)
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    nonisolated override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
-    override func setFrameOrigin(_ newOrigin: NSPoint) {
+    nonisolated override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         if let previousSize = lastHostedInspectorLayoutBoundsSize,
            Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
@@ -319,7 +323,7 @@ final class WindowBrowserHostView: NSView {
         reapplyHostedInspectorDividersIfNeeded(reason: "host.layout")
     }
 
-    override func didAddSubview(_ subview: NSView) {
+    nonisolated override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
@@ -329,7 +333,7 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    override func willRemoveSubview(_ subview: NSView) {
+    nonisolated override func willRemoveSubview(_ subview: NSView) {
         invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
         if let slot = subview as? WindowBrowserSlotView {
@@ -338,7 +342,7 @@ final class WindowBrowserHostView: NSView {
         super.willRemoveSubview(subview)
     }
 
-    override func resetCursorRects() {
+    nonisolated override func resetCursorRects() {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
@@ -355,7 +359,7 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    override func updateTrackingAreas() {
+    nonisolated override func updateTrackingAreas() {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -373,21 +377,21 @@ final class WindowBrowserHostView: NSView {
         super.updateTrackingAreas()
     }
 
-    override func cursorUpdate(with event: NSEvent) {
+    nonisolated override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         updateDividerCursor(at: point)
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    nonisolated override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         updateDividerCursor(at: point)
     }
 
-    override func mouseExited(with event: NSEvent) {
+    nonisolated override func mouseExited(with event: NSEvent) {
         clearActiveDividerCursor(restoreArrow: true)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         performHitTest(
             at: convert(point, from: superview ?? self),
             currentEvent: NSApp.currentEvent,
@@ -550,7 +554,7 @@ final class WindowBrowserHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    override func mouseDown(with event: NSEvent) {
+    nonisolated override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
@@ -579,7 +583,7 @@ final class WindowBrowserHostView: NSView {
 #endif
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    nonisolated override func mouseDragged(with event: NSEvent) {
         guard let dragState = hostedInspectorDividerDrag else {
             super.mouseDragged(with: event)
             return
@@ -646,7 +650,7 @@ final class WindowBrowserHostView: NSView {
 #endif
     }
 
-    override func mouseUp(with event: NSEvent) {
+    nonisolated override func mouseUp(with event: NSEvent) {
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
@@ -1178,7 +1182,12 @@ final class WindowBrowserHostView: NSView {
     private func splitDividerRegions() -> [DividerRegion] {
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootSubviewIds == rootSubviewIds,
+           splitDividerCacheInvalidator.structureIsCurrent(),
+           PortalSplitDividerRegion.allLive(regions) {
+            return regions
+        }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds
@@ -1276,9 +1285,9 @@ final class WindowBrowserHostView: NSView {
 }
 
 private final class BrowserDropZoneOverlayView: NSView {
-    override var acceptsFirstResponder: Bool { false }
+    nonisolated override var acceptsFirstResponder: Bool { false }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 }
@@ -1301,9 +1310,12 @@ struct BrowserPortalDesignComposerConfiguration {
 
 typealias BrowserPaneDropContext = PaneDropContext
 
+// The slot is the WebKit parent during portal layout and first-responder
+// transfers. Its AppKit entry points use the same nonisolated boundary as the
+// host above.
 final class WindowBrowserSlotView: NSView {
-    override var isOpaque: Bool { false }
-    override var isHidden: Bool {
+    nonisolated override var isOpaque: Bool { false }
+    nonisolated override var isHidden: Bool {
         didSet {
             guard isHidden, !oldValue else { return }
             clearLinkHoverURLs()
@@ -1336,7 +1348,7 @@ final class WindowBrowserSlotView: NSView {
     fileprivate var isApplyingHostedInspectorLayout = false
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
-    override init(frame frameRect: NSRect) {
+    nonisolated override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -1360,14 +1372,14 @@ final class WindowBrowserSlotView: NSView {
         }
     }
 
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
+    nonisolated override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, let currentWindow = window {
             yieldOwnedFirstResponderIfNeeded(in: currentWindow, reason: "slotWillLeaveWindow")
         }
         super.viewWillMove(toWindow: newWindow)
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
         linkHoverIndicatorView?.frame = linkHoverIndicatorFrame()
@@ -1387,7 +1399,7 @@ final class WindowBrowserSlotView: NSView {
         onHostedInspectorLayout?(self)
     }
 
-    override func viewDidMoveToSuperview() {
+    nonisolated override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         attachDropZoneOverlayIfNeeded()
         applyResolvedDropZoneOverlay()
@@ -1872,7 +1884,7 @@ final class WindowBrowserSlotView: NSView {
         paneTopChromeHeight
     }
 
-    override func didAddSubview(_ subview: NSView) {
+    nonisolated override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         guard subview !== paneDropTargetView else { return }
         bringInteractionLayersToFrontIfNeeded()
@@ -2106,7 +2118,7 @@ final class WindowBrowserPortal: NSObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.scheduleExternalGeometrySynchronize()
             }
         })
@@ -2115,7 +2127,7 @@ final class WindowBrowserPortal: NSObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.scheduleExternalGeometrySynchronize()
             }
         })
@@ -2124,7 +2136,7 @@ final class WindowBrowserPortal: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window else { return }
@@ -2140,7 +2152,7 @@ final class WindowBrowserPortal: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window,
@@ -4135,7 +4147,7 @@ enum BrowserWindowPortalRegistry {
             object: window,
             queue: .main
         ) { notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 if let window = notification.object as? NSWindow {
                     removePortal(for: window)
                 } else {

@@ -5341,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 활성화됨",
     "title": "cmux Pro에 오신 것을 환영합니다",
-    "body": "Pro 기능은 아직 개발 중입니다. Cloud 액세스가 곧 제공되며, 구독을 유지한 매월 사용 크레딧이 적립됩니다. 현재 Pro에는 TestFlight를 통한 cmux iOS 액세스가 포함됩니다.",
+    "body": "Pro에는 20 vCPU와 40GB RAM을 공유하는 최대 5대의 Cloud VM과 cmux iOS TestFlight 이용 권한이 포함됩니다.",
     "done": "대시보드로 이동",
     "steps": {
       "iosApp": {

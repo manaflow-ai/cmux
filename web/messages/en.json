@@ -1761,8 +1761,7 @@
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
       ],
       "annual": {
-        "yearly": "Yearly",
-        "billedYearlySaving": "${amount} billed yearly, save {percent}%"
+        "yearly": "Yearly"
       }
     },
     "max": {
@@ -7120,7 +7119,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
+    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {

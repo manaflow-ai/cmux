@@ -5341,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro-funktionerne er stadig under udvikling. Cloudadgang kommer snart med brugskreditter, der optjenes for hver måned, du abonnerer. Lige nu omfatter Pro adgang til cmux på iOS via TestFlight.",
+    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight.",
     "done": "Gå til kontrolpanelet",
     "steps": {
       "iosApp": {

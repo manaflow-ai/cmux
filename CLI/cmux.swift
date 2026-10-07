@@ -26477,7 +26477,10 @@ struct CMUXCLI {
 
         rootCodex = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            arguments: codexTeamsRootArguments(appServerURL: appServerURL, commandArgs: commandArgs),
+            arguments: AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: commandArgs
+            ),
             environment: rootEnvironment,
             standardInput: FileHandle.standardInput,
             standardOutput: FileHandle.standardOutput,
@@ -26711,13 +26714,6 @@ struct CMUXCLI {
         let path = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return path?.isEmpty == false ? path : nil
-    }
-
-    private func codexTeamsRootArguments(appServerURL: String, commandArgs: [String]) -> [String] {
-        guard let first = commandArgs.first, first == "resume" || first == "fork" else {
-            return ["--remote", appServerURL] + commandArgs
-        }
-        return [first, "--remote", appServerURL] + Array(commandArgs.dropFirst())
     }
 
     private func codexTeamsLogURL(port: UInt16, name: String) -> URL {

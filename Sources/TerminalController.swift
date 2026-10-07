@@ -3972,6 +3972,17 @@ class TerminalController {
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
+            if let linkError = error as? CloudMachineLink.LinkError,
+               String(describing: linkError).lowercased().contains("daemon") {
+                return v2Error(
+                    id: id,
+                    code: "vm_tui_daemon_unavailable",
+                    message: String(
+                        localized: "socket.cloudVM.tuiDaemonUnavailable",
+                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    )
+                )
+            }
             if let failure = error as? SSHTuiOpenFailure {
                 return v2Error(id: id, code: "ssh_failed", message: failure.reason)
             }

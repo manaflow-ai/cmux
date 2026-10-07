@@ -2188,6 +2188,7 @@
 		1D786365381D3942FFA3EA94 /* GhosttyDialogThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */; };
 		604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */; };
 		F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
+		2E49C97B8B82C61CDB89E238 /* GhosttyExternalDisplayScalingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */; };
 		E89950010000000000000001 /* GhosttyFlashOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950010000000000000002 /* GhosttyFlashOverlayView.swift */; };
 		B5600E7C40774F36844FBF79 /* GhosttyHostAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D18A63AF2674EC2B359037F /* GhosttyHostAction.swift */; };
 		B3EC083AAEF1408FA686E674 /* GhosttyHostActionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E88F76F64B4E908DD1CC4F /* GhosttyHostActionHandler.swift */; };
@@ -3612,6 +3613,8 @@
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
 		6CDB46F9F4D5380D8631CD23 /* SurfaceWorkspaceLayoutSyncing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C02896AFDD3AADD6A11F1A /* SurfaceWorkspaceLayoutSyncing.swift */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
+		DF4FAEF2EFFDC7957B6EA7D6 /* SwiftUIKeyViewProxyResponderGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */; };
+		E112778D0CA1F725A9F2677C /* SwiftUIKeyViewProxyResponderGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */; };
 		372153DEDA910ADC47F88E87 /* SyntheticProcessSnapshotReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E4BCCFBEFDD1E77E23E7D94 /* SyntheticProcessSnapshotReader.swift */; };
 		A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206A020000000000000001 /* SystemAppearanceObserver.swift */; };
 		A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */; };
@@ -6612,6 +6615,7 @@
 		08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyDialogThemeTests.swift"; sourceTree = "<group>"; };
 		604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDrawableSizeRetryTests.swift; sourceTree = "<group>"; };
 		F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyEnsureFocusWindowActivationTests.swift; sourceTree = "<group>"; };
+		03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyExternalDisplayScalingTests.swift"; sourceTree = "<group>"; };
 		E89950010000000000000002 /* GhosttyFlashOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyFlashOverlayView.swift; sourceTree = "<group>"; };
 		1D18A63AF2674EC2B359037F /* GhosttyHostAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyHostAction.swift"; sourceTree = "<group>"; };
 		A9E88F76F64B4E908DD1CC4F /* GhosttyHostActionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyHostActionHandler.swift"; sourceTree = "<group>"; };
@@ -8011,6 +8015,8 @@
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
 		72C02896AFDD3AADD6A11F1A /* SurfaceWorkspaceLayoutSyncing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceWorkspaceLayoutSyncing.swift; sourceTree = "<group>"; };
 		9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTestingAssertions.swift; sourceTree = "<group>"; };
+		4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SwiftUIKeyViewProxyResponderGuard.swift; sourceTree = "<group>"; };
+		F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftUIKeyViewProxyResponderGuardTests.swift"; sourceTree = "<group>"; };
 		6E4BCCFBEFDD1E77E23E7D94 /* SyntheticProcessSnapshotReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyntheticProcessSnapshotReader.swift"; sourceTree = "<group>"; };
 		A7206A020000000000000001 /* SystemAppearanceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserver.swift; sourceTree = "<group>"; };
 		A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverEnvironment.swift; sourceTree = "<group>"; };
@@ -11939,6 +11945,7 @@
 				A6C719FAEB13BCC9380A04CD /* Workspace+RestoredAgentNotifications.swift */,
 				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
 				6C858D764447A3E9A2C7EE35 /* CmuxSettingsFileStore+FontSections.swift */,
+				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13458,6 +13465,8 @@
 				87830970BF70E00C4E0C9D77 /* CloudTreeTestSupport.swift */,
 				3D3B724235A7A6C21D3D5F25 /* NewMachineSheetLayoutTests.swift */,
 				A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */,
+				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
+				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16247,6 +16256,7 @@
 				6F8CE4B13D081CF9C5C370B3 /* SurfaceSocketCommands.swift in Sources */,
 				C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */,
 				6CDB46F9F4D5380D8631CD23 /* SurfaceWorkspaceLayoutSyncing.swift in Sources */,
+				DF4FAEF2EFFDC7957B6EA7D6 /* SwiftUIKeyViewProxyResponderGuard.swift in Sources */,
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,
 				A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
@@ -17926,6 +17936,7 @@
 				1D786365381D3942FFA3EA94 /* GhosttyDialogThemeTests.swift in Sources */,
 				604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */,
 				F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
+				2E49C97B8B82C61CDB89E238 /* GhosttyExternalDisplayScalingTests.swift in Sources */,
 				002B272099440F41EC5623C4 /* GhosttyHostKeybindDefaultsTests.swift in Sources */,
 				F0A110030000000000000001 /* GhosttyMouseSessionLedgerTests.swift in Sources */,
 				2070CCCF882C91E496C1FBC6 /* GhosttyNamedCtrlLetterTests.swift in Sources */,
@@ -18345,6 +18356,7 @@
 				A10020000000000000000009 /* SurfaceSelectionTests.swift in Sources */,
 				97003C82A6CDC90F8D20503F /* SurfaceSocketCommandTests.swift in Sources */,
 				9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */,
+				E112778D0CA1F725A9F2677C /* SwiftUIKeyViewProxyResponderGuardTests.swift in Sources */,
 				372153DEDA910ADC47F88E87 /* SyntheticProcessSnapshotReader.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,

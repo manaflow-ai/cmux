@@ -5342,7 +5342,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",
     "title": "cmux Pro’ya hoş geldin",
-    "body": "Pro özellikleri hâlâ geliştiriliyor. Bulut erişimi yakında geliyor ve abone kaldığın her ay için kullanım kredisi birikecek. Pro şu anda TestFlight üzerinden cmux iOS erişimini içeriyor.",
+    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir.",
     "done": "Kontrol paneline git",
     "steps": {
       "iosApp": {

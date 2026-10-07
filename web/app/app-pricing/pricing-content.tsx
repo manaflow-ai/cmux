@@ -41,7 +41,6 @@ import {
 } from "../components/pricing-shared";
 import { PricingCheckoutButton } from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
-import { proAnnualLabels } from "../components/pro-annual-labels";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -121,15 +120,12 @@ export function AppPricingContent({
     month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
     year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
   };
-  const proAnnualLabelSet = proAnnualLabels(
-    (values) => pricingMessage(pricing.pro.annual.billedYearlySaving, values),
-    {
-      billingPeriod: pricing.billingPeriod,
-      yearly: pricing.pro.annual.yearly,
-      monthly: pricing.monthly,
-      perMonth: pricing.perMonth,
-    },
-  );
+  const proAnnualLabelSet = {
+    billingPeriod: pricing.billingPeriod,
+    yearly: pricing.pro.annual.yearly,
+    monthly: pricing.monthly,
+    perMonth: pricing.perMonth,
+  };
   const teamCheckoutHref = appPricingCheckoutURL(
     "team",
     requestOrigin,

@@ -172,7 +172,7 @@ describe("localized pricing page", () => {
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).toContain("$480 billed yearly, save 20%");
+    expect(html).not.toMatch(/billed yearly, save/);
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
     expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
@@ -283,13 +283,13 @@ describe("localized pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Max/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');

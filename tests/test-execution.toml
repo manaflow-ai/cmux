@@ -225,6 +225,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_claude_teams_integration_disabled.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_claude_teams_main_vertical.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1618,4 +1623,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
 lane = "linux-guard"
