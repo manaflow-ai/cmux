@@ -1,3 +1,4 @@
+import { admitHarness, remoteAutoApprove, spawnFloor, turnPolicy } from "./policy.ts";
 import { ArrayMemoryStore, decompose, key, type Range, toLines, wake, wakeCover, zoom } from "../memory.ts";
 import { Core, type Effect, type Input } from "./core.ts";
 import type { HostStateData } from "./state.ts";
@@ -53,6 +54,16 @@ export interface MemoryCase {
   result: unknown;
 }
 
+export type PolicyFunction = "remote_auto_approve" | "turn_policy" | "spawn_floor" | "harness_admit";
+
+/** One approval-policy or harness-routing decision (policy.ts / cmux_chief::policy). */
+export interface PolicyCase {
+  name: string;
+  fn: PolicyFunction;
+  args: Record<string, unknown>;
+  result: unknown;
+}
+
 export interface Corpus {
   format: string;
   notes?: string[];
@@ -64,6 +75,8 @@ export interface Corpus {
   rules?: Record<string, string>;
   /** The Chief conversation rule (rules.ts selectChiefConversation): a list and the id it selects (null: create home-chief). */
   selection?: SelectionCase[];
+  /** Approval policy and harness routing (policy.ts): the same decision in every brain. */
+  policy?: PolicyCase[];
   cases: CorpusCase[];
   memory: MemoryCase[];
 }
@@ -148,6 +161,20 @@ export async function memoryResult(fn: MemoryFunction, args: Record<string, unkn
   }
 }
 
+/** The result of one policy function, as the corpus records it. */
+export function policyResult(fn: PolicyFunction, args: Record<string, unknown>): unknown {
+  switch (fn) {
+    case "remote_auto_approve":
+      return remoteAutoApprove(args.settings);
+    case "turn_policy":
+      return turnPolicy(args.remote as boolean, args.auto_approve as boolean, args.configured as string);
+    case "spawn_floor":
+      return spawnFloor(args.auto_approve as boolean, args.turn_ask as boolean, args.ask_child_live as boolean, args.ask_subagent_live as boolean);
+    case "harness_admit":
+      return admitHarness(args.answer, args.requested as string);
+  }
+}
+
 export async function runMemoryCase(c: MemoryCase): Promise<string | undefined> {
   const got = plain(await memoryResult(c.fn, c.args));
   return jsonEqual(got, c.result) ? undefined : `${c.name}: want ${JSON.stringify(c.result)} got ${JSON.stringify(got)}`;
@@ -169,6 +196,10 @@ export async function runCorpus(corpus: Corpus): Promise<string[]> {
   for (const c of corpus.memory) {
     const failure = await runMemoryCase(c);
     if (failure) failures.push(failure);
+  }
+  for (const c of corpus.policy ?? []) {
+    const got = plain(policyResult(c.fn, c.args));
+    if (!jsonEqual(got, c.result)) failures.push(`${c.name}: want ${JSON.stringify(c.result)} got ${JSON.stringify(got)}`);
   }
   return failures;
 }
