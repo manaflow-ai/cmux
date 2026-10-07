@@ -16,7 +16,7 @@ function ChangesSection({
   onOpenChanges,
   onOpenOutput,
 }: {
-  files: SessionSummary["outputs"];
+  files: readonly TurnFile[];
   changes?: { additions: number; deletions: number };
   onOpenChanges?: () => void;
   onOpenOutput?: (path: string) => void;
@@ -83,6 +83,7 @@ function ChangesSection({
 /// an output opens the changes view at that file. Following a link calls `onFollow`.
 export function SummaryPopover({
   summary,
+  changeFiles,
   changes,
   onOpenChanges,
   onOpenOutput,
@@ -99,7 +100,7 @@ export function SummaryPopover({
   return (
     <>
       <ChangesSection
-        files={summary.outputs}
+        files={changeFiles ?? summary.outputs}
         changes={changes}
         onOpenChanges={onOpenChanges}
         onOpenOutput={onOpenOutput}

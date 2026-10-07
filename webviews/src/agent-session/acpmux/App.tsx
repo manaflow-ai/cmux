@@ -2198,6 +2198,7 @@ function AcpmuxPane() {
                       summary={
                         <SummaryButton
                           rows={snapshot.rows}
+                          changeFiles={quick ? undefined : lastEditTurn?.files}
                           changes={quick ? undefined : lastChanges}
                           onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}
