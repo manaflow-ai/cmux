@@ -2,7 +2,7 @@
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
 # layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release]
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release | --list-inputs]
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -39,6 +39,12 @@ ffi_crates() {
 paths=()
 while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
 paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
+# --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
+# release workflow's push paths in step with this list).
+if [[ "${1:-}" == "--list-inputs" ]]; then
+  printf '%s\n' "${paths[@]}"
+  exit 0
+fi
 
 url="$(grep -oE "https://github\.com/[^\"]+/releases/download/cmux-app-ffi-[0-9a-f]{40}/${asset//./\\.}" "$manifest" | head -n 1)"
 checksum="$(grep -A3 'name: "CCmuxAppFFI"' "$manifest" | grep -oE 'checksum: "[0-9a-f]{64}"' | grep -oE '[0-9a-f]{64}' | head -n 1)"
