@@ -11,19 +11,20 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// The turn waits for the user: a permission or a question
     /// (`waiting`, or `pendingPermissions` > 0).
     case needsInput
-    /// The agent process died (`disconnected`) or its machine is unreachable.
+    /// The last turn failed (`lastTurn.status` = `failed`). A disconnect
+    /// alone is not a failure: the next prompt respawns the agent.
     case failed
 
     /// The state of one `_acpmux/watch` / `session_changed` session summary;
-    /// nil when the session is idle, ready or closed.
+    /// nil when no turn runs and the last turn did not fail, and always for
+    /// a closed session.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
         let status = summary["status"] as? String
+        if status == "closed" { return nil }
         if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
-        switch status {
-        case "running": return .working
-        case "disconnected", "unreachable": return .failed
-        default: return nil
-        }
+        if status == "running" { return .working }
+        let lastTurn = summary["lastTurn"] as? [String: Any]
+        return lastTurn?["status"] as? String == "failed" ? .failed : nil
     }
 }
 

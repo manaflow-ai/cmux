@@ -182,6 +182,8 @@ Supersedes "one indicator for every tab loading state" (section 8) for agent wor
 - Sources: acpmux turn state through the app's single `_acpmux/watch` feed (`AgentTurnStateStore`, local
   host only); OSC 7501 records from `extra.program_status` on the terminal resource (source `program`, ranked
   under `agent`). Done and error records wait for a per-client seen set (not built).
+- acpmux `disconnected` (or `unreachable`) alone looks idle: the next prompt respawns the agent. The error
+  mark shows only when `lastTurn.status` is `failed` (coordinator, 2026-10-07).
 - Settings: `appearance.statusIndicator.showAgentWorkingOnTabs`, `.showPageLoading`. The row's working
   element is a row-content setting (`sidebar.workspaceRow.working`). Browser loading never reaches the row.
 - Gaps: remote acpmux sessions (another machine's chat tab) have no state; OSC 7501 notifications for
