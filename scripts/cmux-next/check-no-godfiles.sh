@@ -29,18 +29,29 @@
 # request. A pull request passes its merge commit's first parent (HEAD^1). An
 # unknown REF checks every file, as without --base.
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [package-root]
+# --changed-since REF measures only the files changed between REF's merge base
+# with HEAD and the working tree, scoped as --base that merge base. Swift types
+# are still summed over the whole module, which is cheap. The tier 0 pre-push
+# hook uses it: measuring every Swift file took 45 s (2 min with --base) on
+# 2026-10-07, and it takes seconds for a typical change.
+#
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF | --changed-since REF] [package-root]
 set -euo pipefail
 
 update=0
 only=all
 base_ref=""
+changed_ref=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --update-baseline) update=1; shift ;;
     --base)
       [[ -n "${2:-}" ]] || { echo "--base takes a commit" >&2; exit 2; }
       base_ref="$2"
+      shift 2 ;;
+    --changed-since)
+      [[ -n "${2:-}" ]] || { echo "--changed-since takes a commit" >&2; exit 2; }
+      changed_ref="$2"
       shift 2 ;;
     --only)
       case "${2:-}" in
@@ -51,8 +62,12 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
-if (( update )) && [[ "$only" != all || -n "$base_ref" ]]; then
-  echo "--update-baseline rewrites every entry; run it without --only or --base" >&2
+if (( update )) && [[ "$only" != all || -n "$base_ref" || -n "$changed_ref" ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only, --base or --changed-since" >&2
+  exit 2
+fi
+if [[ -n "$base_ref" && -n "$changed_ref" ]]; then
+  echo "--changed-since sets the base itself; pass one of --base and --changed-since" >&2
   exit 2
 fi
 check_swift=0; check_rust=0
@@ -62,6 +77,19 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${1:-$(git -C "$script_dir" rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 repo="$(git -C "$root" rev-parse --show-toplevel)"
 baseline="$script_dir/godfile-baseline.tsv"
+package_rel="${root#"$repo"/}"
+
+# --changed-since: the repo-relative paths to measure (empty: measure everything).
+changed=""
+if [[ -n "$changed_ref" ]]; then
+  if merge_base="$(git -C "$repo" merge-base "$changed_ref" HEAD 2>/dev/null)"; then
+    base_ref="$merge_base"
+    changed="$(git -C "$repo" diff --name-only --no-renames "$merge_base" --)"
+    [[ -n "$changed" ]] || changed=$'\n'  # nothing changed: measure no file
+  else
+    echo "::warning::--changed-since $changed_ref has no merge base with HEAD here; checking every file"
+  fi
+fi
 
 swift_file_limit=400
 swift_test_file_limit=600
@@ -84,6 +112,7 @@ measure() {
   local root="$1" repo="$2" rev="${3:-}" file lines limit types tlimit rel fns
   # 1. Swift files: absolute limits.
   (( check_swift )) && while IFS= read -r -d '' file; do
+    [[ -f "$file" ]] || continue
     lines=$(wc -l < "$file" | tr -d ' ')
     limit=$swift_file_limit
     tlimit=3
@@ -91,7 +120,13 @@ measure() {
     # Top-level primary declarations (extensions and small nested helpers are fine).
     types=$(grep -cE '^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
     printf 'swift-file\t%s\t%d\t%d\t%d\t%d\n' "${file#"$root"/}" "$lines" "$types" "$limit" "$tlimit"
-  done < <(find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null)
+  done < <(if [[ -n "$changed" ]]; then
+      grep -E "^$package_rel/(Sources|Tests)/.*\.swift$" <<<"$changed" | while IFS= read -r rel; do
+        printf '%s\0' "$root/${rel#"$package_rel"/}"
+      done
+    else
+      find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null
+    fi)
 
   # 2. Ratcheted entries. Swift types: a top-level declaration starts at column 0
   # and ends at the next line that starts with "}" (the package is formatted that way).
@@ -141,7 +176,8 @@ measure() {
       printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_file_limit" "$rust_fn_limit"
     fi
   done < <(if [[ -n "$rev" ]]; then git -C "$script_repo" ls-tree -r --name-only "$rev" -- cmux-tui; else git -C "$repo" ls-files 'cmux-tui/*.rs'; fi \
-    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)')
+    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)' \
+    | if [[ -n "$changed" ]]; then grep -Fx -f <(printf '%s\n' "$changed") || true; else cat; fi)
   return 0
 }
 
@@ -157,7 +193,7 @@ measure "$root" "$repo" > "$measurements"
 # (ARGV[2]; empty until it is measured). A swift-file row's fns is its type count.
 [[ -f "$baseline" ]] || : > "$baseline"
 evaluate() { # scoped (0 or 1) -> report lines
-  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" '
+  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" -v partial="$([[ -n "$changed" ]] && echo 1 || echo 0)" '
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
     if (only == "swift" && $1 != "swift-type") next
@@ -217,7 +253,8 @@ evaluate() { # scoped (0 or 1) -> report lines
     }
   }
   END {
-    for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
+    # Changed-files mode measures only some files, so an unmeasured entry is not gone.
+    if (!partial) for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
     if (update) for (key in keep_lines) printf "KEEP\t%s\t%d\t%d\n", key, keep_lines[key], keep_fns[key]
   }
 ' "$baseline" "$base_measurements" "$measurements"
@@ -229,7 +266,6 @@ report="$(evaluate 0)"
 if [[ -n "$base_ref" ]] && grep -q '^FAIL' <<<"$report"; then
   if base_commit="$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}")"; then
     base_tree="$(mktemp -d)"
-    package_rel="${root#"$repo"/}"
     git -C "$repo" archive "$base_commit" -- "$package_rel" cmux-tui 2>/dev/null | tar -x -C "$base_tree" 2>/dev/null || true
     measure "$base_tree/$package_rel" "$base_tree" "$base_commit" > "$base_measurements"
     report="$(evaluate 1)"
