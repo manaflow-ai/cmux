@@ -31,7 +31,7 @@ extension SidebarBridge {
                                                         group: .set(id))
                 }
             }
-        case .createGroup(let group, let name, let color, let ids, _, _):
+        case .createGroup(let group, let name, let color, let ids, _, let collapsed):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
             // Mixed order: the new group's place where the model formed it,
@@ -45,6 +45,7 @@ extension SidebarBridge {
                     name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
                     : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
                 if top != .unchanged { try await connection.state.updateWorkspaceGroup(created.rawValue, topIndex: top) }
+                if collapsed { try await v2 ? connection.state.updateWorkspaceGroup(created.rawValue, collapsed: true) : connection.updatePersonalGroup(created, collapsed: true) }
                 for workspace in members {
                     try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                 group: .set(created))

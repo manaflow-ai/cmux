@@ -13,11 +13,17 @@ public nonisolated struct SidebarGroupRestore: Hashable, Sendable {
 
     /// The restore record of group `id` in `sections`, nil when it is not there.
     public static func capture(_ id: GroupID, in sections: [SidebarSection]) -> SidebarGroupRestore? {
-        nil
+        for section in sections {
+            for case let .group(group) in section.nodes where group.id == id {
+                return SidebarGroupRestore(name: group.name, color: group.color, isCollapsed: group.isCollapsed,
+                                           members: group.workspaces.map(\.id))
+            }
+        }
+        return nil
     }
 
     /// The one intent that forms the group again under `newID`.
     public func intent(newID: GroupID) -> SidebarIntent {
-        .createGroup(newID, name: "", color: .grey, workspaces: [])
+        .createGroup(newID, name: name, color: color, workspaces: members, anchor: members.first, collapsed: isCollapsed)
     }
 }
