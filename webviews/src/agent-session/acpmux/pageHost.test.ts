@@ -118,7 +118,7 @@ describe("agent page host", () => {
     applyHostEvent({ kind: "customization", value: { themeCSS: "", layout: {} } });
     applyHostEvent({ kind: "dictation", value: { state: "listening" } });
     applyHostEvent({ kind: "revealTurn", value: "t-1" });
-    applyHostEvent({ kind: "command", value: "searchChats" });
+    applyHostEvent({ kind: "command", value: "continueIn" });
     applyHostEvent({ kind: "unknown", value: 1 });
     expect(themed).toEqual([{ w: 1 }]);
     expect(seen).toEqual([
@@ -128,7 +128,7 @@ describe("agent page host", () => {
       ["applyCustomization", { themeCSS: "", layout: {} }],
       ["dictation", { state: "listening" }],
       ["revealTurn", "t-1"],
-      ["command", "searchChats"],
+      ["command", "continueIn"],
     ]);
     delete (globalThis as any).cmuxTheme;
   });

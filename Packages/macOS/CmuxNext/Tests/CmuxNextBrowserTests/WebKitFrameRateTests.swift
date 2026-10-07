@@ -19,13 +19,13 @@ struct WebKitFrameRateTests {
     @Test func browserTabsRenderAtFullRateUnlessLowPower() {
         let power = LowPowerMode(enabled: false)
         let engine = WebKitEngine(lowPowerMode: power)
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         defer { tab.close() }
         // A WebKit without the feature has no rate to change.
         guard Self.near60(tab) != nil else { return }
         #expect(Self.near60(tab) == false)
         power.override = true
-        let saving = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let saving = engine.makeWebKitTab(profile: .default)
         defer { saving.close() }
         #expect(Self.near60(saving) == true, "a tab made during Low Power Mode starts near 60 fps")
     }
@@ -35,8 +35,8 @@ struct WebKitFrameRateTests {
     @Test func openTabsDropToNear60WhenLowPowerModeTurnsOnAndReturnWhenItTurnsOff() {
         let power = LowPowerMode(enabled: false)
         let engine = WebKitEngine(lowPowerMode: power)
-        let first = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
-        let second = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let first = engine.makeWebKitTab(profile: .default)
+        let second = engine.makeWebKitTab(profile: .default)
         defer { first.close(); second.close() }
         guard Self.near60(first) != nil else { return }
         power.override = true
@@ -54,7 +54,7 @@ struct WebKitFrameRateTests {
         var system = false
         let power = LowPowerMode(center: center) { system }
         let engine = WebKitEngine(lowPowerMode: power)
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         defer { tab.close() }
         guard Self.near60(tab) != nil else { return }
         system = true
@@ -73,7 +73,7 @@ struct WebKitFrameRateTests {
     @Test func aTabOnScreenIsReShownUnderASnapshotOnlyWhenItsRateChanges() async {
         let power = LowPowerMode(enabled: false)
         let engine = WebKitEngine(lowPowerMode: power)
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         defer { tab.close() }
         guard Self.near60(tab) != nil else { return }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
