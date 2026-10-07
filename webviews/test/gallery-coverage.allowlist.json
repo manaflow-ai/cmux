@@ -64,7 +64,6 @@
     "agent-session/acpmux/changeIcons.tsx#SplitView",
     "agent-session/acpmux/changeIcons.tsx#Wrap",
     "agent-session/acpmux/changes/BranchPill.tsx#BranchPill",
-    "agent-session/acpmux/changes/ChangedFilesTree.tsx#ChangedFilesTree",
     "agent-session/acpmux/changes/Counts.tsx#Counts",
     "agent-session/acpmux/changes/DiffKeyHints.tsx#DiffKeyHints",
     "agent-session/acpmux/changes/EditBlock.tsx#EditBlock",

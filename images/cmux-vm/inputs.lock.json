@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
-      "size": 67778656,
+      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
+      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "b14daae931900ce54a7fc58e7587d23e305a1e2f3ca81888e71e98ab116517ee",
+      "size": 71639840,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
-      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
-      "size": 3567048,
+      "version": "e4da89280cbc1129465e98d979b89c599b6bd477",
+      "url": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "72840726d158be2f8649340cb547fc1cf4258de2298192803fe4ce33319ed0b1",
+      "size": 3621600,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
+      "source": "https://files.cmux.com/cmux-tui/e4da89280cbc1129465e98d979b89c599b6bd477/manifest.json (cmux-tui-artifacts run 37586914759; contains 9778585eda79, acpmux gives every local agent session the cmux browser and CUA tools and skills, needed by bake --agent-tools, bead cx-h8n; still contains b1cc37e52362)"
     },
     {
       "name": "coderouter",

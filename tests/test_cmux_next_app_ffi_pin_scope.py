@@ -113,12 +113,12 @@ class PullRequestScope(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_swift_test_scopes_the_check_to_the_pull_request(self):
+    def test_ci_scopes_the_check_to_the_pull_request(self):
         text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
-        # Both calls: the Linux checks job and swift test.
-        self.assertEqual(text.count("check-app-ffi-pin.sh --verify-release \"${base[@]}\""), 2)
-        self.assertEqual(text.count("check-app-ffi-pin.sh"), 2)
-        self.assertGreaterEqual(text.count("[[ \"$EVENT_NAME\" == pull_request ]] && base=(--base HEAD^1)"), 2)
+        # The one call, in the Linux checks job (swift test no longer carries a copy).
+        self.assertEqual(text.count("check-app-ffi-pin.sh --verify-release \"${base[@]}\""), 1)
+        self.assertEqual(text.count("check-app-ffi-pin.sh"), 1)
+        self.assertGreaterEqual(text.count("[[ \"$EVENT_NAME\" == pull_request ]] && base=(--base HEAD^1)"), 1)
 
 
 if __name__ == "__main__":

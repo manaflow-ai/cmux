@@ -223,7 +223,7 @@
   background: currentColor;
 }
 .cv-list > li.cv-task {
-  padding-left: 20px;
+  padding-left: 22px;
 }
 /* Adjacent lists (a task list after a numbered list) read as one list: no gap between. */
 .cv-list:has(+ .cv-list) {
@@ -236,22 +236,12 @@
 .cv-checkbox {
   position: absolute;
   left: 0.5px;
-  top: 5.5px;
-  width: 13.5px;
-  height: 14px;
-  box-sizing: border-box;
-  border-radius: 4px;
+  top: 0.35em;
+  --cmux-markdown-checkbox-secondary: var(--agent-muted);
+  --cmux-markdown-checkbox-accent: var(--agent-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--cv-text);
 }
-.cv-checkbox.is-checked {
-  background: var(--cv-check-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-check-ring);
-}
-/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+/* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
 :root[data-borders="none"] .cv-checkbox {
   box-shadow: none;
   background: var(--cv-check-fill);

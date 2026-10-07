@@ -105,6 +105,32 @@ and places to collect evidence.
   [release workflow](../../.github/workflows/release.yml) show relevant host and
   distribution authority. Configuration presence is not runtime verification.
 
+## Remote agent chains (acpmux)
+
+A turn that a paired device starts never runs below the remote approval floor, and a
+remote chain's Claude Code runs inside a macOS Seatbelt profile that acpmux
+proves with a canary at every spawn (the
+[remote floor](../../cmux-tui/crates/acpmux/src/hub/remote_floor.rs), the
+[sandbox and canary](../../cmux-tui/crates/acpmux/src/hub/remote_sandbox.rs),
+the [profile](../../cmux-tui/crates/acpmux/sandbox/remote-chain.sb)). The
+threat is a stolen paired device. Accepted residuals:
+
+- Outbound connections on ports 443 and 80 can reach listeners on this Mac's
+  own LAN or tailnet address. Seatbelt cannot match a remote IP address, so
+  only loopback is closed.
+- A remote chain cannot run `git init` or `git clone`, because both write
+  `.git/config` and `.git/hooks`.
+- On Linux, acpmux refuses to start a remote chain's Claude Code, because
+  there is no sandbox there yet.
+- Claude Code's own Bash sandbox is off inside the profile, because macOS
+  refuses a nested sandbox. The profile is the only sandbox.
+- A remote chain's Claude Code gets the Mac's Claude access token by env and
+  cannot refresh it inside the sandbox, so a chain that runs longer than the
+  token's life loses its login. A long-lived token (`claude setup-token`) in
+  the harness profile env avoids this.
+- Secret denies match file paths; a secret file that is a symlink to another
+  folder may stay readable.
+
 ## Maintenance and disclosure
 
 Update this outline when adding an entry point, permission, credential,

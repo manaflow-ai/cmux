@@ -50,6 +50,8 @@ final class ChatsStepView: NSView {
             empty.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         listHeight = scroll.heightAnchor.constraint(equalToConstant: 0)
+        // The rows it wants, while the window has room: a long list scrolls under the title.
+        listHeight?.priority = .defaultHigh
         listHeight?.isActive = true
         loop = RenderLoop { [weak self] in self?.render() }
     }

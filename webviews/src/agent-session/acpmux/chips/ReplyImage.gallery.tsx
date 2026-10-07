@@ -8,6 +8,8 @@ const remote = "https://images.example.test/gallery/remote.png";
 const click = "https://images.example.test/gallery/click.png";
 const loaded = "https://images.example.test/gallery/loaded.png";
 const local = "/Users/you/src/atlas-web/assets/diagram.png";
+const outside = "/tmp/fleetviz/out/fleet.png";
+const missing = "/Users/you/src/atlas-web/assets/gone.png";
 const image =
   "data:image/svg+xml," +
   encodeURIComponent(
@@ -53,6 +55,25 @@ export default componentEntry<ReplyImageProps>({
       chipHost: { ...imageHost, policy: { remoteImages: "click" } },
       props: { src: loaded, alt: "Loaded remote image", fallback: "Loaded remote image" },
       play: playLoad,
+    },
+    "outside-roots": {
+      note: "A /tmp image outside the session folders: alt text, file name, lock and Open (the host confirms).",
+      chipHost: { ...imageHost, paths: { [outside]: { place: "outside", folder: false } } },
+      props: { src: outside, alt: "Build fleet status", fallback: "Build fleet status" },
+    },
+    "outside-roots-text": {
+      note: "The same image under agentPane.links.outsideRoots = text: no Open.",
+      chipHost: {
+        ...imageHost,
+        paths: { [outside]: { place: "outside", folder: false } },
+        policy: { outsideRoots: "text" },
+      },
+      props: { src: outside, alt: "Build fleet status", fallback: "Build fleet status" },
+    },
+    missing: {
+      note: "A path inside the folders with no file: Image unavailable, no Open.",
+      chipHost: { ...imageHost, paths: { [missing]: { place: "missing", folder: false } } },
+      props: { src: missing, alt: "Old diagram", fallback: "Old diagram" },
     },
     local: {
       note: "A local session image loads through the host without a prompt.",
