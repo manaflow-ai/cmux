@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 import Foundation
 public import Observation
 
@@ -56,10 +56,8 @@ public final class SidebarModel {
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
-    /// Workspace rows show their tab count (`sidebar.showCounts`).
-    public var showCounts = false
-    /// Workspace rows show their folder line (`sidebar.showWorkspaceDirectory`).
-    public var showWorkspaceDirectory = false
+    /// What workspace rows show (`sidebar.workspaceRow.*`).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -252,8 +250,7 @@ public final class SidebarModel {
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
-        showCounts = preferences.showCounts
-        showWorkspaceDirectory = preferences.showWorkspaceDirectory
+        workspaceRow = preferences.workspaceRow
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -267,8 +264,8 @@ public final class SidebarModel {
         o.filterMatches = filterMatches
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
-        o.showCounts = showCounts
-        o.showWorkspaceDirectory = showWorkspaceDirectory
+        o.workspaceRow = workspaceRow
+        o.now = Calendar.current.startOfDay(for: Date())
         return o
     }
 
