@@ -32,3 +32,25 @@ pub fn watch_lifeline<R: Read>(mut input: R, on_eof: impl FnOnce()) {
     }
     on_eof();
 }
+
+/// Reads the per-launch secret: the first line the app writes to the
+/// lifeline (stdin), never the command line or the environment. `None` when
+/// stdin ends first or the line is empty.
+pub fn read_secret<R: std::io::BufRead>(_input: &mut R) -> Option<String> {
+    None
+}
+
+/// Whether a viewer may join: with a secret, its rd `hello` must carry it as
+/// the per-launch session token. Checked before the welcome, so a refused
+/// viewer never opens the tab or sends input.
+pub fn authorize(
+    _secret: Option<&str>,
+    _hello: &cmux_rd_proto::control::Control,
+) -> Result<(), &'static str> {
+    Ok(())
+}
+
+/// `--listen` must be a loopback address: a host never serves other machines.
+pub fn loopback_only(addr: SocketAddr) -> Result<SocketAddr, &'static str> {
+    Ok(addr)
+}
