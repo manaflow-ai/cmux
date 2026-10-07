@@ -37,11 +37,22 @@ MACOS_15_FORK_JOBS = {
 # app-host shards over macos-15 and macos-26. Accepted only when every
 # `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
 FORK_MACOS_MATRIX_BRANCH = "github.repository_owner != 'manaflow-ai' && matrix.hosted_runner"
+# Windows and ARM64 Linux jobs run on Blacksmith in manaflow-ai; a fork takes
+# GitHub's image of the same OS.
+FORK_WINDOWS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'windows-2025'"
+FORK_LINUX_ARM64_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm'"
 HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 # Any Blacksmith runner label. Script names such as
 # scripts/blacksmith-bounded-command.sh have no `-Nvcpu-` part.
 BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
-FORK_BRANCHES = (FORK_LINUX_BRANCH, FORK_MACOS_BRANCH, FORK_MACOS_15_BRANCH, FORK_MACOS_MATRIX_BRANCH)
+FORK_BRANCHES = (
+    FORK_LINUX_BRANCH,
+    FORK_MACOS_BRANCH,
+    FORK_MACOS_15_BRANCH,
+    FORK_MACOS_MATRIX_BRANCH,
+    FORK_WINDOWS_BRANCH,
+    FORK_LINUX_ARM64_BRANCH,
+)
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
@@ -50,6 +61,12 @@ INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 UNGATED_BLACKSMITH_ALLOWED = {
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
+    ),
+    ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
+    ),
+    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
     ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
@@ -958,7 +975,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 # condition selects, not a label appearing later on the line.
                 pull_request_linux = pull_request_selects(line, "ubuntu")
                 pull_request_macos = pull_request_selects(line, "macos")
-                hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
+                hosted_linux = (
+                    FORK_LINUX_BRANCH in line
+                    or FORK_LINUX_ARM64_BRANCH in line
+                    or FORK_WINDOWS_BRANCH in line
+                    or pull_request_linux
+                )
                 hosted_macos = (
                     FORK_MACOS_BRANCH in line
                     or FORK_MACOS_15_BRANCH in line

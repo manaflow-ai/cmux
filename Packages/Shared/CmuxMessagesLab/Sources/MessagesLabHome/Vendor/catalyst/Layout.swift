@@ -615,6 +615,11 @@ enum RowBuilder {
                 if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, p.replyTo == m.replyTo {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
+            } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
+                // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
+                // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
+                // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
+                gap = 7
             } else if let p = prev, p.senderId != m.senderId || p.replyTo != m.replyTo {
                 gap = 32     // a new sender, or a change of thread (measured on macOS 26)
             } else {
@@ -651,7 +656,11 @@ enum RowBuilder {
                         if case .link = before { g = 3.5 }
                     }
                     if pi > 0, case .text = m.parts[pi - 1], !isText(part) { g = 3 }
-                    if !reactions.isEmpty { g += 10 }
+                    // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
+                    // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
+                    // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
+                    // by 22.5 pt, send-typed; macOS 26 measured 10).
+                    if !reactions.isEmpty { g = (g >= 32 ? g - 5 : g) + 27.5 }
                     var failed = false
                     if case .failed = m.status { failed = true }
                     let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: outgoing,
@@ -739,7 +748,17 @@ enum Format {
         f.dateFormat = "h:mm\u{202F}a"
         return f
     }()
-    static func time(_ d: Date) -> String { timeFormatter.string(from: d) }
+    private static var timeMemo: [Date: String] = [:]
+    private static let timeLock = NSLock()
+    /// Memoized (receipt rows format the same times on every derive; ICU costs 0.1-0.3 ms per call).
+    static func time(_ d: Date) -> String {
+        timeLock.lock()
+        if let s = timeMemo[d] { timeLock.unlock(); return s }
+        timeLock.unlock()
+        let s = timeFormatter.string(from: d)
+        timeLock.lock(); if timeMemo.count > 4096 { timeMemo.removeAll() }; timeMemo[d] = s; timeLock.unlock()
+        return s
+    }
     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
     private static func formatter(_ f: String) -> DateFormatter {
         let d = DateFormatter()
