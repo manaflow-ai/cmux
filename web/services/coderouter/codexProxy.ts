@@ -6,7 +6,7 @@ import {
   selectAccountForRequest,
   selectAccountForSession,
 } from "./repository";
-import { freshCredential, stickyRefreshPatience } from "./refresh";
+import { CodeRouterCredentialBroken, freshCredential, stickyRefreshPatience } from "./refresh";
 import type { StickyRefreshPatience } from "./refreshSignal";
 import { fetchProviderRead } from "./providerFetch";
 import { RESPONSES_PROVIDERS, type CodeRouterCredential } from "./types";
@@ -504,11 +504,15 @@ async function proxyCodexRequestWith(
           error: error instanceof Error ? error.name : "refresh_failed",
           attributes: { provider: "codex", forced: true },
         });
-        reportCoderouterFailure("provider_refresh", error, {
-          provider: "codex",
-          forced: true,
-          request_id: requestId,
-        });
+        // The refresher already reported a revoked sign-in as a tenant fault
+        // and marked the account broken; a second report would page for it.
+        if (!(error instanceof CodeRouterCredentialBroken && error.reported)) {
+          reportCoderouterFailure("provider_refresh", error, {
+            provider: "codex",
+            forced: true,
+            request_id: requestId,
+          });
+        }
         if (error instanceof CoderouterOperationDeadlineError) {
           upstream = discardUpstreamResponse(upstream);
           break;
