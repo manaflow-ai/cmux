@@ -10,7 +10,10 @@ name: CI failure attribution
 #                      request, edited in place; when every failed job of a
 #                      failed attempt 1 or 2 is machine, the failed jobs are
 #                      re-run (attempt 3 goes to Blacksmith, which ends it)
-#   green              that comment, if any, says it passes now
+#   green              that comment, if any, says it passes now; a green run
+#                      whose macOS jobs never ran says that instead
+#   requested          CI started on a new head: a comment about an older
+#                      head says "pending" (metadata only, no log is read)
 #
 # A PR's code never runs here: main's script reads the run's job logs and
 # annotations as data. Everything is event driven: nothing polls.
@@ -18,7 +21,7 @@ name: CI failure attribution
 on:
   workflow_run:
     workflows: ["CI"]
-    types: [completed]
+    types: [completed, requested]
 
 env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
@@ -28,14 +31,17 @@ permissions: {}
 concurrency:
   # One report at a time per branch, never cancelled halfway (between the
   # re-run and the comment that says so). A report takes seconds, and one for
-  # a head the pull request has moved past writes nothing.
-  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  # a head the pull request has moved past only marks the comment pending.
+  # `requested` gets its own group: GitHub keeps one pending run per group, and
+  # a start (a label, a push) must never replace a pending completed report,
+  # whose machine re-run would be lost.
+  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}${{ github.event.action == 'requested' && '-requested' || '' }}
   cancel-in-progress: false
 
 jobs:
   attribute:
     name: Attribute
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && (github.event.action == 'requested' || contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion)) }}
     runs-on: ubuntu-24.04 # github-hosted-required: write token; the re-run must follow CI within a minute
     timeout-minutes: 10
     permissions:

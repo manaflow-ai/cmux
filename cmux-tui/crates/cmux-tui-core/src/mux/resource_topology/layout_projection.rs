@@ -12,9 +12,9 @@ pub(super) fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
             layout.viewport_splits.clear();
             layout.viewport_base_width = None;
         }
-        ColumnProjection::Tree { root, zellij_auto_layout } => {
+        ColumnProjection::Tree { root, creation_order_auto_layout } => {
             layout.root = root;
-            layout.zellij_auto_layout = zellij_auto_layout;
+            layout.creation_order_auto_layout = creation_order_auto_layout;
             layout.viewport_splits.clear();
             layout.viewport_base_width = None;
         }
@@ -22,7 +22,7 @@ pub(super) fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
             layout.root = root;
             layout.viewport_splits = viewport_splits;
             layout.viewport_base_width = Some(base_width);
-            layout.zellij_auto_layout = None;
+            layout.creation_order_auto_layout = None;
         }
     }
 }
@@ -31,7 +31,7 @@ pub(super) fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
 /// step, and a screen left with one column without rows becomes a split
 /// tree. False when the screen has no pane left.
 pub(super) fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if layout.layout_columns.is_empty() {
         let root = std::mem::replace(&mut layout.root, Node::Leaf(0));
         let Some(root) = root.remove_leaf(pane) else {
@@ -45,7 +45,7 @@ pub(super) fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: P
         return true;
     };
     let column = &mut layout.layout_columns[index];
-    column.zellij_auto_layout = None;
+    column.creation_order_auto_layout = None;
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {
         column.root = root;
