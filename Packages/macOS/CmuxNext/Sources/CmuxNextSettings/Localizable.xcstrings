@@ -2621,6 +2621,399 @@
         }
       }
     },
+    "settings.computerUse.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        }
+      }
+    },
+    "settings.computerUse.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح للوكلاء رؤية تطبيقاتك واستخدامها عبر مساعد cmux Computer Use الموقّع. يطلب macOS إذن تسهيلات الاستخدام وتسجيل الشاشة عند السماح بها أول مرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava agentima da vide i koriste vaše aplikacije putem potpisanog pomoćnika cmux Computer Use. macOS traži Pristupačnost i Snimanje ekrana kada ih prvi put dozvolite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader agenter se og bruge dine apps via den signerede cmux Computer Use-hjælper. macOS beder om Tilgængelighed og Skærmoptagelse, når du tillader dem første gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt Agenten deine Apps über den signierten cmux-Computer-Use-Helfer sehen und bedienen. macOS fragt nach Bedienungshilfen und Bildschirmaufnahme, wenn du sie zum ersten Mal erlaubst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que los agentes vean y usen tus apps mediante el asistente firmado cmux Computer Use. macOS pide Accesibilidad y Grabación de pantalla la primera vez que los permites."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet aux agents de voir et d’utiliser vos apps via l’assistant signé cmux Computer Use. macOS demande l’Accessibilité et l’Enregistrement de l’écran lors de la première autorisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente agli agenti di vedere e usare le tue app tramite l’helper firmato cmux Computer Use. macOS chiede Accessibilità e Registrazione schermo la prima volta che li consenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名済みのcmux Computer Useヘルパーを通じて、エージェントがアプリを表示・操作できるようにします。最初に許可するときに、macOSがアクセシビリティと画面収録の許可を求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងារមើល និងប្រើកម្មវិធីរបស់អ្នក តាមរយៈកម្មវិធីជំនួយ cmux Computer Use ដែលបានចុះហត្ថលេខា។ macOS សុំការអនុញ្ញាត Accessibility និង Screen Recording នៅពេលអ្នកអនុញ្ញាតដំបូង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서명된 cmux Computer Use 도우미를 통해 에이전트가 앱을 보고 사용할 수 있게 합니다. 처음 허용할 때 macOS가 손쉬운 사용과 화면 기록 권한을 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar agenter se og bruke appene dine via den signerte cmux Computer Use-hjelperen. macOS ber om Tilgjengelighet og Skjermopptak første gang du tillater dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala agentom widzieć i używać Twoich aplikacji przez podpisanego pomocnika cmux Computer Use. macOS prosi o Dostępność i Nagrywanie ekranu przy pierwszym zezwoleniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que agentes vejam e usem seus apps pelo auxiliar assinado cmux Computer Use. O macOS pede Acessibilidade e Gravação de Tela na primeira vez que você permitir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет агентам видеть и использовать ваши приложения через подписанный помощник cmux Computer Use. macOS запросит Универсальный доступ и Запись экрана при первом разрешении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้เอเจนต์มองเห็นและใช้แอปของคุณผ่านตัวช่วย cmux Computer Use ที่ลงนามแล้ว macOS จะขอสิทธิ์การช่วยการเข้าถึงและการบันทึกหน้าจอเมื่อคุณอนุญาตครั้งแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanların, imzalı cmux Computer Use yardımcısı üzerinden uygulamalarınızı görmesini ve kullanmasını sağlar. macOS, ilk izin verdiğinizde Erişilebilirlik ve Ekran Kaydı ister."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє агентам бачити й використовувати ваші застосунки через підписаного помічника cmux Computer Use. macOS запитає Доступність і Запис екрана під час першого дозволу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép tác nhân xem và dùng các ứng dụng của bạn qua trình trợ giúp cmux Computer Use đã ký. macOS sẽ hỏi quyền Trợ năng và Ghi màn hình khi bạn cho phép lần đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让代理通过已签名的 cmux Computer Use 辅助程序查看和使用你的应用。首次允许时，macOS 会请求辅助功能和屏幕录制权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓代理透過已簽署的 cmux Computer Use 輔助程式檢視和使用你的應用程式。首次允許時，macOS 會要求輔助使用與螢幕錄製權限。"
+          }
+        }
+      }
+    },
+    "settings.group.computerUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use"
+          }
+        }
+      }
+    },
     "settings.shortcuts.hintsGroup": {
       "extractionState": "manual",
       "localizations": {

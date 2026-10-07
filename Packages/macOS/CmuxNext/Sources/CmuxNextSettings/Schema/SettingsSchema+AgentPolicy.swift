@@ -174,6 +174,8 @@ extension SettingsSchema {
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
+        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        "computerUse.enabled": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]
