@@ -253,6 +253,10 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
@@ -986,6 +990,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_regenerate_bundles_workflow.py"
 lane = "linux-guard"
 
 [[test]]

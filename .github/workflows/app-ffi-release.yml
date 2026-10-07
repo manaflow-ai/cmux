@@ -14,10 +14,16 @@
 # when the FFI sources change without a new pin.
 #
 # UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
-# (run 37272232472). The publish job therefore skips when workflow files
-# changed since the last FFI tag, and a person publishes from the artifact.
-# Whether the token can create the tag after a source-only change has not
-# been seen yet; the first real FFI source change proves or disproves it.
+# (run 37272232472). The publish job therefore does not try when workflow
+# files changed since the last FFI tag, and a person publishes from the
+# artifact. Whether the token can create the tag after a source-only change
+# has not been seen yet; the first real FFI source change proves or disproves it.
+#
+# FAIL-LOUD: the publish job never reports success without the release. When
+# it cannot create it (workflow files changed, an HTTP 403, or a create that
+# publishes nothing, as in run 37556534995), it fails with "Publish by hand"
+# and the exact commands (HAND_PUBLISH). Publishing by hand, with its checks,
+# is the only other path.
 name: app FFI release
 
 on:
@@ -172,20 +178,33 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    env:
+      # What a maintainer runs when this job cannot publish: download this
+      # run's artifact, check it, create the prerelease (never latest), then
+      # pin it and prove the pin.
+      HAND_PUBLISH: >-
+        gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name CCmuxAppFFI.xcframework --dir app-ffi-${{ github.sha }}
+        && (cd app-ffi-${{ github.sha }} && shasum -a 256 -c SHA256SUMS && test "$(cat SOURCE_SHA)" = ${{ github.sha }})
+        && gh release create ${{ needs.build.outputs.tag }} app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip.sha256 app-ffi-${{ github.sha }}/SHA256SUMS app-ffi-${{ github.sha }}/SOURCE_SHA
+        --repo ${{ github.repository }} --target ${{ github.sha }} --title ${{ needs.build.outputs.tag }}
+        --notes "cmux app FFI CCmuxAppFFI.xcframework, source ${{ github.sha }}, SwiftPM checksum ${{ needs.build.outputs.checksum }}"
+        --prerelease --latest=false
+        ; then pin the URL and checksum ${{ needs.build.outputs.checksum }} in Packages/macOS/CmuxNext/Package.swift
+        and run scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: CCmuxAppFFI.xcframework
           path: assets
 
-      - name: A person publishes this one
+      - name: Workflow files changed, so publish by hand
         if: needs.build.outputs.workflow_changed == 'true'
         env:
           TAG: ${{ needs.build.outputs.tag }}
-          CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
         run: |
-          echo "::notice title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. A maintainer creates the prerelease (not latest) from this run's CCmuxAppFFI.xcframework artifact: tag $TAG at $GITHUB_SHA, checksum $CHECKSUM."
+          echo "::error title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. Publish by hand: $HAND_PUBLISH"
+          exit 1
 
       - name: Create the release (never overwrite)
         if: needs.build.outputs.workflow_changed != 'true'
@@ -209,12 +228,13 @@ jobs:
               exit 1
             fi
             echo "release $TAG already has the matching archive"
-          else
-            gh release create "$TAG" \
+          elif ! gh release create "$TAG" \
               assets/CCmuxAppFFI.xcframework.zip \
               assets/CCmuxAppFFI.xcframework.zip.sha256 \
               assets/SHA256SUMS assets/SOURCE_SHA \
-              --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false
+              --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
+            echo "::error title=Publish by hand::GITHUB_TOKEN could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
+            exit 1
           fi
           echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
 
@@ -250,3 +270,29 @@ jobs:
           got="$(sha256sum downloaded.zip | awk '{print $1}')"
           [[ "$got" == "$CHECKSUM" ]] || { echo "::error::anonymous download of $url has checksum $got, not $CHECKSUM" >&2; exit 1; }
           echo "anonymous download ok: $url"
+
+      # The last word: the job is green only when the release exists with this
+      # run's archive. It also runs after a failed or skipped step, so a create
+      # that published nothing can never end green.
+      - name: The release exists with this run's archive
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check="$(mktemp -d)"
+          if ! gh release view "$TAG" >/dev/null 2>&1 \
+              || ! gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$check"; then
+            echo "::error title=Publish by hand::release $TAG does not exist; this run published nothing. Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          published="$(sha256sum "$check/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
+          if [[ "$published" != "$CHECKSUM" ]]; then
+            echo "::error::release $TAG has checksum $published, not $CHECKSUM" >&2
+            exit 1
+          fi
+          echo "release $TAG exists with checksum $CHECKSUM"
