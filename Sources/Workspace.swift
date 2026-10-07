@@ -3243,6 +3243,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Test seam for ``drainPendingRemotePTYSessionCleanups()``: intercepts
     /// the daemon-side close so tests can observe exactly-once semantics.
     var remotePTYSessionCloseForTesting: ((String) throws -> Void)?
+    /// Test seam for the external-browser fallback of `newBrowserSurface(inPane:)`
+    /// while the browser is disabled: receives the URL instead of the system browser.
+    var externalBrowserFallbackOpenForTesting: ((URL) -> Void)?
     #endif
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
@@ -10075,6 +10078,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 url: url,
                 initialRequest: initialRequest
             ) {
+                #if DEBUG
+                if let externalBrowserFallbackOpenForTesting {
+                    externalBrowserFallbackOpenForTesting(externalURL)
+                    return nil
+                }
+                #endif
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
