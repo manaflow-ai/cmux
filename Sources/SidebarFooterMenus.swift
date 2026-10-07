@@ -48,10 +48,11 @@ final class SidebarFooterMenuAnchor {
 /// the menu's nested tracking loop has finished.
 @MainActor
 final class SidebarFooterMenu: NSMenu {
+    typealias ActionSink = (@escaping () -> Void) -> Void
     var selectedHandler: (() -> Void)?
-    var actionSink: ((() -> Void) -> Void)?
+    var actionSink: ActionSink?
 
-    init(title: String, actionSink: ((() -> Void) -> Void)? = nil) {
+    init(title: String, actionSink: ActionSink? = nil) {
         self.actionSink = actionSink
         super.init(title: title)
     }
