@@ -95,7 +95,8 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 
 class PublishJob(unittest.TestCase):
-    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False) -> tuple[bool, str]:
+    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
+                    app_token: str = "") -> tuple[bool, str]:
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -121,6 +122,8 @@ class PublishJob(unittest.TestCase):
                 "needs": {"build": {"outputs": {"tag": TAG, "checksum": checksum,
                                                 "workflow_changed": "true" if workflow_changed else "false"}}},
                 "vars": {}, "runner": {"temp": str(temp_path)},
+                # The release App token step is a `uses:` step: an empty token is a failed mint.
+                "steps": {"app-token": {"outputs": {"token": app_token}}},
             }
             base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
                         "FAKE_CREATE": create, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
@@ -153,6 +156,25 @@ class PublishJob(unittest.TestCase):
         # Run 37556534995: the create step skipped and the job went green.
         self.assert_fails_loud(*self.run_publish(workflow_changed=True))
 
+    def test_the_release_app_token_publishes_over_workflow_changes(self):
+        # Run 37562535914: GITHUB_TOKEN cannot create a tag over workflow-file
+        # changes, so every FFI change pushed with one went unpublished and
+        # left the pin stale. The release App (contents and workflows write) can.
+        passed, log = self.run_publish(workflow_changed=True, app_token="app-token")
+        self.assertTrue(passed, log)
+        self.assertNotIn("publish by hand", log.lower(), log)
+
+    def test_the_release_is_created_with_the_app_token_when_there_is_one(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
+        mint = next(step for step in job["steps"] if step.get("id") == "app-token")
+        self.assertIn("create-github-app-token", mint["uses"])
+        self.assertEqual(mint["with"]["app-id"], "${{ secrets.CMUX_RELEASE_APP_ID }}")
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertEqual(mint["with"]["permission-workflows"], "write")
+        self.assertTrue(mint.get("continue-on-error"))
+        create = next(step for step in job["steps"] if step.get("name") == "Create the release (never overwrite)")
+        self.assertIn("steps.app-token.outputs.token", create["env"]["GH_TOKEN"])
+
     def test_a_refused_create_fails_with_the_hand_publish_command(self):
         # Run 37272232472: GITHUB_TOKEN got HTTP 403 creating the tag.
         self.assert_fails_loud(*self.run_publish(workflow_changed=False, create="403"))
@@ -168,6 +190,51 @@ class PublishJob(unittest.TestCase):
     def test_a_rerun_over_the_same_release_passes(self):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
+
+
+REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
+CHECK = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
+NEW_SHA = "d" * 40
+NEW_SUM = "e" * 64
+
+
+class RePin(unittest.TestCase):
+    def test_repin_rewrites_the_url_and_checksum_the_check_reads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "Package.swift"
+            manifest.write_text(textwrap.dedent(f"""\
+                .binaryTarget(
+                    name: "CCmuxAppFFI",
+                    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{SHA}/CCmuxAppFFI.xcframework.zip",
+                    checksum: "{"a" * 64}"
+                ),
+                .binaryTarget(name: "Other", url: "https://example.com/x.zip", checksum: "{"b" * 64}"),
+                """))
+            subprocess.run(["bash", str(REPIN), NEW_SHA, NEW_SUM, str(manifest)], check=True, capture_output=True)
+            text = manifest.read_text()
+            self.assertIn(f"cmux-app-ffi-{NEW_SHA}/CCmuxAppFFI.xcframework.zip", text)
+            self.assertIn(f'checksum: "{NEW_SUM}"', text)
+            self.assertNotIn(SHA, text)
+            self.assertIn(f'checksum: "{"b" * 64}"', text)  # other targets are untouched
+            for bad in (("x", NEW_SUM), (NEW_SHA, "y")):
+                result = subprocess.run(["bash", str(REPIN), *bad, str(manifest)], capture_output=True)
+                self.assertNotEqual(result.returncode, 0, bad)
+
+    def test_a_published_release_opens_or_updates_the_repin_pull_request(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = workflow["jobs"]["repin"]
+        self.assertEqual(job["needs"], ["build", "publish"])
+        self.assertIn("needs.publish.result == 'success'", job["if"])
+        self.assertIn("refs/heads/feat-cmux-next", job["if"])
+        mint = next(step for step in job["steps"] if step.get("id") == "app-token")
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertEqual(mint["with"]["permission-pull-requests"], "write")
+        script = "\n".join(str(step.get("run", "")) for step in job["steps"])
+        self.assertIn("scripts/cmux-next/repin-app-ffi.sh", script)
+        # An App token's push runs CI on the re-pin, unlike GITHUB_TOKEN's.
+        self.assertIn("app-ffi-repin", script)
+        self.assertIn("gh pr create", script)
+        self.assertIn("--base feat-cmux-next", script)
 
 
 if __name__ == "__main__":
