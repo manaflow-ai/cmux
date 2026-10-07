@@ -28,3 +28,21 @@ pub const QUOTA_EXCEEDED: i32 = 16;
 pub const NOT_AVAILABLE_YET: i32 = 17;
 /// HTTP 503: the service is temporarily unavailable.
 pub const SERVICE_UNAVAILABLE: i32 = 18;
+
+/// The exit code for an HTTP error status. Statuses the API does not document
+/// map to [`UNEXPECTED`]; a test checks that every status in openapi.json has
+/// its own code.
+pub fn for_status(status: u16) -> i32 {
+    match status {
+        400 => BAD_REQUEST,
+        401 => UNAUTHENTICATED,
+        402 => PAYMENT_REQUIRED,
+        403 => FORBIDDEN,
+        404 => NOT_FOUND,
+        409 => CONFLICT,
+        429 => QUOTA_EXCEEDED,
+        501 => NOT_AVAILABLE_YET,
+        503 => SERVICE_UNAVAILABLE,
+        _ => UNEXPECTED,
+    }
+}

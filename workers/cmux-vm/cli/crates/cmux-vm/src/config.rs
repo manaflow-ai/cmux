@@ -47,6 +47,11 @@ impl Settings {
             .map(str::to_owned)
             .or_else(|| env("CMUX_VM_TEAM_ID"))
             .or(file.team_id);
+        if let Some(team) = &team_id
+            && (team.is_empty() || team.chars().count() > 128)
+        {
+            return Err(CliError::usage("the team id must be 1 to 128 characters"));
+        }
         Ok(Self {
             api_key,
             base_url,

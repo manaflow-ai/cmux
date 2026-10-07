@@ -80,12 +80,39 @@ impl<'a> Printer<'a> {
     }
 
     fn json_value(&mut self, value: &impl Serialize) -> Result<(), CliError> {
-        let text = serde_json::to_string_pretty(value)
+        let mut value = serde_json::to_value(value)
+            .map_err(|e| CliError::unexpected(format!("encode JSON output: {e}")))?;
+        integral_numbers(&mut value);
+        let text = serde_json::to_string_pretty(&value)
             .map_err(|e| CliError::unexpected(format!("encode JSON output: {e}")))?;
         self.line(&text)
     }
 
     fn line(&mut self, text: &str) -> Result<(), CliError> {
         writeln!(self.out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
+    }
+}
+
+/// The API declares counts such as `vcpus` as JSON numbers, so the generated
+/// types hold them as `f64` and would print `2.0` for the server's `2`. Print
+/// whole numbers the way the server sent them.
+fn integral_numbers(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    const EXACT: f64 = 9_007_199_254_740_992.0; // 2^53
+    match value {
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64()
+                && n.is_f64()
+                && f.fract() == 0.0
+                && f.abs() < EXACT
+            {
+                #[allow(clippy::cast_possible_truncation)]
+                let whole = f as i64;
+                *value = Value::from(whole);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(integral_numbers),
+        Value::Object(fields) => fields.values_mut().for_each(integral_numbers),
+        _ => {}
     }
 }

@@ -411,3 +411,124 @@ async fn the_binary_exits_with_distinct_codes_for_not_found_and_auth() {
     assert_eq!(not_found.status.code(), Some(exit::NOT_FOUND));
     assert_eq!(unauthenticated.status.code(), Some(exit::UNAUTHENTICATED));
 }
+
+#[tokio::test]
+async fn json_output_matches_the_response_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("running")))
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["--json", "get", VM_ID]).await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out), vm("running"));
+}
+
+#[tokio::test]
+async fn create_without_a_key_sends_a_generated_idempotency_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(wiremock::matchers::header_exists("idempotency-key"))
+        .and(body_json(json!({})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(vm("starting")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["create"]).await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+}
+
+#[tokio::test]
+async fn an_unreachable_create_prints_the_key_to_retry_with() {
+    // Nothing listens on port 9 (discard) on test hosts; the connection fails.
+    let out = cli_with_env(
+        &["create", "--idempotency-key", "retry-7"],
+        &[
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", "http://127.0.0.1:9"),
+        ],
+    )
+    .await;
+
+    assert_eq!(out.code, exit::NETWORK, "stderr: {}", out.stderr);
+    assert!(
+        out.stderr.contains("--idempotency-key retry-7"),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[tokio::test]
+async fn flag_beats_env_beats_config_file() {
+    let flag_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .and(header("authorization", "Bearer key_from_env"))
+        .and(header("x-cmux-team-id", "team_from_flag"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("running")))
+        .expect(1)
+        .mount(&flag_server)
+        .await;
+
+    let dir = std::env::temp_dir().join(format!("cmux-vm-precedence-test-{}", std::process::id()));
+    let config_dir = dir.join("cmux");
+    std::fs::create_dir_all(&config_dir).expect("create temp dir");
+    std::fs::write(
+        config_dir.join("vm.json"),
+        json!({
+            "apiKey": "key_from_file",
+            "baseUrl": "http://127.0.0.1:9",
+            "teamId": "team_from_file"
+        })
+        .to_string(),
+    )
+    .expect("write config");
+
+    // The default location ($XDG_CONFIG_HOME/cmux/vm.json) is read, the env
+    // key beats the file's, the env base URL beats the file's, and the flag
+    // team beats both the env and the file.
+    let xdg = dir.to_string_lossy().into_owned();
+    let uri = flag_server.uri();
+    let out = cli_with_env(
+        &["--team", "team_from_flag", "get", VM_ID],
+        &[
+            ("XDG_CONFIG_HOME", xdg.as_str()),
+            ("CMUX_VM_API_KEY", "key_from_env"),
+            ("CMUX_VM_BASE_URL", uri.as_str()),
+            ("CMUX_VM_TEAM_ID", "team_from_env"),
+        ],
+    )
+    .await;
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+}
+
+#[tokio::test]
+async fn bad_base_url_and_empty_team_are_usage_errors() {
+    let out = cli_with_env(
+        &["get", VM_ID],
+        &[
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", "vm.cmux.com"),
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+
+    let out = cli_with_env(
+        &["--team", "", "get", VM_ID],
+        &[
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", "http://127.0.0.1:9"),
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+}

@@ -31,6 +31,8 @@ pub enum ClientBuildError {
     InvalidApiKey,
     /// The team id contains bytes that are not allowed in an HTTP header.
     InvalidTeamId,
+    /// The base URL is not an absolute http or https URL.
+    InvalidBaseUrl(String),
     /// The HTTP client could not be constructed.
     Http(reqwest::Error),
 }
@@ -40,6 +42,12 @@ impl std::fmt::Display for ClientBuildError {
         match self {
             Self::InvalidApiKey => f.write_str("the API key is not a valid HTTP header value"),
             Self::InvalidTeamId => f.write_str("the team id is not a valid HTTP header value"),
+            Self::InvalidBaseUrl(url) => {
+                write!(
+                    f,
+                    "the base URL {url:?} is not an absolute http or https URL"
+                )
+            }
             Self::Http(e) => write!(f, "could not build the HTTP client: {e}"),
         }
     }
@@ -57,6 +65,11 @@ pub fn authenticated_client(
     team_id: Option<&str>,
     user_agent: &str,
 ) -> Result<Client, ClientBuildError> {
+    let base_url = base_url.trim_end_matches('/');
+    match reqwest::Url::parse(base_url) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => {}
+        _ => return Err(ClientBuildError::InvalidBaseUrl(base_url.to_owned())),
+    }
     let mut auth = reqwest::header::HeaderValue::try_from(format!("Bearer {api_key}"))
         .map_err(|_| ClientBuildError::InvalidApiKey)?;
     auth.set_sensitive(true);
@@ -74,8 +87,5 @@ pub fn authenticated_client(
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(ClientBuildError::Http)?;
-    Ok(Client::new_with_client(
-        base_url.trim_end_matches('/'),
-        http,
-    ))
+    Ok(Client::new_with_client(base_url, http))
 }

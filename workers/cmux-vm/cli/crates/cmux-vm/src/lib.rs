@@ -106,7 +106,7 @@ struct CreateArgs {
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
-    /// Reuse this key when retrying, so the VM is created only once
+    /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
 }
@@ -121,7 +121,7 @@ struct ForkArgs {
     /// Seconds without network activity before the new VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
-    /// Reuse this key when retrying, so the fork happens only once
+    /// Reuse this key when retrying, so the fork happens only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
 }
@@ -212,11 +212,11 @@ async fn dispatch(
                 "snapshotId": args.snapshot,
                 "idleTimeoutSeconds": args.idle_timeout,
             }))?;
-            let key = parse_opt::<types::VmsCreateVmIdempotencyKey>(
-                "--idempotency-key",
-                args.idempotency_key,
-            )?;
-            let vm = call(client.vms_create_vm(key.as_ref(), None, &body)).await?;
+            let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
+            let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
+            let vm = call(client.vms_create_vm(Some(&key), None, &body))
+                .await
+                .map_err(|e| e.with_idempotency_hint(&key_text))?;
             out.vm(&vm)
         }
         Command::Get(VmArg { vm_id }) => {
@@ -252,11 +252,11 @@ async fn dispatch(
                 "displayName": args.name,
                 "idleTimeoutSeconds": args.idle_timeout,
             }))?;
-            let key = parse_opt::<types::VmsForkVmIdempotencyKey>(
-                "--idempotency-key",
-                args.idempotency_key,
-            )?;
-            let vm = call(client.vms_fork_vm(&args.vm_id, key.as_ref(), None, &body)).await?;
+            let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
+            let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
+            let vm = call(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
+                .await
+                .map_err(|e| e.with_idempotency_hint(&key_text))?;
             out.vm(&vm)
         }
         Command::Delete(VmArg { vm_id }) => {
@@ -280,12 +280,40 @@ async fn call<T>(
 
 /// Builds a generated request type from JSON, dropping unset fields. Going
 /// through serde keeps the CLI independent of the generated field types and
-/// applies their validation (lengths, patterns) before any request is sent.
+/// applies their string checks (lengths, id patterns) before any request is
+/// sent; numeric ranges are left to the server.
 fn request_body<T: serde::de::DeserializeOwned>(mut body: Value) -> Result<T, CliError> {
     if let Value::Object(fields) = &mut body {
         fields.retain(|_, v| !v.is_null());
     }
     serde_json::from_value(body).map_err(|e| CliError::usage(format!("invalid argument: {e}")))
+}
+
+fn parse_key<T>(key: &str) -> Result<T, CliError>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    key.parse::<T>()
+        .map_err(|e| CliError::usage(format!("invalid --idempotency-key {key:?}: {e}")))
+}
+
+/// A fresh idempotency key for one create or fork. `RandomState` is seeded
+/// from the OS once per process and then advanced, so keys do not repeat.
+fn new_idempotency_key() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut words = [0_u64; 2];
+    for word in &mut words {
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default(),
+        );
+        *word = hasher.finish();
+    }
+    format!("cmux-vm-{:016x}{:016x}", words[0], words[1])
 }
 
 fn parse_opt<T>(flag: &str, value: Option<String>) -> Result<Option<T>, CliError>

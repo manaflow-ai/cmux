@@ -45,6 +45,19 @@ impl CliError {
         self.code
     }
 
+    /// For a create or fork whose outcome is unknown (the request may have
+    /// reached the server before the connection failed), says how to retry
+    /// without creating a second VM.
+    pub fn with_idempotency_hint(mut self, key: &str) -> Self {
+        if self.code == exit::NETWORK {
+            self.message = format!(
+                "{}; the operation may have succeeded: rerun with --idempotency-key {key} to retry it safely",
+                self.message
+            );
+        }
+        self
+    }
+
     pub async fn from_api(error: Error<ByteStream>) -> Self {
         match error {
             Error::ErrorResponse(response) => {
@@ -52,14 +65,16 @@ impl CliError {
                 let body = read_stream(response.into_inner()).await;
                 Self::from_status(status, &body)
             }
-            Error::UnexpectedResponse(response) => {
+            Error::UnexpectedResponse(mut response) => {
                 let status = response.status().as_u16();
-                let body = response
-                    .bytes()
-                    .await
-                    .map(|b| b.to_vec())
-                    .unwrap_or_default();
-                Self::from_status(status, &body[..body.len().min(MAX_ERROR_BODY)])
+                let mut body = Vec::new();
+                while body.len() < MAX_ERROR_BODY {
+                    match response.chunk().await {
+                        Ok(Some(chunk)) => append_capped(&mut body, &chunk),
+                        _ => break,
+                    }
+                }
+                Self::from_status(status, &body)
             }
             Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::local(
                 exit::NETWORK,
@@ -85,18 +100,7 @@ impl CliError {
         };
         let tag = field("_tag");
         let server_message = field("message");
-        let code = match status {
-            400 => exit::BAD_REQUEST,
-            401 => exit::UNAUTHENTICATED,
-            402 => exit::PAYMENT_REQUIRED,
-            403 => exit::FORBIDDEN,
-            404 => exit::NOT_FOUND,
-            409 => exit::CONFLICT,
-            429 => exit::QUOTA_EXCEEDED,
-            501 => exit::NOT_AVAILABLE_YET,
-            503 => exit::SERVICE_UNAVAILABLE,
-            _ => exit::UNEXPECTED,
-        };
+        let code = exit::for_status(status);
         let fallback = match status {
             400 => "the request was rejected as invalid",
             401 => "not authenticated: check the API key",
@@ -149,12 +153,16 @@ impl CliError {
 async fn read_stream(stream: ByteStream) -> Vec<u8> {
     let mut stream = stream.into_inner();
     let mut body = Vec::new();
-    while let Some(Ok(chunk)) = stream.next().await {
-        let room = MAX_ERROR_BODY.saturating_sub(body.len());
-        body.extend_from_slice(&chunk[..chunk.len().min(room)]);
-        if body.len() >= MAX_ERROR_BODY {
-            break;
+    while body.len() < MAX_ERROR_BODY {
+        match stream.next().await {
+            Some(Ok(chunk)) => append_capped(&mut body, &chunk),
+            _ => break,
         }
     }
     body
+}
+
+fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
+    let room = MAX_ERROR_BODY.saturating_sub(body.len());
+    body.extend_from_slice(&chunk[..chunk.len().min(room)]);
 }

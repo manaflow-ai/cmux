@@ -74,7 +74,7 @@ pub mod types {
             rename = "idleTimeoutSeconds",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        pub idle_timeout_seconds: ::std::option::Option<Int>,
+        pub idle_timeout_seconds: ::std::option::Option<i64>,
         ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         #[serde(
             rename = "snapshotId",
@@ -200,92 +200,9 @@ pub mod types {
             rename = "missingScope",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        pub missing_scope: ::std::option::Option<ForbiddenMissingScope>,
+        pub missing_scope: ::std::option::Option<::std::string::String>,
         #[serde(rename = "_tag")]
         pub tag: ForbiddenTag,
-    }
-    ///`ForbiddenMissingScope`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum ForbiddenMissingScope {
-        #[serde(rename = "vm:read")]
-        VmRead,
-        #[serde(rename = "vm:write")]
-        VmWrite,
-        #[serde(rename = "vm:exec")]
-        VmExec,
-        #[serde(rename = "vm:files")]
-        VmFiles,
-        #[serde(rename = "vm:terminal")]
-        VmTerminal,
-        #[serde(rename = "snapshot:*")]
-        Snapshot,
-        #[serde(rename = "domain:*")]
-        Domain,
-        #[serde(rename = "deploy:*")]
-        Deploy,
-        #[serde(rename = "git:*")]
-        Git,
-        #[serde(rename = "admin")]
-        Admin,
-    }
-    impl ::std::fmt::Display for ForbiddenMissingScope {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::VmRead => f.write_str("vm:read"),
-                Self::VmWrite => f.write_str("vm:write"),
-                Self::VmExec => f.write_str("vm:exec"),
-                Self::VmFiles => f.write_str("vm:files"),
-                Self::VmTerminal => f.write_str("vm:terminal"),
-                Self::Snapshot => f.write_str("snapshot:*"),
-                Self::Domain => f.write_str("domain:*"),
-                Self::Deploy => f.write_str("deploy:*"),
-                Self::Git => f.write_str("git:*"),
-                Self::Admin => f.write_str("admin"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for ForbiddenMissingScope {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "vm:read" => Ok(Self::VmRead),
-                "vm:write" => Ok(Self::VmWrite),
-                "vm:exec" => Ok(Self::VmExec),
-                "vm:files" => Ok(Self::VmFiles),
-                "vm:terminal" => Ok(Self::VmTerminal),
-                "snapshot:*" => Ok(Self::Snapshot),
-                "domain:*" => Ok(Self::Domain),
-                "deploy:*" => Ok(Self::Deploy),
-                "git:*" => Ok(Self::Git),
-                "admin" => Ok(Self::Admin),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for ForbiddenMissingScope {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for ForbiddenMissingScope {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
     }
     ///`ForbiddenTag`
     #[derive(
@@ -346,7 +263,7 @@ pub mod types {
             rename = "idleTimeoutSeconds",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        pub idle_timeout_seconds: ::std::option::Option<Int>,
+        pub idle_timeout_seconds: ::std::option::Option<i64>,
     }
     ///a string at most 100 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -512,74 +429,7 @@ pub mod types {
         pub path: ::std::vec::Vec<PropertyKey>,
         ///The tag identifying the type of parse issue
         #[serde(rename = "_tag")]
-        pub tag: IssueTag,
-    }
-    ///The tag identifying the type of parse issue
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum IssueTag {
-        Pointer,
-        Unexpected,
-        Missing,
-        Composite,
-        Refinement,
-        Transformation,
-        Type,
-        Forbidden,
-    }
-    impl ::std::fmt::Display for IssueTag {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Pointer => f.write_str("Pointer"),
-                Self::Unexpected => f.write_str("Unexpected"),
-                Self::Missing => f.write_str("Missing"),
-                Self::Composite => f.write_str("Composite"),
-                Self::Refinement => f.write_str("Refinement"),
-                Self::Transformation => f.write_str("Transformation"),
-                Self::Type => f.write_str("Type"),
-                Self::Forbidden => f.write_str("Forbidden"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for IssueTag {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "Pointer" => Ok(Self::Pointer),
-                "Unexpected" => Ok(Self::Unexpected),
-                "Missing" => Ok(Self::Missing),
-                "Composite" => Ok(Self::Composite),
-                "Refinement" => Ok(Self::Refinement),
-                "Transformation" => Ok(Self::Transformation),
-                "Type" => Ok(Self::Type),
-                "Forbidden" => Ok(Self::Forbidden),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for IssueTag {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for IssueTag {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
+        pub tag: ::std::string::String,
     }
     ///`NotFound`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -981,7 +831,7 @@ pub mod types {
         )]
         pub idle_timeout_seconds: ::std::option::Option<f64>,
         pub resources: VmResources,
-        pub state: VmState,
+        pub state: ::std::string::String,
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
     }
@@ -1059,73 +909,6 @@ pub mod types {
         #[serde(rename = "memoryMib")]
         pub memory_mib: f64,
         pub vcpus: f64,
-    }
-    ///`VmState`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum VmState {
-        #[serde(rename = "starting")]
-        Starting,
-        #[serde(rename = "running")]
-        Running,
-        #[serde(rename = "pausing")]
-        Pausing,
-        #[serde(rename = "paused")]
-        Paused,
-        #[serde(rename = "stopped")]
-        Stopped,
-        #[serde(rename = "unknown")]
-        Unknown,
-    }
-    impl ::std::fmt::Display for VmState {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Starting => f.write_str("starting"),
-                Self::Running => f.write_str("running"),
-                Self::Pausing => f.write_str("pausing"),
-                Self::Paused => f.write_str("paused"),
-                Self::Stopped => f.write_str("stopped"),
-                Self::Unknown => f.write_str("unknown"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for VmState {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "starting" => Ok(Self::Starting),
-                "running" => Ok(Self::Running),
-                "pausing" => Ok(Self::Pausing),
-                "paused" => Ok(Self::Paused),
-                "stopped" => Ok(Self::Stopped),
-                "unknown" => Ok(Self::Unknown),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmState {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmState {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
     }
     ///a string at most 255 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

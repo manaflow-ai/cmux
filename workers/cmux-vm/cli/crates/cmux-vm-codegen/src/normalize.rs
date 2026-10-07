@@ -1,7 +1,7 @@
 //! Rewrites the OpenAPI 3.1 document that Effect's `OpenApi.fromApi` emits
 //! into the OpenAPI 3.0 dialect that progenitor (via the `openapiv3` crate)
 //! reads. The rewrite only changes how a schema is spelled, never what it
-//! accepts, with two deliberate exceptions documented on [`normalize`].
+//! accepts, with the deliberate exceptions documented on [`normalize`].
 
 use serde_json::{Map, Value};
 
@@ -22,6 +22,10 @@ use serde_json::{Map, Value};
 /// - `additionalProperties: false` is dropped. Effect puts it on every struct,
 ///   and the generated types would then reject any field the server adds, so
 ///   an older CLI would break on every additive API change.
+/// - String enums with more than one value in component and response schemas
+///   become plain strings, so an older CLI still reads a VM whose state the
+///   server added later. Request parameters keep their enums, and one-value
+///   enums (tags) stay, because they never grow.
 /// - Every 4xx/5xx response body becomes an untyped byte stream. Progenitor
 ///   needs one error type per operation, but Effect gives every error its own
 ///   schema. A byte stream keeps the status code and the body for every error,
@@ -39,7 +43,7 @@ pub fn normalize(doc: &mut Value) {
         .and_then(Value::as_object_mut)
     {
         for schema in schemas.values_mut() {
-            normalize_schema(schema);
+            normalize_schema(schema, true);
         }
     }
 
@@ -78,7 +82,7 @@ fn normalize_operation(operation: &mut Value) {
         .get_mut("requestBody")
         .and_then(|body| body.get_mut("content"))
     {
-        normalize_content(content);
+        normalize_content(content, false);
     }
     if let Some(responses) = operation
         .get_mut("responses")
@@ -95,7 +99,7 @@ fn normalize_operation(operation: &mut Value) {
                     response.insert("content".to_owned(), Value::Object(raw));
                 }
             } else if let Some(content) = response.get_mut("content") {
-                normalize_content(content);
+                normalize_content(content, true);
             }
         }
     }
@@ -108,19 +112,19 @@ fn is_error_status(status: &str) -> bool {
 fn normalize_parameters(params: &mut Value) {
     for param in params.as_array_mut().into_iter().flatten() {
         if let Some(schema) = param.get_mut("schema") {
-            normalize_schema(schema);
+            normalize_schema(schema, false);
         }
     }
 }
 
-fn normalize_content(content: &mut Value) {
+fn normalize_content(content: &mut Value, open_enums: bool) {
     for media in content
         .as_object_mut()
         .into_iter()
         .flat_map(|m| m.values_mut())
     {
         if let Some(schema) = media.get_mut("schema") {
-            normalize_schema(schema);
+            normalize_schema(schema, open_enums);
         }
     }
 }
@@ -132,24 +136,26 @@ const SCHEMA_VALUES: &[&str] = &["items", "additionalProperties", "not"];
 /// Keys whose value is a list of schemas.
 const SCHEMA_LISTS: &[&str] = &["anyOf", "oneOf", "allOf", "prefixItems"];
 
-fn normalize_schema(schema: &mut Value) {
+fn normalize_schema(schema: &mut Value, open_enums: bool) {
     let Some(obj) = schema.as_object_mut() else {
         return;
     };
 
     for key in SCHEMA_MAPS {
         if let Some(map) = obj.get_mut(*key).and_then(Value::as_object_mut) {
-            map.values_mut().for_each(normalize_schema);
+            map.values_mut()
+                .for_each(|v| normalize_schema(v, open_enums));
         }
     }
     for key in SCHEMA_VALUES {
         if let Some(value) = obj.get_mut(*key) {
-            normalize_schema(value);
+            normalize_schema(value, open_enums);
         }
     }
     for key in SCHEMA_LISTS {
         if let Some(list) = obj.get_mut(*key).and_then(Value::as_array_mut) {
-            list.iter_mut().for_each(normalize_schema);
+            list.iter_mut()
+                .for_each(|v| normalize_schema(v, open_enums));
         }
     }
 
@@ -162,6 +168,27 @@ fn normalize_schema(schema: &mut Value) {
 
     if let Some(value) = obj.remove("const") {
         obj.insert("enum".to_owned(), Value::Array(vec![value]));
+    }
+    if open_enums
+        && obj.get("type").is_some_and(|t| t == "string")
+        && obj
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.len() > 1)
+    {
+        obj.remove("enum");
+    }
+    // A 3.0 `$ref` ignores its siblings; wrap it so constraints such as
+    // `minimum` next to it still apply.
+    if obj.keys().any(|k| k != "$ref" && k != "description")
+        && let Some(reference) = obj.remove("$ref")
+    {
+        let mut target = Map::new();
+        target.insert("$ref".to_owned(), reference);
+        obj.insert(
+            "allOf".to_owned(),
+            Value::Array(vec![Value::Object(target)]),
+        );
     }
     for (exclusive, bound) in [
         ("exclusiveMinimum", "minimum"),
@@ -264,6 +291,9 @@ mod tests {
                 "B": { "anyOf": [{ "$ref": "#/components/schemas/A" }, { "type": "null" }] },
                 "C": { "type": ["string", "null"], "title": "maxLength(3)" },
                 "D": { "const": "x", "exclusiveMinimum": 0 },
+                "F": { "type": "string", "enum": ["running", "paused"] },
+                "G": { "$ref": "#/components/schemas/Int", "minimum": -1, "description": "d" },
+                "H": { "$ref": "#/components/schemas/Int", "description": "only" },
                 "E": { "type": "object", "additionalProperties": false, "properties": {
                     "title": { "type": "string", "title": "dropped" },
                     "type": { "oneOf": [{ "type": "string" }, { "type": "integer" }, { "type": "null" }] }
@@ -288,6 +318,15 @@ mod tests {
         assert_eq!(
             schema(&doc, "D"),
             json!({ "enum": ["x"], "minimum": 0, "exclusiveMinimum": true })
+        );
+        assert_eq!(schema(&doc, "F"), json!({ "type": "string" }));
+        assert_eq!(
+            schema(&doc, "G"),
+            json!({ "allOf": [{ "$ref": "#/components/schemas/Int" }], "minimum": -1, "description": "d" })
+        );
+        assert_eq!(
+            schema(&doc, "H"),
+            json!({ "$ref": "#/components/schemas/Int", "description": "only" })
         );
         let e = schema(&doc, "E");
         assert!(e.get("additionalProperties").is_none());
@@ -321,5 +360,23 @@ mod tests {
         );
         assert_eq!(responses["404"]["content"], json!({ "*/*": {} }));
         assert!(responses["500"].get("content").is_none());
+    }
+
+    #[test]
+    fn parameter_enums_stay_closed() {
+        let mut doc = json!({
+            "openapi": "3.1.0",
+            "paths": { "/v1/things": { "get": {
+                "operationId": "things.list",
+                "parameters": [{ "name": "state", "in": "query",
+                    "schema": { "type": "string", "enum": ["a", "b"] } }],
+                "responses": {}
+            } } }
+        });
+        normalize(&mut doc);
+        assert_eq!(
+            doc["paths"]["/v1/things"]["get"]["parameters"][0]["schema"],
+            json!({ "type": "string", "enum": ["a", "b"] })
+        );
     }
 }
