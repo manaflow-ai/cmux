@@ -36,6 +36,35 @@ struct BillingPlanTests {
         #expect(state.applyingFailure(for: "account-a", teamID: "team-b") == .unknown)
     }
 
+    @Test("refresh coordinator retains same-scope answers and rejects stale responses")
+    func refreshCoordinatorRetainsSameScopeAnswers() {
+        var coordinator = BillingPlanRefreshCoordinator()
+        let scope = BillingPlanRefreshScope(accountID: "account-a", teamID: "team-a")
+        let firstRequest = coordinator.begin(scope: scope)
+        coordinator.applySuccess(firstRequest, scope: scope, isPro: false, canManageBilling: false)
+
+        let secondRequest = coordinator.begin(scope: scope)
+        #expect(coordinator.isCurrent(secondRequest, scope: scope))
+        coordinator.applyTransientFailure(secondRequest, scope: scope)
+        #expect(coordinator.state.isPro == false)
+        #expect(coordinator.state.accountID == "account-a")
+
+        coordinator.applySuccess(firstRequest, scope: scope, isPro: true, canManageBilling: true)
+        #expect(coordinator.state.isPro == false)
+    }
+
+    @Test("refresh coordinator invalidates a changed scope")
+    func refreshCoordinatorInvalidatesChangedScope() {
+        var coordinator = BillingPlanRefreshCoordinator()
+        let scope = BillingPlanRefreshScope(accountID: "account-a", teamID: "team-a")
+        let request = coordinator.begin(scope: scope)
+        coordinator.applySuccess(request, scope: scope, isPro: true, canManageBilling: true)
+
+        coordinator.invalidateIfScopeChanged(accountID: "account-a", teamID: "team-b")
+        #expect(coordinator.state == .unknown)
+        #expect(!coordinator.isCurrent(request, scope: scope))
+    }
+
     @Test("unauthenticated HTTP 200 response is rejected")
     func unauthenticatedResponseIsRejected() async throws {
         let configuration = URLSessionConfiguration.ephemeral

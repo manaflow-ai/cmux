@@ -154,7 +154,10 @@ struct SidebarFooterMenuButton: View {
     /// the item under a hurried click.
     private func makeMenu(identity: AccountIdentity?) -> NSMenu {
         let flow = accountFlow
-        let menu = NSMenu(title: showsAccount ? accountTitle : helpTitle)
+        let menu = SidebarFooterMenu(title: showsAccount ? accountTitle : helpTitle)
+        menu.actionSink = { [weak menu] handler in
+            menu?.selectedHandler = handler
+        }
         menu.autoenablesItems = false
 
         if showsAccount {

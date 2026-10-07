@@ -79,6 +79,7 @@ public struct BillingPlanClient: Sendable {
     ///   - refreshToken: An optional session refresh token.
     /// - Returns: The decoded entitlement details.
     /// - Throws: A URL-loading or decoding error when the request fails.
+    @concurrent
     public func fetch(from url: URL, accessToken: String?, refreshToken: String? = nil) async throws -> BillingPlanDetails {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"

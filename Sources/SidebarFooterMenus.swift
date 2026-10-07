@@ -31,7 +31,41 @@ final class SidebarFooterMenuAnchor {
         let menuHeight = menu.size.height
         let y = view.isFlipped ? -(menuHeight + gap) : view.bounds.height + gap + menuHeight
         presentedMenu = menu
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+        if let menu = menu as? SidebarFooterMenu {
+            menu.selectedHandler = nil
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+            let selectedHandler = menu.selectedHandler
+            menu.selectedHandler = nil
+            selectedHandler?()
+        } else {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+        }
+    }
+}
+
+/// A footer menu records the selected action while AppKit is tracking it.
+/// `SidebarFooterMenuAnchor` invokes that action after `popUp` returns, once
+/// the menu's nested tracking loop has finished.
+@MainActor
+final class SidebarFooterMenu: NSMenu {
+    var selectedHandler: (() -> Void)?
+    var actionSink: ((() -> Void) -> Void)?
+
+    init(title: String, actionSink: ((() -> Void) -> Void)? = nil) {
+        self.actionSink = actionSink
+        super.init(title: title)
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func record(_ handler: @escaping () -> Void) {
+        if let actionSink {
+            actionSink(handler)
+        } else {
+            selectedHandler = handler
+        }
     }
 }
 
@@ -69,15 +103,16 @@ extension NSMenu {
         shortcut: StoredShortcut? = nil,
         handler: @escaping () -> Void
     ) -> NSMenuItem {
-        // `popUp` runs inside the SwiftUI button's action, and AppKit calls
-        // the chosen item before `popUp` returns. Opening a window or sheet
-        // from that nested context does nothing (the popovers this replaces
-        // deferred every action the same way), so run it on the next turn.
-        // The main queue runs it on the main thread it was created on, so the
-        // non-Sendable handler never crosses threads.
+        // `popUp` runs inside the SwiftUI button's action. Footer menus record
+        // the selected handler and the anchor invokes it after tracking ends,
+        // so opening a window or sheet is outside AppKit's nested menu call.
         nonisolated(unsafe) let handler = handler
-        let item = SidebarRowClosureMenuItem(title: title) {
-            DispatchQueue.main.async { handler() }
+        let item = SidebarRowClosureMenuItem(title: title) { [weak self] in
+            guard let footerMenu = self as? SidebarFooterMenu else {
+                handler()
+                return
+            }
+            footerMenu.record(handler)
         }
         item.identifier = NSUserInterfaceItemIdentifier(identifier)
         if let symbol {
@@ -157,7 +192,7 @@ enum SidebarHelpMenuItems {
             handler: onSendFeedback
         )
         let title = String(localized: "sidebar.help.button", defaultValue: "Help")
-        let help = NSMenu(title: title)
+        let help = SidebarFooterMenu(title: title, actionSink: menu.actionSink)
         help.autoenablesItems = false
         help.addSidebarFooterItem(
             String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),

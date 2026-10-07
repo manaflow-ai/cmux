@@ -43,7 +43,7 @@ final class WhatsNewCenter {
     @ObservationIgnored private var catalog: WhatsNewCatalog?
     @ObservationIgnored private var pendingReleases: [WhatsNewRelease] = []
     /// The one launch check; non-nil once startup restore has settled.
-    @ObservationIgnored private var launchTask: Task<Void, Never>?
+    @ObservationIgnored var launchTask: Task<Void, Never>?
     /// The catalog load filling the open recap; cancelled when the recap
     /// closes or shows other content.
     @ObservationIgnored private var fillTask: Task<Void, Never>?
@@ -100,11 +100,6 @@ final class WhatsNewCenter {
         launchTask = Task { @MainActor [weak self] in
             await self?.runLaunchCheck()
         }
-    }
-
-    /// Waits for the one launch check to finish, including its catalog load.
-    func waitForLaunchCheck() async {
-        await launchTask?.value
     }
 
     /// Decides what this launch announces, loads the catalog when it needs
@@ -180,7 +175,10 @@ final class WhatsNewCenter {
         fillTask?.cancel()
         model.phase = .loading
         fillTask = Task { @MainActor [weak self, weak model] in
-            let catalog = try? await self?.loadCatalog()
+            // A manual recap is an authoritative refresh. The launch check
+            // may have cached a catalog before the release highlights were
+            // published; never mark a release seen from that stale snapshot.
+            let catalog = try? await self?.loadCatalog(forceRefresh: true)
             guard !Task.isCancelled, let self, let model else { return }
             guard let catalog else {
                 model.phase = .failed
@@ -220,8 +218,8 @@ final class WhatsNewCenter {
     }
 
     /// The catalog, fetched once per process and then reused.
-    private func loadCatalog() async throws -> WhatsNewCatalog {
-        if let catalog { return catalog }
+    private func loadCatalog(forceRefresh: Bool = false) async throws -> WhatsNewCatalog {
+        if !forceRefresh, let catalog { return catalog }
         let loaded = try await loader()
         catalog = loaded
         return loaded

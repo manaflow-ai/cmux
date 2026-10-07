@@ -38,7 +38,7 @@ struct WhatsNewCenterLaunchModeTests {
         await loader.waitUntilStarted()
         defaults.set("0.64.25", forKey: WhatsNewCenter.lastSeenReleaseDefaultsKey)
         await loader.release()
-        await center.waitForLaunchCheck()
+        await center.launchTask?.value
 
         #expect(!center.hasUnseenHighlights)
         #expect(!NSApp.windows.contains { $0.identifier?.rawValue == "cmux.whatsNew" })
@@ -70,7 +70,7 @@ struct WhatsNewCenterLaunchModeTests {
         await loader.waitUntilStarted()
         settings.set(.off, for: AppCatalogSection().whatsNew)
         await loader.release()
-        await center.waitForLaunchCheck()
+        await center.launchTask?.value
 
         #expect(!center.hasUnseenHighlights)
         #expect(!NSApp.windows.contains { $0.identifier?.rawValue == "cmux.whatsNew" })
