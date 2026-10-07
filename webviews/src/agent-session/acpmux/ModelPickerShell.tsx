@@ -4,6 +4,7 @@ import type { PickerLayout } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useT } from "./i18n";
 import { useUiAnchor } from "../../ui/anchor";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 /// The model chip, which names the effort after the model with one chevron, and the popover
 /// above it, which holds both. Focus stays on the chip while the popover is open,
@@ -80,6 +81,7 @@ export function ModelPickerShell({
       unregisterEffort?.();
     };
   }, [modelLabel, effortLabel, offersEffort]);
+  const press = usePopoverTrigger(open, onOpenChange, show);
   return (
     <span
       ref={root}
@@ -107,7 +109,7 @@ export function ModelPickerShell({
             onOpenChange(true);
           }
         }}
-        onClick={() => (open ? onOpenChange(false) : show())}
+        {...press}
       >
         <span className="acpmux-model-name">{chip}</span>
         {detail && <span className="acpmux-model-effort">{detail}</span>}

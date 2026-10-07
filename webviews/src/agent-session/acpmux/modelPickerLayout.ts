@@ -24,6 +24,15 @@ export type ModelPickerProps = {
   recents: Combo[];
   onLand(model: string, effort?: string): void;
   onEffort(value: string): void;
+  fastMode?: {
+    name: string;
+    currentValue?: string;
+    onValue: string;
+    offValue: string;
+    onLabel: string;
+    offLabel: string;
+    onPick(value: string): void;
+  };
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
@@ -56,7 +65,7 @@ export const RECENT_ROWS = 4;
 /// Rows a level shows before "More…".
 export const LEVEL_ROWS = 3;
 /// How long the pointer rests on a row before its submenu opens.
-export const HOVER_INTENT_MS = 120;
+export const HOVER_INTENT_MS = 150;
 /// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
 /// plus the 10px gap. Family and model submenus are at least 210px.
 export const SUBMENU_ROOM = 250;
