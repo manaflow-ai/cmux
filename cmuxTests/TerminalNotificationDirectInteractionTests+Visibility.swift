@@ -22,12 +22,12 @@ extension TerminalNotificationDirectInteractionTests {
 #endif
     }
 
-    func testWarmVisibilityRestoreSkipsRefreshWhileTerminalIsInactive() throws {
+    func testWarmVisibilityRestoreRefreshesAfterRendererLossWhileTerminalIsInactive() throws {
 #if DEBUG
         try assertInactiveVisibilityRestoreRefreshCount(
             presentedFrameBeforeReveal: true,
-            expected: 0,
-            "A renderer that already presented a frame keeps it across the hide; revealing it must not force a blocking redraw"
+            expected: 1,
+            "A historical frame must not suppress the reveal redraw after the renderer is no longer presented"
         )
 #else
         throw XCTSkip("Debug-only regression test")
@@ -35,9 +35,10 @@ extension TerminalNotificationDirectInteractionTests {
     }
 
 #if DEBUG
-    /// Whether a reveal forces a redraw depends on whether the renderer has
-    /// presented a frame (#14044). The test pins that state while the portal
-    /// is hidden instead of inheriting whatever the GPU presented during setup.
+    /// The reveal fallback depends on whether the renderer is currently
+    /// presented, rather than on whether it presented a historical frame
+    /// (#14044). The test pins that historical state while the portal is hidden
+    /// instead of inheriting whatever the GPU presented during setup.
     private func assertInactiveVisibilityRestoreRefreshCount(
         presentedFrameBeforeReveal: Bool,
         expected: Int,
@@ -83,25 +84,9 @@ extension TerminalNotificationDirectInteractionTests {
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-        if expected == 0 {
-            // The deferred refresh re-checks the presented frame, so a wrongly
-            // scheduled one would not show up in the refresh count below.
-            XCTAssertFalse(
-                hostedView.hasVisibilityRevealRefreshScheduled,
-                "A warm reveal must not schedule a deferred refresh",
-                file: file,
-                line: line
-            )
-        }
         drainMainQueue()
-        if expected > 0 {
-            // The reveal redraw runs on a later main-queue turn; wait for it.
-            _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
-        } else {
-            // Give a wrongly scheduled deferred redraw the same turns to land.
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            drainMainQueue()
-        }
+        // The reveal redraw runs on a later main-queue turn; wait for it.
+        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
 
         XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
     }
