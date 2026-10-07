@@ -19,11 +19,13 @@
 //! secret-looking env key), may not be symlinks, may not name a relative
 //! program path, and keep their icon next to them.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use super::profiles::Diagnostic;
+use super::profiles::{Diagnostic, MAX_PROFILE_BYTES, Severity, parse_folder_profile_toml};
 use super::{Config, HarnessProfile};
 use crate::trust;
 
@@ -111,49 +113,384 @@ pub struct FolderProfile {
 }
 
 /// Every profile file in `folder`'s `.cmux/harnesses`, by file name.
-pub fn scan(_cfg: &Config, _gate: &FolderGate, _folder: &Path) -> Result<Vec<FolderProfile>, String> {
-    Ok(vec![])
+pub fn scan(cfg: &Config, gate: &FolderGate, folder: &Path) -> Result<Vec<FolderProfile>, String> {
+    let folder = canonical(folder)?;
+    let dir = profile_dir(&folder);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(format!("cannot read {}: {e}", dir.display())),
+    };
+    let mut ids: Vec<String> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .collect();
+    ids.sort();
+    Ok(ids.iter().filter_map(|id| load_one(cfg, gate, &folder, id)).collect())
 }
 
 /// The folder profile `id` of `folder`; None when it has no such file.
-pub fn load_one(_cfg: &Config, _gate: &FolderGate, _folder: &Path, _id: &str) -> Option<FolderProfile> {
-    None
+pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Option<FolderProfile> {
+    let folder = canonical(folder).ok()?;
+    let dir = profile_dir(&folder);
+    let path = dir.join(format!("{id}.toml"));
+    std::fs::symlink_metadata(&path).ok()?;
+    let shown = path.to_string_lossy().into_owned();
+    let level = trust_level(gate, &folder);
+    let mut fp = FolderProfile {
+        id: id.to_owned(),
+        folder: folder.to_string_lossy().into_owned(),
+        path: shown.clone(),
+        state: FolderState::Error,
+        trust: level.as_str().to_owned(),
+        sha256: None,
+        diagnostics: vec![],
+        profile: None,
+    };
+    let bytes = match read_folder_file(&path) {
+        Ok(bytes) => bytes,
+        Err(d) => {
+            fp.diagnostics.push(d);
+            return Some(fp);
+        }
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        fp.diagnostics.push(Diagnostic::error(&shown, Some(id), "not UTF-8 text".into(), None));
+        return Some(fp);
+    };
+    let (profile, icon, warnings) = match parse_folder_profile_toml(text, &path, Some(id)) {
+        Ok((_, profile, meta, warnings)) => (profile, meta.icon, warnings),
+        Err(errors) => {
+            fp.diagnostics = errors;
+            return Some(fp);
+        }
+    };
+    fp.diagnostics = warnings;
+    let mut hashed = bytes.clone();
+    if let Some(icon) = icon.as_deref().filter(|i| i.starts_with('/')) {
+        match icon_bytes(&dir, Path::new(icon)) {
+            Ok(icon_bytes) => {
+                hashed.extend_from_slice(b"\0icon\0");
+                hashed.extend_from_slice(&icon_bytes);
+            }
+            Err(message) => {
+                fp.diagnostics.push(Diagnostic::error(&shown, Some(id), message, None));
+                return Some(fp);
+            }
+        }
+    }
+    let program = &profile.argv[0];
+    if program.contains('/') && !Path::new(program).is_absolute() {
+        fp.diagnostics.push(Diagnostic::error(
+            &shown,
+            Some(id),
+            format!("command {program:?} is a relative path"),
+            Some("use a program name on PATH or an absolute path".into()),
+        ));
+        return Some(fp);
+    }
+    if catalog_names(cfg).contains(id) {
+        fp.diagnostics.push(Diagnostic::error(
+            &shown,
+            Some(id),
+            format!("{id:?} is already a harness or family; a folder profile cannot replace it"),
+            Some("pick another id (rename the file and its id)".into()),
+        ));
+        return Some(fp);
+    }
+    let sha = crate::sha256::sha256_hex(&hashed);
+    fp.state = if level != trust::Level::Trusted {
+        FolderState::NeedsTrust
+    } else if enabled_in(gate, &fp.folder, id, &sha) {
+        FolderState::Enabled
+    } else {
+        FolderState::NeedsEnable
+    };
+    fp.sha256 = Some(sha);
+    fp.profile = Some(profile);
+    Some(fp)
 }
 
-/// Records the user's "Enable harness" confirmation (red: not yet).
+/// Records the user's "Enable harness" confirmation for the bytes whose
+/// sha256 the user saw (`shown_sha256`). Refused unless the folder is trusted
+/// now and the file still has exactly those bytes.
 pub fn enable(
-    _cfg: &Config,
-    _gate: &FolderGate,
-    _folder: &Path,
-    _id: &str,
-    _shown_sha256: &str,
+    cfg: &Config,
+    gate: &FolderGate,
+    folder: &Path,
+    id: &str,
+    shown_sha256: &str,
 ) -> Result<FolderProfile, String> {
-    Err("folder profiles are not implemented".into())
+    let fp = load_one(cfg, gate, folder, id)
+        .ok_or_else(|| format!("{} has no {id}.toml", profile_dir(folder).display()))?;
+    if let Some(reason) = refusal(&fp) {
+        return Err(reason);
+    }
+    if fp.sha256.as_deref() != Some(shown_sha256) {
+        return Err(format!("{} changed after it was shown; run enable again", fp.path));
+    }
+    let mut record = read_record(&gate.enable_record)?;
+    record.enabled.retain(|e| !(e.folder == fp.folder && e.id == id));
+    record.enabled.push(EnableEntry {
+        folder: fp.folder.clone(),
+        id: id.to_owned(),
+        sha256: shown_sha256.to_owned(),
+        argv: fp.profile.as_ref().map(|p| p.argv.clone()).unwrap_or_default(),
+        enabled_at: crate::store::now_ms(),
+    });
+    write_record(&gate.enable_record, &record)?;
+    load_one(cfg, gate, folder, id).ok_or_else(|| format!("{} disappeared", fp.path))
 }
 
-/// Forgets every confirmation of `id` in `folder` (red: not yet).
-pub fn disable(_gate: &FolderGate, _folder: &Path, _id: &str) -> Result<bool, String> {
-    Ok(false)
+/// Forgets every confirmation of `id` in `folder`. Ok(false): none existed.
+pub fn disable(gate: &FolderGate, folder: &Path, id: &str) -> Result<bool, String> {
+    let folder = canonical(folder)?.to_string_lossy().into_owned();
+    let mut record = read_record(&gate.enable_record)?;
+    let before = record.enabled.len();
+    record.enabled.retain(|e| !(e.folder == folder && e.id == id));
+    if record.enabled.len() == before {
+        return Ok(false);
+    }
+    write_record(&gate.enable_record, &record)?;
+    Ok(true)
 }
 
-/// The profile a session may run from a folder (red: never).
+/// The profile a session named `id` with folder `cwd` may run: an enabled
+/// folder profile of the nearest folder (cwd or a parent) that has
+/// `.cmux/harnesses/<id>.toml`. None: no folder has that file (the caller
+/// reports an unknown harness). Some(Err): a file exists but may not run.
 pub fn resolve_for_session(
-    _cfg: &Config,
-    _id: &str,
-    _cwd: &Path,
-    _remote: bool,
+    cfg: &Config,
+    id: &str,
+    cwd: &Path,
+    remote: bool,
 ) -> Option<Result<(HarnessProfile, PathBuf), String>> {
-    None
+    let gate = cfg.folder_gate.as_ref()?;
+    if !super::profiles::valid_id(id) || catalog_names(cfg).contains(id) || !cwd.is_absolute() {
+        return None;
+    }
+    let cwd = canonical(cwd).ok()?;
+    let folder =
+        cwd.ancestors().find(|f| profile_dir(f).join(format!("{id}.toml")).exists())?.to_owned();
+    if remote {
+        return Some(Err(format!(
+            "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",
+            folder.display()
+        )));
+    }
+    let fp = load_one(cfg, gate, &folder, id)?;
+    Some(match (fp.state, fp.profile) {
+        (FolderState::Enabled, Some(profile)) => Ok((profile, folder)),
+        (FolderState::NeedsTrust, _) => Err(needs_trust_message_parts(&fp.id, &fp.folder)),
+        (FolderState::NeedsEnable, _) => Err(format!(
+            "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",
+            fp.folder, fp.folder
+        )),
+        _ => Err(first_error_parts(&fp.diagnostics, &fp.path)),
+    })
 }
 
-/// What the "Enable harness" confirmation shows (red: nothing).
-pub fn confirmation_text(_fp: &FolderProfile, _resolved_program: Option<&Path>) -> String {
-    String::new()
+/// What the "Enable harness" confirmation shows: the file, folder, trust,
+/// the exact command line, each env key with its source, and the hash.
+/// Plain values are shown: a folder file may not hold a literal secret, and
+/// a plain value such as NODE_OPTIONS can load code. Keychain items and
+/// login variables are named, never read.
+pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) -> String {
+    let mut out = format!("Enable harness {:?} from {}\n", fp.id, fp.path);
+    out.push_str(&format!("  folder:  {} (trust: {})\n", fp.folder, fp.trust));
+    let Some(profile) = &fp.profile else { return out };
+    let line: Vec<String> = profile.argv.iter().map(|a| shell_quote(a)).collect();
+    out.push_str(&format!("  command: {}\n", line.join(" ")));
+    match resolved_program {
+        Some(p) => out.push_str(&format!("  program: {}\n", p.display())),
+        None => out.push_str("  program: not found on PATH now\n"),
+    }
+    if let Some(p) = resolved_program
+        && p.starts_with(&fp.folder)
+    {
+        out.push_str("  warning: the program is a file inside this folder; a change to it is not checked again\n");
+    }
+    if profile.env.is_empty() {
+        out.push_str("  env:     none\n");
+    }
+    for (key, value) in &profile.env {
+        let shown = env_source(value);
+        out.push_str(&format!("  env:     {key} = {shown}\n"));
+        if CODE_LOADING_ENV.contains(&key.as_str())
+            || key.starts_with("DYLD_")
+            || key.starts_with("LD_")
+        {
+            out.push_str(&format!("  warning: {key} changes which code a program loads\n"));
+        }
+    }
+    if let Some(sha) = &fp.sha256 {
+        out.push_str(&format!("  sha256:  {sha}\n"));
+    }
+    out.push_str(&format!(
+        "It runs with your rights in chats whose folder is inside {}.\nAny change to the file asks again.\n",
+        fp.folder
+    ));
+    out
 }
 
-/// Why `enable` refuses this profile now (red: never).
-pub fn refusal(_fp: &FolderProfile) -> Option<String> {
-    None
+/// One env value as the confirmation shows it.
+fn env_source(value: &str) -> String {
+    if let Some(item) = value.strip_prefix("${keychain:").and_then(|v| v.strip_suffix('}')) {
+        return format!("Keychain item {item:?}");
+    }
+    if let Some(var) = value.strip_prefix("${env:").and_then(|v| v.strip_suffix('}')) {
+        return format!("your login variable {var}");
+    }
+    format!("{} (plain)", shell_quote(value))
+}
+
+fn shell_quote(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,${}".contains(c));
+    if plain { text.to_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
+}
+
+// ------------------------------------------------------------- internals
+
+fn canonical(folder: &Path) -> Result<PathBuf, String> {
+    let text = folder.to_string_lossy();
+    trust::normalize_cwd(&text).map(PathBuf::from)
+}
+
+/// The trust gate's rule (`trust::session_level`) for a family that is
+/// neither Claude Code nor Codex: acpmux's decision, else the stricter of the
+/// agents' levels. A folder profile names its own family, so it never picks
+/// the more lenient single-agent rule.
+fn trust_level(gate: &FolderGate, folder: &Path) -> trust::Level {
+    match trust::session_level(&gate.trust, &folder.to_string_lossy(), "") {
+        Ok((_, level)) => level,
+        // A damaged record is no answer (fail closed).
+        Err(_) => trust::Level::Unknown,
+    }
+}
+
+/// Catalog ids and family names a folder profile may not take.
+fn catalog_names(cfg: &Config) -> BTreeSet<String> {
+    let mut names: BTreeSet<String> = cfg.harnesses.keys().cloned().collect();
+    names.extend(cfg.families().into_keys());
+    names
+}
+
+/// The file's bytes after the type, size and owner checks.
+fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
+    use std::os::unix::fs::MetadataExt;
+    let shown = path.to_string_lossy().into_owned();
+    let error = |m: String, fix: Option<String>| Diagnostic::error(&shown, None, m, fix);
+    let meta =
+        std::fs::symlink_metadata(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if !meta.file_type().is_file() {
+        return Err(error("a folder profile must be a regular file, not a symlink".into(), None));
+    }
+    if meta.len() > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    let uid = unsafe { libc::getuid() };
+    if meta.uid() != uid || meta.mode() & 0o022 != 0 {
+        return Err(error(
+            "another user can change this file, and a profile runs a program with your rights"
+                .into(),
+            Some(format!("chmod go-w {shown}")),
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if bytes.len() as u64 > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    Ok(bytes)
+}
+
+/// The icon's bytes: a regular file directly in the profile folder.
+fn icon_bytes(dir: &Path, icon: &Path) -> Result<Vec<u8>, String> {
+    if icon.parent() != Some(dir) {
+        return Err(
+            "a folder profile's icon must be a file next to it (icon = \"<id>.svg\")".into()
+        );
+    }
+    let meta = std::fs::symlink_metadata(icon).map_err(|e| format!("icon: {e}"))?;
+    if !meta.file_type().is_file() {
+        return Err("a folder profile's icon must be a regular file, not a symlink".into());
+    }
+    std::fs::read(icon).map_err(|e| format!("icon: {e}"))
+}
+
+/// Why `enable` refuses this profile now: no trust answer, or an invalid file.
+pub fn refusal(fp: &FolderProfile) -> Option<String> {
+    match fp.state {
+        FolderState::Error => Some(first_error_parts(&fp.diagnostics, &fp.path)),
+        FolderState::NeedsTrust => Some(needs_trust_message_parts(&fp.id, &fp.folder)),
+        FolderState::Enabled | FolderState::NeedsEnable => None,
+    }
+}
+
+fn needs_trust_message_parts(id: &str, folder: &str) -> String {
+    format!(
+        "harness {id} is a folder profile in {folder}, which is not trusted; answer the folder's Trust question first (open a cmux chat in it), then run `cmux harness enable {id} --folder {folder}`"
+    )
+}
+
+fn first_error_parts(diagnostics: &[Diagnostic], path: &str) -> String {
+    diagnostics
+        .iter()
+        .find(|d| d.severity == Severity::Error)
+        .map(|d| match &d.fix {
+            Some(fix) => format!("{}: {} (fix: {fix})", d.path, d.message),
+            None => format!("{}: {}", d.path, d.message),
+        })
+        .unwrap_or_else(|| format!("{path}: the profile cannot be used"))
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnableRecord {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    enabled: Vec<EnableEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnableEntry {
+    folder: String,
+    id: String,
+    sha256: String,
+    /// The command line the user confirmed (for review; the hash decides).
+    #[serde(default)]
+    argv: Vec<String>,
+    #[serde(default)]
+    enabled_at: u64,
+}
+
+/// A missing record is empty; a damaged one is an error and never overwritten.
+fn read_record(path: &Path) -> Result<EnableRecord, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|e| format!("enable record {} is damaged: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(EnableRecord::default()),
+        Err(e) => Err(format!("enable record {}: {e}", path.display())),
+    }
+}
+
+fn write_record(path: &Path, record: &EnableRecord) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("enable record: {e}"))?;
+    }
+    let value = json!({"version": 1, "enabled": record.enabled});
+    let bytes = serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?;
+    super::write_atomic(path, &bytes).map_err(|e| format!("enable record: {e}"))
+}
+
+fn enabled_in(gate: &FolderGate, folder: &str, id: &str, sha: &str) -> bool {
+    // A damaged record enables nothing (fail closed).
+    read_record(&gate.enable_record).is_ok_and(|r| {
+        r.enabled.iter().any(|e| e.folder == folder && e.id == id && e.sha256 == sha)
+    })
 }
 
 #[cfg(test)]
