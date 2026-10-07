@@ -660,6 +660,12 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
+      "type" : "boolean"
+    },
     "diff.diffIndicators" : {
       "default" : "bars",
       "description" : "diff.diffIndicators",
