@@ -1,4 +1,7 @@
 import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 
 /// Strings of the room handlers and prompts (Resources/Rooms.xcstrings).
@@ -9,12 +12,12 @@ nonisolated enum RoomStrings {
     }
     static var renameTitle: String { text("rooms.renameTitle", "Rename Space") }
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
-    static var deleteReturnsBody: String {
-        text("rooms.deleteReturnsBody", "Its workspaces stay open and return to the spaces that follow their machines.")
+    /// The count line of the Delete Space question (none for no workspace).
+    static func deleteClosesBody(_ count: Int) -> String {
+        String(localized: "rooms.deleteClosesBody", defaultValue: "Its \(count) workspaces close.", table: "Rooms", bundle: .module)
     }
-    static func deleteMovesBody(_ target: String) -> String {
-        String(format: text("rooms.deleteMovesBody", "Its workspaces and groups move to “%@”."), target)
-    }
+    /// The toast after Delete Space (RECOVERABLE-BY-DEFAULT).
+    static func deletedToast(_ name: String) -> String { String(format: text("rooms.deletedToast", "Space “%@” deleted"), name) }
     static var delete: String { text("rooms.delete", "Delete") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
     static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
@@ -30,13 +33,53 @@ nonisolated enum RoomStrings {
     }
 }
 
-/// The Delete Room question: how many workspaces close, or where they go.
+/// Delete Space (SPACE-DELETE-CLOSES-ITS-WORKSPACES, RECOVERABLE-BY-DEFAULT):
+/// the workspaces it closes, its question and its Reopen toast.
 enum RoomConfirmation {
+    /// The workspaces of this Mac that deleting `room` closes: the ones no
+    /// other room shows (the daemon's rule), never the home workspace.
     @MainActor
-    static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) -> DestructiveConfirmation.Prompt? {
-        guard let room = try? context.room(invocation), !room.isDefault else { return nil }
-        let body = (try? context.optionalRoom(invocation["moveTo"])).flatMap { $0 }.map { RoomStrings.deleteMovesBody($0.name) }
-            ?? RoomStrings.deleteReturnsBody
-        return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body, button: RoomStrings.delete)
+    static func closing(_ room: ProfileID, _ context: AppActionContext) -> [WorkspaceModel] {
+        let machines = context.services.machines
+        guard let membership = WindowProfiles.membership(machines), let session = machines.local.store.registryID else { return [] }
+        return machines.local.store.workspaces.filter { workspace in
+            workspace.kind != "home"
+                && membership.closes(RoomMembership.Workspace(session: session, key: workspace.key?.rawValue ?? workspace.id), deleting: room)
+        }
+    }
+
+    /// The question asked only when a closing workspace runs a program and
+    /// `app.warnBeforeClosingTab` is on (the rule of every close); a move
+    /// closes nothing and never asks. Nil runs without asking.
+    @MainActor
+    static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
+        guard context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
+              let room = try? context.room(invocation), !room.isDefault,
+              (try? context.optionalRoom(invocation["moveTo"])).flatMap({ $0 }) == nil else { return nil }
+        let closing = closing(room.id, context)
+        let programs = await DestructiveConfirmation.runningPrograms(
+            of: closing.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs), on: context.services.machines.local)
+        guard !programs.isEmpty else { return nil }
+        let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", "))]
+        return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body.joined(separator: "\n"),
+                                              button: RoomStrings.delete, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+    }
+
+    static let toastID = "space-deleted"
+
+    /// "Space “X” deleted · Reopen" in the active window; Reopen restores
+    /// the space and its workspaces (closed group `closedID`).
+    @MainActor
+    static func showDeleted(_ name: String, closedID: String, services: AppServices) {
+        guard let window = services.windows.active?.window else { return }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: RoomStrings.deletedToast(name), action: .reopen()), in: window)
+        handle.onAction = { [weak services] in
+            guard let services else { return }
+            if let entry = DaemonClosedHistory.entry(closedID, in: services) {
+                DaemonClosedHistory.reopen(entry, services: services)
+            } else {
+                services.machines.local.send("reopen-space") { try await $0.state.reopenClosed(closedID) }
+            }
+        }
     }
 }

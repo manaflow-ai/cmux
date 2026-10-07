@@ -122,7 +122,9 @@ const MAX_ARGS_BYTES: usize = 64 * 1024;
 /// one-time-code, current-password, new-password or cc-*): a direct read of
 /// such a field gives the marker, and the text results (snapshot, read,
 /// describe, strictError) have every such value replaced by the marker
-/// (substring for values of 4+ characters, whole string otherwise).
+/// (substring for values of 4+ characters, whole string otherwise). The scan
+/// for those values reads within the page-read budget; when the budget stops
+/// it, the read is refused with the read-cut marker.
 const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
   const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
   const MARK = "********";
@@ -147,18 +149,32 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
   // before the values are scrubbed (a cut never ends inside a value).
   const value = await A.reply(A[m](...a));
   if (!["snapshot", "read", "describe", "strictError"].includes(m)) return value;
-  const secrets = [];
-  const walk = (root) => {
-    for (const el of root.querySelectorAll("*")) {
-      if (sensitive(el)) {
-        if (el.value) secrets.push(String(el.value));
-        const d = el.getAttribute("value");
-        if (d) secrets.push(d);
-      }
-      if (el.shadowRoot) walk(el.shadowRoot);
-    }
+  // The scan reads within the page-read budget (one node per element, the
+  // values' characters as size). A scan the budget stops cannot know every
+  // value, so the read is refused with the cut marker (the runtime prints
+  // core.readCutNote); it is never scrubbed for only the part it reached.
+  // Iterative over shadow roots: a page can nest them deeper than the stack.
+  const B = A.budget({});
+  const cut = () => {
+    const r = B.report();
+    return { __cmuxReplyCut: { truncated: r.truncated, maxNodes: r.maxNodes, maxSize: r.maxSize } };
   };
-  walk(document);
+  const secrets = [];
+  const roots = [document];
+  while (roots.length) {
+    const walker = document.createTreeWalker(roots.pop(), NodeFilter.SHOW_ELEMENT);
+    for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+      if (!B.spend(1)) return cut();
+      if (sensitive(el)) {
+        for (const v of [el.value, el.getAttribute("value")]) {
+          if (!v) continue;
+          if (!B.charge(String(v).length)) return cut();
+          secrets.push(String(v));
+        }
+      }
+      if (el.shadowRoot) roots.push(el.shadowRoot);
+    }
+  }
   if (!secrets.length) return value;
   // The forms a value takes in text results: HTML-escaped (innerHTML),
   // whitespace-collapsed and cut (describe and strictError previews).
