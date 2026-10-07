@@ -283,9 +283,9 @@ Left for owners, most severe first:
   closed and path-changed events these streams carry, so the fix is a split stream.
 - Low (C13): `ChangesViewController.swift:184` derives the +/- font from the current footnote size
   without `UIFontMetrics`; `LineNumberGutterView.swift:12` has an unused fixed 11 pt default.
-- Tooling: `check-l10n.sh`, `check-concurrency.sh` and the package lint default to macOS or legacy
-  scope, so CI checks none of `ios/CmuxiOS` or the new Shared packages. Most concurrency hits are
-  macOS-only rules.
+- Tooling (fixed by E2): `check-l10n.sh --mobile`, `check-concurrency.sh --mobile`,
+  `check-crash-safety.sh --mobile` and the package lint scan `ios/CmuxiOS` and every root in
+  `scripts/cmux-next/mobile-scan-roots.txt`; `cmux-next-ios.yml` runs them in CI.
 - Session replay masks (C16 decision): Metal and video surfaces to mask before enabling replay are
   `GhosttyTerminalView` (CmuxiOSTerminal), `BrowserVideoView` and `BrowserCanvasView` (CmuxiOSBrowser), and
   `ImageViewController` and `PDFViewController` content (CmuxiOSViewers).
@@ -363,26 +363,38 @@ RPC session established`. For API-backed dogfood start `cd web && CMUX_PORT=<pri
    or lost input (type a counter before and after).
 5. Shake > DEV: Force TURN, then repeat 3 and 4; `CMUX_IOS_LINK_WG=1` only if V2 is still in the race.
 
-### 6.4 UI tests on a fleet simulator
+### 6.4 UI tests on a CI simulator
 
-There is no iOS UI test workflow on this branch: `test-e2e.yml` was deleted with the legacy macOS app
-(a4a0868db8b) and `test-ios.yml` only builds the app. Run the classes with the existing runner on a
-leased isolated simulator (one xcodebuild per test, one recording each):
+`.github/workflows/ios-next-uitests.yml` (E2) builds the app for testing, creates a simulator for the
+run, runs each test in its own xcodebuild with a screen recording and an xcresult (through
+`ios/scripts/keyboard-uitests.sh`), uploads them as the `ios-next-uitests` artifact with
+`summary.txt`, and deletes the simulator. An empty `test_filter` runs every `Next*UITests` class.
+`workflow_dispatch` only finds workflows that are on main, so until it lands there dispatch it
+through `test-ios.yml`, which calls it with `ui_tests=true` (the simulator build runs alongside):
 
 ```bash
-scripts/verify-remote.sh capacity
-# on the leased Mac, in a checkout of this branch, with NX_SIM_UDID = its per-lease simulator:
-for c in NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
-         NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
-         NextDiagnosticsUITests NextCloudUITests KeyboardAuditUITests; do
-  KBD_CLASS=$c NX_ARTIFACTS=artifacts/d3-uitests/$c ios/scripts/keyboard-uitests.sh
-done
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true \
+  -f test_filter="cmuxUITests/NextShellTabsUITests NextFeedUITests/testMockItemsList KeyboardAuditUITests"
+gh run list --repo manaflow-ai/cmux --workflow test-ios.yml --limit 3
+gh run download --repo manaflow-ai/cmux <run-id> -n ios-next-uitests -D artifacts/d3-uitests
+# once ios-next-uitests.yml is on main:
+gh workflow run ios-next-uitests.yml --repo manaflow-ai/cmux --ref <branch> [-f test_filter=...]
 ```
 
-When an iOS lane is added to a dispatchable workflow, the same classes go in its `test_filter`
-(`cmuxUITests/<Class>`), for example
-`gh workflow run test-ios.yml --repo manaflow-ai/cmux -f ref=feat-cmux-next-ios-d3-dogfood -f test_filter=cmuxUITests/NextShellTabsUITests`
-once `test-ios.yml` gains a UI-test step (today it ignores `test_filter` for the simulator build).
+A pull request runs the same set while it carries the `ios-uitests` label. Without `gh` auth, run
+the script on a leased isolated simulator instead (`scripts/verify-remote.sh capacity`, then in a
+checkout of this branch on the leased Mac, with `NX_SIM_UDID` = its per-lease simulator):
+
+```bash
+KBD_TESTS="NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
+  NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
+  NextDiagnosticsUITests NextCloudUITests KeyboardAuditUITests" \
+  NX_ARTIFACTS=artifacts/d3-uitests ios/scripts/keyboard-uitests.sh
+```
+
+The Shared packages' `swift test`, the static checks over `ios/CmuxiOS` and the new packages, and
+the protocol vitest run on every pull request that touches them (`.github/workflows/cmux-next-ios.yml`).
 
 ### 6.5 D2 device re-measure
 
