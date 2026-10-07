@@ -2,11 +2,12 @@
 //! presentation (the CEF shim) and control messages for the viewers out.
 //! Pure; the shim and the transport live outside.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, Rect, RefuseReason, SessionState,
+    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect, RefuseReason,
+    SessionState,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -56,6 +57,12 @@ pub struct HostTab {
     /// The token the next JS dialog gets (tokens start at 1, never repeat).
     next_dialog: u64,
     fork_dialog: Option<ForkDialog>,
+    /// Keys a viewer holds down (DOM code to DOM key), from its input.
+    held_keys: BTreeMap<String, String>,
+    /// Mouse buttons a viewer holds down, per surface (0 = page).
+    held_buttons: BTreeSet<(u32, u8)>,
+    /// The last pointer position per surface: a released button goes up there.
+    pointer_at: BTreeMap<u32, (f64, f64)>,
 }
 
 /// The JS dialog Chromium has open, with the fork's own token.
@@ -81,6 +88,9 @@ impl HostTab {
             viewer_seqs: BTreeMap::new(),
             next_dialog: 1,
             fork_dialog: None,
+            held_keys: BTreeMap::new(),
+            held_buttons: BTreeSet::new(),
+            pointer_at: BTreeMap::new(),
         }
     }
 
@@ -203,6 +213,8 @@ impl HostTab {
                 }
             }
             Control::Close => {
+                // A viewer that leaves cannot send the releases of what it held.
+                self.release_all(p);
                 match self.session.apply(SessionInput::Leave { viewer: viewer.to_string() }) {
                     Ok(effects) => {
                         self.viewer_seqs.remove(viewer);
@@ -341,16 +353,71 @@ impl HostTab {
         p: &mut dyn Presentation,
     ) -> Result<bool, InputReject> {
         let call = map_input(event)?;
-        match self.browser {
-            Some(browser) => Ok(p.input(browser, &call)),
-            None => Ok(false),
+        let Some(browser) = self.browser else { return Ok(false) };
+        self.note_held(event);
+        Ok(p.input(browser, &call))
+    }
+
+    /// Records which keys and buttons the viewer holds after `event`.
+    fn note_held(&mut self, event: &InputEvent) {
+        match event {
+            InputEvent::Key { down: true, code, key, .. } => {
+                self.held_keys.insert(code.clone(), key.clone());
+            }
+            InputEvent::Key { down: false, code, .. } => {
+                self.held_keys.remove(code);
+            }
+            InputEvent::Pointer { surface, kind, x, y, button, .. } => {
+                self.pointer_at.insert(*surface, (*x, *y));
+                match kind {
+                    PointerKind::Down => {
+                        self.held_buttons.insert((*surface, *button));
+                    }
+                    PointerKind::Up => {
+                        self.held_buttons.remove(&(*surface, *button));
+                    }
+                    PointerKind::Move | PointerKind::Enter | PointerKind::Leave => {}
+                }
+            }
+            _ => {}
         }
     }
 
     /// The engine's "release all keys and buttons" signal (the input
     /// skipped a gap, so a release may be lost): a key-up for every key and
     /// a button-up for every button a viewer holds down, then none is held.
-    pub fn release_all(&mut self, _p: &mut dyn Presentation) {}
+    pub fn release_all(&mut self, p: &mut dyn Presentation) {
+        let keys = std::mem::take(&mut self.held_keys);
+        let buttons = std::mem::take(&mut self.held_buttons);
+        let Some(browser) = self.browser else { return };
+        for (code, key) in keys {
+            let up = RpCall::SendKey {
+                down: false,
+                code,
+                key,
+                text: String::new(),
+                unmodified_text: String::new(),
+                modifiers: 0,
+                commands: Vec::new(),
+            };
+            p.input(browser, &up);
+        }
+        for (surface, button) in buttons {
+            let (x, y) = self.pointer_at.get(&surface).copied().unwrap_or((0.0, 0.0));
+            let (kind, button, click_count, modifiers) = (2, i32::from(button), 1, 0);
+            let up = if surface == 0 {
+                RpCall::PageMouse { kind, x, y, button, click_count, modifiers }
+            } else {
+                RpCall::SurfaceMouse { surface, kind, x, y, button, click_count, modifiers }
+            };
+            p.input(browser, &up);
+        }
+    }
+
+    /// Keys and buttons a viewer holds down now.
+    pub fn held(&self) -> (usize, usize) {
+        (self.held_keys.len(), self.held_buttons.len())
+    }
 
     /// The anchor of a `<select>` popup in the page (helper for the shim's
     /// callback, which gives integers).

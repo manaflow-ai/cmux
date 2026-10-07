@@ -189,6 +189,13 @@ impl Host {
             self.send_frame(STREAM_DATAGRAM, d);
         }
         let mut p = ShimPresentation;
+        // The input skipped a gap (a lost release may be in it): release
+        // what the viewer holds before the events after the gap apply.
+        if out.release_all {
+            let (keys, buttons) = self.tab.held();
+            eprintln!("serve: release_all: {keys} keys, {buttons} buttons");
+            self.tab.release_all(&mut p);
+        }
         for event in &out.input {
             // A refused event (Blink would drop it) is not an error here.
             let _ = self.tab.input(event, &mut p);
