@@ -48,11 +48,7 @@ enum TopPages {
     /// History or Bookmarks row opens there). True when a page was left.
     @discardableResult
     static func leave(_ services: AppServices) -> Bool {
-        guard let controller = services.windows.active, controller.state.page != nil else { return false }
-        controller.state.page = nil
-        services.windows.recordSaver.stateDidChange(controller.state)
-        controller.showWorkspace(requested: controller.state.workspaceID)
-        return true
+        services.windows.active?.leaveTopPage() ?? false
     }
 
     /// The pages History and Bookmarks show on top (Q3).

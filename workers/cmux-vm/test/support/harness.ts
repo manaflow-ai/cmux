@@ -19,6 +19,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
+import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -38,6 +39,8 @@ export interface HarnessOptions {
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
+  readonly mesh?: MeshFakeOptions;
 }
 
 /** One audit row as a test sees it. */
@@ -147,7 +150,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   /** Snapshot reads and terminals (slice S3a) are served by s3a-fakes.ts; everything else by fake-upstream.ts. */
   const s3a = makeS3aFakes(resources, upstream);
-  const upstreamFetch = async (request: Request): Promise<Response> => (await s3a.upstream(request)) ?? upstream.fetch(request);
+  /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
+  const mesh = makeMeshFakes(upstream, options.mesh);
+  const upstreamFetch = async (request: Request): Promise<Response> =>
+    (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
   const services = Layer.mergeAll(
     ownership,
@@ -158,13 +164,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
     memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {
       isMember: (tenantId, userId) => Effect.sync(() => members.get(tenantId)?.has(userId) ?? false),
     }),
     s3a.layer(upstreamFetch),
+    mesh.layer(upstreamFetch),
     Layer.succeed(TeamAdmin, {
       isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
     }),
@@ -230,6 +237,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     },
     /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
     s3a,
+    /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
+    mesh,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
