@@ -21,5 +21,12 @@
 //! auth over the [`client::Http`] and [`client::Store`] traits), `role`
 //! (the Linux worker).
 
+pub mod client;
+#[cfg(target_os = "linux")]
+pub mod role;
+pub mod sender;
+pub mod session;
+pub mod wire;
+
 #[cfg(test)]
 mod tests;

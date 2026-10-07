@@ -135,6 +135,8 @@ pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(S
             matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
                 || k.starts_with("LC_")
                 || (k.starts_with("CMUX_TUI_") && !k.starts_with("CMUX_TUI_REMOTE_WS"))
+                || k.starts_with("CMUX_AGENT_TOOLS_")
+                || k.starts_with("CMUX_BROWSER_HOST_")
         })
         .collect();
     if !out.iter().any(|(k, _)| k == "PATH") {

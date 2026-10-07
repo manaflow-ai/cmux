@@ -31,9 +31,24 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
 
 /// Runs `cmux host <rest>` and returns its exit code.
 pub(crate) fn run(rest: &[String]) -> i32 {
-    let exe = std::env::current_exe().ok().map(|p| p.display().to_string());
-    let self_argv = exe.map(|exe| vec![exe, "host".to_owned()]).unwrap_or_default();
+    let argv0 = std::env::args_os().next();
+    let self_argv = self_argv_for(argv0.as_deref(), std::env::current_exe().ok());
     i32::from(cmux_host::cli::run(rest, self_argv))
+}
+
+/// How the supervisor runs `cmux host …` again (its `rekey` job). The verb
+/// exists only on the `cmux` surface, which argv[0]'s name selects, so an
+/// absolute argv[0] named `cmux` (the image's `cmux` link into the store)
+/// wins over the resolved executable, whose name is `cmux-tui` there.
+fn self_argv_for(argv0: Option<&std::ffi::OsStr>, exe: Option<std::path::PathBuf>) -> Vec<String> {
+    let named_cmux = argv0.filter(|a| {
+        std::path::Path::new(a).is_absolute() && Surface::for_program(Some(a)) == Surface::Cmux
+    });
+    let program = match named_cmux {
+        Some(a) => Some(std::path::PathBuf::from(a)),
+        None => exe,
+    };
+    program.map(|p| vec![p.display().to_string(), "host".to_owned()]).unwrap_or_default()
 }
 
 #[cfg(test)]
