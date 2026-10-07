@@ -89,12 +89,14 @@ export default componentEntry<DisclosureProps>({
 
 ## Window mode
 
-Window mode is the default view. The entry renders at its real size in the pane that `Panes`
-selects (`one`: the whole content area; `two`: the left pane; `agent-right`: the right column).
-The window around it has its real size (16:9 by default), and the shell scales the finished
-window down with one transform. A full-page surface (settings, a page tab) uses `one`. The pane
-size comes from the app's metrics (`MetricTunables.swift` for each density), so you add nothing
-for window mode. `component` mode shows the entry alone at a pane width, for close work.
+Window mode is the default view. The surface renders at the real size of its pane: the window
+preset (16:9 by default), the app's metrics (`MetricTunables.swift` for each density: sidebar
+width, titlebar, tab strip, column gap) and `Panes` (`one`: the whole content area; `two`: the
+left of two panes; `agent-right`: the right column) give the pane size. Only the surface is drawn,
+inside a plain neutral frame with a caption (the preset and the pane size in points). Nothing of
+the native window (sidebar, tab strip, title bar) is imitated. The shell scales the finished
+surface down with one transform, so nothing reflows. A full-page surface uses `one`. You add
+nothing for window mode. `component` mode shows the entry at a chosen pane width, for close work.
 
 ## Play steps and checks
 
