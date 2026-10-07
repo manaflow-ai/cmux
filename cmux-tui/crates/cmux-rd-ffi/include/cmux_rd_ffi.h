@@ -53,6 +53,7 @@ extern "C" {
 #define CMUX_RD_ERR_FAILED (-5)      /* the stream broke or the peer flooded; end the session */
 #define CMUX_RD_ERR_PANIC (-6)       /* internal error; the receiver is unusable */
 #define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
+#define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -231,6 +232,12 @@ int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, 
    bitrate, NACK resends and keyframe requests. Nothing is queued to catch
    up: a frame over the budget is dropped and the sender asks for a
    keyframe; dependent frames are then dropped until an independent one.
+   Consent: a sender is created for one media kind and sends nothing until
+   the app grants that kind's consent with cmux_rd_upstream_set_consent,
+   which it calls only after an explicit user action in this session.
+   Without consent send_frame and on_datagram return CMUX_RD_ERR_CONSENT and
+   emit nothing. Revoking drops untaken datagrams. Consent ends when the
+   sender is freed; a new sender (a new session) starts without it.
    Not thread-safe, like a session. */
 typedef struct CmuxRdUpstream CmuxRdUpstream;
 
@@ -239,6 +246,10 @@ typedef struct CmuxRdUpstream CmuxRdUpstream;
 #define CMUX_RD_PATH_DIRECT_WAN 1u
 #define CMUX_RD_PATH_VIA_CLOUD_REGION 2u
 #define CMUX_RD_PATH_DO_RELAY 3u
+/* Media kinds; each needs its own consent. */
+#define CMUX_RD_MEDIA_MIC 1u
+#define CMUX_RD_MEDIA_CAMERA 2u
+#define CMUX_RD_MEDIA_SCREEN 3u
 /* Bytes of untaken datagrams after which new frames are dropped. */
 #define CMUX_RD_UPSTREAM_MAX_QUEUED 4194304u
 
@@ -249,25 +260,32 @@ typedef struct CmuxRdUpstreamStats {
     uint32_t acked_frame;    /* newest frame the host completed, 0 for none */
     uint32_t loss_ppm;       /* smoothed loss, parts per million */
     bool keyframe_requested; /* make the next frame independent */
+    bool consent;            /* the app granted consent for this kind */
 } CmuxRdUpstreamStats;
 
-/* NULL for an unknown carrier or path, max_datagram outside 64..9000 (use
+/* A sender of media kind (CMUX_RD_MEDIA_*), without consent. NULL for an
+   unknown carrier, kind or path, max_datagram outside 64..9000 (use
    the link's, 1152 or 1332), or min_bps > max_bps. A bitrate of 0 takes the
    default (start 8, floor 1, ceiling 80 Mbit/s). fec: block FEC on a lossy
    path; pass false for Opus audio, which has in-band FEC. */
-CmuxRdUpstream *cmux_rd_upstream_new(uint32_t carrier, uint16_t stream, uint32_t max_datagram, uint32_t path,
+CmuxRdUpstream *cmux_rd_upstream_new(uint32_t carrier, uint16_t stream, uint32_t kind, uint32_t max_datagram, uint32_t path,
                                      uint64_t start_bps, uint64_t min_bps, uint64_t max_bps, bool fec);
 void cmux_rd_upstream_free(CmuxRdUpstream *upstream);
+/* Grants or revokes consent for the sender's own media kind (other kinds:
+   CMUX_RD_ERR_INVALID). Revoking drops every datagram not yet taken. */
+int32_t cmux_rd_upstream_set_consent(CmuxRdUpstream *upstream, uint32_t kind, bool granted);
 /* Sends one encoded frame (an access unit or an Opus packet) captured at
    t_capture_us. independent: references no earlier frame (keyframes, every
    audio packet); other frames reference the previous frame sent. Returns
    the datagrams queued, 0 when the frame was dropped (over the pacing
    budget, dependent on a dropped frame, or CMUX_RD_UPSTREAM_MAX_QUEUED bytes
-   are waiting), CMUX_RD_ERR_INVALID for a frame too large to send. */
+   are waiting), CMUX_RD_ERR_CONSENT without consent (nothing queued),
+   CMUX_RD_ERR_INVALID for a frame too large to send. */
 int32_t cmux_rd_upstream_send_frame(CmuxRdUpstream *upstream, const uint8_t *data, size_t len,
                                     uint64_t t_capture_us, bool independent, uint64_t now_us);
 /* Offers one datagram from the host (a session's CMUX_RD_MESSAGE_DATAGRAM
-   message, header included). Returns the resent datagrams queued;
+   message, header included). Returns the resent datagrams queued
+   (CMUX_RD_ERR_CONSENT and none without consent);
    CMUX_RD_ERR_STREAM when it is not feedback for this stream (offer it to
    the next sender; also for a datagram kind this build does not know),
    CMUX_RD_ERR_INVALID for bad bytes. */

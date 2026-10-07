@@ -23,6 +23,12 @@ pub const CMUX_RD_PATH_DIRECT_LAN: u32 = 0;
 pub const CMUX_RD_PATH_DIRECT_WAN: u32 = 1;
 pub const CMUX_RD_PATH_VIA_CLOUD_REGION: u32 = 2;
 pub const CMUX_RD_PATH_DO_RELAY: u32 = 3;
+/// Media kinds of an upstream sender; each needs its own consent.
+pub const CMUX_RD_MEDIA_MIC: u32 = 1;
+pub const CMUX_RD_MEDIA_CAMERA: u32 = 2;
+pub const CMUX_RD_MEDIA_SCREEN: u32 = 3;
+/// The sender has no consent for its media kind (`CMUX_RD_ERR_CONSENT`).
+pub const CMUX_RD_ERR_CONSENT: i32 = -8;
 /// Bytes of datagrams the caller has not taken before new frames are dropped
 /// (`CMUX_RD_UPSTREAM_MAX_QUEUED`).
 pub const CMUX_RD_UPSTREAM_MAX_QUEUED: usize = 4 << 20;
@@ -40,6 +46,8 @@ pub struct CmuxRdUpstreamStats {
     /// Smoothed loss in parts per million.
     pub loss_ppm: u32,
     pub keyframe_requested: bool,
+    /// The app granted consent for this sender's media kind.
+    pub consent: bool,
 }
 
 /// The opaque sender handle (`CmuxRdUpstream`).
@@ -47,6 +55,11 @@ pub struct CmuxRdUpstreamStats {
 pub struct CmuxRdUpstream {
     inner: UpstreamSender,
     carrier: Carrier,
+    /// The media kind (`CMUX_RD_MEDIA_*`), fixed at creation.
+    kind: u32,
+    /// Set only by the app (`cmux_rd_upstream_set_consent`) after an explicit
+    /// user action in this session; it never outlives the handle.
+    consent: bool,
     /// Datagrams to send, framed for the carrier.
     queue: VecDeque<Vec<u8>>,
     queued_bytes: usize,
@@ -118,14 +131,16 @@ fn path_kind(path: u32) -> Option<PathKind> {
     })
 }
 
-/// Creates a sender for upstream stream `stream`; NULL for an unknown
-/// carrier or path, a `max_datagram` outside 64..=9000, or `min_bps >
-/// max_bps`. A bitrate of 0 takes the default.
+/// Creates a sender of media `kind` (`CMUX_RD_MEDIA_*`) for upstream stream
+/// `stream`, without consent; NULL for an unknown carrier, kind or path, a
+/// `max_datagram` outside 64..=9000, or `min_bps > max_bps`. A bitrate of 0
+/// takes the default.
 #[allow(clippy::too_many_arguments)] // one flat C call is simpler for Swift than a config struct
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_rd_upstream_new(
     carrier: u32,
     stream: u16,
+    kind: u32,
     max_datagram: u32,
     path: u32,
     start_bps: u64,
@@ -138,6 +153,9 @@ pub extern "C" fn cmux_rd_upstream_new(
         CMUX_RD_CARRIER_STREAM => Carrier::Stream,
         _ => return std::ptr::null_mut(),
     };
+    if !matches!(kind, CMUX_RD_MEDIA_MIC | CMUX_RD_MEDIA_CAMERA | CMUX_RD_MEDIA_SCREEN) {
+        return std::ptr::null_mut();
+    }
     let Some(path) = path_kind(path) else { return std::ptr::null_mut() };
     if !(MIN_DATAGRAM..=MAX_DATAGRAM).contains(&max_datagram) {
         return std::ptr::null_mut();
@@ -158,6 +176,8 @@ pub extern "C" fn cmux_rd_upstream_new(
         Box::into_raw(Box::new(CmuxRdUpstream {
             inner: UpstreamSender::new(config),
             carrier,
+            kind,
+            consent: false,
             queue: VecDeque::new(),
             queued_bytes: 0,
             poisoned: false,
@@ -182,8 +202,9 @@ pub unsafe extern "C" fn cmux_rd_upstream_free(upstream: *mut CmuxRdUpstream) {
 
 /// Sends one encoded frame. Returns the number of datagrams queued, 0 when
 /// the frame was dropped (over the pacing budget, dependent on a dropped
-/// frame, or the queue holds [`CMUX_RD_UPSTREAM_MAX_QUEUED`] bytes), or
-/// `CMUX_RD_ERR_INVALID` for a frame too large to send.
+/// frame, or the queue holds [`CMUX_RD_UPSTREAM_MAX_QUEUED`] bytes),
+/// [`CMUX_RD_ERR_CONSENT`] (nothing queued, nothing counted) without
+/// consent, or `CMUX_RD_ERR_INVALID` for a frame too large to send.
 ///
 /// # Safety
 /// `upstream` is valid; `data` is readable for `len` bytes.
@@ -201,6 +222,9 @@ pub unsafe extern "C" fn cmux_rd_upstream_send_frame(
     // SAFETY: `upstream` is NULL or valid (this function's contract).
     unsafe {
         with_upstream(upstream, |h| {
+            if !h.consent {
+                return CMUX_RD_ERR_CONSENT;
+            }
             if h.full() {
                 h.inner.drop_frame();
                 return 0;
@@ -215,7 +239,8 @@ pub unsafe extern "C" fn cmux_rd_upstream_send_frame(
 }
 
 /// Takes one datagram from the host (a session's `CMUX_RD_MESSAGE_DATAGRAM`
-/// message). Returns the number of resent datagrams queued,
+/// message). Returns the number of resent datagrams queued
+/// ([`CMUX_RD_ERR_CONSENT`] and none without consent),
 /// `CMUX_RD_ERR_STREAM` when it is not feedback for this sender's stream, or
 /// `CMUX_RD_ERR_INVALID`.
 ///
@@ -233,6 +258,8 @@ pub unsafe extern "C" fn cmux_rd_upstream_on_datagram(
     // SAFETY: `upstream` is NULL or valid (this function's contract).
     unsafe {
         with_upstream(upstream, |h| match h.inner.on_datagram(bytes, now_us) {
+            // Feedback still updates the controller; nothing goes out.
+            Ok(_) if !h.consent => CMUX_RD_ERR_CONSENT,
             Ok(resends) if h.full() => {
                 drop(resends);
                 0
@@ -277,6 +304,34 @@ pub unsafe extern "C" fn cmux_rd_upstream_pop_datagram(
     };
     // SAFETY: `upstream` is NULL or valid (this function's contract).
     unsafe { with_upstream(upstream, pop) }
+}
+
+/// Grants or revokes consent for the sender's media kind. Only the app calls
+/// it, after an explicit user action in this session; `kind` must be the
+/// sender's own kind (`CMUX_RD_ERR_INVALID` otherwise). Revoking drops every
+/// datagram not yet taken, so nothing captured before the revoke goes out.
+///
+/// # Safety
+/// `upstream` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_upstream_set_consent(
+    upstream: *mut CmuxRdUpstream,
+    kind: u32,
+    granted: bool,
+) -> i32 {
+    let apply = |h: &mut CmuxRdUpstream| {
+        if kind != h.kind {
+            return CMUX_RD_ERR_INVALID;
+        }
+        h.consent = granted;
+        if !granted {
+            h.queue.clear();
+            h.queued_bytes = 0;
+        }
+        CMUX_RD_OK
+    };
+    // SAFETY: `upstream` is NULL or valid (this function's contract).
+    unsafe { with_upstream(upstream, apply) }
 }
 
 /// The bitrate the encoder should aim for at `now_us`; 0 for NULL or an
@@ -343,6 +398,7 @@ pub unsafe extern "C" fn cmux_rd_upstream_stats(
         acked_frame: s.acked_frame,
         loss_ppm: (s.loss.clamp(0.0, 1.0) * 1_000_000.0) as u32,
         keyframe_requested: s.keyframe_requested,
+        consent: h.consent,
     };
     // SAFETY: checked non-NULL; writable by contract.
     unsafe { out.write(value) };
