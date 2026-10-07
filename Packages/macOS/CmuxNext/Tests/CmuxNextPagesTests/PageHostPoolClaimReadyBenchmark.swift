@@ -7,9 +7,9 @@ import WebKit
 
 /// Claim-to-ready of a Settings page from the parked spare (`CMUX_PAGE_CLAIM_BENCH=<runs>`).
 ///
-/// Ready: the claimed document shows settings rows (`[data-row-key]` under `.content h1`) and no
-/// read-only banner, after its reads went through the claim's routes. The page records the moment on
-/// its own clock (`performance.timeOrigin + now`, wall-clock milliseconds), so the coarse host poll
+/// Ready: the claimed document shows settings rows with enabled controls (a row enables its controls
+/// only after the owner's values arrive through the claim's routes) and no read-only banner. The page records the moment on
+/// its own clock (`Date.now()`, wall-clock milliseconds), so the coarse host poll
 /// that reads it adds nothing to the number.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
@@ -21,8 +21,10 @@ struct PageHostPoolClaimReadyBenchmark {
       const check = () => {
         if (root.dataset.benchReady) return true;
         if (document.querySelector('[data-read-only]')) return false;
-        if (!document.querySelector('.content h1') || !document.querySelector('[data-row-key]')) return false;
-        root.dataset.benchReady = String(performance.timeOrigin + performance.now());
+        // Every control stays disabled until the owner's values arrive (SettingRow).
+        if (!document.querySelector('.content h1')) return false;
+        if (!document.querySelector('[data-row-key] :is(button,input,select):not(:disabled)')) return false;
+        root.dataset.benchReady = String(Date.now());
         return true;
       };
       if (check()) return;
@@ -34,16 +36,17 @@ struct PageHostPoolClaimReadyBenchmark {
     @Test func claimToReady() async throws {
         let runs = Int(ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] ?? "") ?? 8
         var samples: [Double] = []
+        var claims: [String] = []
         for _ in 0..<max(runs, 1) {
-            if let sample = try await Self.oneClaim() { samples.append(sample) }
+            if let sample = try await Self.oneClaim(claims: &claims) { samples.append(sample) }
         }
         samples.sort()
         let median = samples.isEmpty ? .nan : samples[samples.count / 2]
-        print("PAGE_CLAIM_BENCH runs=\(samples.count) median_ms=\(median) samples_ms=\(samples.map { Int($0.rounded()) })")
+        print("PAGE_CLAIM_BENCH runs=\(samples.count) median_ms=\(median) samples_ms=\(samples.map { Int($0.rounded()) }) claims=\(claims)")
         #expect(samples.count == max(runs, 1))
     }
 
-    private static func oneClaim() async throws -> Double? {
+    private static func oneClaim(claims: inout [String]) async throws -> Double? {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -77,12 +80,22 @@ struct PageHostPoolClaimReadyBenchmark {
         for _ in 0..<400 {
             let ready = try? await page.webKitView.callAsyncJavaScript(
                 "return document.documentElement.dataset.benchReady || null;", contentWorld: .page) as? String
-            if let ready, let at = Double(ready) { return at - start }
+            if let ready, let at = Double(ready) {
+                claims.append(page.lastClaimSummary)
+                return at - start
+            }
             try await Task.sleep(for: .milliseconds(25))
         }
         let text = try? await page.webKitView.callAsyncJavaScript(
             "return (document.body && document.body.innerText || '').slice(0, 300);", contentWorld: .page) as? String
         Issue.record("claimed page never became ready; ops \(provider.ops); text \(text ?? "nil")")
         return nil
+    }
+}
+
+extension PageWebView {
+    /// The claim outcome for the benchmark line (`acknowledged@1.2ms`); `-` when the build has none.
+    var lastClaimSummary: String {
+        lastClaim.map { "\($0.path.rawValue)@\(String(format: "%.1f", $0.milliseconds))ms" } ?? "-"
     }
 }

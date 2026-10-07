@@ -21,7 +21,7 @@ struct PageHostPoolClaimAckTests {
 
         let provider = PageHostPoolSettingsClaimTests.RecordingProvider()
         let page = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: provider)],
-                                           route: "#/settings/general", window: window, focus: false))
+                                           route: "#/settings/terminal", window: window, focus: false))
         #expect(page === spare)
         Self.show(page, in: window)
 
@@ -30,7 +30,12 @@ struct PageHostPoolClaimAckTests {
         let probe = try await page.webKitView.callAsyncJavaScript("return window.__claimProbe ?? null;", contentWorld: .page) as? String
         #expect(probe == "spare", "the claim must not navigate: the spare's document serves the claim")
         let hash = try await page.webKitView.callAsyncJavaScript("return location.hash;", contentWorld: .page) as? String
-        #expect(hash == "#/settings/general")
+        #expect(hash == "#/settings/terminal")
+        let section = try await page.webKitView.callAsyncJavaScript(
+            "return document.querySelector('[data-section-link][aria-current]')?.dataset.sectionLink ?? null;",
+            contentWorld: .page) as? String
+        #expect(section == "terminal", "the page shows the claim's route")
+        #expect(page.lastClaim?.path == .acknowledged)
     }
 
     @Test func aSpareThatDoesNotAcknowledgeTheClaimIsReloaded() async throws {
@@ -52,6 +57,64 @@ struct PageHostPoolClaimAckTests {
         #expect(await Self.banner(in: page, becomes: "none") == "none")
         let probe = try await page.webKitView.callAsyncJavaScript("return window.__claimProbe ?? null;", contentWorld: .page) as? String
         #expect(probe == nil, "with no acknowledgement the claim reloads the document")
+        #expect(page.lastClaim?.path == .timedOut)
+    }
+
+    @Test func withNoAcknowledgementTheReloadWaitsForTheClockDeadline() async throws {
+        let window = Self.window()
+        defer { window.close() }
+        let pool = Self.pool(window)
+        defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
+        let spare = try #require(await Self.settledSpare(pool))
+        let clock = ClaimTestClock()
+        spare.claimState.clock = clock
+        _ = try await spare.webKitView.callAsyncJavaScript(
+            "window.__claimProbe = 'spare'; window.__cmuxPageReceive = () => {}; return true;", contentWorld: .page)
+
+        let provider = PageHostPoolSettingsClaimTests.RecordingProvider()
+        let page = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: provider)],
+                                           route: "#/settings/general", window: window, focus: false))
+        Self.show(page, in: window)
+        try await Task.sleep(for: .milliseconds(300))
+        let before = try await page.webKitView.callAsyncJavaScript("return window.__claimProbe ?? null;", contentWorld: .page) as? String
+        #expect(before == "spare", "no reload before the clock reaches the deadline")
+        #expect(page.lastClaim == nil)
+
+        clock.advance(by: PageWebView.claimAcknowledgementBudget)
+        #expect(await Self.readAndListened(provider) == true)
+        #expect(page.lastClaim?.path == .timedOut)
+    }
+
+    @Test func aHostParkedAgainRefusesTheClaimAndReloadsWithoutWaiting() async throws {
+        let window = Self.window()
+        defer { window.close() }
+        let pool = Self.pool(window)
+        defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
+        let spare = try #require(await Self.settledSpare(pool))
+        let first = PageHostPoolSettingsClaimTests.RecordingProvider()
+        let page = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: first)],
+                                           window: window, focus: false))
+        #expect(await Self.readAndListened(first) == true)
+        // Released untouched: parked again with the document that already ran.
+        pool.dropSpare()
+        pool.release(page)
+        #expect(pool.spareHost === spare)
+        _ = await PageTestWait.value("parked again") { (done: @escaping (Bool) -> Void) in
+            if pool.isSpareReady { return done(true) }
+            pool.onSpareReady = { _ in done(true) }
+        }
+        // The deadline never comes: only the refusal can reload.
+        spare.claimState.clock = ClaimTestClock()
+        _ = try await spare.webKitView.callAsyncJavaScript("window.__claimProbe = 'again'; return true;", contentWorld: .page)
+
+        let second = PageHostPoolSettingsClaimTests.RecordingProvider()
+        let again = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: second)],
+                                            window: window, focus: false))
+        Self.show(again, in: window)
+        #expect(await Self.readAndListened(second) == true, "ops \(second.ops)")
+        #expect(again.lastClaim?.path == .refused)
+        let probe = try await again.webKitView.callAsyncJavaScript("return window.__claimProbe ?? null;", contentWorld: .page) as? String
+        #expect(probe == nil)
     }
 
     // MARK: Helpers
