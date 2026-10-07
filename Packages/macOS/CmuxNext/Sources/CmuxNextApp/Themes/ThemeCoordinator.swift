@@ -34,6 +34,8 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// The scopes whose theme this coordinator set.
+    private let themed = NSHashTable<ThemeScope>.weakObjects()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore) {
         self.services = services
@@ -148,6 +150,10 @@ final class ThemeCoordinator {
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
         let resolved = resolver.resolve(text.flatMap(ThemeSpec.init))
+        // Re-resolves run on every Ghostty config reload in the process; a
+        // theme this coordinator never set is not its to clear.
+        guard resolved != nil || themed.contains(scope) else { return }
+        if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
     }
 
