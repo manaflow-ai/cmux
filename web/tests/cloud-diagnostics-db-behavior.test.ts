@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { cloudDb } from "../db/client";
-import { acceptCloudTelemetry, claimCloudDiagnostics, cloudDiagnosticsFinishStatement, finishCloudDiagnostics } from "../services/observability/cloudTelemetryRepository";
+import { acceptCloudTelemetry, claimCloudDiagnostics, cloudDiagnosticsFinishStatement, expireCloudDiagnostics, finishCloudDiagnostics } from "../services/observability/cloudTelemetryRepository";
 import { CloudTelemetryConflictError } from "../services/observability/cloudTelemetryIngest";
 import { CloudOperationProgress, readCloudOperationProgress } from "../services/observability/cloudOperationProgress";
 import type { CloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
@@ -100,6 +100,39 @@ describe("Cloud diagnostic durable storage", () => {
       expect(plan).not.toContain("Seq Scan on cloud_diagnostic_events");
     }
     await finishCloudDiagnostics(claimed, true);
+  });
+  dbTest("a sampled span stores its weight without changing its retry identity", async () => {
+    const { owner, batch } = fixture();
+    const eventId = batch.spans[0]!.eventId;
+    const weights = new Map([[eventId, 50]]);
+    expect(await acceptCloudTelemetry(owner, batch, { sampleWeights: weights })).toBe(1);
+    // A retry is deduplicated by the submitted content, not by the ingest weight.
+    expect(await acceptCloudTelemetry(owner, batch)).toBe(1);
+    const claimed = await claimCloudDiagnostics(100, owner);
+    expect(claimed.rows.map((row) => row.payload.sampleWeight)).toEqual([50]);
+    await finishCloudDiagnostics(claimed, true);
+  });
+  dbTest("retention drops delivered rows after the retry window and keeps undelivered rows for a week", async () => {
+    const { owner, batch } = fixture();
+    const span = batch.spans[0]!;
+    const ages = { deliveredFresh: "2 hours", deliveredOld: "26 hours", pendingOld: "26 hours", pendingExpired: "8 days" };
+    const ids: Record<string, string> = {};
+    for (const [name, age] of Object.entries(ages)) {
+      ids[name] = randomUUID();
+      await acceptCloudTelemetry(owner, { ...batch, spans: [{ ...span, eventId: ids[name]! }] });
+      await cloudDb().execute(sql`
+        update cloud_diagnostic_events set received_at = now() - ${age}::interval,
+          delivered_at = ${name.startsWith("delivered") ? sql`now()` : sql`null`}
+        where user_id = ${owner} and event_id = ${ids[name]}::uuid
+      `);
+    }
+    // Other suites may share the database; repeat until this owner's expired rows are gone.
+    for (let round = 0; round < 50; round += 1) {
+      const result = await expireCloudDiagnostics();
+      if (result.expiredDelivered === 0 && result.expiredUndelivered === 0) break;
+    }
+    const rows = await cloudDb().execute(sql`select event_id::text from cloud_diagnostic_events where user_id = ${owner}`);
+    expect(new Set(rows.map((row) => String(row.event_id)))).toEqual(new Set([ids.deliveredFresh!, ids.pendingOld!]));
   });
   dbTest("progress is owner-only and preserves parallel provider steps", async () => {
     const { owner, batch } = fixture();
