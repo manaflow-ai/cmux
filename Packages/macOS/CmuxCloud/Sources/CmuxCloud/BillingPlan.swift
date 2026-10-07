@@ -81,6 +81,53 @@ public struct BillingPlanClient: Sendable {
     /// - Throws: A URL-loading or decoding error when the request fails.
     @concurrent
     public func fetch(from url: URL, accessToken: String?, refreshToken: String? = nil) async throws -> BillingPlanDetails {
+        let scopedResponse = try await fetchResponse(
+            from: url,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        guard scopedResponse.authenticated else {
+            throw BillingPlanClientError.unauthenticated
+        }
+
+        // An explicit team request intentionally returns only that team's
+        // billing fields. Read the personal response as well so a personal Pro
+        // subscription still grants Pro while the selected team is free.
+        let personalResponse: Response?
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           components.queryItems?.contains(where: { $0.name == "teamId" }) == true {
+            components.queryItems?.removeAll { $0.name == "teamId" }
+            guard let personalURL = components.url else { throw URLError(.badURL) }
+            let response = try await fetchResponse(
+                from: personalURL,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+            guard response.authenticated else {
+                throw BillingPlanClientError.unauthenticated
+            }
+            personalResponse = response
+        } else {
+            personalResponse = nil
+        }
+
+        let personalIsPro = personalResponse.map(isPro(_:)) ?? false
+        let teamIsPro = isPro(scopedResponse)
+        let personalCanManageBilling = personalResponse?.billingManagement == "stripe"
+            || personalResponse?.teamBillingManagement == "stripe"
+        let teamCanManageBilling = scopedResponse.canManageBilling == true
+            || scopedResponse.teamBillingManagement == "stripe"
+        return BillingPlanDetails(
+            isPro: personalIsPro || teamIsPro,
+            canManageBilling: personalCanManageBilling || teamCanManageBilling
+        )
+    }
+
+    private func fetchResponse(
+        from url: URL,
+        accessToken: String?,
+        refreshToken: String?
+    ) async throws -> Response {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
@@ -95,23 +142,18 @@ public struct BillingPlanClient: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        let decoded = try JSONDecoder().decode(Response.self, from: data)
-        // The endpoint uses HTTP 200 for an unauthenticated request as well.
-        // Treat that response as an auth failure instead of interpreting its
-        // fallback free plan as a confirmed entitlement.
-        guard decoded.authenticated else {
-            throw BillingPlanClientError.unauthenticated
-        }
+        return try JSONDecoder().decode(Response.self, from: data)
+    }
+
+    private func isPro(_ response: Response) -> Bool {
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
         let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
-        let isPro = decoded.isPro == true
-            || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
-            || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
-        let canManageBilling = decoded.billingManagement == "stripe"
-            || decoded.teamBillingManagement == "stripe"
-        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling)
+        return response.isPro == true
+            || paidPlanIDs.contains(response.planId?.lowercased() ?? "")
+            || paidPlanIDs.contains(response.subscriptionPlanId?.lowercased() ?? "")
+            || paidPlanIDs.contains(response.teamPlanId?.lowercased() ?? "")
     }
 
     private let session: URLSession
@@ -121,7 +163,9 @@ public struct BillingPlanClient: Sendable {
         let isPro: Bool?
         let planId: String?
         let billingManagement: String?
+        let canManageBilling: Bool?
         let teamPlanId: String?
         let teamBillingManagement: String?
+        let subscriptionPlanId: String?
     }
 }

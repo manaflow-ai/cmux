@@ -215,11 +215,17 @@ final class WhatsNewCenter {
         fillTask = nil
         // The launch path never steals focus from another app.
         _ = showWindow(phase: .loaded(releases), activates: source != "launch", sheetParent: sheetParent)
-        if Self.hasHighlightsForCurrentRelease(
+        let includesCurrentRelease = Self.hasHighlightsForCurrentRelease(
             catalog: WhatsNewCatalog(releases: releases),
             currentVersion: currentVersion
-        ) {
+        )
+        if includesCurrentRelease {
             markSeen()
+        } else {
+            // An older fallback recap has still been opened. Clear its launch
+            // state without consuming the current release's automatic slot.
+            pendingReleases = []
+            hasUnseenHighlights = false
         }
 #if DEBUG
         cmuxDebugLog("whatsNew.present source=\(source) releases=\(releases.map(\.version).joined(separator: ","))")

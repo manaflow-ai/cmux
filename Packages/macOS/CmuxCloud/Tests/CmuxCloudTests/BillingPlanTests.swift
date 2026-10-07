@@ -2,7 +2,7 @@ import CmuxCloud
 import Foundation
 import Testing
 
-@Suite("Billing plan state")
+@Suite("Billing plan state", .serialized)
 struct BillingPlanTests {
     @Test("successful response is scoped to its account")
     func successScopesAccount() {
@@ -95,10 +95,33 @@ struct BillingPlanTests {
             )
         }
     }
+
+    @Test("explicit team response retains a personal Pro entitlement")
+    func explicitTeamResponseRetainsPersonalPro() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BillingPlanStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let teamURL = URL(string: "https://cmux.test/api/billing/plan?teamId=team-a")!
+        let personalURL = URL(string: "https://cmux.test/api/billing/plan")!
+        BillingPlanStubURLProtocol.responseDataByURL = [
+            teamURL.absoluteString: Data(#"{"authenticated":true,"teamId":"team-a","teamPlanId":"free","teamBillingManagement":"none","canManageBilling":true}"#.utf8),
+            personalURL.absoluteString: Data(#"{"authenticated":true,"isPro":true,"planId":"pro","subscriptionPlanId":"pro","billingManagement":"stripe"}"#.utf8),
+        ]
+        defer { BillingPlanStubURLProtocol.responseDataByURL = [:] }
+
+        let details = try await BillingPlanClient(session: session).fetch(
+            from: teamURL,
+            accessToken: "access"
+        )
+
+        #expect(details.isPro)
+        #expect(details.canManageBilling)
+    }
 }
 
 private final class BillingPlanStubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responseData: Data?
+    nonisolated(unsafe) static var responseDataByURL: [String: Data] = [:]
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -111,7 +134,7 @@ private final class BillingPlanStubURLProtocol: URLProtocol, @unchecked Sendable
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseData ?? Data())
+        client?.urlProtocol(self, didLoad: Self.responseDataByURL[request.url!.absoluteString] ?? Self.responseData ?? Data())
         client?.urlProtocolDidFinishLoading(self)
     }
 
