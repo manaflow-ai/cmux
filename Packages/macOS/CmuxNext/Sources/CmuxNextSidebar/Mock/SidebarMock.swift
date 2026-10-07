@@ -20,7 +20,7 @@ public struct SidebarMock {
                     id: WorkspaceID("ws-new-\(counter)"),
                     machineID: machineID,
                     title: "Workspace \(counter)",
-                    subtitle: "~"
+                    directory: "~"
                 )
                 insert(ws, into: model, group: group)
                 model.click(ws.id)
@@ -43,7 +43,7 @@ public struct SidebarMock {
                 SidebarWorkspace(
                     id: WorkspaceID("ws-\(made + i)"),
                     title: "workspace \(made + i)",
-                    subtitle: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
+                    directory: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
                     activity: i == 3 ? .busy : .idle
                 )
             }
@@ -82,7 +82,7 @@ public struct SidebarMock {
             let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false
             return SidebarWorkspace(
                 id: WorkspaceID(id), machineID: machine, title: title,
-                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
+                directory: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
                 icon: icon, unread: unread, activity: activity
             )
         }
