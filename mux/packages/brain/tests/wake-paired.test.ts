@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/conversation-types.ts";
-import { wakes } from "../src/wake.ts";
+import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
+import { wakes } from "../src/core/rules.ts";
 
 // The paired-device rules of server-remote-conversations.md section 5 (D-C), the
 // same as the Rust cmux_chief::rules::wakes test a_paired_device_does_not_change_the_wake_rule.
