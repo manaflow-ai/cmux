@@ -70,16 +70,14 @@ struct DragShapeTracker {
     /// when no sidebar list answered): in place when a list takes the
     /// workspaces (a slot, a group, a row), the card over content, on a
     /// refusal and outside.
-    mutating func resolveWorkspace(_ hit: (window: WindowController, slot: CGRect?)?, outcome: WorkspaceDragOutcome) {
+    mutating func resolveWorkspace(_ hit: (window: WindowController, slot: CGRect?)?, of drag: TabDragSession.Drag) {
         var answer: DragShapeAnswer?
         let window = hit?.window
         if let window, let slot = hit?.slot, let bounds = Self.screenFrame(of: window.sidebar.container.sidebarView) {
             let target = DragShapeTarget(key: "sidebar-\(window.state.id)", bounds: bounds, axis: .vertical,
                                          leaveMargin: SidebarView.handoffSlack)
-            let accepts: Bool = switch outcome {
-            case .window(_, .position), .window(_, .intoGroup), .window(_, .window): true
-            case .window(_, .merge), .newWindow, .moveWindow, .cancel: false
-            }
+            let accepts = WorkspaceDragResolver.keepsRowShape(drag.workspaceOutcome, sidebarWindowID: window.state.id,
+                                                              sourceWindowID: drag.source.window?.state.id)
             answer = DragShapeAnswer(target: target, slot: slot, accepts: accepts)
         }
         machine.resolve(answer)

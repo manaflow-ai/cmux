@@ -84,7 +84,7 @@ extension TabDragSession {
             highlight = controller?.window?.frame
         }
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
-        drag.shaping.resolveWorkspace(sidebar == nil ? nil : controller.map { ($0, highlight) }, outcome: drag.workspaceOutcome)
+        drag.shaping.resolveWorkspace(sidebar == nil ? nil : controller.map { ($0, highlight) }, of: drag)
         present(drag)
         wake(drag)
     }

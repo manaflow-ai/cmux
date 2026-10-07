@@ -36,6 +36,31 @@ struct WorkspaceDragResolverTests {
         #expect(outcome(window: "src", hit: .position(slot)) == .window(id: "src", target: .position(slot)))
     }
 
+    // DRAG-SHAPE-INVARIANT: row shape over a sidebar list, card elsewhere.
+
+    @Test func anotherWindowsSidebarListKeepsTheRowShape() {
+        for target in [WorkspaceDropTarget.position(slot), .intoGroup(GroupID("g")), .window] {
+            #expect(WorkspaceDragResolver.keepsRowShape(.window(id: "b", target: target), sidebarWindowID: "b", sourceWindowID: "src"))
+        }
+    }
+
+    /// Back home the list is the rows' own list: a point that changes
+    /// nothing there (a row's middle, a group header) is a stay and keeps
+    /// the row shape, as a tab over its own strip does (dogfood on
+    /// nxshape-v1: the row turned into the card over its own sidebar).
+    @Test func theOwnSidebarListKeepsTheRowShapeAlsoForAStay() {
+        #expect(WorkspaceDragResolver.keepsRowShape(.window(id: "src", target: .position(slot)), sidebarWindowID: "src", sourceWindowID: "src"))
+        #expect(WorkspaceDragResolver.keepsRowShape(.cancel, sidebarWindowID: "src", sourceWindowID: "src"))
+    }
+
+    @Test func mergesRefusalsAndOutsideAreTheCard() {
+        #expect(!WorkspaceDragResolver.keepsRowShape(.window(id: "b", target: .merge(split)), sidebarWindowID: nil, sourceWindowID: "src"))
+        #expect(!WorkspaceDragResolver.keepsRowShape(.window(id: "b", target: .window), sidebarWindowID: nil, sourceWindowID: "src"))
+        // Another window refused it (incognito crossing).
+        #expect(!WorkspaceDragResolver.keepsRowShape(.cancel, sidebarWindowID: "b", sourceWindowID: "src"))
+        #expect(!WorkspaceDragResolver.keepsRowShape(.newWindow(screenPoint: point), sidebarWindowID: nil, sourceWindowID: "src"))
+    }
+
     @Test func groupsJoinAnotherWindowWhole() {
         #expect(outcome(window: "b", hit: .position(slot), group: true) == .window(id: "b", target: .window))
         #expect(outcome(window: "src", hit: .position(slot), group: true) == .cancel)
