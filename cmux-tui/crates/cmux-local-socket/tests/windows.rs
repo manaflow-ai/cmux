@@ -200,8 +200,9 @@ fn label_low(path: &std::path::Path) {
 fn spawn_low_integrity_child(path: &std::path::Path) -> HANDLE {
     use windows_sys::Win32::Security::{
         DuplicateTokenEx, SecurityImpersonation, SetTokenInformation, TOKEN_ALL_ACCESS, TOKEN_MANDATORY_LABEL,
-        TokenIntegrityLevel, TokenPrimary, SID_AND_ATTRIBUTES, ConvertStringSidToSidW,
+        TokenIntegrityLevel, TokenPrimary, SID_AND_ATTRIBUTES,
     };
+    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
     use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
     use windows_sys::Win32::System::Threading::{
         CreateProcessAsUserW, GetCurrentProcess, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW,
@@ -215,13 +216,13 @@ fn spawn_low_integrity_child(path: &std::path::Path) -> HANDLE {
         let mut sid: PSID = std::ptr::null_mut();
         assert_ne!(ConvertStringSidToSidW(sid_text.as_ptr(), &mut sid), 0);
         let label = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: sid, Attributes: SE_GROUP_INTEGRITY as u32 } };
-        assert_ne!(SetTokenInformation(low, TokenIntegrityLevel, (&raw const label).cast(), std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32), 0, "set Low");
+        assert_ne!(SetTokenInformation(low, TokenIntegrityLevel, (&raw const label).cast(), size_of::<TOKEN_MANDATORY_LABEL>() as u32), 0, "set Low");
         let exe = std::env::current_exe().unwrap();
         let mut cmd: Vec<u16> = format!("\"{}\" --exact low_integrity_child --nocapture --test-threads 1", exe.display()).encode_utf16().chain([0]).collect();
         // The child reads the socket path from its environment.
         std::env::set_var("CLS_LOW_CHILD_SOCKET", path);
         let mut si: STARTUPINFOW = std::mem::zeroed();
-        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        si.cb = size_of::<STARTUPINFOW>() as u32;
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
         let ok = CreateProcessAsUserW(low, std::ptr::null(), cmd.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), std::ptr::null(), &si, &mut pi);
         std::env::remove_var("CLS_LOW_CHILD_SOCKET");
