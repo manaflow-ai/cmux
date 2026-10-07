@@ -542,6 +542,7 @@ impl TerminalMetadata {
 
     /// Metadata that keeps feeding `program_status` (a reconnect replaces the
     /// rest).
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn with_program_status(
         program_status: crate::program_status::SharedProgramStatus,
     ) -> Self {
