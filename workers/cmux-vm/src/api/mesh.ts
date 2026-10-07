@@ -449,6 +449,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
+      .addError(Conflict)
       .addError(QuotaExceeded)
       .annotateContext(describe("Remove a VM from a mesh", "mesh:write", `Also needs vm:write. ${EXPERIMENT}`)),
   )

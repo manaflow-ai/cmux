@@ -355,7 +355,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("lib.rs"),
         include_str!("input_ffi.rs"),
         include_str!("session_ffi.rs"),
-        include_str!("upstream_ffi.rs")
+        include_str!("upstream_ffi.rs"),
+        include_str!("bulk_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -381,10 +382,19 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_PANIC", CMUX_RD_ERR_PANIC),
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
         ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
+        ("CMUX_RD_ERR_FULL", CMUX_RD_ERR_FULL),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
     assert!(header.contains(&format!("#define CMUX_RD_FFI_ABI_VERSION {ABI_VERSION}u")));
+    for (name, value) in [
+        ("CMUX_RD_BULK_MAX_QUEUED", CMUX_RD_BULK_MAX_QUEUED),
+        ("CMUX_RD_BULK_MAX_TRANSFERS", CMUX_RD_BULK_MAX_TRANSFERS),
+        ("CMUX_RD_BULK_FRAME_MAX", CMUX_RD_BULK_FRAME_MAX),
+        ("CMUX_RD_BULK_CREDIT_MAX", CMUX_RD_BULK_CREDIT_MAX),
+    ] {
+        assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
+    }
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_CONTROL {STREAM_CONTROL}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_DATAGRAM {STREAM_DATAGRAM}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_BULK {}u", STREAM_BULK)));

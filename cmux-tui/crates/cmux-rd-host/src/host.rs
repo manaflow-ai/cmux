@@ -214,8 +214,10 @@ fn serve_viewer(
         let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
         return Ok("refused: missing or wrong session token".into());
     }
-    // Route by service (C1): this host serves remote desktop only, with no optional caps yet.
-    let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &[]) {
+    // Route by service (C1): this host serves remote desktop only. Upstream
+    // media (C4) is offered only once the desktop has a sink for it.
+    let host_caps = crate::upstream::offered_caps(&crate::upstream::NoSink);
+    let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
             write_control(&mut stream, &Control::Refused { reason: refusal.reason().into() })?;
@@ -306,7 +308,7 @@ fn stream_session(
         None => DatagramOut::Stream,
     };
     let carrier = if udp_port.is_some() { "udp" } else { "stream" };
-    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip)?;
+    let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip, &negotiated.caps)?;
     let (width, height) = media.size();
     write_control(
         stream,
@@ -323,6 +325,7 @@ fn stream_session(
     write_control(stream, &Control::Started { session })?;
     let reason = media.run(stream, reader, udp, table, session, principal);
     media.release_input();
+    media.close_upstreams();
     Ok(reason)
 }
 

@@ -26,10 +26,20 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
+    /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
+    public var emoji: String?
+    /// An unread dot instead of a count, in every look (What's New after an update).
+    public var unreadDot = false
+    /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
+    /// amendment 2): an icon-only item with an avatar draws its initial in
+    /// a circle with a small chevron, and a click opens the profile menu.
+    public var avatar: SidebarAvatar?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                emoji: String? = nil) {
         self.icon = icon
+        self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
         self.isHidden = isHidden
@@ -40,6 +50,28 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
         self.badge = badge
         self.isActive = isActive
         self.isMissing = isMissing
+    }
+}
+
+/// A profile's avatar: the initial of its name in a tinted circle.
+public nonisolated struct SidebarAvatar: Hashable, Sendable {
+    /// The profile's name (tooltip and VoiceOver).
+    public var name: String
+    /// One user-visible character drawn in the circle.
+    public var initial: String
+    /// The profile's color; nil draws the neutral text color.
+    public var color: GroupColor?
+
+    public init(name: String, color: GroupColor? = nil) {
+        self.name = name
+        self.initial = Self.initial(of: name)
+        self.color = color
+    }
+
+    /// The first letter or digit of `name`, uppercased; "?" when it has none.
+    public static func initial(of name: String) -> String {
+        guard let first = name.first(where: { $0.isLetter || $0.isNumber }) else { return "?" }
+        return String(first).uppercased()
     }
 }
 
@@ -58,6 +90,7 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
+        case .searchChats: "magnifyingglass"
         }
     }
 
@@ -75,6 +108,7 @@ extension SidebarBuiltIn {
         case .newBrowser: .browserNew
         case .newAgentChat: .agentChatNew
         case .customize: .theme
+        case .searchChats: .search
         }
     }
 
@@ -97,6 +131,7 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
+        case .searchChats: SectionStrings.searchChats
         }
     }
 
@@ -140,5 +175,13 @@ extension SidebarItemInfo {
         }
         let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "questionmark.square.dashed"
         return SidebarItemInfo(title: ref.value, symbol: symbol, icon: icon, isMissing: true)
+    }
+
+    /// `fallback(for:)` of the item's ref, titled with the label stored with
+    /// the item (a closed workspace's last known name) when it has one.
+    public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
+        var info = fallback(for: item.ref)
+        if info.isMissing, let label = item.label { info.title = label }
+        return info
     }
 }

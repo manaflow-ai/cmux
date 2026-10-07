@@ -135,7 +135,7 @@ final class AppOnboardingServices: OnboardingServices {
         if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
             passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
                 try await cef.importPasswords(rows, into: profile)
-            })
+            }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
@@ -214,5 +214,13 @@ final class AppOnboardingServices: OnboardingServices {
 
     func onboardingDidEnd(completed: Bool) {
         owner.didEnd(completed: completed)
+    }
+
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        owner.recordProgress(step, interacted: interacted)
+    }
+
+    func onboardingDidLeave(notNow: Bool) {
+        if notNow { owner.recordNotNow() }
     }
 }

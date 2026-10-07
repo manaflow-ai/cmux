@@ -41,7 +41,7 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
-    /// Opens the changelog page (set by the App; the what's-new card's click).
+    /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
@@ -52,8 +52,9 @@ public final class UpdaterService {
     public var announcementsFetch = true
     @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
     @ObservationIgnored var allAnnouncements: [Announcement] = []
-    /// This build's notes while the what's-new card shows, else nil.
-    public internal(set) var whatsNew: ReleaseNotes?
+    /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
+    /// documents and this feed's nightly digests. The App loads it at launch.
+    public let whatsNew: WhatsNewCenter
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -120,6 +121,8 @@ public final class UpdaterService {
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
+        whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, defaults: defaults,
+                                  sources: Self.whatsNewSources(identity: identity))
         let log = UpdateLogBuffer()
         self.log = log
         // The managed policy is re-read by the driver on every start and check,
@@ -158,7 +161,6 @@ public final class UpdaterService {
         guard !started else { return }
         started = true
         observeFlowPhase()
-        loadWhatsNew()
         refreshAnnouncements()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")

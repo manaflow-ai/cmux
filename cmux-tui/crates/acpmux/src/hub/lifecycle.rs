@@ -46,10 +46,13 @@ impl Hub {
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
+        let (recorded, fork) = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
-            Adoption::Found(recorded) => recorded,
+            Adoption::Found { cwd, fork } => (cwd, fork),
         };
+        // A fork resumes nothing as itself: its process forks the adopted id
+        // into a new conversation, so the adopted id is not this session's.
+        let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         let cwd = session_cwd(cwd, recorded, &family)?;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
@@ -69,7 +72,10 @@ impl Hub {
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
             // Set before the first spawn, so the harness resumes it.
-            agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
+            agent_session_id: adopt
+                .as_ref()
+                .filter(|_| fork_from.is_none())
+                .map(|a| a.agent_session_id.clone()),
             policy,
             remote,
         });
@@ -99,7 +105,7 @@ impl Hub {
             }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
-            if let Some(a) = &adopt
+            if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
                 && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
             {
                 return Ok(existing);
@@ -123,6 +129,8 @@ impl Hub {
                 },
             };
             let session = self.make_session(meta);
+            *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                fork_from.clone();
             sessions.insert(id.clone(), session.clone());
             session
         };
@@ -132,7 +140,12 @@ impl Hub {
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
-            self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
+            let adopted = if fork_from.is_some() {
+                json!({"agentSessionId": a.agent_session_id, "fork": true})
+            } else {
+                json!({"agentSessionId": a.agent_session_id})
+            };
+            self.append(&session, "mux", "adopted", adopted);
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
@@ -145,7 +158,7 @@ impl Hub {
             return Err(e);
         }
         // An agent that started fresh instead of resuming fails creation.
-        if let Some(a) = &adopt {
+        if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
         }
         // Defaults and explicit values, applied once the harness is up. A bad
@@ -207,6 +220,7 @@ impl Hub {
             ),
             crate::config::HarnessKind::Terminal => {}
         }
+        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
         ids.dedup();
         ids
     }
@@ -395,6 +409,9 @@ impl Hub {
                         // permission policy and rules gate every harness's
                         // edits, not only the ones it chooses to ask about.
                         "fs": {"readTextFile": true, "writeTextFile": true},
+                        // Subagents arrive as their own sessions (ACP draft #1992),
+                        // attributed by `crate::subagents`.
+                        "subagents": {},
                         "terminal": false
                     },
                     "clientInfo": {"name": "acpmux", "version": VERSION}
@@ -726,54 +743,6 @@ impl Hub {
         child.kill().await;
         drain.abort();
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
-    }
-
-    /// Every configured harness with the models known for it.
-    pub async fn models_catalog(&self) -> Value {
-        let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap().clone();
-        let mut out = Vec::new();
-        for (name, profile) in &cfg.harnesses {
-            // A terminal harness has no models and no ACP session.
-            if profile.kind == crate::config::HarnessKind::Terminal {
-                continue;
-            }
-            let mut models: Vec<Value> = profile
-                .models
-                .iter()
-                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
-                .collect();
-            let reported: Vec<Value> = match profile.kind {
-                crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
-                    .iter()
-                    .map(|(v, n)| json!({"id": v, "name": n}))
-                    .collect(),
-                crate::config::HarnessKind::Acp => known
-                    .get(name)
-                    .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
-                    .unwrap_or_default(),
-                crate::config::HarnessKind::Terminal => Vec::new(),
-            };
-            for r in reported {
-                if !models.iter().any(|m| m["id"] == r["id"]) {
-                    models.push(r);
-                }
-            }
-            if models.is_empty() {
-                models.push(json!({"id": "default", "name": "default (agent's choice)"}));
-            }
-            super::model_availability::mark_unavailable(
-                &mut models,
-                name,
-                &self.refused_models.lock().unwrap(),
-            );
-            let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
-            if let Some(reason) = self.probe_errors.lock().unwrap().get(name) {
-                entry["probeError"] = json!(reason);
-            }
-            out.push(entry);
-        }
-        json!({"harnesses": out})
     }
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {

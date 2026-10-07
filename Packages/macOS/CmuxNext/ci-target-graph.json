@@ -82,7 +82,9 @@
         "CmuxNextAgentActivity"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "tests/fixtures/cua-helper-signatures/"
+      ]
     },
     "CmuxNextAgentCursor": {
       "kind": "regular",
@@ -1073,7 +1075,9 @@
       "packages": [
         "CmuxUpdater"
       ],
-      "reads": []
+      "reads": [
+        "scripts/whats-new/fixtures/good/1.0.0-nightly.42.json"
+      ]
     },
     "CmuxNextWakeups": {
       "kind": "regular",

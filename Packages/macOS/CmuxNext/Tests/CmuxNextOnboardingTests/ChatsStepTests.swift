@@ -28,6 +28,19 @@ import Testing
         #expect(OnboardingModel(services: services([]), start: .projects).steps == [.projects, .chats])
     }
 
+    /// The chats classic cmux had open come checked, listed even past the
+    /// newest rows.
+    @Test func chatsOpenInClassicComeChecked() async {
+        let older = (0..<ChatsStepModel.listed).map { chat("n\($0)") }
+        let services = services(older + [chat("old"), chat("x", .codex)])
+        services.classicOpenChats = ["claudeCode:old", "codex:x", "claudeCode:gone"]
+        let model = OnboardingModel(services: services, start: .projects)
+        model.stepDidAppear()
+        await settle { model.chats.scanned }
+        #expect(model.chats.selected == ["claudeCode:old", "codex:x"])
+        #expect(model.chats.chats.count == ChatsStepModel.listed + 2)
+    }
+
     /// The projects step starts the scan; nothing is checked, so Continue alone resumes nothing.
     @Test func theListArrivesEarlyWithNothingChecked() async {
         let services = services([chat("a"), chat("b", .codex)])

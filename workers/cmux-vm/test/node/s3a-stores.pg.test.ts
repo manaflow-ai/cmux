@@ -153,7 +153,7 @@ describe("API key management store", () => {
     const id = newApiKeyId();
     await run(
       Effect.flatMap(AuditStore, (store) =>
-        store.append({ tenantId: TENANT_A, actor: "user:test", action: "apikey.create", cmuxId: id, outcome: "ok", at: new Date() }),
+        store.append({ tenantId: TENANT_A, actor: "user:test", ownerActor: null, action: "apikey.create", cmuxId: id, outcome: "ok", at: new Date() }),
       ),
     );
     const rows = await pg.query<{ cmux_id: string }>("SELECT cmux_id FROM cmux_vm.audit_log");

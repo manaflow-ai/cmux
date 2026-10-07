@@ -63,19 +63,12 @@ extension PaneController {
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
-    /// Makes `id` the selected tab and shows it on the next display frame.
-    /// Called by the focus applier; never moves focus itself.
-    ///
-    /// The strip highlights the tab at once; the content follows once per
-    /// frame, for whatever tab is selected by then. Holding Ctrl-Tab (key
-    /// repeat, several selections per frame) therefore shows only the
-    /// latest one and never creates, attaches or reveals content for a tab
-    /// the user already moved past.
+    /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
-        services.presentation.setNeedsShowSelected(self)
+        PaneSelectionPresenter(pane: self).present()
         services.windows.recordSaver.stateDidChange(state)
     }
 
@@ -125,65 +118,14 @@ extension PaneController {
         })
     }
 
-    /// New browser tab: daemon-owned when supported, on the engine
-    /// `BrowserTabService.resolve` picks (an explicit engine, else
-    /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
-    /// session-local. The new tab is selected and focused when it lands; a
-    /// blank tab focuses its address bar so the user can type a URL.
-    /// `inherited` is a reopened or duplicated tab's engine or a popup
-    /// opener's (falls back instead of refusing). `adopting` is a popup page
-    /// the engine already created (`BrowserPageRequests`). `background` (a
-    /// page's Cmd-click) creates the tab without selecting it. `profile` is
-    /// an explicit browser profile (else the workspace's, the room's or
-    /// `default`); `notice` shows on the new page; `then` runs with the new
-    /// surface once the daemon made the tab. `opener` is the tab of the page
-    /// that asked for it: the new tab goes next to it in Chrome's order
-    /// (`BrowserTabOpeners`); without it the tab goes to the end.
+    /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
+    /// focused when it lands unless `background`. False when refused.
+    @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
-        let browserTabs = services.cache.browserTabs!
-        if browserTabs.isAvailable() {
-            var choice: BrowserEngineChoice
-            switch browserTabs.resolve(requested: requested, inherited: inherited) {
-            case .refuse(let reason): return services.registry.refuse(BrowserTabService.message(reason))
-            case .open(let resolved): choice = resolved
-            }
-            if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
-            let pageRequests = services.cache.pageRequests
-            let newTabAddress = services.newTabAddress(for: choice)
-            let handle = pane.handle, model = pane
-            let intent = background ? nil : workspace?.beginFocusIntent()
-            services.registry.track(Task {
-                do {
-                    // A new tab the user asked for opens the New Tab page; an
-                    // adopted page (popup, extension tab) keeps its own.
-                    let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
-                    let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
-                                                                      browserTabs: browserTabs) { after in
-                        try await browserTabs.open(choice, in: handle, url: address, profile: profile, notice: notice, after: after)
-                    }
-                    if let child { pageRequests.adopt(child, surface: surface) }
-                    then?(surface)
-                    guard !background else { return nil }
-                    selectWhenReported(surface: surface)
-                    workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
-                    return nil
-                } catch {
-                    child?.close()
-                    daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
-                    return "new-frontend-browser-tab: \(error)"
-                }
-            })
-            return
-        }
-        child?.close()  // Session-local tabs are WebKit pages made on demand.
-        let local = LocalBrowserTab.make(url: url)
-        state?.localBrowserTabs[paneKey, default: []].append(local)
-        apply(snapshot())
-        if background { return }
-        select(StripTabID(local.id))
-        if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+        PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+                                                    profile: profile, notice: notice, opener: opener, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -213,19 +155,11 @@ extension PaneController {
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
-            ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
-            : commands
+        let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task {
-            var failed = false
-            var unknown = false
-            for command in runs {
-                switch await daemon.runReportingTimeout(command.0, command.1) {
-                case .succeeded: break
-                case .failed: failed = true
-                case .unknown: unknown = true
-                }
-            }
+            let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
+            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
@@ -306,7 +240,9 @@ extension PaneController {
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
-            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))
+            let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
+            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
+                                            entries: TabGroupPinMenu.entries(saved: saved))
         case .emptyStrip:
             let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
             return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)

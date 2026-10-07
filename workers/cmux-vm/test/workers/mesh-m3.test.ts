@@ -120,11 +120,12 @@ describe("device-signed requests", () => {
     expect(field(calls[0]?.json, "clientPublicKey")).toBe(KEY_2);
     expect(field(await json(await call(`/v1/devices/${deviceId}`, mesh.creator)), "wgPublicKey")).toBe(KEY_2);
 
-    // Audited as the device's owner (the code's creator).
+    // Audited as the device, with the device's owner (the code's creator) as its owner (M4, cx-0op.7).
     const created = h.audit.find((row) => row.action === "enrollment_code.create");
     const rotation = h.audit.filter((row) => row.action === "device.rotate_key");
     expect(rotation.map((row) => [row.cmuxId, row.outcome])).toEqual([[deviceId, "ok"]]);
-    expect(rotation[0]?.actor).toBe(created?.actor);
+    expect(rotation[0]?.actor).toBe(`device:${deviceId}`);
+    expect(rotation[0]?.ownerActor).toBe(created?.actor);
   });
 
   it("a device's signature cannot act on another device: 404, and nothing reaches the provider", async () => {
