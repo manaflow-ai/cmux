@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
@@ -40,7 +41,36 @@ final class ThemeCoordinator {
     init(services: AppServices, terminalThemes: TerminalThemeStore) {
         self.services = services
         self.terminalThemes = terminalThemes
-        resolver.onChange = { [weak self] in self?.apply(forceSurfaces: true) }
+        resolver.onChange = { [weak self] in
+            self?.apply(forceSurfaces: true)
+            self?.applyChromeTheme()
+        }
+    }
+
+    // MARK: App theme (appearance.appTheme)
+
+    /// `appearance.appTheme` as last read; nil follows the terminal theme.
+    private var chromeTheme: String?
+    private var chromeObservation: Task<Void, Never>?
+
+    /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
+    /// resolved like the other theme levels (the variant for the system appearance, the user's
+    /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    func followChromeTheme(_ settings: SettingsController) {
+        chromeTheme = settings.snapshot.chromeTheme
+        applyChromeTheme()
+        chromeObservation = Task { [weak self] in
+            for await theme in Observations({ settings.snapshot.chromeTheme }) {
+                guard let self, theme != self.chromeTheme else { continue }
+                self.chromeTheme = theme
+                self.applyChromeTheme()
+            }
+        }
+    }
+
+    private func applyChromeTheme() {
+        let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
+        ThemeStore.shared.setAppTheme(resolved.map { AppTheme.derive(from: $0.input) })
     }
 
     func start() {

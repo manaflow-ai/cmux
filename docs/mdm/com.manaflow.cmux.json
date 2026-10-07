@@ -138,6 +138,12 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
+    },
     "appearance.backdropArt" : {
       "default" : "none",
       "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
