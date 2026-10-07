@@ -6,6 +6,48 @@ import UIKit
 /// first section of each Mac, a plain title on the others.
 @MainActor
 enum WorkspaceSectionHeader {
+    /// Group sections get a disclosure chevron (tap toggles) and, when the
+    /// host renames groups, a menu with Rename Group.
+    static func configure(_ cell: WorkspaceSectionHeaderCell, section: WorkspaceListSection,
+                          toggle: (() -> Void)?, renameGroup: (() -> Void)?) {
+        configure(cell, section: section)
+        cell.onToggle = toggle
+        guard case .group = section.kind, toggle != nil else {
+            cell.accessories = []
+            return
+        }
+        let chevron = UIImageView(image: UIImage(systemName: section.isCollapsed ? "chevron.right" : "chevron.down"))
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .footnote, scale: .small)
+        chevron.tintColor = ShellPalette.secondaryText
+        var accessories: [UICellAccessory] = [.customView(configuration: UICellAccessory.CustomViewConfiguration(
+            customView: chevron, placement: .trailing(displayed: .always)))]
+        var actions: [UIAccessibilityCustomAction] = []
+        if let renameGroup {
+            let button = UIButton(type: .system)
+            button.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+            button.showsMenuAsPrimaryAction = true
+            button.menu = UIMenu(children: [UIAction(title: WorkspacesText.renameGroup, image: UIImage(systemName: "pencil")) { _ in
+                renameGroup()
+            }])
+            button.accessibilityLabel = WorkspacesText.groupActions
+            accessories.append(.customView(configuration: UICellAccessory.CustomViewConfiguration(
+                customView: button, placement: .trailing(displayed: .always), reservedLayoutWidth: .custom(44))))
+            actions.append(UIAccessibilityCustomAction(name: WorkspacesText.renameGroup) { _ in
+                renameGroup()
+                return true
+            })
+        }
+        cell.accessories = accessories
+        if section.isCollapsed, var content = cell.contentConfiguration as? UIListContentConfiguration {
+            content.secondaryText = WorkspacesText.workspaceCount(section.memberCount)
+            cell.contentConfiguration = content
+        }
+        cell.accessibilityTraits = [.header, .button]
+        cell.accessibilityValue = section.isCollapsed ? WorkspacesText.collapsed : WorkspacesText.expanded
+        cell.accessibilityHint = section.isCollapsed ? WorkspacesText.expand : WorkspacesText.collapse
+        cell.accessibilityCustomActions = actions
+    }
+
     static func configure(_ cell: UICollectionViewListCell, section: WorkspaceListSection) {
         if let machine = section.machine {
             var content = UIListContentConfiguration.prominentInsetGroupedHeader()
@@ -49,7 +91,7 @@ enum WorkspaceSectionHeader {
     static func title(_ kind: WorkspaceListSectionKind) -> String? {
         switch kind {
         case .pinned: WorkspacesText.pinned
-        case .group(let name): name
+        case .group(_, let name): name
         case .workspaces: WorkspacesText.workspaces
         case .flat: WorkspacesText.allWorkspaces
         case .empty: nil

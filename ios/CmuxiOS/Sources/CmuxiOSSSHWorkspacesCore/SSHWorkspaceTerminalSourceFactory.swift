@@ -1,5 +1,5 @@
-public import CmuxiOSFeatureKit
-public import CmuxiOSSSHCore
+import CmuxiOSFeatureKit
+import CmuxiOSSSHCore
 public import CmuxiOSWorkspacesCore
 public import CmuxTerminalRenderCore
 import Foundation

@@ -21,6 +21,7 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSSSHWorkspacesCore
 import CmuxiOSTerminalLink
 import CmuxiOSViewers
 import CmuxiOSViewersCore
@@ -75,6 +76,9 @@ final class AppContainer {
     let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane E3: SSH hosts' sessions in the Workspaces list (discovery and
+    /// catalog-checked attach over the on-device host records).
+    let sshWorkspaces: SSHWorkspacesComposition
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
@@ -182,6 +186,8 @@ final class AppContainer {
         sshDevice = SSHDeviceState(directory: sshDirectory)
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         self.localHosts = localHosts
+        let madeSSHWorkspaces = SSHWorkspacesComposition(hosts: localHosts, device: sshDevice, catalog: SSHSessionCatalog())
+        sshWorkspaces = madeSSHWorkspaces
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
@@ -220,7 +226,7 @@ final class AppContainer {
                                                 sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
             to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity, pairing: madePairing),
-            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces)),
+            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces), ssh: madeSSHWorkspaces),
             connector: madePairing == nil ? nil : links)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
@@ -313,7 +319,8 @@ final class AppContainer {
     /// bound Cloud machines as hosts (C12); off until the VM serves the host
     /// socket, so no socket opens that HostDO would refuse.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
-                                         identity: InstallIdentity?, cloudHosts: Bool) -> RealFeatureFactories {
+                                         identity: InstallIdentity?, cloudHosts: Bool,
+                                         ssh: SSHWorkspacesComposition) -> RealFeatureFactories {
         var factories = factories
         // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
         // as this install (b1-control-do.md). Without an API origin each Mac
@@ -328,12 +335,15 @@ final class AppContainer {
         } else {
             channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
         }
+        // E3: the device's SSH hosts join the list after the Macs (and Cloud
+        // machines); their channels run discovery instead of a host socket.
+        let routed = ssh.channels(fallback: channels)
         factories.workspaces = { devices, cloud in
             let macs = DeviceRegistryHostDirectory(registry: devices)
-            let directory: any WorkspaceHostDirectory = cloudHosts
-                ? CompositeHostDirectory([macs, CloudMachineHostDirectory(source: cloud)])
-                : macs
-            return ControlPlaneWorkspaceSource(directory: directory, channels: channels)
+            var directories: [any WorkspaceHostDirectory] = [macs]
+            if cloudHosts { directories.append(CloudMachineHostDirectory(source: cloud)) }
+            directories.append(ssh.directory)
+            return ControlPlaneWorkspaceSource(directory: CompositeHostDirectory(directories), channels: routed)
         }
         // C8: the composer's `task:<host>` streams ride the same host sockets'
         // endpoint (one more subscription per Mac while a composer is open).

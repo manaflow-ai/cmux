@@ -60,7 +60,9 @@ enum ShellComposition {
         // link sources, mock workspaces over A2's mock host. `workspaces.makePicker` is the
         // picker the composer (C8) presents.
         let workspacesAreReal = sources.resolved[.workspaces] == .real
-        let terminalSources = workspacesAreReal ? container.terminalSources : nil
+        // E3: SSH session surfaces attach over SSH; Mac terminals over C1's links.
+        let terminalSources = workspacesAreReal
+            ? container.terminalSources.map { container.sshWorkspaces.terminalSources(fallback: $0) } : nil
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.

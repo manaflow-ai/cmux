@@ -5,7 +5,8 @@ import UIKit
 extension WorkspaceListViewController {
     func target(for row: WorkspaceListRow) -> WorkspaceActions.Target {
         WorkspaceActions.Target(workspaceID: row.workspaceID, title: row.title, machineName: row.machineName,
-                                unreadCount: row.unreadCount, isReachable: row.isReachable, capabilities: row.capabilities)
+                                unreadCount: row.unreadCount, isReachable: row.isReachable, capabilities: row.capabilities,
+                                color: row.color, icon: row.icon, groupID: row.groupID)
     }
 
     func leadingSwipe(at path: IndexPath) -> UISwipeActionsConfiguration? {
@@ -64,6 +65,12 @@ extension WorkspaceListViewController {
                                   attributes: actions.canRename(target) ? [] : .disabled) { [weak self] _ in
                 if let self { actions.rename(target, from: self) }
             })
+            if actions.canCustomize(target) {
+                items.append(UIAction(title: WorkspacesText.customize, image: UIImage(systemName: "paintpalette")) { [weak self] _ in
+                    if let self { actions.customize(target, from: self) }
+                })
+            }
+            if let move = self.moveMenu(for: row, target: target) { items.append(move) }
             items.append(UIAction(title: WorkspacesText.close, image: UIImage(systemName: "xmark"),
                                   attributes: actions.canClose(target) ? .destructive : [.destructive, .disabled]) { [weak self] _ in
                 guard let self else { return }
@@ -94,6 +101,13 @@ extension WorkspaceListViewController {
                 return true
             })
         }
+        if actions.canCustomize(target) {
+            made.append(UIAccessibilityCustomAction(name: WorkspacesText.customize) { [weak self] _ in
+                guard let self else { return false }
+                actions.customize(target, from: self)
+                return true
+            })
+        }
         if actions.canClose(target) {
             made.append(UIAccessibilityCustomAction(name: WorkspacesText.close) { [weak self] _ in
                 guard let self else { return false }
@@ -102,5 +116,23 @@ extension WorkspaceListViewController {
             })
         }
         return made
+    }
+
+    /// Move to Group: the host's groups and No Group, the current one checked.
+    func moveMenu(for row: WorkspaceListRow, target: WorkspaceActions.Target) -> UIMenu? {
+        let actions = feature.actions
+        guard actions.canMove(target), let host = host(row.hostID) else { return nil }
+        var groups = host.groups
+        for workspace in host.workspaces {
+            if let group = workspace.group, !groups.contains(where: { $0.id == group.id }) { groups.append(group) }
+        }
+        guard !groups.isEmpty else { return nil }
+        let choices: [(String?, String)] = groups.map { ($0.id, $0.name) } + [(nil, WorkspacesText.noGroup)]
+        let children = choices.map { id, name in
+            UIAction(title: name, state: row.groupID == id ? .on : .off) { [weak self] _ in
+                if let self { actions.move(target, toGroup: id, from: self) }
+            }
+        }
+        return UIMenu(title: WorkspacesText.moveToGroup, image: UIImage(systemName: "folder"), children: children)
     }
 }

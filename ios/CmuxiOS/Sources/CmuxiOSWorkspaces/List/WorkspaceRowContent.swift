@@ -8,7 +8,7 @@ import UIKit
 @MainActor
 enum WorkspaceRowContent {
     static func configure(_ cell: UICollectionViewListCell, row: WorkspaceListRow, flat: Bool,
-                          actions: [UIAccessibilityCustomAction]) {
+                          actions: [UIAccessibilityCustomAction], canReorder: Bool = false) {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = row.title
         content.textProperties.font = ShellTypography.rowTitle
@@ -27,6 +27,10 @@ enum WorkspaceRowContent {
         cell.contentConfiguration = content
 
         var accessories: [UICellAccessory] = []
+        if let look = lookView(row) {
+            accessories.append(.customView(configuration: UICellAccessory.CustomViewConfiguration(
+                customView: look, placement: .leading(displayed: .always), reservedLayoutWidth: .standard)))
+        }
         if flat {
             let bar = UICellAccessory.CustomViewConfiguration(
                 customView: MachineBar(color: row.machineColor.uiColor), placement: .leading(), reservedLayoutWidth: .custom(3))
@@ -37,7 +41,8 @@ enum WorkspaceRowContent {
                 customView: UnreadBadge(count: row.unreadCount), placement: .trailing(displayed: .always))
             accessories.append(.customView(configuration: badge))
         }
-        accessories.append(.disclosureIndicator())
+        if canReorder { accessories.append(.reorder(displayed: .whenEditing)) }
+        accessories.append(.disclosureIndicator(displayed: .whenNotEditing))
         cell.accessories = accessories
 
         cell.accessibilityIdentifier = "workspaces.row." + row.workspaceID
@@ -45,6 +50,19 @@ enum WorkspaceRowContent {
         cell.accessibilityLabel = accessibilityLabel(row)
         cell.accessibilityTraits = .button
         cell.accessibilityCustomActions = actions
+    }
+
+    /// The workspace's icon in its color, or a color dot; nil without a look.
+    static func lookView(_ row: WorkspaceListRow) -> UIView? {
+        let tint = WorkspaceLook.color(row.color)
+        guard row.icon != nil || tint != nil else { return nil }
+        let symbol = row.icon.flatMap { UIImage(systemName: $0) } ?? UIImage(systemName: "circle.fill")
+        let view = UIImageView(image: symbol)
+        view.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: row.icon == nil ? .caption2 : .body)
+        view.tintColor = tint ?? ShellPalette.secondaryText
+        view.contentMode = .center
+        view.isAccessibilityElement = false
+        return view
     }
 
     static func subtitle(_ row: WorkspaceListRow, flat: Bool) -> String {

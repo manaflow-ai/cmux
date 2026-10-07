@@ -65,6 +65,12 @@ public final class WorkspacesFeature {
             refused: String(localized: "workspaces.reason.refused", defaultValue: "Connection refused", bundle: .module))
     }
 
+    /// Offline reasons for SSH hosts in the list (E3).
+    public static var sshReasons: SSHWorkspaceReasonTexts {
+        SSHWorkspaceReasonTexts(untrustedKey: WorkspacesText.sshUntrustedKey, needsLogin: WorkspacesText.sshNeedsLogin,
+                                unreachable: WorkspacesText.sshUnreachable, refused: WorkspacesText.sshRefused)
+    }
+
     /// The offline reason the real source shows while no control-plane
     /// client is registered (B1).
     public static var controlPlaneUnavailable: String {

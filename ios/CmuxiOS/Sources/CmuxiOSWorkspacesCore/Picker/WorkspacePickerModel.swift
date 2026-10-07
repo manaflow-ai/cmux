@@ -19,7 +19,8 @@ public struct WorkspacePickerModel: Sendable {
     }
 
     public func sections(from hosts: [HostWorkspaces], request: WorkspacePickerRequest) -> [WorkspacePickerSection] {
-        let ordered = preferences.ordered(hosts, id: \.hostID)
+        // SSH sessions take no tasks or new workspaces (E3): the picker lists Macs and Cloud hosts.
+        let ordered = preferences.ordered(hosts.filter { $0.kind != .ssh }, id: \.hostID)
         let included: [HostWorkspaces]
         if let only = request.hostID {
             included = ordered.filter { $0.hostID == only }

@@ -10,12 +10,12 @@ import UIKit
 final class WorkspaceListViewController: UIViewController, UICollectionViewDelegate {
     let feature: WorkspacesFeature
     private(set) var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<String, String>!
+    private(set) var dataSource: UICollectionViewDiffableDataSource<String, String>!
     private(set) var hosts: [HostWorkspaces]?
     private var connection: SourceConnection = .connecting
     private(set) var list = WorkspaceListSnapshot(sections: [], emptyState: .loading, allOffline: false)
     private(set) var rowsByID: [String: WorkspaceListRow] = [:]
-    private var sectionsByID: [String: WorkspaceListSection] = [:]
+    private(set) var sectionsByID: [String: WorkspaceListSection] = [:]
     private var subscription: Task<Void, Never>?
     private lazy var coalescer = FrameCoalescer<SourceSnapshot<[HostWorkspaces]>> { [weak self] snapshot in
         self?.receive(snapshot)
@@ -44,6 +44,11 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
             image: UIImage(systemName: "line.3.horizontal.decrease.circle"), menu: makeViewMenu())
         navigationItem.rightBarButtonItem?.accessibilityLabel = WorkspacesText.viewOptions
         feature.onPreferencesChange = { [weak self] in self?.preferencesChanged() }
+        dataSource.reorderingHandlers.canReorderItem = { [weak self] id in
+            guard let self, let row = self.rowsByID[id] else { return false }
+            return self.canReorder(row)
+        }
+        dataSource.reorderingHandlers.didReorder = { [weak self] transaction in self?.didReorder(transaction) }
         render(animated: false)
     }
 
@@ -78,9 +83,15 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
         render(animated: true)
     }
 
+    override func setEditing(_ editing: Bool, animated: Bool) {
+        super.setEditing(editing, animated: animated)
+        collectionView.isEditing = editing
+        render(animated: animated)
+    }
+
     func render(animated: Bool) {
         let previous = rowsByID
-        list = WorkspaceListBuilder(preferences: feature.preferences).snapshot(for: hosts)
+        list = WorkspaceListBuilder(preferences: feature.preferences).snapshot(for: hosts, editing: isEditing)
         rowsByID = Dictionary(list.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         sectionsByID = Dictionary(list.sections.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
@@ -98,7 +109,10 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
     }
 
     private func updateChrome() {
-        if list.allOffline && !list.sections.isEmpty {
+        updateEditButton()
+        if isEditing {
+            navigationItem.prompt = WorkspacesText.reorderHint
+        } else if list.allOffline && !list.sections.isEmpty {
             navigationItem.prompt = WorkspacesText.allOffline
         } else if feature.isMock {
             navigationItem.prompt = WorkspacesText.mockData
@@ -131,13 +145,13 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
         let rowCell = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
             guard let self, let row = self.rowsByID[id] else { return }
             WorkspaceRowContent.configure(cell, row: row, flat: self.feature.preferences.grouping == .flat,
-                                          actions: self.accessibilityActions(for: row))
+                                          actions: self.accessibilityActions(for: row), canReorder: self.canReorder(row))
         }
-        let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
+        let header = UICollectionView.SupplementaryRegistration<WorkspaceSectionHeaderCell>(
             elementKind: UICollectionView.elementKindSectionHeader) { [weak self] cell, _, path in
             guard let self, let id = self.dataSource.sectionIdentifier(for: path.section),
                   let section = self.sectionsByID[id] else { return }
-            WorkspaceSectionHeader.configure(cell, section: section)
+            self.configureHeader(cell, section: section)
         }
         let source = UICollectionViewDiffableDataSource<String, String>(collectionView: collectionView) { view, path, id in
             view.dequeueConfiguredReusableCell(using: rowCell, for: path, item: id)
@@ -153,9 +167,9 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
     private func reconfigureVisibleHeaders() {
         let kind = UICollectionView.elementKindSectionHeader
         for path in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let cell = collectionView.supplementaryView(forElementKind: kind, at: path) as? UICollectionViewListCell,
+            guard let cell = collectionView.supplementaryView(forElementKind: kind, at: path) as? WorkspaceSectionHeaderCell,
                   let id = dataSource.sectionIdentifier(for: path.section), let section = sectionsByID[id] else { continue }
-            WorkspaceSectionHeader.configure(cell, section: section)
+            configureHeader(cell, section: section)
         }
     }
 
@@ -164,6 +178,8 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
     }
 
     // MARK: Selection
+
+    func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool { !isEditing }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
