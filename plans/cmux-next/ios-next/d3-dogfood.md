@@ -1,10 +1,11 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` implementation baseline `f538410565` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` implementation baseline `e039144f38988cb5ad880d8eeb19773cd075f5e7` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
-Plan: [PLAN.md](PLAN.md) D3. No tagged build,
-simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
-the matrix below separates implementation evidence from the still-pending live-pair gate.
+Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
+recorded: job `a9c4cefb950b6befe522ad06` produced tag `nxd3-e0391-ios-v1` for this exact head and
+artifact digest `bb8f54c780611ecafd3f5d5f0e89e3899f9ea90d645b1d91b8bcee8cfdcf9b19`. The matrix below
+separates implementation and compile evidence from the still-pending live-pair gate.
 
 The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
 [research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
@@ -341,7 +342,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
 not a test result for the implementation baseline; current implementation evidence is recorded at
-`f538410565`.
+`e039144f38988cb5ad880d8eeb19773cd075f5e7`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -366,14 +367,14 @@ not a test result for the implementation baseline; current implementation eviden
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
 (no cargo on this Mac). The current-head backend slice has `35` focused Vitest tests and a clean
-TypeScript typecheck at `f538410565`.
+TypeScript typecheck at `e039144f38988cb5ad880d8eeb19773cd075f5e7`.
 
 Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
-`git diff --check`, `check-concurrency.sh`, `check-crash-safety.sh`, and `check-theme-scope.sh`
-pass for the follow-up changes. Native Swift tests, the tagged iOS/Mac build, UI tests, and live
-network/device journeys remain blocked by the unavailable dedicated build host/fleet slot; do not
-read the historical 460-test total or the agent-reported package test runs as current-head device
-verification.
+`git diff --check`, `check-concurrency.sh`, and `check-crash-safety.sh` pass for the follow-up changes;
+35 focused backend Vitest tests and TypeScript typecheck pass. The fleet archive above compiled both
+device and simulator targets. Native Swift tests, UI tests, and live network/device journeys remain
+unverified; do not read the historical 460-test total or the agent-reported package test runs as
+current-head device verification.
 
 ## 6. Runbook: tagged pair `nxd3`
 

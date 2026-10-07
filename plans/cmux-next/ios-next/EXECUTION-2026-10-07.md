@@ -86,9 +86,13 @@ The active wave is intentionally independent:
 
 The dedicated build host was unavailable during the implementation wave (`cmux-lawrence-2` did not
 resolve), so native iOS package targets, tagged pair installs, visual evidence, and live SSH/browser
-paths remain explicitly unverified. Current static checks pass; the backend slice has 35 focused
-Vitest tests and a clean TypeScript typecheck. The next action is one exact-head fleet iOS build,
-then the D3 journeys when a tagged pair is available; no local iOS build is substituted.
+paths remain explicitly unverified. A fleet archive now proves the current iOS device and simulator
+targets compile: job `a9c4cefb950b6befe522ad06`, tag `nxd3-e0391-ios-v1`, exact head
+`e039144f38988cb5ad880d8eeb19773cd075f5e7`, artifact digest
+`bb8f54c780611ecafd3f5d5f0e89e3899f9ea90d645b1d91b8bcee8cfdcf9b19`. Current static checks pass;
+the backend slice has 35 focused Vitest tests and a clean TypeScript typecheck. The next gate is
+tagged Mac/iPhone pairing and D3 runtime evidence; no simulator, real-phone, or live SSH/browser
+result is claimed.
 
 ## Dependency graph for this wave
 
