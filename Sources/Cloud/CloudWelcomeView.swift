@@ -43,15 +43,14 @@ struct CloudWelcomeView: View {
     static let listWindowWidth: CGFloat = 680
 
     var body: some View {
-        let availableSlides = CloudWelcomeSlide.all.filter { mediaURL($0) != nil }
-        let hasMedia = showsMedia && !availableSlides.isEmpty
+        let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
         return VStack(spacing: 0) {
             title
                 .frame(maxWidth: .infinity)
                 .padding(.top, 26)
                 .padding(.bottom, 2)
             if hasMedia {
-                CloudWelcomeMediaCarousel(slides: availableSlides, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
+                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
                     .padding(.top, 18)
                     .padding(.bottom, 18)
             } else {

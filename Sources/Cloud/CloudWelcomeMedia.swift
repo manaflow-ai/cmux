@@ -90,11 +90,13 @@ struct CloudWelcomeMediaCarousel: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var duration: Double = fallbackDuration
+    @State private var durationLoadFailed = false
     @State private var isHoveringMedia = false
     @State private var hoveredRow: String?
     @State private var playback = Playback()
 
     private var index: Int { playback.index }
+    private var movieFailed: Bool { durationLoadFailed || playback.movieFailed }
 
     var body: some View {
         Group {
@@ -112,7 +114,7 @@ struct CloudWelcomeMediaCarousel: View {
         }
         .task { await observePlayback() }
         .task(id: currentSlide.id) { await loadDuration() }
-        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration)) {
+        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
             await advanceWhenDone()
         }
     }
@@ -427,6 +429,7 @@ struct CloudWelcomeMediaCarousel: View {
         let slide: String
         let isPaused: Bool
         let duration: Double
+        let movieFailed: Bool
     }
 
     private func setPaused(_ paused: Bool) {
@@ -436,6 +439,7 @@ struct CloudWelcomeMediaCarousel: View {
     private func show(_ newIndex: Int) {
         guard newIndex != index else { return }
         playback.detach()
+        durationLoadFailed = false
         // Picking a slide plays it, even if the last one was paused.
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.88)) {
             playback.startNewSlide(at: newIndex)
@@ -451,7 +455,9 @@ struct CloudWelcomeMediaCarousel: View {
     /// A slide without a movie (GIF, placeholder) waits out its duration, then
     /// moves on. Pausing, a new slide or a newly loaded duration cancels this.
     private func advanceWhenDone() async {
-        guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, !Self.isMovie(mediaURL(currentSlide)) else { return }
+        let isMovie = Self.isMovie(mediaURL(currentSlide))
+        guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, (!isMovie || movieFailed) else { return }
+        playback.startInitialSlideIfNeeded()
         let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
             do { try await ContinuousClock().sleep(for: .seconds(remaining)) } catch { return }
@@ -472,11 +478,21 @@ struct CloudWelcomeMediaCarousel: View {
     /// The slide stays up for one play of its clip.
     private func loadDuration() async {
         duration = Self.fallbackDuration
+        durationLoadFailed = false
         guard let url = mediaURL(currentSlide) else { return }
         if url.pathExtension.lowercased() == "gif" {
             duration = await Self.gifDuration(url) ?? Self.fallbackDuration
-        } else if let seconds = try? await AVURLAsset(url: url).load(.duration).seconds, seconds.isFinite, seconds > 0.5 {
-            duration = seconds
+        } else {
+            do {
+                let seconds = try await AVURLAsset(url: url).load(.duration).seconds
+                if seconds.isFinite, seconds > 0.5 {
+                    duration = seconds
+                } else {
+                    durationLoadFailed = true
+                }
+            } catch {
+                durationLoadFailed = true
+            }
         }
     }
 
@@ -556,7 +572,10 @@ struct CloudWelcomeMediaCarousel: View {
                 let radius = min(bounds.width, bounds.height) / 2
                 fill.cornerRadius = radius
                 layer?.cornerRadius = radius
-                fill.backgroundColor = NSColor.labelColor.withAlphaComponent(0.85).cgColor
+                fill.backgroundColor = NSColor.labelColor
+                    .withAlphaComponent(0.85)
+                    .resolvedColor(with: effectiveAppearance)
+                    .cgColor
                 CATransaction.commit()
             }
 
@@ -592,6 +611,7 @@ struct CloudWelcomeMediaCarousel: View {
             private let playerLayer: AVPlayerLayer
             private var looper: AVPlayerLooper?
             private var readyObservation: NSKeyValueObservation?
+            private var statusObservation: NSKeyValueObservation?
             private var loopObservation: NSKeyValueObservation?
             private weak var playback: Playback?
 
@@ -605,6 +625,13 @@ struct CloudWelcomeMediaCarousel: View {
                 // slide change never flashes an empty frame.
                 playerLayer.opacity = 0
                 layer = playerLayer
+                statusObservation = player.observe(\.status, options: [.initial, .new]) { [weak playback, weak player] observedPlayer, _ in
+                    guard observedPlayer.status == .failed else { return }
+                    Task { @MainActor [weak playback, weak player] in
+                        guard let playback, let player else { return }
+                        playback.didFail(player)
+                    }
+                }
                 readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { observedLayer, _ in
                     guard observedLayer.isReadyForDisplay else { return }
                     Task { @MainActor [weak observedLayer] in
@@ -636,6 +663,7 @@ struct CloudWelcomeMediaCarousel: View {
 
             deinit {
                 readyObservation?.invalidate()
+                statusObservation?.invalidate()
                 loopObservation?.invalidate()
                 player.pause()
             }
@@ -680,8 +708,9 @@ extension CloudWelcomeMediaCarousel {
         private weak var player: AVPlayer?
         private(set) var index = 0
         private(set) var isPaused = false
+        private(set) var movieFailed = false
         private var pausedElapsed: Double?
-        private var startedAt = Date()
+        private var startedAt: Date?
 
         init() {
             (loopCompletions, loopContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -707,6 +736,11 @@ extension CloudWelcomeMediaCarousel {
             loopContinuation.yield()
         }
 
+        func didFail(_ candidate: AVPlayer) {
+            guard player === candidate else { return }
+            movieFailed = true
+        }
+
         func setPaused(_ paused: Bool) {
             guard paused != isPaused else { return }
             let now = Date()
@@ -729,6 +763,7 @@ extension CloudWelcomeMediaCarousel {
             if let newIndex {
                 index = newIndex
             }
+            movieFailed = false
             startedAt = Date()
             pausedElapsed = nil
             isPaused = false
@@ -737,7 +772,12 @@ extension CloudWelcomeMediaCarousel {
 
         /// Returns elapsed playhead time, including a held value while paused.
         func elapsed(at date: Date) -> Double {
-            pausedElapsed ?? date.timeIntervalSince(startedAt)
+            pausedElapsed ?? startedAt.map { date.timeIntervalSince($0) } ?? 0
+        }
+
+        func startInitialSlideIfNeeded() {
+            guard startedAt == nil else { return }
+            startedAt = Date()
         }
 
         /// How far through its current play the movie is, or nil without one.
