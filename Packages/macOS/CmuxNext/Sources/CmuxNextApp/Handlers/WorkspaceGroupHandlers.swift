@@ -76,18 +76,14 @@ enum WorkspaceGroupHandlers {
         })
         registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
         registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
-        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .ungroup($0) } })
+        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
+        })
         registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
         registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            // Destructive sibling of ungroup (old app semantics): closes the
-            // members, then removes the group.
-            let group = try context.group(invocation)
-            try context.sidebar().handle(.closeGroup(sidebarID(group)))
-            let id = group.id, v2 = home.store.servesStateResources
-            home.send("delete-personal-group") {
-                if v2 { return try await $0.state.deleteWorkspaceGroup(id.rawValue) }
-                try await $0.deletePersonalGroup(id)
-            }
+            // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
+            // (Close All Workspaces in Group is the verb that closes them).
+            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
