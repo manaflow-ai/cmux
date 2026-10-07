@@ -126,7 +126,10 @@ Each action is one step, and the stage measures it:
   resize (0 px).
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
-  reported (warn); a frame over 33 ms fails.
+  reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
+  headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
+  there it only warns ("software-rendered, not a gate"). Real WebKit frame timing comes from the
+  native app on a fleet Mac. The anchor and layout-shift checks are strict in both engines.
 
 To loosen a check, the entry writes the value and the reason, and `validateEntries` refuses a
 check without a reason:

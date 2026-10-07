@@ -4,8 +4,11 @@
 // and in the matrix runner. Each ctx action is one step; around each step the stage measures:
 //   - anchors: the entry's named elements; one the step did NOT target must not move or resize;
 //   - layout shift: the CLS sum of the step and each shift with its source node;
-//   - long frames: Long Animation Frames where the engine has them, else rAF intervals; frames
-//     over 16.7 ms are reported, a frame over 33 ms fails.
+//   - long frames: Long Animation Frames where the engine has them (Chromium), else rAF intervals;
+//     frames over 16.7 ms are reported, and a frame over 33 ms fails ONLY from Long Animation
+//     Frames data. rAF timing (headless WebKit on a CPU-only VM: software rendering) measures the
+//     machine, not the page, so it only warns (coordinator 2026-10-07); real WebKit frame timing
+//     comes from the native app on a fleet Mac.
 // An entry may loosen a threshold only with a written `reason` (format.ts `checks`).
 //
 // Targets resolve on the real DOM: by role and accessible name, by test id, by text, or by a CSS
@@ -96,7 +99,8 @@ export function judgeStep(
   for (const move of measured.anchorMoves)
     if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
   const failing = measured.longFrames.filter((ms) => ms > failMs);
-  if (failing.length)
+  // Only Long Animation Frames data gates; rAF timing on a software-rendered VM only warns.
+  if (failing.length && measured.frameSource === "long-animation-frame")
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
   if (measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);

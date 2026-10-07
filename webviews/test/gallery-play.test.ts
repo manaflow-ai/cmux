@@ -46,7 +46,14 @@ describe("gallery play checks", () => {
       "fail",
     );
     expect(judgeStep(step({ layoutShift: 0.001 })).status).toBe("fail");
-    expect(judgeStep(step({ longFrames: [33.5] })).problems[0]).toContain("over 33 ms");
+    expect(judgeStep(step({ frameSource: "long-animation-frame", longFrames: [33.5] })).problems[0]).toContain(
+      "over 33 ms",
+    );
+  });
+
+  test("rAF-timed frames (software-rendered WebKit) never fail on time, they warn", () => {
+    expect(judgeStep(step({ frameSource: "raf", longFrames: [806] }))).toEqual({ status: "warn", problems: [] });
+    expect(judgeStep(step({ frameSource: "raf", layoutShift: 0.01 })).status).toBe("fail");
   });
 
   test("frames over 16.7 ms only warn", () => {
@@ -56,7 +63,7 @@ describe("gallery play checks", () => {
 
   test("an entry loosens a check with a value and a written reason", () => {
     const checks = { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } };
-    expect(judgeStep(step({ longFrames: [40] }), checks).status).toBe("warn");
+    expect(judgeStep(step({ frameSource: "long-animation-frame", longFrames: [40] }), checks).status).toBe("warn");
     expect(checkReasons(checks)).toEqual([]);
     expect(checkReasons({ anchorMovePx: { value: 2, reason: "" } })).toHaveLength(1);
   });
