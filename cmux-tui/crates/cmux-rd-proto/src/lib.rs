@@ -12,6 +12,8 @@ mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
 mod datagram;
+#[cfg(feature = "serde")]
+pub mod desktop;
 mod error;
 mod feedback;
 mod frame;

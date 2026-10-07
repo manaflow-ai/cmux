@@ -184,7 +184,9 @@ actor RemoteDesktopSession {
             }
             guard !finished else { return }
             guard let encoded else {
-                end(.target(.targetGone))
+                // ScreenCaptureKit stops the stream when Screen Recording is revoked.
+                let revoked = info.kind != .vnc ? await !handler.permissions.isGranted(.screenRecording) : false
+                end(.target(revoked ? .permissionRevoked : .targetGone))
                 return
             }
             await send(encoded)
