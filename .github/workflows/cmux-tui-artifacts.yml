@@ -426,12 +426,12 @@ jobs:
       # Post-merge publication is off the PR critical path, so its two macOS
       # Rust legs run on the background lane (free GitHub-hosted capacity)
       # unless a dispatch names a runner. See docs/ci-runners.md.
-      # Attempt 1 runs on the owned side lane (CI_SIDE_LANE_RUNNER, as the
-      # cmux-tui macos job); Blacksmith macOS queued these legs for up to
-      # 128 min (run 37567938722, 2026-10-07). Workflow text never names an
-      # owned pool label (tests/test_ci_self_hosted_guard.sh). A rerun goes
-      # back to the background lane through macos_retry_runner.
-      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+      # Attempt 1 runs on the owned AWS minis through CI_AWS_SIDE_RUNNER
+      # (CI_SIDE_LANE_RUNNER when it is empty); Blacksmith macOS queued these
+      # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
+      # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
+      # A rerun goes back to the background lane through macos_retry_runner.
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
 
