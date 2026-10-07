@@ -60,7 +60,6 @@ import {
 } from "../../../components/pricing-checkout";
 import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
 import { ProPlanCard } from "../../../components/pro-plan-card";
-import { proAnnualLabels } from "../../../components/pro-annual-labels";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -252,15 +251,12 @@ function PricingContent({
     attribution,
   );
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
-  const proAnnualLabelSet = proAnnualLabels(
-    (values) => t("pro.annual.billedYearlySaving", values),
-    {
-      billingPeriod: t("billingPeriod"),
-      yearly: t("pro.annual.yearly"),
-      monthly: t("monthly"),
-      perMonth: t("perMonth"),
-    },
-  );
+  const proAnnualLabelSet = {
+    billingPeriod: t("billingPeriod"),
+    yearly: t("pro.annual.yearly"),
+    monthly: t("monthly"),
+    perMonth: t("perMonth"),
+  };
   const proCheckoutHrefs = {
     month: proCheckoutHref,
     year: withCheckoutInterval(proCheckoutURL, "year"),
