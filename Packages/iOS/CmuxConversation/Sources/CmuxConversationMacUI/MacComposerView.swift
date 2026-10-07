@@ -41,8 +41,11 @@ final class MacComposerTextView: NSTextView {
 
     var onSubmit: (() -> Void)?
     var onPasteImages: (([NSImage]) -> Bool)?
+    /// Consulted before any command (the mention list claims arrows/Return).
+    var commandInterceptor: ((Selector) -> Bool)?
 
     override func doCommand(by selector: Selector) {
+        if commandInterceptor?(selector) == true { return }
         if selector == #selector(insertNewline(_:)) {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             if flags.contains(.shift) || flags.contains(.option) {
@@ -90,6 +93,8 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     let emojiButton = NSButton()
     private let attachmentStrip = MacFlippedView()
     private(set) var attachments: [MacComposerAttachment] = []
+    /// Mention ranges, the gray candidate and the suggestion list for the draft.
+    private(set) lazy var mentionController = MacComposerMentionController(textView: textView)
     var placeholderText = String(localized: "conversation.composer.placeholder", defaultValue: "iMessage", bundle: .module) {
         didSet { updatePlaceholder() }
     }
@@ -111,6 +116,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         get { textView.string }
         set {
             textView.string = newValue
+            mentionController.reset()
             textDidChange()
         }
     }
@@ -170,6 +176,8 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         }
         textView.registerForDraggedTypes([.fileURL, .png, .tiff])
         textView.setAccessibilityIdentifier("conversation.composer.text")
+        textView.commandInterceptor = { [weak self] selector in self?.mentionController.handle(selector) ?? false }
+        _ = mentionController
         scrollView.documentView = textView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -338,6 +346,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     }
 
     private func textDidChange() {
+        mentionController.textDidChange()
         updatePlaceholder()
         needsLayout = true
         updateHeight()
@@ -372,6 +381,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
 
     func clearAfterSend() {
         textView.string = ""
+        mentionController.reset()
         attachments = []
         attachmentStrip.subviews.forEach { $0.removeFromSuperview() }
         updatePlaceholder()

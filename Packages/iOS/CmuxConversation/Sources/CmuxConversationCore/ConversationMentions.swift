@@ -104,8 +104,10 @@ public enum ConversationMentionEditing {
     /// text; mentions after the edit shift.
     public static func apply(_ range: NSRange, replacement: String, to draft: ConversationMentionDraft) -> EditResult {
         let ns = draft.text as NSString
-        var range = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
-        if range.location == NSNotFound { range = NSRange(location: ns.length, length: 0) }
+        // Clamp to the text. (NSIntersectionRange turns an empty range at the
+        // end into {0, 0}, which would move a caret insertion to the start.)
+        let start = min(max(0, range.location == NSNotFound ? ns.length : range.location), ns.length)
+        var range = NSRange(location: start, length: min(max(0, range.length), ns.length - start))
         if replacement.isEmpty, range.length > 0 {
             // Widen to every mention the deletion touches.
             for mention in draft.mentions where mention.location < NSMaxRange(range) && mention.end > range.location {
@@ -113,19 +115,7 @@ public enum ConversationMentionEditing {
             }
         }
         let inserted = (replacement as NSString).length
-        let delta = inserted - range.length
-        var mentions: [ConversationMention] = []
-        for var mention in draft.mentions {
-            if mention.end <= range.location {
-                // Wholly before; an insertion at its end stays plain text.
-                mentions.append(mention)
-            } else if mention.location >= NSMaxRange(range) {
-                // Wholly after; an insertion at its start lands before it.
-                mention.location += delta
-                mentions.append(mention)
-            }
-            // Otherwise the edit touches its inside: it reverts to plain text.
-        }
+        let mentions = adjusted(draft.mentions, forEdit: range, replacementLength: inserted)
         let text = ns.replacingCharacters(in: range, with: replacement)
         return EditResult(
             range: range,
@@ -133,6 +123,23 @@ public enum ConversationMentionEditing {
             draft: ConversationMentionDraft(text: text, mentions: normalized(mentions, textLength: (text as NSString).length)),
             caret: range.location + inserted
         )
+    }
+
+    /// Mentions after replacing `range` with `replacementLength` UTF-16
+    /// units: those before stay, those after shift, any the edit touches
+    /// revert to plain text. An insertion at a mention's end stays outside it.
+    public static func adjusted(_ mentions: [ConversationMention], forEdit range: NSRange, replacementLength: Int) -> [ConversationMention] {
+        let delta = replacementLength - range.length
+        var result: [ConversationMention] = []
+        for var mention in mentions {
+            if mention.end <= range.location {
+                result.append(mention)
+            } else if mention.location >= NSMaxRange(range) {
+                mention.location += delta
+                result.append(mention)
+            }
+        }
+        return result
     }
 
     /// The mention query ending at `caret`, if any. Only participants other

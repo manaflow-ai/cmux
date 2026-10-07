@@ -34,6 +34,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []
     private(set) var attachments: [ComposerAttachment] = []
+    /// Mention ranges, the gray candidate and suggestions for the draft.
+    private(set) lazy var mentionController = ComposerMentionController(textView: textView)
 
     /// Set by the controller: the field may grow until it reaches the header.
     var maximumFieldHeight: CGFloat = 600 { didSet { if oldValue != maximumFieldHeight { updateHeight() } } }
@@ -63,6 +65,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         get { textView.text ?? "" }
         set {
             textView.text = newValue
+            mentionController.reset()
             textDidChange()
         }
     }
@@ -111,6 +114,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.returnKeyType = .default
         textView.accessibilityIdentifier = "conversation.composer.text"
         fieldGlass.contentView.addSubview(textView)
+        _ = mentionController
 
         placeholder.font = ConversationTheme.bodyFont
         placeholder.textColor = .placeholderText
@@ -180,6 +184,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     private func textDidChange() {
+        mentionController.textDidChange()
         updatePlaceholder()
         updateSendButton(animated: true)
         updateHeight()
@@ -286,6 +291,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentStrip.isHidden = true
         attachmentSeparator.isHidden = true
         textView.text = ""
+        mentionController.reset()
         updatePlaceholder()
         updateSendButton(animated: true)
         let previous = fieldHeight
@@ -319,6 +325,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
 /// Return inserts a newline (Messages sends only from the button).
 final class ComposerTextView: UITextView {
+    /// Gets the first chance at Delete (a mention deletes as one token).
+    var deleteBackwardHandler: (() -> Bool)?
+
+    override func deleteBackward() {
+        if deleteBackwardHandler?() == true { return }
+        super.deleteBackward()
+    }
+
     override func paste(_ sender: Any?) {
         super.paste(sender)
         delegate?.textViewDidChange?(self)

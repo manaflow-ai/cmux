@@ -53,6 +53,8 @@ struct MessageRowModel: Hashable {
     /// Distinct tapbacks in first-given order, and whether one of them is mine.
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
+    /// Mentions of this participant are highlighted in incoming bubbles.
+    var meID: String? = nil
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -111,7 +113,8 @@ enum ConversationRowBuilder {
                 reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
-                hasMyReaction: message.reactions.contains { $0.participantID == meID }
+                hasMyReaction: message.reactions.contains { $0.participantID == meID },
+                meID: meID
             )))
         }
         if !typingIDs.isEmpty {

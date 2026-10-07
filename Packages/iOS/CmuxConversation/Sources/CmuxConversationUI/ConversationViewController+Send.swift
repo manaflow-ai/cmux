@@ -25,6 +25,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             return
         }
         let text = composer.text
+        let mentions = composer.mentions
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)
         let textFrame = composer.textFrame(in: view)
@@ -38,7 +39,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions) else {
             pendingFlight = nil
             return
         }

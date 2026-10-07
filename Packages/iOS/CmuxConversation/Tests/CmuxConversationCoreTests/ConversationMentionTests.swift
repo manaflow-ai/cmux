@@ -76,6 +76,14 @@ import Testing
         #expect(after.draft.text == "hey Leo! and Austin")
     }
 
+    @Test func typingAtTheEndAfterAMentionAppends() {
+        let d = ConversationMentionDraft(text: "hi Leo ", mentions: [ConversationMention(participantID: "lo", location: 3, length: 3)])
+        let result = ConversationMentionEditing.apply(NSRange(location: 7, length: 0), replacement: "x", to: d)
+        #expect(result.range == NSRange(location: 7, length: 0))
+        #expect(result.draft.text == "hi Leo x")
+        #expect(result.draft.mentions == d.mentions)
+    }
+
     @Test func rangesAreUTF16() throws {
         let d = draft("🎉 @le")
         let q = try #require(ConversationMentionEditing.query(in: d, caret: 6, participants: people))
