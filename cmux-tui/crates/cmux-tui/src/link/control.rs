@@ -9,13 +9,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use cmux_link::dial::{CloudEventRequest, MAX_LINE_BYTES, ReloadRequest, parse_line};
+use cmux_link::owner_session::OwnerSession;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
 use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
 use super::dial::{Overlay, serve_dial_line};
-use super::inbound::serve_inbound;
+use super::inbound::{InboundRefused, serve_inbound};
 use super::lines::read_line;
 
 /// The paired peers, re-read from their file on `link.reload`.
@@ -117,12 +118,18 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
     mut listener: L,
     peers: Arc<Peers>,
     session_socket: Option<PathBuf>,
+    owner: Option<Arc<OwnerSession>>,
 ) {
     while let Some((stream, key, address)) = listener.accept().await {
         let Some(session_socket) = session_socket.clone() else { continue };
         let pairings = peers.snapshot();
+        let owner = owner.clone();
         tokio::spawn(async move {
-            let _ = serve_inbound(stream, key, address, &pairings, &session_socket).await;
+            let served = serve_inbound(stream, key, address, &pairings, &session_socket, owner.as_deref()).await;
+            // Owner session refusals are security events: always log them.
+            if let Err(InboundRefused::Owner(why)) = served {
+                eprintln!("cmux link: owner session refused ({why:?}) for {address}");
+            }
         });
     }
 }
