@@ -322,6 +322,37 @@ mod tests {
         assert_eq!(set.invalid.len(), 13, "{:?}", set.invalid);
     }
 
+    /// On a user's server no role may open a wider cmux-tui remote entry
+    /// than loopback or the tailnet, nor turn on the trusted carrier (the
+    /// 0.0.0.0 trusted-carrier mode exists only for cmux Cloud machines,
+    /// through /etc/cmux/host.json; vm-image.md 6.3a, bead cx-wx2).
+    #[test]
+    fn roles_cannot_open_a_wide_or_trusted_remote_entry() {
+        let set = parse(json!({
+            "carrier": {"program": "cmux-tui", "args": ["server", "start", "--remote-ws", "127.0.0.1:1337", "--remote-ws-trusted-carrier"]},
+            "wild": {"program": "cmux-tui", "args": ["server", "start", "--remote-ws", "0.0.0.0:1337"]},
+            "wild6": {"program": "cmux-tui", "args": ["server", "start", "--remote-ws=[::]:1337"]},
+            "lan": {"program": "cmux-tui", "args": ["--remote-ws", "192.168.1.5:1337", "--remote-ws-insecure-bind"]},
+            "dangling": {"program": "cmux-tui", "args": ["--remote-ws"]},
+            "envcarrier": {"program": "x", "env": {"CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER": "1"}},
+            "envbind": {"program": "x", "env": {"CMUX_TUI_REMOTE_WS_BIND": "0.0.0.0:1337"}},
+            "loopback": {"program": "cmux-tui", "args": ["server", "start", "--remote-ws", "127.0.0.1:1337"]},
+            "tailnet": {"program": "cmux-tui", "args": ["--remote-ws=100.101.102.103:1337", "--remote-ws-insecure-bind"]},
+            "tailnet6": {"program": "cmux-tui", "args": ["--remote-ws", "[fd7a:115c:a1e0::9]:1337"]}
+        }));
+        let mut names: Vec<_> = set.roles.iter().map(|r| r.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["loopback", "tailnet", "tailnet6"], "{:?}", set.invalid);
+        assert_eq!(set.invalid.len(), 7, "{:?}", set.invalid);
+        for invalid in &set.invalid {
+            assert!(invalid.reason.contains("remote"), "{}: {}", invalid.name, invalid.reason);
+        }
+        assert!(private_listen_address("100.64.0.1".parse().unwrap()));
+        assert!(!private_listen_address("100.128.0.1".parse().unwrap()));
+        assert!(private_listen_address("::1".parse().unwrap()));
+        assert!(!private_listen_address("0.0.0.0".parse().unwrap()));
+    }
+
     #[test]
     fn roles_must_be_an_object() {
         let set = parse(json!(["chief"]));
