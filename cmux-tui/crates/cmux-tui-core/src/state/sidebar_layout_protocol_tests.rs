@@ -189,3 +189,48 @@ fn sidebar_layout_persists_conflicts_resets_and_survives_a_damaged_row() {
     assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "0");
     assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "0");
 }
+
+/// The app appends with `index: Int.max` (SidebarLayoutPlanner, section
+/// moves); the catalog and the reducer accept it and clamp it to the end.
+#[test]
+fn int_max_index_appends_through_the_protocol() {
+    let mux = Mux::new_for_test("state-sidebar-layout-int-max", SurfaceOptions::default());
+    let item = json!({"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}});
+    let added = update(
+        &mux,
+        "m-1",
+        json!({"kind": "item.add", "item": item, "section": "sec_bottom", "index": i64::MAX}),
+    )
+    .unwrap();
+    assert_eq!(added["value"]["sections"][3]["items"][2]["id"], "itm_ws");
+    let moved = update(
+        &mux,
+        "m-2",
+        json!({"kind": "section.move", "id": "sec_top", "region": "middle", "index": i64::MAX}),
+    )
+    .unwrap();
+    let middle = moved["value"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["region"] == "middle")
+        .map(|s| s["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(middle, [json!("sec_workspaces"), json!("sec_recents"), json!("sec_top")]);
+    let section = json!({"id": "sec_m", "region": "bottom", "look": "list", "content": "items"});
+    let float = update(
+        &mux,
+        "m-3",
+        json!({"kind": "section.add", "section": section, "index": 9.223372036854776e18}),
+    )
+    .unwrap();
+    assert_eq!(float["value"]["sections"].as_array().unwrap().last().unwrap()["id"], "sec_m");
+    assert_eq!(
+        error_code(update(
+            &mux,
+            "m-4",
+            json!({"kind": "item.move", "id": "itm_ws", "section": "sec_bottom", "index": 1.5})
+        )),
+        "validation.invalid"
+    );
+}
