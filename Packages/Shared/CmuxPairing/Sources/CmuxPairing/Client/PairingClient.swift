@@ -10,10 +10,12 @@ public struct PairingClient: Sendable {
 
     public init(client: ControlPlaneClient) { self.client = client }
 
-    /// Publishes this install's link cert (`host` for a Mac that enrolled it).
-    public func publish(_ certificate: LinkCertificate, host: String? = nil, key: String = UUID().uuidString) async throws {
+    /// Publishes this install's link cert (`host` and its `team` for a Mac that enrolled it; the team
+    /// defaults to the install's own).
+    public func publish(_ certificate: LinkCertificate, host: String? = nil, team: String? = nil, key: String = UUID().uuidString) async throws {
         var params: [String: JSONValue] = ["cert": try JSONValue(encoding: certificate)]
         if let host { params["host"] = .string(host) }
+        if let team { params["team"] = .string(team) }
         _ = try await submit("trust.key.publish", .object(params), key: key)
     }
 

@@ -22,8 +22,9 @@ actor PairingRegistryInputs {
         publish()
     }
 
-    func set(presence next: [String: HostPresence]) {
-        presence = next
+    func set(presence next: HostPresence?, for host: String) {
+        guard presence[host] != next else { return }
+        presence[host] = next
         publish()
     }
 

@@ -188,4 +188,58 @@ describe("QR offers", () => {
     expect((await openHost(a.host, b.phone.token, `?team=${a.team}`)).status).toBe(403)
     expect((await send(mac, "pairing.revoke", { host: a.host, install: b.phone.install })).code).toBe("selector.not_found")
   })
+
+  it("a revoke after re-pairing revokes again (keys carry the pairing), and a client key never blocks system writes", async () => {
+    const a = await account("rp-owner")
+    const b = await account("rp-guest")
+    const mac = await openUser(a.mac.token)
+    await publish(mac, a.user, a.mac, a.host)
+    const phone = await openUser(b.phone.token)
+    // A publish whose key names a system write is namespaced and cannot block the later revocation of this install.
+    const c = await cert(b.user, b.phone)
+    expect((await send(phone, "trust.key.publish", { cert: c }, `trust-revoked:${b.phone.install}`)).idempotency_key).toBe(`trust-revoked:${b.phone.install}`)
+    for (let round = 0; round < 2; round++) {
+      const o = await offer(mac, a)
+      const claimed = await send(phone, "pairing.claim", { offer: o.code, host: a.host, host_key: o.key })
+      expect((await send(mac, "trust.request.accept", { offer_id: claimed.value.offer_id })).t).toBe("result")
+      expect((await openHost(a.host, b.phone.token, `?team=${a.team}`)).status).toBe(101)
+      expect((await send(mac, "pairing.revoke", { host: a.host, install: b.phone.install })).t).toBe("result")
+      expect((await openHost(a.host, b.phone.token, `?team=${a.team}`)).status).toBe(403)
+    }
+  })
+
+  it("revoking a guest's install in its own account removes it from the owner's host", async () => {
+    const a = await account("fan-owner")
+    const b = await account("fan-guest")
+    const mac = await openUser(a.mac.token)
+    await publish(mac, a.user, a.mac, a.host)
+    const o = await offer(mac, a)
+    const phone = await openUser(b.phone.token)
+    await publish(phone, b.user, b.phone)
+    const claimed = await send(phone, "pairing.claim", { offer: o.code, host: a.host, host_key: o.key })
+    await send(mac, "trust.request.accept", { offer_id: claimed.value.offer_id })
+    await subscribeTrust(mac, a.user)
+    const at = mac.frames.length
+    expect((await op(b.session, "install.revoke", { install: b.phone.install })).json.ok).toBe(true)
+    const removed = await trustEvent(mac, a.user, "trust.guest.remove", at)
+    expect(removed.params).toEqual({ host: a.host, install: b.phone.install })
+    expect((await subscribeTrust(mac, a.user)).state.guests).toEqual({})
+  })
+
+  it("revoking the host Mac removes its guests' remote entries", async () => {
+    const a = await account("mac-owner")
+    const b = await account("mac-guest")
+    const mac = await openUser(a.mac.token)
+    await publish(mac, a.user, a.mac, a.host)
+    const o = await offer(mac, a)
+    const phone = await openUser(b.phone.token)
+    await publish(phone, b.user, b.phone)
+    await subscribeTrust(phone, b.user)
+    const claimed = await send(phone, "pairing.claim", { offer: o.code, host: a.host, host_key: o.key })
+    await send(mac, "trust.request.accept", { offer_id: claimed.value.offer_id })
+    const at = phone.frames.length
+    expect((await op(a.session, "install.revoke", { install: a.mac.install })).json.ok).toBe(true)
+    const removed = await trustEvent(phone, b.user, "trust.remote.remove", at)
+    expect(removed.params).toEqual({ host: a.host, install: b.phone.install })
+  })
 })

@@ -179,7 +179,7 @@ export const trustDomain: Domain<TrustState> = {
         if (!str(p.offer_id, 64) || !str(p.host, 80) || !str(p.team, 80)) return reject("validation.invalid", "offer_id, host and team are required")
         const key = pairKey(p.host, peer.install)
         const { [p.offer_id]: _accepted, ...requests } = state.requests
-        if (state.guests[key]?.offer_id === p.offer_id) return ok({ ...state, requests }, { host: p.host, install: peer.install }, pruned || requests !== state.requests)
+        if (state.guests[key]?.offer_id === p.offer_id) return ok({ ...state, requests }, { host: p.host, install: peer.install }, pruned || state.requests[p.offer_id] !== undefined)
         if (!state.guests[key] && Object.keys(state.guests).length >= MAX_TRUST_GUESTS) return reject("validation.invalid", `at most ${MAX_TRUST_GUESTS} guest devices`)
         const guest: TrustGuest = { ...peer, offer_id: p.offer_id, host: p.host, team: p.team, accepted_at: ctx.now }
         return ok({ ...state, requests, guests: { ...state.guests, [key]: guest } }, { host: p.host, install: peer.install })

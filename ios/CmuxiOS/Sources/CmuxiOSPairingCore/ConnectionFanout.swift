@@ -12,12 +12,13 @@ actor ConnectionFanout {
 
     init(client: ControlPlaneClient) { self.client = client }
 
-    func stream() async -> AsyncStream<SourceConnection> {
+    func stream() -> AsyncStream<SourceConnection> {
+        // No suspension before `reader` is set: two callers must never both iterate `states`.
+        // `states` buffers every state since the client was made, so the first one read is current.
         if reader == nil {
-            latest = ControlPlanePairingOps.connection(await client.state)
             let states = client.states
-            reader = Task {
-                for await state in states { self.publish(ControlPlanePairingOps.connection(state)) }
+            reader = Task { [weak self] in
+                for await state in states { await self?.publish(ControlPlanePairingOps.connection(state)) }
             }
         }
         let (stream, sink) = AsyncStream.makeStream(of: SourceConnection.self, bufferingPolicy: .bufferingNewest(1))

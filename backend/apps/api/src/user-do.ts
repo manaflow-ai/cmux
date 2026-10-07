@@ -18,7 +18,7 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { sshDomain, type SshState } from "./domains/user-ssh.ts"
 import { trustDomain, type TrustState } from "./domains/user-trust.ts"
 import { issueChallenge, redeemChallenge } from "./user-challenge.ts"
-import { crossUserTrust, pairingHosts, submitTrust, TRUST_SOCKET_OPS, TrustOps } from "./user-trust-ops.ts"
+import { crossUserTrust, pairingHosts, TRUST_SOCKET_OPS, TrustOps } from "./user-trust-ops.ts"
 const earliestOf = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b))
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
@@ -205,7 +205,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
     this.closeRevoked(op, frames)
-    this.trustRevoked(op, frames)
+    this.trustOps.afterInstallOp(op, frames, (work) => this.ctx.waitUntil(work)) // b6-pairing.md 5: a revoked install leaves trust: now
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
@@ -360,7 +360,7 @@ export class UserDO extends OwnerDO<UserState> {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
     }
-    if (op === "pairing.hosts") return { ok: true, value: pairingHosts(this.trust.bound?.currentState), revision: "" }
+    if (op === "pairing.hosts") return { ok: true, value: pairingHosts(state.user ? this.trust.open(state.user.id).currentState : undefined), revision: "" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }
@@ -426,14 +426,6 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC from another UserDO's pairing handlers (user-trust-ops.ts): one cross-account trust write. */
   async crossUserTrust(entity: string, op: string, params: unknown, key: string, from: string): Promise<SubmitResult> { return crossUserTrust(this.trustOps.host, entity, op, params, key, from) }
-
-  /** A revoked install's link keys and acceptances leave `trust:` in the same turn (b6-pairing.md 5). */
-  private trustRevoked(op: string, frames: ReadonlyArray<OwnerFrame>) {
-    const r = op === "install.revoke" || op === "install.revoke_by_team" || op === "install.sign_out" ? frames.find((f) => f.t === "result") : undefined
-    const install = r && r.t === "result" ? (r.value as { id?: string }).id : undefined
-    const engine = install ? this.existing() : undefined
-    if (install && engine) submitTrust(this.trustOps.host, engine.stream.slice("user:".length), "trust.install.revoked", { install }, `trust-revoked:${install}`)
-  }
 
   /** Home attachment quota (home-attachment-quota.ts): every upload slot is charged; refunds and stored bytes by key. */
   async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> { return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN }

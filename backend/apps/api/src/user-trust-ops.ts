@@ -155,16 +155,20 @@ export class TrustOps {
     if (!(await verifyInstallSignature(inst.public_jwk, linkCertMessage(this.host.env.ENVIRONMENT, cert), cert.signature))) return refuse("trust.bad_signature", "the install key did not sign this cert")
     let host: string | undefined
     if (params.host !== undefined) {
-      if (typeof params.host !== "string" || !ID.test(params.host) || !p.team) return refuse("validation.invalid", "host must be a host id")
-      const access = await teamStub(this.host.env, p.team).hostAccess(p.team, params.host, p)
+      const team = params.team ?? p.team
+      if (typeof params.host !== "string" || !ID.test(params.host) || typeof team !== "string" || !ID.test(team)) return refuse("validation.invalid", "host and team must be ids")
+      const access = await teamStub(this.host.env, team).hostAccess(team, params.host, p)
       if (access?.role !== "host") return refuse("auth.forbidden", "this install did not enroll that host")
       host = params.host
     }
     // Re-read after the awaits: a revoke may have committed meanwhile.
     const now = this.host.user()?.state
     if (!now || !deviceOf(now, p)) return refuse("auth.forbidden", "install revoked")
-    const frames = submitTrust(this.host, entity, "trust.key.set", { cert, kind: inst.kind, name: inst.name, platform: inst.platform, public_jwk: inst.public_jwk, ...(host ? { host } : {}) }, key)
-    return frames.length ? frames : this.frames(key, "trust.key.publish", fail("owner.unreachable", "no reply", true))
+    // The client's key lives in its own namespace, so it can never collide with (and block) a system write such as
+    // `trust-revoked:<install>`; the replies carry the client's key again.
+    const frames = submitTrust(this.host, entity, "trust.key.set", { cert, kind: inst.kind, name: inst.name, platform: inst.platform, public_jwk: inst.public_jwk, ...(host ? { host } : {}) }, `publish:${inst.id}:${key}`)
+    if (!frames.length) return this.frames(key, "trust.key.publish", fail("owner.unreachable", "no reply", true))
+    return frames.map((f) => ("idempotency_key" in f ? { ...f, idempotency_key: key } : f))
   }
 
   /** `pairing.offer {host, team}` from the Mac that enrolled the host. */
@@ -204,30 +208,41 @@ export class TrustOps {
     const hostView = { host: o.host, team: o.team, name: o.host_name, owner_user: o.owner_user, host_install: o.host_install, host_jwk: o.host_jwk, host_cert: o.host_cert }
     // Same account: own devices are already trusted (b6-pairing.md 3); nothing else is written.
     if (r.same_account) return { ok: true, value: { status: "trusted", offer_id: id, ...hostView } }
+    // Re-read after the awaits: a revoke of this device may have committed meanwhile.
+    const now = this.host.user()?.state
+    if (!now || !deviceOf(now, p)) return fail("auth.forbidden", "install revoked")
     const request = { ...peer, offer_id: id, host: o.host, host_name: o.host_name, team: o.team, expires_at: o.expires_at }
     const res = await userStub(this.host.env, o.owner_user).crossUserTrust(o.owner_user, "trust.request.add", request, `request:${id}`, entity)
     const added = outcomeOf(res.frames)
     return added.ok ? { ok: true, value: { status: "pending", offer_id: id, ...hostView } } : added
   }
 
-  /** `trust.request.accept {offer_id}` by the host owner (session or own install, never a chief). */
+  /**
+   * `trust.request.accept {offer_id}` by the host owner (session or own install, never a chief). Order: PairingDO
+   * (single use) -> owner's guest row (the revocation index, so anything admitted is revocable) -> TeamDO admission
+   * -> the guest's remote index. A retry finds the guest row by offer id and finishes the remaining steps.
+   */
   private async accept(entity: string, p: Principal, params: Record<string, unknown>): Promise<Outcome> {
     if (p.agent || (p.kind !== "session" && !deviceOf(this.host.user()!.state, p))) return fail("auth.forbidden", "the Mac's owner accepts")
     const id = params.offer_id
     if (typeof id !== "string" || !KEY.test(id)) return fail("validation.invalid", "offer_id is required")
     const trust = this.host.trust.open(entity).currentState
-    // A retry after a partial accept: the guest is already recorded, the request gone.
-    const request = trust.requests[id] ?? Object.values(trust.guests).find((g) => g.offer_id === id)
+    const pending = trust.requests[id]
+    const request = pending ?? Object.values(trust.guests).find((g) => g.offer_id === id)
     if (!request) return fail("pairing.offer_unknown", "pairing request expired or unknown")
-    const done = await offerStub(this.host.env, id).offerComplete(entity, request.install, Date.now())
-    if (!done.ok) return fail(done.code, done.message)
-    const o = done.offer
+    // The host's key comes from this account's own store (the Mac published it with its host).
+    const hostDevice = Object.values(trust.devices).find((d) => d.host === request.host && d.certs.direct)
+    if (!hostDevice) return fail("pairing.no_host_key", "the Mac's key is no longer published")
+    if (pending) {
+      const done = await offerStub(this.host.env, id).offerComplete(entity, pending.install, Date.now())
+      if (!done.ok) return fail(done.code, done.message)
+      const peer: TrustPeerDevice = { install: pending.install, user: pending.user, user_name: pending.user_name, name: pending.name, platform: pending.platform, public_jwk: pending.public_jwk, cert: pending.cert }
+      const guest = outcomeOf(submitTrust(this.host, entity, "trust.guest.add", { ...peer, offer_id: id, host: pending.host, team: pending.team }, `guest:${id}`))
+      if (!guest.ok) return guest
+    }
     const admitted = outcomeOf((await teamStub(this.host.env, request.team).hostGuest(request.team, "host.guest.set", { host: request.host, install: request.install, user: request.user, offer_id: id }, `guest:${id}`)).frames)
     if (!admitted.ok) return admitted
-    const peer: TrustPeerDevice = { install: request.install, user: request.user, user_name: request.user_name, name: request.name, platform: request.platform, public_jwk: request.public_jwk, cert: request.cert }
-    const guest = outcomeOf(submitTrust(this.host, entity, "trust.guest.add", { ...peer, offer_id: id, host: request.host, team: request.team }, `guest:${id}`))
-    if (!guest.ok) return guest
-    const remote = { host: o.host, team: o.team, owner_user: entity, name: o.host_name, host_install: o.host_install, public_jwk: o.host_jwk, cert: o.host_cert, install: request.install, offer_id: id }
+    const remote = { host: request.host, team: request.team, owner_user: entity, name: hostDevice.name, host_install: hostDevice.install, public_jwk: hostDevice.public_jwk, cert: hostDevice.certs.direct, install: request.install, offer_id: id }
     const indexed = outcomeOf((await userStub(this.host.env, request.user).crossUserTrust(request.user, "trust.remote.add", remote, `remote:${id}`, entity)).frames)
     return indexed.ok ? { ok: true, value: { host: request.host, install: request.install } } : indexed
   }
@@ -241,27 +256,62 @@ export class TrustOps {
   }
 
   /**
-   * `pairing.revoke {host, install}`: the owner removes a guest from a host, or a guest's account
-   * removes its own device's access. Admission goes first (TeamDO), then both trust stores.
+   * `pairing.revoke {host, install}`: the owner removes a guest from a host, or a guest's account removes its own
+   * device's access. Admission goes first (TeamDO), then the other account, then this store last, so a retry after a
+   * partial failure still finds the local row. Keyed by the pairing's offer id: a later re-pairing revokes afresh.
    */
   private async revoke(entity: string, p: Principal, params: Record<string, unknown>): Promise<Outcome> {
-    if (p.agent) return fail("auth.forbidden", "a chief token cannot change pairing")
+    if (p.agent || (p.kind !== "session" && !deviceOf(this.host.user()!.state, p))) return fail("auth.forbidden", "only the account's user or an active install changes pairing")
     const { host, install } = params
     if (typeof host !== "string" || typeof install !== "string" || !ID.test(host) || !ID.test(install)) return fail("validation.invalid", "host and install are required")
     const trust = this.host.trust.open(entity).currentState
     const k = pairKey(host, install)
     const asOwner = trust.guests[k]
     const asGuest = trust.remote[k]
-    if (!asOwner && !asGuest) return fail("selector.not_found", "no pairing between this host and device")
-    const team = (asOwner ?? asGuest)!.team
-    const key = `revoke:${host}:${install}`
-    const removed = outcomeOf((await teamStub(this.host.env, team).hostGuest(team, "host.guest.remove", { host, install }, key)).frames)
+    if (asOwner) return this.unpair(entity, { host, install, team: asOwner.team, offer_id: asOwner.offer_id, other: asOwner.user, role: "owner" })
+    if (asGuest) return this.unpair(entity, { host, install, team: asGuest.team, offer_id: asGuest.offer_id, other: asGuest.owner_user, role: "guest" })
+    return fail("selector.not_found", "no pairing between this host and device")
+  }
+
+  private async unpair(entity: string, u: { host: string; install: string; team: string; offer_id: string; other: string; role: "owner" | "guest" }): Promise<Outcome> {
+    const key = `revoke:${u.host}:${u.install}:${u.offer_id}`
+    const removed = outcomeOf((await teamStub(this.host.env, u.team).hostGuest(u.team, "host.guest.remove", { host: u.host, install: u.install }, key)).frames)
     if (!removed.ok) return removed
-    const mine = outcomeOf(submitTrust(this.host, entity, asOwner ? "trust.guest.remove" : "trust.remote.remove", { host, install }, key))
-    if (!mine.ok) return mine
-    const other = asOwner ? asOwner.user : asGuest!.owner_user
-    const theirs = outcomeOf((await userStub(this.host.env, other).crossUserTrust(other, asOwner ? "trust.remote.remove" : "trust.guest.remove", { host, install }, key, entity)).frames)
-    return theirs.ok ? { ok: true, value: { host, install } } : theirs
+    const theirs = outcomeOf((await userStub(this.host.env, u.other).crossUserTrust(u.other, u.role === "owner" ? "trust.remote.remove" : "trust.guest.remove", { host: u.host, install: u.install }, key, entity)).frames)
+    if (!theirs.ok) return theirs
+    const mine = outcomeOf(submitTrust(this.host, entity, u.role === "owner" ? "trust.guest.remove" : "trust.remote.remove", { host: u.host, install: u.install }, key))
+    return mine.ok ? { ok: true, value: { host: u.host, install: u.install } } : mine
+  }
+
+  /** UserDO.afterOp: a revoked install's certs leave `trust:` in the same turn; its cross-account pairings follow. */
+  afterInstallOp(op: string, frames: ReadonlyArray<OwnerFrame>, background: (work: Promise<void>) => void): void {
+    const r = op === "install.revoke" || op === "install.revoke_by_team" || op === "install.sign_out" ? frames.find((f) => f.t === "result") : undefined
+    const install = r && r.t === "result" ? (r.value as { id?: string }).id : undefined
+    const entity = install ? this.host.user()?.entity : undefined
+    if (!install || !entity) return
+    const before = this.host.trust.open(entity).currentState
+    submitTrust(this.host, entity, "trust.install.revoked", { install }, `trust-revoked:${install}`)
+    background(this.revokedInstall(entity, install, before))
+  }
+
+  /**
+   * After an install of this account is revoked (its certs already left this store): every pairing it took part in
+   * across accounts is undone the same way as `pairing.revoke`. `before` is the store before the revocation commit.
+   * Best effort from `waitUntil`; a failure leaves the other side until its cert expires (b6-pairing.md section 9).
+   */
+  async revokedInstall(entity: string, install: string, before: TrustState): Promise<void> {
+    const work: Array<Parameters<TrustOps["unpair"]>[1]> = []
+    for (const r of Object.values(before.remote)) if (r.install === install) work.push({ host: r.host, install, team: r.team, offer_id: r.offer_id, other: r.owner_user, role: "guest" })
+    const host = before.devices[install]?.host
+    if (host) for (const g of Object.values(before.guests)) if (g.host === host) work.push({ host, install: g.install, team: g.team, offer_id: g.offer_id, other: g.user, role: "owner" })
+    for (const w of work) {
+      try {
+        const out = await this.unpair(entity, w)
+        if (!out.ok) console.error(JSON.stringify({ msg: "trust fan-out refused", code: out.code }))
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "trust fan-out failed", error: String(e).slice(0, 200) }))
+      }
+    }
   }
 }
 

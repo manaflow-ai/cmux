@@ -15,6 +15,8 @@ public actor ControlPlaneDeviceRegistry: DeviceRegistry {
     private var subscribers: [UUID: AsyncStream<SourceSnapshot<[DeviceRecord]>>.Continuation] = [:]
     private var latest: SourceSnapshot<[DeviceRecord]>?
     private var pipeline: Task<Void, Never>?
+    /// Which pipeline is current; a finished or stale one never clears a newer one.
+    private var generation = 0
 
     /// - Parameters:
     ///   - bootstrap: resolves the account and builds the mirror, owner calls and presence (once).
@@ -33,8 +35,12 @@ public actor ControlPlaneDeviceRegistry: DeviceRegistry {
         let id = UUID()
         subscribers[id] = sink
         sink.yield(latest ?? SourceSnapshot(revision: revision, value: [], connection: .connecting))
-        sink.onTermination = { _ in Task { await self.unsubscribe(id) } }
-        if pipeline == nil { pipeline = Task { await self.follow() } }
+        sink.onTermination = { [weak self] _ in Task { await self?.unsubscribe(id) } }
+        if pipeline == nil {
+            generation += 1
+            let current = generation
+            pipeline = Task { [weak self] in await self?.follow(generation: current) }
+        }
         return stream
     }
 
@@ -135,13 +141,18 @@ public actor ControlPlaneDeviceRegistry: DeviceRegistry {
         for sink in subscribers.values { sink.yield(snapshot) }
     }
 
-    private func follow() async {
+    /// A pipeline ended (bootstrap failed, or its streams finished): the next subscriber starts a new one.
+    private func ended(_ current: Int) {
+        if generation == current { pipeline = nil }
+    }
+
+    private func follow(generation current: Int) async {
+        defer { ended(current) }
         let rt: PairingRuntime
         do {
             rt = try await ready()
         } catch {
             emit(SourceSnapshot(revision: revision, value: [], connection: .offline(reason: nil)))
-            pipeline = nil
             return
         }
         let projection = DeviceProjection(account: rt.account)
@@ -155,18 +166,26 @@ public actor ControlPlaneDeviceRegistry: DeviceRegistry {
                 for await connection in await rt.ops.connectionStates() { await merged.set(connection: connection) }
             }
             group.addTask {
-                var followed: [String: String] = [:]
-                var presenceTask: Task<Void, Never>?
+                // One presence task per host: a change to the set opens or closes only the hosts that changed.
+                var followed: [String: (team: String, task: Task<Void, Never>)] = [:]
                 for await state in await merged.states() {
                     let hosts = projection.hosts(state: state, team: team)
-                    guard hosts != followed else { continue }
-                    followed = hosts
-                    presenceTask?.cancel()
-                    presenceTask = Task {
-                        for await map in await rt.presence.presence(of: hosts) { await merged.set(presence: map) }
+                    for (host, entry) in followed where hosts[host] != entry.team {
+                        entry.task.cancel()
+                        followed[host] = nil
+                        await merged.set(presence: nil, for: host)
+                    }
+                    for (host, hostTeam) in hosts where followed[host] == nil {
+                        let task = Task {
+                            for await map in await rt.presence.presence(of: [host: hostTeam]) {
+                                guard !Task.isCancelled else { return }
+                                await merged.set(presence: map[host], for: host)
+                            }
+                        }
+                        followed[host] = (hostTeam, task)
                     }
                 }
-                presenceTask?.cancel()
+                for entry in followed.values { entry.task.cancel() }
             }
             group.addTask {
                 for await inputs in await merged.changes() {

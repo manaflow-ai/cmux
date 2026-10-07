@@ -137,9 +137,10 @@ Expired requests are dropped on the owner's next trust write and refused by acce
   closes its sockets (4401), and drops its certs from `trust:` in the same turn. Every Mac's
   authorizer stops accepting its key on the next event.
 - Guest on my host: `pairing.revoke {host, install}` by the owner, or by the guest for itself.
-  UserDO removes `guests[host/install]` (owner) or `remote[host]` (guest), then tells TeamDO
-  (`host.guest.remove`: the next admission check closes the guest's host socket with 4403) and the
-  other user's UserDO. Keyed by `revoke:<host>:<install>`.
+  TeamDO first (`host.guest.remove`: the next admission check closes the guest's host socket with
+  4403), then the other user's UserDO, then this account's row last (a retry still finds it). Keyed
+  by `revoke:<host>:<install>:<offer id>`, so a later re-pairing revokes afresh. Revoking an install
+  runs the same sequence for each of its cross-account pairings.
 - Multi-Mac list: `DeviceRegistry.updates()` yields own Macs (trusted), remote Macs (trusted),
   this phone, other own phones, guests on my Macs, plus pending requests as `discovered`, each
   with presence-derived `lastSeen`. Order is the owner's (sorted by name, then id); C5 owns hidden
@@ -205,12 +206,13 @@ iOS (`ios/CmuxiOS`): `CmuxiOSPairingCore` (`ControlPlaneDeviceRegistry: DeviceRe
 
 ## 8. Tests
 
-- vitest (`backend/apps/api/test`): `pairing-trust.test.ts` (8: publish and host binding, rotation, forged, foreign,
+- vitest (`backend/apps/api/test`): `pairing-trust.test.ts` (11: publish and host binding, rotation, forged, foreign,
   stale, wrong-environment, over-long and dtls certs, revoke drops certs, same-account offer and claim with key
   binding and single use, only the enrolling Mac offers, cross-account pending → accept → guest admission on the
-  HostDO socket → guest revoke, decline, owner revoke), `trust-domain.test.ts` (7: reducer expiry and guest move,
+  HostDO socket → guest revoke, decline, owner revoke, re-pair then revoke again, a client key named like a system write, revoked guest
+  install and revoked host Mac fan out to the other account), `trust-domain.test.ts` (7: reducer expiry and guest move,
   peer cert checks, system-only writes, message format, Swift signature vector, offer codes and links, guest caps).
-  Full API suite: 121 files, 755 tests green.
+  Full API suite: 121 files, 759 tests green.
 - Swift Testing: `Packages/Shared/CmuxPairing` (16: link grammar, certificate chain with a WebCrypto cross-check
   vector, trust state events and snapshot round trip, verified lookups, DTLS proofs, mirror resync);
   `CmuxiOSPairingCoreTests` (7: Connect flips own Macs to trusted only via the owner event, presence lastSeen,
@@ -222,9 +224,13 @@ iOS (`ios/CmuxiOS`): `CmuxiOSPairingCore` (`ControlPlaneDeviceRegistry: DeviceRe
 
 - Guest cert rotation: a guest's new `direct` cert reaches the host owner only through re-pairing;
   a `trust.remote` → owner push lands with B5 (TeamDO-free, UserDO to UserDO RPC, keyed by cert).
-- A guest install revoked by its own account stays in the owner's `guests` until the owner revokes
-  or the cert expires (90 days); socket admission is already refused by the guest's UserDO
-  (registerSocket). The ssh KRL notice path (`ssh_revoke_pending`) can carry it to the owner later.
+- Revoking an install fans out to every cross-account pairing it took part in (its `remote` entries,
+  and the guests of a revoked Mac's host) with the `pairing.revoke` sequence, from `waitUntil`. It is
+  best effort: a failed fan-out leaves the other side until the owner revokes or the cert expires
+  (socket admission is refused anyway by the revoked install's UserDO). A durable retry belongs on
+  UserDO's alarm, like `ssh_revoke_pending`.
+- A registry whose bootstrap failed (signed out, offline at first use) restarts only when a new
+  subscriber arrives; it does not retry on its own.
 - Narrowing control-socket admission from "team member" to "paired device" (b1 open item) is not
   done: team members keep control access, and link keys need pairing.
 - WireGuard (`wg`) certs are recorded and verified; TeamDO's `network.device.join` (transport.md 8)
