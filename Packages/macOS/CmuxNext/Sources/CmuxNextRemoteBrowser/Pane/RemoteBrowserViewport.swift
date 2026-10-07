@@ -9,13 +9,15 @@ public nonisolated struct RemoteBrowserViewport: Sendable, Hashable {
     public let cssHeight: Int
     public let scale: CGFloat
 
+    /// A zero or fractional pane rounds down to whole CSS pixels, never below
+    /// one; an unknown scale is 1.
     public init(bounds: CGSize, backingScale: CGFloat) {
-        cssWidth = 0
-        cssHeight = 0
-        scale = 0
+        cssWidth = max(1, Int(bounds.width.rounded(.down)))
+        cssHeight = max(1, Int(bounds.height.rounded(.down)))
+        scale = backingScale > 0 ? backingScale : 1
     }
 
-    public var pixelWidth: Int { 0 }
-    public var pixelHeight: Int { 0 }
+    public var pixelWidth: Int { Int((CGFloat(cssWidth) * scale).rounded()) }
+    public var pixelHeight: Int { Int((CGFloat(cssHeight) * scale).rounded()) }
 }
 #endif
