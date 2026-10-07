@@ -74,6 +74,8 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null. */
+  native?: Record<string, unknown>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

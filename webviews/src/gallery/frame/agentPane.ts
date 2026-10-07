@@ -46,7 +46,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "file.search":
         return answer([]);
       default:
-        return answer(null);
+        return answer(state.native?.[message.method ?? ""] ?? null);
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {
