@@ -34,4 +34,20 @@ struct WindowControlsInsetTests {
         #expect(open == 149, "the measured inset (first tab at 151 = padding 2 + 149)")
         #expect(TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: band, padding: 2, collapsed: true) == 0)
     }
+    @Test func hiddenSidebarHoverKeepsTheStripAnchored() {
+        let lights = CGRect(x: 12, y: 698, width: 54, height: 16)
+        let inset = TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: nil, padding: 2,
+                                                     collapsed: false, sidebarHidden: true)
+        #expect(inset == 0, "revealed traffic lights must not reflow the hidden-sidebar strip")
+    }
+
+    @Test func hiddenSidebarIncognitoHoverKeepsTheStripAnchored() {
+        let lights = CGRect(x: 12, y: 698, width: 54, height: 16)
+        let badge = CGRect(x: 72, y: 698, width: 77, height: 16)
+        for collapsed in [true, false] {
+            #expect(TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: badge,
+                padding: 2, collapsed: collapsed, sidebarHidden: true) == 0)
+        }
+    }
+
 }
