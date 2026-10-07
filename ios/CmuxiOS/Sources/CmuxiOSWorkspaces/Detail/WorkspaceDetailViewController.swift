@@ -156,30 +156,41 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
             accessories.append(.customView(configuration: .init(customView: UnreadBadge(count: surface.unreadCount),
                                                                 placement: .trailing(displayed: .always))))
         }
-        if opensTerminal(surface) { accessories.append(.disclosureIndicator()) }
+        if opens(surface) { accessories.append(.disclosureIndicator()) }
         cell.accessories = accessories
         cell.accessibilityIdentifier = "workspaces.surface." + surface.id
         cell.isAccessibilityElement = true
         var parts = [surface.title, surface.kind.label, surface.status.label]
         if surface.unreadCount > 0 { parts.append(WorkspacesText.unreadCount(surface.unreadCount)) }
         if let preview = surface.preview, !preview.isEmpty { parts.append(preview) }
-        if !opensTerminal(surface) { parts.append(WorkspacesText.surfaceUnavailable) }
+        if !opens(surface) { parts.append(WorkspacesText.surfaceUnavailable) }
         cell.accessibilityLabel = parts.joined(separator: ", ")
-        cell.accessibilityTraits = opensTerminal(surface) ? .button : .staticText
+        cell.accessibilityTraits = opens(surface) ? .button : .staticText
     }
 
     private func opensTerminal(_ surface: WorkspaceSurface) -> Bool {
         surface.terminalID != nil && (surface.kind == .terminal || surface.kind == .agent)
     }
 
+    /// Terminals open over C1; browser tabs open when C2's screen is wired.
+    private func opens(_ surface: WorkspaceSurface) -> Bool {
+        opensTerminal(surface) || (surface.kind == .browser && feature.surfaces.browser != nil)
+    }
+
     // MARK: Actions
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
-        dataSource.itemIdentifier(for: indexPath).flatMap { surfaces[$0] }.map(opensTerminal) ?? false
+        dataSource.itemIdentifier(for: indexPath).flatMap { surfaces[$0] }.map(opens) ?? false
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
+        if let id = dataSource.itemIdentifier(for: indexPath), let surface = surfaces[id], surface.kind == .browser,
+           opens(surface) {
+            let tab = BrowserTabInfo(id: surface.id, workspaceID: workspace?.id, title: surface.title, url: surface.url)
+            feature.openBrowser(tab, hostID: hostID, from: self)
+            return
+        }
         guard let id = dataSource.itemIdentifier(for: indexPath), let surface = surfaces[id],
               let terminalID = surface.terminalID, opensTerminal(surface), let workspace else { return }
         let target = WorkspaceTerminalTarget(

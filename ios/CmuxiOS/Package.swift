@@ -31,6 +31,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxControlPlane"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxLink"),
+        .package(path: "../../Packages/Shared/CmuxBrowserStream"),
         .package(path: "../../Packages/Shared/CmuxMobileLink"),
         .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxPairing"),
@@ -75,6 +76,9 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSBrowser",
+                "CmuxiOSBrowserCore",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSTerminalLink",
@@ -350,6 +354,40 @@ let package = Package(
         // Lane C6 (plans/cmux-next/ios-next/c6-feed.md): the Feed tab's
         // model (mirror + intent log, filters, sections; Foundation only),
         // the FeedDO wire source, and the UIKit screen.
+        .target(
+            name: "CmuxiOSBrowserCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSBrowserCoreTests",
+            dependencies: [
+                "CmuxiOSBrowserCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSBrowser",
+            dependencies: [
+                "CmuxiOSBrowserCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSFeedModel",
             dependencies: ["CmuxiOSFeatureKit"],

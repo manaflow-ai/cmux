@@ -203,6 +203,20 @@ pub enum Disposition {
     Popup,
 }
 
+/// Why a host refused `rb.navigate` (cap `navigate`, c2-browser-stream.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigateRefusal {
+    /// Not an http or https URL.
+    Scheme,
+    /// Not a URL, or no host.
+    Invalid,
+    /// The viewer's session may not act (revoked).
+    NotAllowed,
+    /// The page owner failed to start the load.
+    Failed,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
@@ -332,6 +346,12 @@ pub enum Control {
     OpenTab { request: u64, url: String, disposition: Disposition, user_gesture: bool },
     #[serde(rename = "rb.open_tab.result")]
     OpenTabResult { request: u64, tab: Option<String>, refused: Option<String> },
+    /// Viewer asks the page owner to load a URL (cap `navigate`). Hosts
+    /// refuse every scheme except http and https before the page sees it.
+    #[serde(rename = "rb.navigate")]
+    Navigate { request: u64, url: String },
+    #[serde(rename = "rb.navigate.result")]
+    NavigateResult { request: u64, refused: Option<NavigateRefusal> },
     #[serde(rename = "rb.surface.show")]
     SurfaceShow {
         surface: u32,

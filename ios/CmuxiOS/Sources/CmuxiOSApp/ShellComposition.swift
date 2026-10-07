@@ -1,4 +1,5 @@
 import CmuxiOSAuth
+import CmuxiOSBrowser
 import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
@@ -45,6 +46,8 @@ enum ShellComposition {
         let feedIsMock = sources.resolved[.feed] != .real
         let feedNavigator = container.feedNavigator
         let deviceName = UIDevice.current.name
+        // Lane C2: Mac browser tabs open from workspace surfaces over the browser seam.
+        let browser = BrowserFeature(source: sources.browser, isMock: sources.resolved[.browser] != .real)
         // Lane C5: the Workspaces tab; real Macs' terminals open over C1's
         // link sources, mock workspaces over A2's mock host. `workspaces.makePicker` is the
         // picker the composer (C8) presents.
@@ -52,6 +55,8 @@ enum ShellComposition {
         let terminalSources = workspacesAreReal ? container.terminalSources : nil
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.
+            surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
             isMock: !workspacesAreReal)
         // Lane C8: the Compose tab and the floating compose button over Feed
         // and Workspaces. The picker and "open workspace" are C5's, passed as
@@ -83,7 +88,7 @@ enum ShellComposition {
                 if floatingCompose { composer.installFloatingButton(on: navigation) }
                 return navigation
             },
-        ])
+        ], surfaces: browser.surfaceFactories)
         let shell = ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),

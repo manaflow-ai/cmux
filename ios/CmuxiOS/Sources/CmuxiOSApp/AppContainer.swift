@@ -162,6 +162,8 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
+        // Lane C2: nil until D1 provides the per-Mac MobileLinkClient (as for files).
+        factories.browser = BrowserComposition.realSource(clients: nil, directory: nil)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)

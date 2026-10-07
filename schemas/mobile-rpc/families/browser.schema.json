@@ -12,15 +12,22 @@
         "screen": {
           "type": "object", "additionalProperties": false, "required": ["css_width", "css_height", "scale"],
           "properties": { "css_width": { "type": "integer", "minimum": 1 }, "css_height": { "type": "integer", "minimum": 1 }, "scale": { "type": "number", "minimum": 0.5, "maximum": 4 }, "refresh_hz": { "type": "integer", "minimum": 1 } }
-        }
+        },
+        "codecs": { "type": "array", "items": { "enum": ["h264", "hevc"] }, "maxItems": 4 },
+        "datagram_lane": { "type": "boolean", "description": "The phone opens the unreliable link channel cmux.mobile/datagram/<channel> for video (c2-browser-stream.md 2)." }
       }
     },
     "browser:opened": {
       "type": "object", "additionalProperties": false, "required": ["media"],
       "properties": {
         "media": { "enum": ["rd_datagrams", "webrtc_track"] },
-        "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId" },
-        "media_track": { "type": "string", "maxLength": 128 }
+        "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId", "description": "The A0 id the datagram lane's records carry (the browser channel's own)." },
+        "media_track": { "type": "string", "maxLength": 128 },
+        "encoder": { "enum": ["h264", "hevc"] },
+        "width": { "type": "integer", "minimum": 2 },
+        "height": { "type": "integer", "minimum": 2 },
+        "page": { "type": "object", "additionalProperties": false, "required": ["css_width", "css_height"], "properties": { "css_width": { "type": "number", "minimum": 1 }, "css_height": { "type": "number", "minimum": 1 } } },
+        "caps": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 16 }
       }
     }
   }

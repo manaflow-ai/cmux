@@ -52,6 +52,12 @@ public actor MobileLinkClient {
         self.now = now
     }
 
+    /// The link session of `generation`, while it is the current one.
+    func linkSession(generation: UInt64) -> LinkSession? {
+        guard let session, session.generation == generation else { return nil }
+        return session.link
+    }
+
     /// The current generation (0 before the first session).
     public var currentGeneration: UInt64 { generation }
 

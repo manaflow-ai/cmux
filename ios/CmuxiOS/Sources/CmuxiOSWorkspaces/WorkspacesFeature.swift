@@ -11,6 +11,8 @@ public import UIKit
 public final class WorkspacesFeature {
     public let source: any WorkspaceSource
     let terminalSources: any WorkspaceTerminalSourceFactory
+    /// Screens for non-terminal surfaces (C2: a Mac browser tab).
+    let surfaces: SurfaceScreenFactories
     let isMock: Bool
     private let store: WorkspaceViewPreferencesStore
     /// Client view state: filter, sort, grouping, hidden and ordered Macs.
@@ -20,9 +22,11 @@ public final class WorkspacesFeature {
     private weak var navigation: UINavigationController?
 
     public init(source: any WorkspaceSource, terminalSources: any WorkspaceTerminalSourceFactory,
+                surfaces: SurfaceScreenFactories = SurfaceScreenFactories(),
                 preferences: WorkspaceViewPreferencesStore = WorkspaceViewPreferencesStore(), isMock: Bool = false) {
         self.source = source
         self.terminalSources = terminalSources
+        self.surfaces = surfaces
         self.isMock = isMock
         store = preferences
         self.preferences = preferences.load()
@@ -86,6 +90,13 @@ public final class WorkspacesFeature {
         let source = terminalSources.makeSource(for: target)
         let screen = TerminalViewController(source: source, title: target.title)
         screen.hidesBottomBarWhenPushed = true
+        screen.navigationItem.largeTitleDisplayMode = .never
+        presenter.navigationController?.pushViewController(screen, animated: true)
+    }
+
+    /// Opens a Mac browser tab through the injected factory (lane C2).
+    func openBrowser(_ tab: BrowserTabInfo, hostID: HostID, from presenter: UIViewController) {
+        guard let screen = surfaces.browser?(tab, hostID) else { return }
         screen.navigationItem.largeTitleDisplayMode = .never
         presenter.navigationController?.pushViewController(screen, animated: true)
     }

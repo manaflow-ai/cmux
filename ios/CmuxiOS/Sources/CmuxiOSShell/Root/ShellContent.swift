@@ -10,17 +10,22 @@ public struct ShellContent {
     private let home: UIViewController
     private let settings: ShellSettingsModel
     private let screens: [ShellTab: @MainActor () -> UIViewController]
+    private let surfaces: SurfaceScreenFactories
 
     /// `home` is the existing Home screen in its navigation controller.
     /// `screens` are feature lanes' tab roots, injected by the composition
     /// root so the shell never imports a feature module; a tab without one
     /// shows its placeholder.
+    /// `surfaces` opens workspace surfaces (a Mac browser tab) from the
+    /// Workspaces tab until lane C5 replaces it.
     public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel,
-                screens: [ShellTab: @MainActor () -> UIViewController] = [:]) {
+                screens: [ShellTab: @MainActor () -> UIViewController] = [:],
+                surfaces: SurfaceScreenFactories = SurfaceScreenFactories()) {
         self.sources = sources
         self.home = home
         self.settings = settings
         self.screens = screens
+        self.surfaces = surfaces
     }
 
     public func controller(for tab: ShellTab) -> UIViewController {
@@ -32,8 +37,18 @@ public struct ShellContent {
             return placeholder(tab, seam: .feed, summary: ShellText.feedSummary,
                                FeedPlaceholder.stream(sources.feed, isMock: isMock(.feed)))
         case .workspaces:
-            return placeholder(tab, seam: .workspaces, summary: ShellText.workspacesSummary,
-                               WorkspacesPlaceholder.stream(sources.workspaces, isMock: isMock(.workspaces)))
+            guard let browser = surfaces.browser else {
+                return placeholder(tab, seam: .workspaces, summary: ShellText.workspacesSummary,
+                                   WorkspacesPlaceholder.stream(sources.workspaces, isMock: isMock(.workspaces)))
+            }
+            let source = sources.browser
+            let stream = WorkspacesPlaceholder.stream(sources.workspaces, browser: source, isMock: isMock(.workspaces))
+            return placeholder(tab, seam: .workspaces, summary: ShellText.workspacesSummary, stream) { section, row in
+                guard row.hasPrefix(WorkspacesPlaceholder.browserRowPrefix) else { return nil }
+                let id = String(row.dropFirst(WorkspacesPlaceholder.browserRowPrefix.count))
+                let host = HostID(rawValue: section)
+                return browser(BrowserTabInfo(id: id, workspaceID: nil, title: id, url: nil), host)
+            }
         case .compose:
             return placeholder(tab, seam: .composer, summary: ShellText.composeSummary,
                                ComposePlaceholder.stream(sources.composer, isMock: isMock(.composer)))
@@ -51,9 +66,10 @@ public struct ShellContent {
     private func isMock(_ seam: FeatureSeam) -> Bool { sources.resolved[seam] != .real }
 
     private func placeholder(
-        _ tab: ShellTab, seam: FeatureSeam, summary: String, _ stream: @escaping PlaceholderSnapshot.Factory
+        _ tab: ShellTab, seam: FeatureSeam, summary: String, _ stream: @escaping PlaceholderSnapshot.Factory,
+        open: ((_ section: String, _ row: String) -> UIViewController?)? = nil
     ) -> UIViewController {
-        let screen = FeaturePlaceholderViewController(tab: tab, lane: seam.lane, summary: summary, stream: stream)
+        let screen = FeaturePlaceholderViewController(tab: tab, lane: seam.lane, summary: summary, stream: stream, open: open)
         let navigation = UINavigationController(rootViewController: screen)
         navigation.navigationBar.prefersLargeTitles = true
         return navigation
