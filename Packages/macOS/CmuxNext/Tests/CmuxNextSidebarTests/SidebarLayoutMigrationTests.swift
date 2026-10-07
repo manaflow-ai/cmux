@@ -9,16 +9,6 @@ import Testing
 @Suite struct SidebarLayoutMigrationTests {
     private let rail = SidebarLayoutDocument.railDefaults
 
-    /// The defaults with R53's grid bottom row in place of the footer, found
-    /// by id: the defaults' section count changes (SIDEBAR-NO-RECENTS dropped
-    /// Recents), and a fixed index past the end traps the whole test process.
-    private func defaultsWithGridBottom() throws -> SidebarLayoutDocument {
-        var stored = SidebarLayoutDocument.defaults
-        let bottom = try #require(stored.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID })
-        stored.sections[bottom] = SidebarLayoutDocument.gridBottomSection
-        return stored
-    }
-
     private func apply(_ ops: [SidebarLayoutOp], to document: SidebarLayoutDocument) throws -> SidebarLayoutDocument {
         try ops.reduce(document) { try SidebarLayoutReducer.reduce($0, $1).get() }
     }
@@ -83,6 +73,16 @@ import Testing
 /// then R53's grid row with the Settings label) move to the minimal footer
 /// (the avatar, then the gear) through ordinary ops; a customized one is kept.
 @Suite struct SidebarGridBottomMigrationTests {
+    /// The defaults with R53's grid bottom row in place of the footer, found
+    /// by id: the defaults' section count changes (SIDEBAR-NO-RECENTS dropped
+    /// Recents), and a fixed index past the end traps the whole test process.
+    private func defaultsWithGridBottom() throws -> SidebarLayoutDocument {
+        var stored = SidebarLayoutDocument.defaults
+        let bottom = try #require(stored.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID })
+        stored.sections[bottom] = SidebarLayoutDocument.gridBottomSection
+        return stored
+    }
+
     @Test func theInlineBottomDefaultBecomesTheMinimalFooter() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
