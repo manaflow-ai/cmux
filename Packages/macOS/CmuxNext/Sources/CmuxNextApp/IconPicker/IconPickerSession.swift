@@ -6,9 +6,10 @@ import Foundation
 extension PageDescriptor {
     /// The one icon picker (R94): cmux-page://cmux.icon-picker/, built by
     /// scripts/cmux-next/build-pages-web.sh from webviews/src/pages/icon-picker.
-    /// `__symbol/<name>.png` are SF Symbols the host draws (IconPickerSymbols).
+    /// `__symbol/<name>.png` are SF Symbols the host draws (IconPickerSymbols). A shell page: it
+    /// opens in the prewarmed page host (``PageHostPool``) when one is ready, else in its own view.
     static let iconPicker = PageDescriptor(id: "cmux.icon-picker", resource: "icon-picker", namespaces: ["cmux.iconPicker."],
-                                           commands: [], dynamicPrefixes: [IconPickerSymbols.prefix])
+                                           commands: [], dynamicPrefixes: [IconPickerSymbols.prefix], inShell: true)
 }
 
 /// One picker use: what the page shows when it opens, and how it ended.

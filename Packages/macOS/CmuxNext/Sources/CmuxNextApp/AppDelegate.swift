@@ -69,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
+        // The page shell (the prewarmed host of first-party pages) is in the same build.
+        PageDescriptor.registerShellRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
@@ -147,6 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
+        services.iconPicker.pageHosts.start(isMainWindow: { [weak services] window in
+            services?.windows.controllers.contains { $0.window === window } ?? false
+        }, fallback: { [weak services] closing in
+            services?.windows.controllers.compactMap(\.window).first { $0 !== closing && $0.isVisible }
+        })
         AgentTabImport.start(services)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))

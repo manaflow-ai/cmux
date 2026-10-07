@@ -63,8 +63,8 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
-    /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    private static let processPool = WKProcessPool()
+    /// The app's one process pool (R81: fonts listed once per pool), shared with every page view.
+    private static var processPool: WKProcessPool { PageProcessPool.shared }
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {

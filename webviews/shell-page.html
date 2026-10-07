@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- The page shell of the shared page host: cmux-page://cmux.shell/ serves this file from the
+     webviews-app build (PageDescriptor.shell). One prewarmed document mounts first-party pages on
+     `page.claim` without a navigation (src/pages/shell). No CSP meta: the scheme handler's header
+     is the only policy. -->
+<html lang="en" data-cmux-page="shell">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+  </head>
+  <body>
+    <main id="root"></main>
+    <script type="module" src="./src/pages/shell/main.ts"></script>
+  </body>
+</html>

@@ -20,8 +20,15 @@ enum PagePaintProbe {
     }, 0));
     """
 
+    /// The document-end script. ``PageWebView/installUserScripts(_:documentAttributes:)`` adds it
+    /// with the page's other scripts, so a pooled host's retarget keeps it.
+    static var userScript: WKUserScript {
+        WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page)
+    }
+
+    /// Installs the host side (the message handler). The page shell posts the same message after
+    /// it mounts a claimed page (no new document, so the document-end script does not run again).
     static func install(in controller: WKUserContentController, onPaint: @escaping @MainActor () -> Void) {
-        controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
         controller.add(Receiver(onPaint: onPaint), contentWorld: .page, name: handlerName)
     }
 

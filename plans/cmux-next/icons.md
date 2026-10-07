@@ -26,7 +26,7 @@ parser that re-serializes; the page copy is only for preview, the owner sanitize
 ## 2. One picker
 
 A React page (`webviews/src/pages/icon-picker`, `cmux-page://cmux.icon-picker/`), shown in a native
-popover; it moves onto the one shared prewarmed page host (the shell) when that lands. Tabs Emoji,
+popover; it opens in the one shared prewarmed page host (the shell, react-pages.md 1.4). Tabs Emoji,
 Symbols, Image, SVG. Data: Unicode emoji-test 17.0, CLDR 48.2.0 annotations (en, ja), emojibase
 17.0.0 GitHub shortcodes (MIT), pinned by SHA-256 (`webviews/scripts/icon-picker`). Search by
 names, keywords, shortcodes, kana-folded Japanese, flag ISO codes. Recents by frecency in the

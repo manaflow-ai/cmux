@@ -38,11 +38,14 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `focusSearch`, which focuses and selects that field (Settings,
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
+    /// A page the page shell mounts on a claim (``PageDescriptor/shell``, ``PageHostPool``) instead
+    /// of a document of its own. Only a first-party page; third-party pages never load in the shell.
+    public let inShell: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, inShell: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -57,6 +60,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
+        self.inShell = inShell && PageID.isFirstParty(id)
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

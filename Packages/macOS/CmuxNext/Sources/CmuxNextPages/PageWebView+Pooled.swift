@@ -1,0 +1,101 @@
+public import AppKit
+public import CmuxNextSettings
+import os
+public import WebKit
+
+/// The configuration step of a pooled host, built in its own main-actor turn (``PageHostPool``
+/// splits a spare build into configure, create, park and load so no step holds a frame).
+public struct PooledHostRecipe {
+    let served: PageDescriptor
+    let configuration: WKWebViewConfiguration
+    let options: PageEngineOptions
+    let owner: PageServedOwner
+}
+
+/// Pooled hosts (``PageHostPool``): one scheme handler for every first-party page
+/// (``PageServedHosts``) and their own non-persistent website data store, so no host sees
+/// another host's storage.
+extension PageWebView {
+    /// Step 1: the configuration of a pooled host that shows `served`. Nil when `served` is not a
+    /// first-party page with a root.
+    public static func pooledHostRecipe(_ served: PageDescriptor = .shell,
+                                        options: PageEngineOptions = .standard) -> PooledHostRecipe? {
+        guard PageID.isFirstParty(served.id), servedRoot(for: served) != nil else { return nil }
+        let owner = PageServedOwner()
+        let handler = PageSchemeHandler { host in owner.view?.servedHost(host) }
+        return PooledHostRecipe(served: served,
+                                configuration: configuration(handler: handler, documentAttributes: [:], options: options),
+                                options: options, owner: owner)
+    }
+
+    /// Step 2: the host view, not loading yet (``startLoading()`` is step 3).
+    public convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
+        self.init(descriptor: recipe.served, configuration: recipe.configuration, options: recipe.options, routes: routes,
+                  route: nil, surface: nil, dynamicResources: nil, pooled: true, load: false)
+        recipe.owner.view = self
+    }
+
+    /// A pooled host that shows `served` (default the page shell), built and loading in one call.
+    public convenience init?(pooledHost served: PageDescriptor = .shell, routes: [PageRoute] = [],
+                             options: PageEngineOptions = .standard) {
+        guard let recipe = Self.pooledHostRecipe(served, options: options) else { return nil }
+        self.init(recipe: recipe, routes: routes)
+        startLoading()
+    }
+
+    /// Starts loading the served page (a pooled host built without loading).
+    public func startLoading() {
+        guard !loaded, !servedLoadStarted else { return }
+        servedLoadStarted = true
+        webView.load(URLRequest(url: servedDescriptor.url(route: nil)))
+    }
+
+    /// Marks the host used, while touches count (a pooled host's spare phase does not count).
+    func noteTouch() {
+        if countsTouches { touched = true }
+    }
+
+    // crash-allow: WebKit's delegate signature; the navigation parameter is never read.
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
+        resumeLoadWaiters()
+    }
+
+    // crash-allow: WebKit's delegate signature; the navigation parameter is never read.
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
+        resumeLoadWaiters()
+    }
+
+    /// Wakes every ``waitUntilLoaded()`` caller (the load finished or failed).
+    func resumeLoadWaiters() {
+        let waiters = loadWaiters
+        loadWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Launches the WebContent process with an empty document of the served origin (a pooled
+    /// host's build step before ``startLoading()``), so the process launch and the page load land in
+    /// different run-loop turns. The empty document runs no script and never counts as loaded.
+    public func warmUpProcess() {
+        guard !servedLoadStarted, webView.url == nil else { return }
+        webView.loadHTMLString("<!doctype html>", baseURL: Self.warmUpURL(servedDescriptor))
+    }
+
+    /// The base URL of the warm-up document: the served origin, path `/__warm`.
+    nonisolated static func warmUpURL(_ page: PageDescriptor) -> URL {
+        page.url().appending(path: "__warm")
+    }
+
+    /// Hands the claim's session to the shell page mounted ahead of its claim (`page.resume
+    /// {page, route, context}`): no mount, the page shows the session in its next render. Routes
+    /// for later calls become `routes`; the streams the page opened while prepared stay open.
+    public func sendResume(routes: [PageRoute], route: String?, context: JSONValue,
+                           reply: ((Result<JSONValue, PageError>) -> Void)? = nil) {
+        router.replaceRoutes(routes)
+        paintedUptime = nil
+        self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
+        let params: JSONValue = ["page": .string(descriptor.id), "route": .string(self.route ?? ""), "context": context]
+        router.sendCall(PageShellOp.resume, params: params) { reply?($0) }
+    }
+}
