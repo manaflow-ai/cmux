@@ -2014,7 +2014,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
@@ -2266,6 +2268,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -3150,6 +3153,7 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()

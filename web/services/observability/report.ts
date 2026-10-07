@@ -1,6 +1,6 @@
 import { after } from "next/server";
 
-import { activeTraceIds } from "../telemetry";
+import { activeTraceIds, noteHandledRouteError } from "../telemetry";
 
 export type ReportErrorLevel = "error" | "warning" | "info";
 
@@ -26,6 +26,7 @@ export function reportError(
   context: Record<string, unknown>,
   options: ReportErrorOptions = {},
 ): void {
+  noteHandledRouteError(error);
   const trace = options.trace ?? activeTraceIds();
   const safeContext = scrubContext(
     trace ? { ...context, trace_id: trace.traceId, span_id: trace.spanId } : context,
@@ -45,7 +46,7 @@ export function reportError(
   if (!process.env.SENTRY_DSN?.trim()) return;
 
   const fingerprint = options.fingerprint;
-  const tags = boundedTags(options.tags, trace);
+  const tags = boundedTags(withSubsystemTag(options.tags, context), trace);
   const send = () =>
     import("@sentry/nextjs")
       .then(async (Sentry) => {
@@ -90,6 +91,21 @@ export function reportError(
 
 const TAG_VALUE_MAX = 200;
 
+/**
+ * Index the reporting subsystem (or service) as the `subsystem` tag, so every
+ * reported issue is searchable by owner in Sentry. An explicit tag wins.
+ */
+function withSubsystemTag(
+  tags: ReportErrorOptions["tags"],
+  context: Record<string, unknown>,
+): ReportErrorOptions["tags"] {
+  if (tags?.subsystem !== undefined) return tags;
+  const owner = [context.subsystem, context.service].find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  return owner ? { ...tags, subsystem: owner } : tags;
+}
+
 function boundedTags(
   tags: ReportErrorOptions["tags"],
   trace: { readonly traceId: string; readonly spanId?: string } | undefined,
@@ -114,7 +130,8 @@ function scrubContext(context: Record<string, unknown>): Record<string, unknown>
 
 const SENSITIVE_TEXT_PATTERN = /((?:crt|crh|crk)_[A-Za-z0-9_-]{32,}|srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
 
-function scrubErrorForLog(error: unknown): string {
+/** Name and message of an error with credential-shaped text redacted, for logs. */
+export function scrubErrorForLog(error: unknown): string {
   const name =
     error && typeof error === "object" && typeof (error as { name?: unknown }).name === "string"
       ? (error as { name: string }).name
