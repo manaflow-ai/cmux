@@ -15,6 +15,20 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
     surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "host")
 }
 
+/// The scopes `main` runs before the mux's signal handlers, without the
+/// provider credentials: `cmux link …`, and `cmux host …` (the supervisor
+/// owns SIGTERM, SIGINT and SIGHUP itself). The function takes the words
+/// after the scope.
+pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i32> {
+    if raw_args.first().is_some_and(|first| first == "link") {
+        Some(crate::link::run)
+    } else if requested(raw_args) {
+        Some(run)
+    } else {
+        None
+    }
+}
+
 /// Runs `cmux host <rest>` and returns its exit code.
 pub(crate) fn run(rest: &[String]) -> i32 {
     let exe = std::env::current_exe().ok().map(|p| p.display().to_string());

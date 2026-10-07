@@ -1695,16 +1695,9 @@ fn run_main() {
         client_log::exit(acp::run(args));
     }
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("link") {
+    if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(link::run(&raw_args[1..]));
-    }
-    // `cmux host …` (the machine supervisor) runs before the mux's signal
-    // handlers: it owns SIGTERM, SIGINT and SIGHUP (server.md 5.1).
-    #[cfg(unix)]
-    if cli::host_requested(&raw_args) {
-        discard_provider_secret_environment();
-        client_log::exit(cli::run_host(&raw_args[1..]));
+        client_log::exit(run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {

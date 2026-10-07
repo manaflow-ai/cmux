@@ -23,7 +23,8 @@ mod federation;
 mod host_mount;
 mod lifecycle;
 #[cfg(unix)]
-pub(crate) use host_mount::{requested as host_requested, run as run_host};
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
