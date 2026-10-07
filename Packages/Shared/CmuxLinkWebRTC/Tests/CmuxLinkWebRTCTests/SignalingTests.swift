@@ -114,6 +114,37 @@ struct SignalingTests {
         #expect(await router.liveSessions == 2)
     }
 
+    @Test("the router bounds session inboxes and pending offers")
+    func routerBounds() async throws {
+        let hub = InMemorySignalingHub()
+        let phone = hub.endpoint(id: "in_phone")
+        let router = SignalRouter(channel: hub.endpoint(id: "h_mac"))
+        let mine = await router.register("sess_mine")
+        let probe = await router.register("sess_probe")
+        let unread = await router.newSessions(for: .webrtc)
+        let candidate = SignalPayload.ice(ICECandidateInit(candidate: "candidate:1", sdpMid: "0", sdpMLineIndex: 0))
+        // A session whose reader stalls is ended, not queued without bound.
+        for _ in 0...SignalRouter.inboxLimit {
+            try await phone.send(SignalMessage(session: "sess_mine", to: "h_mac", payload: candidate))
+        }
+        // Offers nobody takes past the acceptor's limit are refused.
+        for index in 0...SignalRouter.pendingSessionLimit {
+            try await phone.send(SignalMessage(session: "sess_new\(index)", to: "h_mac",
+                                               payload: .offer(sdp: "v=0", iceRestart: false, carrier: .webrtc, auth: nil)))
+        }
+        try await phone.send(SignalMessage(session: "sess_probe", to: "h_mac", payload: .iceEnd))
+        var probeIterator = probe.makeAsyncIterator()
+        #expect(await probeIterator.next()?.payload == .iceEnd)
+        // Left: the probe and the accepted offers (the stalled session ended).
+        let live = await router.liveSessions
+        #expect(live == SignalRouter.pendingSessionLimit + 1)
+        guard live == SignalRouter.pendingSessionLimit + 1 else { return }
+        var queued = 0
+        for await _ in mine { queued += 1 }
+        #expect(queued == SignalRouter.inboxLimit)
+        withExtendedLifetime(unread) {}
+    }
+
     @Test("the raw-frame channel decodes relayed frames and never sends from")
     func frameChannel() async throws {
         let sent = SentFrames()
