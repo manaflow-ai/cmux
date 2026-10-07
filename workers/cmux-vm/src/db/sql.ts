@@ -19,6 +19,10 @@ export class SqlClient extends Context.Tag("cmux-vm/SqlClient")<SqlClient, SqlCl
  * Postgres through a Hyperdrive binding. Workers cannot share a socket between
  * requests, so each query opens one pooled Hyperdrive connection and closes it;
  * Hyperdrive keeps the real database connections warm.
+ *
+ * TODO(S2): one connection per request instead of per query. Today an
+ * API-key request costs two Hyperdrive connections (key lookup, then the
+ * ownership lookup), each with its own connect and close.
  */
 export const hyperdriveSqlLayer = (connectionString: string): Layer.Layer<SqlClient> =>
   Layer.succeed(SqlClient, {
