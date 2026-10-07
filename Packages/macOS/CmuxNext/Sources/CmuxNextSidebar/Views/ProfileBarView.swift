@@ -22,6 +22,8 @@ final class ProfileBarView: NSView {
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
+        // Layer-backed so a selection change can crossfade its contents.
+        wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
@@ -93,7 +95,8 @@ final class ProfileBarView: NSView {
         }
         if let icon = profile.icon,
            let image = NSImage(systemSymbolName: icon, accessibilityDescription: profile.name)?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: active ? .medium : .regular)
+            // One weight for every state: a selection change never resizes a mark.
+            NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular)
            ) {
             let tinted = image.tinted(color.withAlphaComponent(1))
             let size = tinted.size
@@ -130,7 +133,22 @@ final class ProfileBarView: NSView {
                     from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
     }
 
+    /// The space the bar last drew as active: a change crossfades.
+    private var shownActive: ProfileKey?
+
     func refresh() {
+        // A selection change only changes fill and opacity (Leo 2026-10-07:
+        // no size or position jump): the slots are a pure function of the
+        // count and width, and the new contents fade in briefly. Reduce
+        // Motion snaps.
+        if model.activeProfileID != shownActive {
+            let wasShown = shownActive != nil
+            shownActive = model.activeProfileID
+            if wasShown, let layer, let old = layer.contents {
+                display()
+                if let new = layer.contents { _ = Motion.set(layer, "contents", to: new, fade: .crossfade, from: old) }
+            }
+        }
         needsDisplay = true
         rebuildToolTips()
         rebuildAccessibility()
