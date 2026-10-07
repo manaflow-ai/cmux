@@ -228,11 +228,11 @@ The Worker enforces every budget before it makes an upstream call, with the exis
 | --- | --- | --- | --- |
 | `mesh.perTenant` | 1 | `POST /v1/meshes` | absent (frees only on delete) |
 | `device.perMesh` | 50 | enroll | absent |
-| `enrollmentCode.perMeshPerHour` | 20 | code create | seconds until the hour window frees one |
+| `enrollmentCode.perMeshPerHour` | 20 (confirmed 2026-10-07) | code create | seconds until the hour window frees one |
 | `firewallRule.perMesh` | 500 compiled rules | ACL preview and apply, enroll, VM join | absent; preview reports the count so the policy can be tightened |
-| `aclApply.perMeshPerMinute` | 10 | ACL apply | seconds until the window frees one |
+| `aclApply.perMeshPerMinute` | 10 (confirmed 2026-10-07) | ACL apply | seconds until the window frees one |
 
-Budgets are config values (the same mechanism as `TENANT_VM_QUOTAS` [VM:README]) with per-tenant overrides. The Worker keeps a count of live upstream firewall rules it owns across all tenants (ownership rows of kind `fwrule`) and alerts the operator when it reaches 70 % of `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT`, a config value. The real limit is unknown until Freestyle answers question 3; until then the value is a conservative guess, and an upstream 409 "account is at its firewall rule limit" [OA:create_firewall_rule] also pages the operator and is returned to the caller as `QuotaExceeded` with `budget: "firewallRule.account"`.
+Budgets are config values (the same mechanism as `TENANT_VM_QUOTAS` [VM:README]) with per-tenant overrides. The Worker keeps a count of live upstream firewall rules it owns across all tenants (ownership rows of kind `fwrule`) and alerts the operator when it reaches 70 % of `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT`, a config value, set to 1000 from the first deploy (placeholder, unverified, replace when Freestyle answers question 3), so the alert fires at 700 rules. Separately, an upstream 409 "account is at its firewall rule limit" [OA:create_firewall_rule] also pages the operator and is returned to the caller as `QuotaExceeded` with `budget: "firewallRule.account"`.
 
 ### 7.2 Device to device
 
@@ -259,7 +259,7 @@ Answer: VMs live on Freestyle and have no public ports, so VM ingress must be Fr
 | Id | Blocker | Why |
 | --- | --- | --- |
 | G1 | Revoke on the Stack team-membership webhook (or on every token refresh), replacing the 60 s sweep | the sweep leaves a removed member up to 60 s of access (section 3) |
-| G2 | Freestyle answers questions 1, 3 and 13 (regions, limits, scoped keys), and `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT` is set from the real limit | the shared account is the cross-tenant blast radius (section 7) |
+| G2 | Freestyle answers questions 1, 3 and 13 (regions, limits, scoped keys), and `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT` replaces the 1000 placeholder with the real limit | the shared account is the cross-tenant blast radius (section 7) |
 | G3 | Security review of the mesh [D:M4] | decision M4 |
 | G4 | Budgets in section 7.1 reviewed against measured use from the proof | experiment values are guesses |
 
