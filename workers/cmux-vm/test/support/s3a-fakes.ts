@@ -194,7 +194,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   };
 
   const layer = (fetch: (request: Request) => Promise<Response>) => {
-    const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch };
+    const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local" as const, fetch };
     return Layer.mergeAll(
       snapshotStore,
       Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(config)),
