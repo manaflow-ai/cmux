@@ -92,7 +92,8 @@ final class SidebarBridge {
             // And the New Tab pages (a chat lists as a chat) and the muted set.
             for await (sections, launching, failed) in Observations({
                 Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
-                                  newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces)
+                                  newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                                  top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
             }) {
                 self?.show(sections, launching: launching, failed: failed)
             }
@@ -111,7 +112,8 @@ final class SidebarBridge {
             return spaceCache.sections(for: key) {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
                               hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
-                              newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces)
+                              newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                              top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue))
             }
         }
         let state = windowState
@@ -127,7 +129,8 @@ final class SidebarBridge {
         selectionObservation = Task { [weak self] in
             // One selection: the shown page's top item, else the shown workspace.
             for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
-                                                                                layout: layout.document) }) {
+                                                                                layout: layout.document, room: state.profileID.rawValue,
+                                                                                refs: WorkspaceLayoutRefs(machines: machines)) }) {
                 guard let self else { return }
                 if self.model.selectedItem != selected {
                     self.model.selectedItem = selected
@@ -157,7 +160,8 @@ final class SidebarBridge {
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state,
                                                               hidesHome: Self.hidesHome(services.sidebarLayout.document),
                                                               newTabPages: services.agentTabs.pageTabs.ids,
-                                                              muted: services.notifications.preferences.mutedWorkspaces)
+                                                              muted: services.notifications.preferences.mutedWorkspaces,
+                                                              top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue))
         show(sections, launching: launching, failed: failed)
     }
 
@@ -200,9 +204,10 @@ final class SidebarBridge {
     /// daemon's launch snapshot are `.stale` until the live tree replaces them.
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
                              window: WindowState, hidesHome: Bool = true,
-                             newTabPages: Set<String> = [], muted: Set<String> = []) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             newTabPages: Set<String> = [], muted: Set<String> = [],
+                             top: SidebarTopProjection = .legacy) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
-                                     selection: window.selection, newTabPages: newTabPages, muted: muted)
+                                     selection: window.selection, newTabPages: newTabPages, muted: muted, top: top)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
@@ -221,13 +226,11 @@ final class SidebarBridge {
     /// `newTabPages` are the New Tab page tabs (`AgentTabs.pageTabs`); `muted` rows draw the muted mark.
     static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init(),
-                         newTabPages: Set<String> = [], muted: Set<String> = []) -> [SidebarRowSection] {
+                         newTabPages: Set<String> = [], muted: Set<String> = [], top: SidebarTopProjection = .legacy) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
-        let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
         let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection,
-                                                         newTabPages: newTabPages, muted: muted),
-                                                members: Set(visible))
-        return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
+                                                         newTabPages: newTabPages, muted: muted), members: Set(visible))
+        return top.apply(to: filtered, machines: machines)
     }
 
     /// Whether the workspace list leaves the home workspace out: only while

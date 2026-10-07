@@ -47,6 +47,24 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      # The web bundles' sources (build output since cx-vn5; the package tests
+      # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+      - webviews/src/**
+      - webviews/scripts/**
+      - webviews/package.json
+      - webviews/bun.lock
+      - webviews/reactCompiler.mjs
+      - webviews/vite.config.ts
+      - Resources/markdown-viewer/marked.min.js
+      - scripts/build-webviews-app.sh
+      - scripts/check-webviews-bun-version.sh
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/build-pages-web.sh
+      - scripts/cmux-next/build-agent-activity-web.sh
+      - scripts/cmux-next/build-palette-ranker.sh
+      - scripts/cmux-next/build-optchat-inspector-web.sh
+      - scripts/cmux-next/build-web-bundles.sh
+      - scripts/cmux-next/web-bundle-key.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -129,6 +147,24 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      # The web bundles' sources (build output since cx-vn5; the package tests
+      # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+      - webviews/src/**
+      - webviews/scripts/**
+      - webviews/package.json
+      - webviews/bun.lock
+      - webviews/reactCompiler.mjs
+      - webviews/vite.config.ts
+      - Resources/markdown-viewer/marked.min.js
+      - scripts/build-webviews-app.sh
+      - scripts/check-webviews-bun-version.sh
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/build-pages-web.sh
+      - scripts/cmux-next/build-agent-activity-web.sh
+      - scripts/cmux-next/build-palette-ranker.sh
+      - scripts/cmux-next/build-optchat-inspector-web.sh
+      - scripts/cmux-next/build-web-bundles.sh
+      - scripts/cmux-next/web-bundle-key.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -1734,6 +1770,24 @@ jobs:
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      # The app's web bundles are build output (cx-vn5); the "Verify web
+      # bundles" phase refuses an app built without them, and this job's app is
+      # the dogfood artifact.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
         run: |
