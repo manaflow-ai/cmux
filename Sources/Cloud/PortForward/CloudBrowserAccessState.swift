@@ -471,6 +471,14 @@ final class CloudBrowserAccessState {
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
     }
 
+    /// An SSH loopback alias change must be rebound to the owning provider
+    /// before WebKit can interpret it as a client-local destination.
+    func shouldRebindLoopbackNavigation(_ url: URL) -> Bool {
+        model?.allowsLoopback == true
+            && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
+            && !owns(url)
+    }
+
     /// Explicit localhost links within a VM page keep that page's VM as their owner.
     func rewrittenLoopbackURL(_ url: URL) -> URL? {
         guard model?.usesBrowserProxy == true, let remoteURL,

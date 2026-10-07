@@ -354,6 +354,16 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+           let owner,
+           owner.cloudAccess.shouldRebindLoopbackNavigation(url) {
+            decisionHandler(.cancel)
+            requestNavigation?(navigationAction.request, .currentTab, nil)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
            let rewritten = owner?.cloudAccess.rewrittenLoopbackURL(url), rewritten != url {
             var request = navigationAction.request
             request.url = rewritten
