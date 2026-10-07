@@ -49,6 +49,42 @@ struct CloudFeatureFlagTests {
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy))
     }
 
+    @Test("Retired rollout values are neither requested nor exposed in flag controls", arguments: [false, true])
+    func retiredRolloutValuesAreIgnored(remoteValue: Bool) throws {
+        let suite = "cmux.retired.rollout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let retiredKeys = [CmuxFeatureFlags.cloudMachinesFlag.key, "pro-upgrade-ui-enabled-release"]
+        for key in retiredKeys {
+            defaults.set(remoteValue, forKey: "cmux.flags.remote.\(key)")
+            defaults.set(false, forKey: "cmux.flags.override.\(key)")
+        }
+        var requestedKeys: [String] = []
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+            remoteFlagValueProvider: { key in
+                requestedKeys.append(key)
+                return remoteValue
+            }
+        )
+        flags.applyLoadedFlags()
+        for key in retiredKeys {
+            #expect(!requestedKeys.contains(key))
+            #expect(!CmuxFeatureFlags.allFlags.contains { $0.key == key })
+        }
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        #expect(CloudMachinesFeature.isAvailable(policy: policy))
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy))
+        defaults.set(true, forKey: CloudActivationCoordinator.activationKey)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy))
+        let managedOff = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key in
+            key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
+        }
+        #expect(!CloudMachinesFeature.isAvailable(policy: managedOff))
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff))
+    }
+
     @Test("A cancelled keyed operation cannot erase its replacement after re-enable")
     func lateKeyedCompletion() async {
         let center = NotificationCenter()
