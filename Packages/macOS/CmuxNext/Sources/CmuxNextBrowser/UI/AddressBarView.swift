@@ -262,6 +262,15 @@ public final class AddressBarView: NSView {
         }
     }
 
+    /// Verification hook (`debug.omnibar_type`): types `text` as `debugType`
+    /// does, then (with `commit`) presses Return in the field editor.
+    /// Returns false when the field did not start editing.
+    @discardableResult
+    public func debugTypeAndCommit(_ text: String, commit: Bool = true) -> Bool {
+        debugType(text)
+        return field.currentEditor() != nil
+    }
+
     var fieldEditor: OmnibarFieldEditor? { field.editor }
     var suggestionPanel: OmniboxSuggestionPanel { panel }
 
