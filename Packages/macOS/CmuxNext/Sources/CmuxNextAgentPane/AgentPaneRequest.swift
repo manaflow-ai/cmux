@@ -107,6 +107,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportGesture(AgentPaneGestureIntent?)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
+    /// `models.catalog {refresh?}`: the cmux model catalog, its delivery and cmux.json
+    /// `agentPane.models` (``AgentModelCatalogStore``); `refresh` fetches first.
+    case modelCatalog(refresh: Bool)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -285,6 +288,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .invalidGit(method)
             }
+        case "models.catalog": self = .modelCatalog(refresh: params?["refresh"] as? Bool == true)
         case "transport.open": self = .transportOpen
         case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
         case "transport.gesture.release": self = .transportGestureRelease

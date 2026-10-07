@@ -8,7 +8,7 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `focusLocation` or `transport`.
+    /// `command`, `focusLocation`, `transport` or `models.catalog`.
     public let kind: String
     public let value: JSONValue
 
@@ -68,6 +68,10 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
         AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
     }
+
+    /// The model catalog changed (a refresh brought a new one, or cmux.json `agentPane.models`
+    /// changed): `{catalog, delivery, user}` (``AgentModelCatalogStore/reply(catalog:delivery:user:)``).
+    public static func modelCatalog(_ value: JSONValue) -> AgentPageEvent { AgentPageEvent(kind: "models.catalog", value: value) }
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")

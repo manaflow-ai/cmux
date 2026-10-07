@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 public import Observation
 
@@ -45,6 +46,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
+    /// `models.catalog`: the host's model catalog reply (``AgentModelCatalogStore``).
+    @ObservationIgnored public var onModelCatalog: ((Bool) async -> JSONValue)?
     /// Opens onboarding's existing project and agent-history import flow.
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
@@ -173,7 +176,7 @@ public final class AgentPaneModel {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
-             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
+             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .modelCatalog: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -363,6 +366,9 @@ public final class AgentPaneModel {
         case .transportGestureRelease:
             transport.gestures.clearTickets()
             return AgentPaneReply.success()
+        case .modelCatalog(let refresh):
+            guard let onModelCatalog else { return Self.unsupported("models.catalog") }
+            return AgentPaneReply.success(await onModelCatalog(refresh).foundationObject)
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
