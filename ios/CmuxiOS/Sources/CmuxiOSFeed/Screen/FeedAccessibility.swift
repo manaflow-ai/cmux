@@ -29,11 +29,11 @@ enum FeedAccessibility {
         return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
-    static func actions(_ model: FeedCardModel, card: FeedCardActions, markRead: @escaping () -> Void,
-                        archive: @escaping () -> Void) -> [UIAccessibilityCustomAction] {
+    static func actions(_ model: FeedCardModel, card: FeedCardActions, markRead: @escaping @MainActor () -> Void,
+                        archive: @escaping @MainActor () -> Void) -> [UIAccessibilityCustomAction] {
         let item = model.item
         var actions: [UIAccessibilityCustomAction] = []
-        func add(_ name: String, _ handler: @escaping () -> Void) {
+        func add(_ name: String, _ handler: @escaping @MainActor () -> Void) {
             actions.append(UIAccessibilityCustomAction(name: name) { _ in
                 handler()
                 return true
