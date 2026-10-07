@@ -103,6 +103,14 @@ pub(super) fn start_host_runtime(
         signals.pending_responses.lock().unwrap_or_else(PoisonError::into_inner).clear();
         signals.bell.store(false, Ordering::Release);
     }
+    // The seed's OSC 9;4 progress (the owner appends its last value) reaches
+    // this host's metadata too, so later snapshots keep it.
+    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+    if !seed.is_empty() {
+        terminal_metadata.observe_output(seed);
+        let _ = terminal_metadata.take_notifications();
+        let _ = terminal_metadata.take_shell_marks();
+    }
     let initial_colors = term.color_overrides();
     let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
     let (parser_commands, parser_command_receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
@@ -112,7 +120,7 @@ pub(super) fn start_host_runtime(
         owner_token: bootstrapped.owner_token(),
         capabilities: CapabilityStore::new(64),
         term: Mutex::new(term),
-        terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
+        terminal_metadata: Mutex::new(terminal_metadata),
         default_colors: Mutex::new(launch.default_colors),
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(pty_writer),

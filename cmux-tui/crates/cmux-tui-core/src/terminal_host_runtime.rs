@@ -880,6 +880,8 @@ mod unix {
     use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use host_start::HostChild;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub(crate) use pty_custody::{live_successor_record, record_owner_token};
+    pub(crate) use pty_lock::sweep_released_pty_locks;
     use renderer_grant::ControlRequestUnanswered;
     pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
@@ -964,6 +966,8 @@ mod unix {
         /// launch barrier. A launcher releases it after committing topology;
         /// an adopter releases an abandoned barrier after validating the host.
         launch_activation_pending: bool,
+        /// The owner's copy of this host's PTY master (`pty_custody.rs`).
+        pty_custody: Option<PtyCustody>,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -2642,6 +2646,7 @@ mod unix {
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
             launch_activation_pending,
+            pty_custody: None,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -6383,6 +6388,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             (attachment, host)
         }
@@ -6873,6 +6879,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -6928,6 +6935,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
 
             let error = match attachment.begin_input_confirmed(b"must-not-send") {
@@ -7196,6 +7204,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7246,6 +7255,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -7738,6 +7748,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
@@ -7855,6 +7866,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let (output_queued, output_seen) = sync_channel(1);
             let (release_ack, ack_release) = sync_channel(1);
@@ -8016,6 +8028,7 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
                 launch_activation_pending: false,
+                pty_custody: None,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -9721,8 +9734,8 @@ pub use unix::unadoptable::*;
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, launch_terminal_host_from,
-    load_terminal_host_records_for_reset,
+    decode_host_resize_payload_for_version, launch_terminal_host_from, live_successor_record,
+    load_terminal_host_records_for_reset, record_owner_token, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{

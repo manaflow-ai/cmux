@@ -105,10 +105,32 @@ impl PtyOwnershipLock {
 /// it (its terminal ended and was acknowledged, or its record was proven
 /// dead). A held lock is left alone.
 pub(super) fn remove_released(record_path: &Path, terminal_id: &str, incarnation: &str) {
-    let path = lock_path(record_path, terminal_id, incarnation);
-    let Ok(file) = open_lock_file(&path, false) else { return };
-    if matches!(try_lock(&file), Ok(true)) && still_named(&file, &path) {
-        let _ = fs::remove_file(&path);
+    remove_released_path(&lock_path(record_path, terminal_id, incarnation));
+}
+
+fn remove_released_path(path: &Path) {
+    let Ok(file) = open_lock_file(path, false) else { return };
+    if matches!(try_lock(&file), Ok(true)) && still_named(&file, path) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Remove every released fence file in the host record directory `root`:
+/// a host that died before it published, or a dead record removed by an
+/// older build, leaves one behind. A held fence names a live host and stays.
+/// Run only while this owner starts no replacement host: an acquirer that
+/// meets the sweep's brief lock fails instead of waiting.
+pub(crate) fn sweep_released_pty_locks(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".pty.lock"))
+        {
+            remove_released_path(&path);
+        }
     }
 }
 
@@ -138,6 +160,16 @@ mod tests {
         drop(again);
         remove_released(&record, "t", "i");
         assert!(!path.exists());
+
+        // The sweep removes released fences only.
+        let held = PtyOwnershipLock::acquire(&record, "t", "held").unwrap();
+        drop(PtyOwnershipLock::acquire(&record, "t", "released").unwrap());
+        fs::write(dir.join("t.json"), b"{}").unwrap();
+        sweep_released_pty_locks(&dir);
+        assert!(lock_path(&record, "t", "held").exists(), "the sweep removed a held fence");
+        assert!(!lock_path(&record, "t", "released").exists());
+        assert!(dir.join("t.json").exists(), "the sweep removed a non-fence file");
+        drop(held);
         let _ = fs::remove_dir_all(dir);
     }
 }
