@@ -2897,6 +2897,308 @@
         "description": "Kill a terminal session and remove it. Requires the vm:terminal scope.",
         "summary": "Kill a terminal session and remove it"
       }
+    },
+    "/v1/api-keys": {
+      "post": {
+        "tags": [
+          "apiKeys"
+        ],
+        "operationId": "apiKeys.createApiKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CreatedApiKey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create an API key for the team; the full key is returned only here. Requires the admin scope, or a session of a team admin.",
+        "summary": "Create an API key for the team; the full key is returned only here",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "get": {
+        "tags": [
+          "apiKeys"
+        ],
+        "operationId": "apiKeys.listApiKeys",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ApiKeyList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List the team's API keys, newest first, without their secrets. Requires the admin scope, or a session of a team admin.",
+        "summary": "List the team's API keys, newest first, without their secrets"
+      }
+    },
+    "/v1/api-keys/{keyId}": {
+      "delete": {
+        "tags": [
+          "apiKeys"
+        ],
+        "operationId": "apiKeys.revokeApiKey",
+        "parameters": [
+          {
+            "name": "keyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an API key; it stops working at once. Requires the admin scope, or a session of a team admin.",
+        "summary": "Revoke an API key; it stops working at once"
+      }
     }
   },
   "components": {
@@ -3973,6 +4275,245 @@
           }
         },
         "additionalProperties": false
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string at most 200 character(s) long",
+            "title": "maxLength(200)",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vm:read",
+                "vm:write",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "admin"
+              ]
+            },
+            "description": "an array of at most 32 item(s)",
+            "title": "maxItems(32)",
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "resourceAllowlist": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                  "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+                },
+                {
+                  "type": "string",
+                  "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                  "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+                }
+              ]
+            },
+            "description": "an array of at most 100 item(s)",
+            "title": "maxItems(100)",
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/DateFromString"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DateFromString": {
+        "type": "string",
+        "description": "a string to be decoded into a Date"
+      },
+      "CreatedApiKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "resourceAllowlist",
+          "createdAt",
+          "expiresAt",
+          "key"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vm:read",
+                "vm:write",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "admin"
+              ]
+            }
+          },
+          "resourceAllowlist": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiKeyList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiKey"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "resourceAllowlist",
+          "createdBy",
+          "createdAt",
+          "expiresAt",
+          "revokedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vm:read",
+                "vm:write",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "admin"
+              ]
+            }
+          },
+          "resourceAllowlist": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -4002,6 +4543,9 @@
     },
     {
       "name": "terminals"
+    },
+    {
+      "name": "apiKeys"
     }
   ],
   "servers": [
