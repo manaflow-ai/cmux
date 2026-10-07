@@ -365,8 +365,6 @@ public final class CmuxWebView: CmuxUndoableWebView {
     public nonisolated var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || automationRenderFocusDepth > 0
     }
-    public nonisolated var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
-
     /// Uses the host's keyboard-layout-aware Cmd+Z / Cmd+Shift+Z check.
     public override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
         host?.isUndoRedoCommandEquivalent(event) == true

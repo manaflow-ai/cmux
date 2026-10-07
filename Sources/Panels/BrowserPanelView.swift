@@ -5613,6 +5613,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private let hostedInspectorDockConfigurationSyncScheduler = MainActorDeferredActionScheduler()
         private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
         private var hostedInspectorSideDockPromotionTaskID: UUID?
+        private var pendingHostedInspectorDockConfiguration: (configuration: String?, reason: String)?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5625,6 +5626,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         deinit {
             hostedInspectorSideDockPromotionTask?.cancel()
+            pendingHostedInspectorDockConfiguration = nil
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
@@ -5740,6 +5742,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func setHostedInspectorFrontendWebView(_ webView: WKWebView?) {
+            if hostedInspectorFrontendWebView !== webView {
+                pendingHostedInspectorDockConfiguration = nil
+            }
             hostedInspectorFrontendWebView = webView
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
@@ -6068,6 +6073,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             isWindowPortalHosting = true
             cancelHostedWebKitPresentationRefresh()
             hostedInspectorDockConfigurationSyncScheduler.cancel()
+            pendingHostedInspectorDockConfiguration = nil
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
@@ -6081,6 +6087,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         func clearStaleHostedInspectorOwnershipState() {
             hostedInspectorDockConfigurationSyncScheduler.cancel()
+            pendingHostedInspectorDockConfiguration = nil
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
@@ -6347,6 +6354,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private func applyHostedInspectorDockConfiguration(_ dockConfiguration: String?, reason: String) {
+            guard !isHostedInspectorDividerDragActive else {
+                pendingHostedInspectorDockConfiguration = (dockConfiguration, reason)
+                return
+            }
+
             switch dockConfiguration {
             case "left":
                 hostedInspectorSideDockDockSide = .leading
@@ -6684,6 +6696,13 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
 #endif
                 reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: "drag.end")
+            }
+            if let pending = pendingHostedInspectorDockConfiguration {
+                self.pendingHostedInspectorDockConfiguration = nil
+                applyHostedInspectorDockConfiguration(
+                    pending.configuration,
+                    reason: "\(pending.reason).dragEnd"
+                )
             }
             super.mouseUp(with: event)
         }
