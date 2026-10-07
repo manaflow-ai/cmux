@@ -238,7 +238,7 @@ export function ComposerPickers({
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
+              <span className="acpmux-mode-text">{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
