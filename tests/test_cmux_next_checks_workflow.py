@@ -319,6 +319,78 @@ class GodfilePullRequestScope(unittest.TestCase):
         self.assertIn('--base "$merge_base"', rust["run"])
 
 
+class GodfileChangedFilesOnly(unittest.TestCase):
+    """`--changed-since REF` measures only the files changed since REF's merge base, so the tier 0
+    pre-push hook runs in seconds: the Swift check measured all 4,766 package files (45 s, 2 min with
+    --base) on 2026-10-07. Failures are scoped as with `--base` that merge base."""
+
+    setUp = GodfilePullRequestScope.setUp
+    git = GodfilePullRequestScope.git
+    commit = GodfilePullRequestScope.commit
+    run_check = GodfilePullRequestScope.run_check
+    both = GodfilePullRequestScope.both
+
+    def lane(self):
+        self.git("checkout", "-q", "-b", "lane")
+
+    def test_an_unrelated_change_passes_and_unchanged_files_are_not_measured(self):
+        self.lane()
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
+        self.commit("unrelated")
+        for result in self.both("--changed-since", "base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("Wide.swift", result.stdout)
+            self.assertNotIn("long.rs", result.stdout)
+
+    def test_growing_a_changed_over_budget_file_fails(self):
+        self.lane()
+        (self.rust / "long.rs").write_text("// x\n" * 1002)
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 402)
+        self.commit("grow")
+        swift, rust = self.both("--changed-since", "base")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("long.rs has 1002 lines", rust.stdout)
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("Wide.swift has 402 lines", swift.stdout)
+
+    def test_a_new_file_over_budget_fails(self):
+        self.lane()
+        (self.rust / "new.rs").write_text("fn f() {}\n" * 61)
+        (self.package / "Sources/Fixture/New.swift").write_text("let new = 0\n" * 401)
+        self.commit("new")
+        swift, rust = self.both("--changed-since", "base")
+        self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
+        self.assertIn("New.swift has 401 lines", swift.stdout)
+        self.assertIn("new.rs has 61 lines, 61 fns", rust.stdout)
+
+    def test_growing_an_over_budget_type_from_a_changed_file_fails(self):
+        self.lane()
+        (self.package / "Sources/Fixture/HugeMore.swift").write_text("extension Huge {\n    func more() {}\n}\n")
+        self.commit("grow the type")
+        swift, _ = self.both("--changed-since", "base")
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("type Fixture/Huge spans 1002 lines", swift.stdout)
+
+    def test_the_base_moving_on_does_not_count_as_a_change(self):
+        self.lane()
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        self.commit("lane work")
+        self.git("checkout", "-q", "base")
+        (self.rust / "long.rs").write_text("// x\n" * 1100)
+        self.commit("the base grows its own god file")
+        self.git("checkout", "-q", "lane")
+        for result in self.both("--changed-since", "base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_unknown_ref_runs_the_full_check(self):
+        self.lane()
+        self.commit("nothing")
+        _, rust = self.both("--changed-since", "no-such-ref")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("checking every file", rust.stdout + rust.stderr)
+
+
 class PathRoutingStructure(unittest.TestCase):
     def test_path_route_gates_each_mac_job_on_its_tier(self):
         """tests/test_cmux_next_route.py covers which paths reach which tier."""
