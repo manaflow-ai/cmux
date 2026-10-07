@@ -12,6 +12,9 @@ public struct SSHKeyRecord: Codable, Hashable, Identifiable, Sendable {
         case secureEnclave
         /// OpenSSH private key text imported by the user, stored in the Keychain.
         case imported
+        /// Ed25519 key generated on this device; the raw key stays in the
+        /// Keychain (`ThisDeviceOnly`) and is never exported.
+        case generatedEd25519
     }
 
     public var id: UUID
@@ -81,6 +84,27 @@ public actor SSHKeyStore {
         return record
     }
 
+    /// Generates an Ed25519 key in software and keeps it in the Keychain.
+    /// Works on every device (no Secure Enclave needed) and is the key type
+    /// every OpenSSH server accepts.
+    public func generateEd25519Key(label: String) throws -> SSHKeyRecord {
+        let key = Curve25519.Signing.PrivateKey()
+        let nioKey = NIOSSHPrivateKey(ed25519Key: key)
+        let record = SSHKeyRecord(
+            id: UUID(),
+            label: label,
+            kind: .generatedEd25519,
+            algorithm: "ssh-ed25519",
+            publicKeyLine: String(openSSHPublicKey: nioKey.publicKey) + " " + Self.comment(label),
+            requiresBiometry: false,
+            createdAt: Date()
+        )
+        try storeSecret(key.rawRepresentation, for: record.id)
+        records.append(record)
+        try persist()
+        return record
+    }
+
     /// Imports an OpenSSH private key (optionally passphrase-protected).
     /// The decrypted key text is stored so later connects need no passphrase.
     public func importKey(label: String, privateKeyText: String, passphrase: String? = nil) throws -> SSHKeyRecord {
@@ -113,6 +137,8 @@ public actor SSHKeyStore {
         case .imported:
             let stored = try JSONDecoder().decode(SSHImportedKeySecret.self, from: secret)
             return try SSHParsedPrivateKey(openSSH: stored.text, passphrase: stored.passphrase).key
+        case .generatedEd25519:
+            return NIOSSHPrivateKey(ed25519Key: try Curve25519.Signing.PrivateKey(rawRepresentation: secret))
         }
     }
 
