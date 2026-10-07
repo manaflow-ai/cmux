@@ -41,7 +41,7 @@ extension ChatColumnPlacement {
     /// is one implicit column.
     static func columns(of screen: LayoutScreen, containing pane: LayoutPaneID) -> [LayoutColumn] {
         screen.layout.columns.isEmpty
-            ? screen.layout.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
+            ? screen.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
     }
 
     /// What a person's new tab from `controller`'s pane becomes.
