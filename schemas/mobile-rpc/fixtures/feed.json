@@ -1,0 +1,11 @@
+{
+  "family": "feed",
+  "cases": [
+    { "message": "feed.list", "frame": { "t": "read", "id": 2, "op": "feed.list", "params": { "state": "open", "order": "urgent", "limit": 50 } } },
+    { "message": "feed.list", "phase": "result", "frame": { "t": "read.result", "id": 2, "revision": "310", "value": { "items": [{ "id": "fi_0123456789abcdefghij", "title": "Allow rm -rf build?" }] } } },
+    { "message": "feed.answer", "frame": { "t": "op", "op": "feed.answer", "params": { "item": "fi_0123456789abcdefghij", "answer": { "choice": "allow" }, "device": "iPhone" }, "idempotency_key": "01JB7Q2W8M0000FDANS001", "origin": "user" } },
+    { "message": "feed.read", "frame": { "t": "op", "op": "feed.read", "params": { "items": ["fi_0123456789abcdefghij"] }, "idempotency_key": "01JB7Q2W8M0000FDRD0001", "origin": "user" } },
+    { "message": "feed.archive", "frame": { "t": "op", "op": "feed.archive", "params": { "items": ["fi_0123456789abcdefghij"] }, "idempotency_key": "01JB7Q2W8M0000FDARC001", "origin": "user" } },
+    { "message": "feed.post", "frame": { "t": "event", "stream": "feed:u_7f3a", "seq": 311, "tx": "tx_20", "op": "feed.post", "params": { "type": "request", "kind": "approve", "title": "Allow rm -rf build?", "body": "The agent wants to run a destructive command.", "priority": "high", "context": { "host": "h_mac1A2b", "workspace": "ws_main01", "tab": "tab_a01" } }, "actor": { "identity": "agent:claude" }, "origin": "script", "at": 1791331206000 } }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "family": "rd",
+  "cases": [
+    { "message": "rd", "frame": { "t": "channel.open", "channel": 9, "kind": "rd", "class": "interactive", "window": 1048576, "params": { "service": "desktop", "display": 0 } } },
+    { "message": "rd", "phase": "opened", "frame": { "t": "channel.opened", "channel": 9, "window": 1048576, "params": { "media": "webrtc_track", "media_track": "rd-video-0" }, "resumed": false } }
+  ]
+}

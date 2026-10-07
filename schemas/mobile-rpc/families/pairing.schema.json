@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/pairing.schema.json",
+  "title": "cmux.mobile/1 pairing family (control; PairingDO per code, trust store in UserDO)",
+  "$defs": {
+    "PairingCode": { "type": "string", "pattern": "^[A-Z0-9]{4}-[A-Z0-9]{4}$" },
+    "PublicJwk": {
+      "type": "object", "additionalProperties": false, "required": ["kty", "crv", "x", "y"],
+      "properties": { "kty": { "const": "EC" }, "crv": { "const": "P-256" }, "x": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "y": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } }
+    },
+    "pairing.hosts": { "type": "object", "additionalProperties": false, "properties": {} },
+    "pairing.hosts:result": {
+      "type": "object", "additionalProperties": false, "required": ["hosts"],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["host", "trust"],
+            "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostSummary" }, "trust": { "enum": ["trusted", "untrusted", "revoked"] } }
+          }
+        }
+      }
+    },
+    "pairing.offer": {
+      "type": "object", "additionalProperties": false, "required": ["host", "host_key"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "host_key": { "$ref": "#/$defs/PublicJwk" } }
+    },
+    "pairing.offer:result": {
+      "type": "object", "additionalProperties": false, "required": ["code", "expires_at"],
+      "properties": { "code": { "$ref": "#/$defs/PairingCode" }, "expires_at": { "$ref": "../common.schema.json#/$defs/Timestamp" } }
+    },
+    "pairing.claim": {
+      "type": "object", "additionalProperties": false, "required": ["code", "device"],
+      "properties": {
+        "code": { "$ref": "#/$defs/PairingCode" },
+        "device": {
+          "type": "object", "additionalProperties": false, "required": ["install", "name", "platform", "key"],
+          "properties": {
+            "install": { "$ref": "../common.schema.json#/$defs/InstallId" },
+            "name": { "$ref": "../common.schema.json#/$defs/Name" },
+            "platform": { "$ref": "../common.schema.json#/$defs/Platform" },
+            "key": { "$ref": "#/$defs/PublicJwk" },
+            "wg_public_key": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" }
+          }
+        }
+      }
+    },
+    "pairing.claim:result": {
+      "type": "object", "additionalProperties": false, "required": ["host", "host_key"],
+      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "host_key": { "$ref": "#/$defs/PublicJwk" } }
+    },
+    "pairing.trust.set": {
+      "type": "object", "additionalProperties": false, "required": ["host", "device", "trust", "at"],
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "device": { "$ref": "../common.schema.json#/$defs/InstallId" },
+        "trust": { "enum": ["trusted", "revoked"] },
+        "at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
+      }
+    },
+    "pairing.revoke": {
+      "type": "object", "additionalProperties": false, "required": ["device"],
+      "properties": { "device": { "$ref": "../common.schema.json#/$defs/InstallId" }, "host": { "$ref": "../common.schema.json#/$defs/HostId" } }
+    }
+  }
+}
