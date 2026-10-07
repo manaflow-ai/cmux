@@ -59,6 +59,7 @@ import {
   PricingView,
 } from "../../../components/pricing-checkout";
 import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
+import { ProPlanCard } from "../../../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -250,6 +251,16 @@ function PricingContent({
     attribution,
   );
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const proAnnualLabelSet = {
+    billingPeriod: t("billingPeriod"),
+    yearly: t("pro.annual.yearly"),
+    monthly: t("monthly"),
+    perMonth: t("perMonth"),
+  };
+  const proCheckoutHrefs = {
+    month: proCheckoutHref,
+    year: withCheckoutInterval(proCheckoutURL, "year"),
+  };
   const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
@@ -347,18 +358,22 @@ function PricingContent({
         </>
       ) : null}
 
-      {/* Pro */}
-      <PlanCard
+      {/* Pro: the only plan sold yearly as well as monthly. */}
+      <ProPlanCard
         name={t("pro.name")}
-        price={`$${PRO_PRICING_USD.month.billedAmount}`}
-        period={t("perMonth")}
+        surface="public_pricing"
+        monthlyOnly={isGo}
+        initialInterval={query.interval === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={proCheckoutHrefs}
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={t("pro.cta")}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
           ) : null
         }
-      >
-        {appStoreAction ? appStoreAction() : isProCurrent ? (
+        action={appStoreAction ? appStoreAction() : isProCurrent ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -368,17 +383,11 @@ function PricingContent({
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
-        ) : (
-          <ProCtaLink
-            checkoutHref={proCheckoutHref}
-            requiresSignIn={!pending && !snapshot.authenticated}
-          >
-            {t("pro.cta")}
-          </ProCtaLink>
-        )}
+        ) : undefined}
+      >
         <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
         <FeatureList items={proFeatures} />
-      </PlanCard>
+      </ProPlanCard>
 
       {/* Max: larger machines on the monthly personal plan.
                 A Pro subscriber sees checkout; the server routes an active

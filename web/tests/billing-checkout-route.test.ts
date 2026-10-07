@@ -172,7 +172,7 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "pro", "max", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test.each(["go", "max", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
     stripeConfigured = true;
     const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
@@ -499,6 +499,22 @@ describe("billing checkout route", () => {
         process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
       }
     }
+  });
+
+  test("creates a yearly Stripe checkout for a signed-in Pro buyer", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveProPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_year", quantity: 1 }],
+      metadata: { plan: "pro", billingInterval: "year" },
+    });
   });
 
   test("creates Stripe checkout for a signed-in Pro buyer", async () => {
