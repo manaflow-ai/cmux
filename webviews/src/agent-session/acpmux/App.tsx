@@ -31,9 +31,11 @@ import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
+import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import { usePickerCatalog } from "./modelCatalogHost";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
@@ -477,6 +479,7 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 export function VirtualTranscript({
   rows,
+  sessionId,
   onToggleActivity,
   onOpenDiff,
   expanded,
@@ -484,6 +487,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
 }: {
   rows: AcpmuxRow[];
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
@@ -715,6 +719,15 @@ export function VirtualTranscript({
   };
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <ThreadMinimap
+        rows={rows}
+        sessionId={sessionId}
+        layout={layout}
+        scroller={ref}
+        scrollTop={scroll.top}
+        viewportHeight={height}
+        width={width}
+      />
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
@@ -774,6 +787,22 @@ function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
 }
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  const picker = usePickerCatalog(snapshot.catalog, {
+    harness: snapshot.summary?.harness,
+    configOptions: snapshot.summary?.configOptions,
+  });
+  const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
+  const refreshCatalog = useCallback(async () => {
+    setRefreshStatus("fetching");
+    try {
+      await picker.refresh();
+      setRefreshStatus("updated");
+    } catch {
+      setRefreshStatus("error");
+      // l10n-allow: a developer error for the refresh caller; the picker shows refreshStatus, never this text.
+      throw new Error("models.catalog refresh failed");
+    }
+  }, [picker]);
   return (
     <ComposerPickers
       snapshot={snapshot}
@@ -783,6 +812,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onHarness={(harness) => void callNative("chat.new", { harness })}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
+      pickerCatalog={picker.catalog}
+      catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
@@ -877,8 +908,9 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
-  /// Reads the chat folder's trust again (useFolderTrustAsk.ts), after acpmux refused a prompt for it.
-  const trustRecheck = useRef<(() => void) | undefined>(undefined);
+  /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
+  /// folder it named, and `again` sends the held prompt after Trust.
+  const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
@@ -892,7 +924,7 @@ function AcpmuxPane() {
     },
     snapshot.origin !== "remote",
   );
-  trustRecheck.current = trustAsk.recheck;
+  trustRefused.current = trustAsk.refused;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -1509,28 +1541,50 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
-        const send = async (text: string, attachments: import("./attachments").ComposerAttachment[] = []) => {
-          // A harness switch holds the prompt until its session is ready.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
-          if (held) return held;
-          const sessionId = await client.ensureSession();
-          await persistSession(sessionId);
-          // acpmux holds the prompt while the folder's trust question is open: it goes back into
-          // the composer, and the question is read again so it shows.
-          const turn = client.send(text, attachments).catch((error: unknown) => {
+        /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
+        /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
+        /// Without it a refused prompt goes back into the composer.
+        const send = async (
+          text: string,
+          attachments: import("./attachments").ComposerAttachment[] = [],
+          accepted?: () => void,
+        ) => {
+          // acpmux holds the prompt while the folder's trust question is open (on session/new
+          // or session/prompt): the question shows for the folder acpmux named, and Trust sends
+          // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
+          const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
-              restorePrompt(text, attachments);
-              trustRecheck.current?.();
+              if (!inComposer) restorePrompt(text, attachments);
+              trustRefused.current?.(error, () => composerHandle.current?.send());
             }
             throw error;
-          });
+          };
+          // A harness switch holds the prompt in its own row until its session is ready, and
+          // hands it back to the composer when the switch fails.
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          if (held) {
+            accepted?.();
+            return held.catch((error: unknown) =>
+              refused(error, (error as { handedBack?: unknown }).handedBack === true),
+            );
+          }
+          const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
+          await persistSession(sessionId);
+          const turn = client
+            .send(text, attachments, undefined, accepted)
+            .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
-          "chat.send": ({ text, attachments }) =>
-            send(String(text ?? ""), Array.isArray(attachments) ? attachments : []),
+          // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
+          "chat.send": ({ text, attachments, accepted }) =>
+            send(
+              String(text ?? ""),
+              Array.isArray(attachments) ? attachments : [],
+              typeof accepted === "function" ? (accepted as () => void) : undefined,
+            ),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
@@ -1883,6 +1937,7 @@ function AcpmuxPane() {
           <SessionRowsContext.Provider value={snapshot.rows}>
             <VirtualTranscript
               rows={transcriptRows}
+              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
               canLoadOlder={snapshot.canLoadOlder}
               expanded={expanded}
               registry={registry}
@@ -1966,11 +2021,18 @@ function AcpmuxPane() {
           // Shell mode's chips carry their commands' output as it is now.
           const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
           if (!snapshot.sessionId) claimShellRuns.current = true;
+          // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
+          // remote guard, the sandbox) leaves it there to send again.
+          let accept: (taken: true) => void = () => undefined;
+          const taken = new Promise<true>((resolve) => (accept = resolve));
           const send = async () => {
             if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
-            return callNative("chat.send", { text, attachments });
+            return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
           };
-          send().then(() => promptLanded.current(), cancelOpenInWindow);
+          const turn = send();
+          turn.then(() => promptLanded.current(), cancelOpenInWindow);
+          // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+          return Promise.race([taken, turn.then(() => true as const)]);
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}

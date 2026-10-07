@@ -6305,11 +6305,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "t",
+        "key" : "`",
         "modifiers" : [
-          "ctrl",
-          "shift",
-          "cmd"
+          "ctrl"
         ]
       },
       "id" : "newSurface",
@@ -11673,7 +11671,7 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "browser import-data",
+      "cli_name" : "action import-from-browser",
       "context_menu" : "noObject",
       "context_menus" : [
 

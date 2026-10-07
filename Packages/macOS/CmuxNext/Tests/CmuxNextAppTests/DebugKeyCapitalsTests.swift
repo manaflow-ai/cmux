@@ -27,4 +27,20 @@ import Testing
         let colon = DebugKey.keyPress(":", modifiers: [])
         #expect(colon.characters == ":")
     }
+
+    /// nxdog63: debug.new_tab open_and_type "chrome://extensions" left only "chrome": every
+    /// punctuation key went out as key code 0 (the A key). Punctuation uses its own key, and a
+    /// shifted symbol (":" "?" "_") has its base key and Shift, as from a US keyboard.
+    @Test func punctuationUsesItsOwnKeyAndShiftedSymbolsHaveShift() {
+        let expected: [(String, UInt16, Bool)] = [
+            (":", 41, true), (";", 41, false), ("/", 44, false), ("?", 44, true), (".", 47, false), ("-", 27, false),
+            ("_", 27, true), ("=", 24, false), ("@", 19, true), ("'", 39, false), ("\"", 39, true), (",", 43, false),
+        ]
+        for (name, keyCode, shift) in expected {
+            let press = DebugKey.keyPress(name, modifiers: [])
+            #expect(press.characters == name, "\(name) types \(name)")
+            #expect(press.keyCode == keyCode, "\(name) uses key \(keyCode)")
+            #expect(press.flags.contains(.shift) == shift, "\(name) Shift \(shift)")
+        }
+    }
 }

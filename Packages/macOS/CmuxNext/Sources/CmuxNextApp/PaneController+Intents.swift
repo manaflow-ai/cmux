@@ -52,6 +52,10 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // A user's tab switch may end link-tab opener relations (Chrome's rule).
+        if source.isUserIntent, stripModel.selectedID != id {
+            services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+        }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
             return applySelection(id)
@@ -121,6 +125,15 @@ extension PaneController {
         })
     }
 
+    /// Whether a session-local (WebKit) tab may stand in when the daemon
+    /// cannot make browser tabs.
+    /// Never for a Chromium request or a Chromium internal page: those are
+    /// refused rather than shown by the wrong engine.
+    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
+        if BrowserEngineResolver.explicitEngine(requested) == .cef { return false }
+        return !(url.map(ChromiumInternalURL.needsChromium) ?? false)
+    }
+
     /// New browser tab: daemon-owned when supported, on the engine
     /// `BrowserTabService.resolve` picks (an explicit engine, else
     /// `browser.defaultEngine`, Chromium, with the WebKit fallback), else
@@ -135,14 +148,18 @@ extension PaneController {
     /// surface once the daemon made the tab. `opener` is the tab of the page
     /// that asked for it: the new tab goes next to it in Chrome's order
     /// (`BrowserTabOpeners`); without it the tab goes to the end.
+    /// False when the tab is refused (no tab, no daemon request).
+    @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
             switch browserTabs.resolve(requested: requested, inherited: inherited) {
-            case .refuse(let reason): return services.registry.refuse(BrowserTabService.message(reason))
+            case .refuse(let reason):
+                services.registry.refuse(BrowserTabService.message(reason))
+                return false
             case .open(let resolved): choice = resolved
             }
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
@@ -171,15 +188,21 @@ extension PaneController {
                     return "new-frontend-browser-tab: \(error)"
                 }
             })
-            return
+            return true
+        }
+        guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
+            child?.close()
+            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         let local = LocalBrowserTab.make(url: url)
         state?.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
-        if background { return }
+        if background { return true }
         select(StripTabID(local.id))
         if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+        return true
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -212,16 +235,22 @@ extension PaneController {
         let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
             ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
             : commands
+        // The user's own refused close says so; automation gets the task's failure.
+        let userClose = CloseUndoToasts.isUserClose
         services.registry.track(Task {
             var failed = false
             var unknown = false
+            var codes: [String] = []
             for command in runs {
                 switch await daemon.runReportingTimeout(command.0, command.1) {
                 case .succeeded: break
-                case .failed: failed = true
+                case .failed(let code):
+                    failed = true
+                    if let code { codes.append(code) }
                 case .unknown: unknown = true
                 }
             }
+            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
