@@ -12,7 +12,8 @@ name: CI guard attribution
 #   main, green   the tracking issue closes
 #   PR, red       one comment with the failing assertions and the fix, edited in
 #                 place on each push; a step that is red on main is marked so
-#   PR, green     that comment, if any, says it passes now
+#   PR, green     that comment, if any, says the fast guards pass now (only
+#                 them: CI's result is ci-status and its attribution comment)
 #
 # A PR's code never runs here. `analyze` reads the run's log and, on main, runs
 # merged commits' guard steps, with a read-only token. `report` writes with
@@ -42,9 +43,9 @@ jobs:
   analyze:
     name: Analyze
     if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
-    # GitHub-hosted, like the fast guard it follows: it starts in seconds, and
-    # no repository variable may move it onto a queued pool.
-    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow the fast guard within a minute
+    # Analysis only reads trusted main history and the Actions/PR APIs. It
+    # needs no secret or write token, so use the shared Linux runner pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       actions: read

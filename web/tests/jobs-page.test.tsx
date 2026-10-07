@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import middleware from "../proxy";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import { resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { jobsContentLocales } from "../i18n/locale-availability";
 import { locales, type Locale } from "../i18n/routing";
