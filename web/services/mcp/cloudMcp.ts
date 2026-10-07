@@ -295,7 +295,8 @@ export function cmuxTuiArgs(words: readonly string[]): string {
 export function agentArgv(agent: CloudMcpAgent, prompt: string): string[] {
   switch (agent) {
     case "claude": return ["claude", "-p", "--", prompt];
-    case "codex": return ["codex", "exec", "--", prompt];
+    // The agent starts in $HOME, which is not a git repository; codex refuses that without this flag.
+    case "codex": return ["codex", "exec", "--skip-git-repo-check", "--", prompt];
     case "opencode": return ["opencode", "run", "--", prompt];
     case "pi":
       if (prompt.startsWith("-")) {
