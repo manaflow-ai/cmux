@@ -35,6 +35,9 @@ final class MessageActionOverlay: UIView {
         static let menuWidth: CGFloat = 250
         static let smiley: CGFloat = 44
         static let tailDot: CGFloat = 7
+        static let reactorColumn = CGSize(width: 56, height: 104)
+        /// Gap between the header's top (safe area) and the reactor strip.
+        static let reactorTop: CGFloat = 6
     }
 
     private let dim = UIView()
@@ -86,10 +89,12 @@ final class MessageActionOverlay: UIView {
 
         // Messages dims the transcript a little and keeps it sharp.
         dim.frame = bounds
+        // Measured: the menu dims the screen ~15%; the reactor list ~50%.
+        let detail = mode == .reactionDetail
         dim.backgroundColor = UIColor {
             $0.userInterfaceStyle == .dark
-                ? UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.15)
-                : UIColor.black.withAlphaComponent(0.06)
+                ? (detail ? UIColor.black.withAlphaComponent(0.5) : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.15))
+                : UIColor.black.withAlphaComponent(detail ? 0.25 : 0.06)
         }
         dim.alpha = 0
         addSubview(dim)
@@ -153,32 +158,33 @@ final class MessageActionOverlay: UIView {
         emojiButton.contentView.addSubview(face)
 
         if let detailCard {
+            // Messages: a glass strip at the top, one column per reactor with
+            // their tapback above their avatar.
             addSubview(detailCard)
-            let stack = UIStackView()
-            stack.axis = .vertical
-            stack.spacing = 10
-            for reactor in reactors {
-                let row = UIStackView()
-                row.spacing = 10
-                row.alignment = .center
+            let column = Metrics.reactorColumn
+            let content = UIScrollView()
+            content.showsHorizontalScrollIndicator = false
+            for (index, reactor) in reactors.enumerated() {
+                let x = CGFloat(index) * column.width
+                let glyph = TapbackGlyph.view(for: reactor.reaction, size: 45)
+                glyph.frame = CGRect(x: x + (column.width - 45) / 2, y: 5.7, width: 45, height: 45)
                 let avatar = ConversationAvatarView()
                 avatar.configure(initials: reactor.initials, colorHex: nil)
-                avatar.widthAnchor.constraint(equalToConstant: 30).isActive = true
-                avatar.heightAnchor.constraint(equalToConstant: 30).isActive = true
-                let name = UILabel()
-                name.text = reactor.name
-                name.font = .systemFont(ofSize: 15, weight: .medium)
-                let glyph = TapbackGlyph.view(for: reactor.reaction, size: 30)
-                glyph.widthAnchor.constraint(equalToConstant: 30).isActive = true
-                row.addArrangedSubview(avatar)
-                row.addArrangedSubview(name)
-                row.addArrangedSubview(UIView())
-                row.addArrangedSubview(glyph)
-                stack.addArrangedSubview(row)
+                avatar.frame = CGRect(x: x + (column.width - 32) / 2, y: 72, width: 32, height: 32)
+                avatar.isAccessibilityElement = true
+                avatar.accessibilityLabel = String(
+                    format: String(localized: "conversation.reaction.reacted", defaultValue: "%1$@ reacted with %2$@", bundle: .module),
+                    reactor.name, reactor.reaction.rawValue
+                )
+                content.addSubview(glyph)
+                content.addSubview(avatar)
             }
-            stack.frame = CGRect(x: 14, y: 12, width: 240, height: CGFloat(reactors.count) * 40 - 10)
-            detailCard.contentView.addSubview(stack)
-            detailCard.bounds = CGRect(x: 0, y: 0, width: 268, height: CGFloat(reactors.count) * 40 + 14)
+            let width = min(CGFloat(reactors.count) * column.width, bounds.width - Metrics.screenInset * 2)
+            detailCard.bounds = CGRect(x: 0, y: 0, width: width, height: column.height)
+            content.frame = detailCard.bounds
+            content.contentSize = CGSize(width: CGFloat(reactors.count) * column.width, height: column.height)
+            detailCard.contentView.addSubview(content)
+            detailCard.accessibilityIdentifier = "conversation.reactors"
         }
 
         menuStack.axis = .vertical
@@ -237,7 +243,7 @@ final class MessageActionOverlay: UIView {
         let menuSize = menuSize
         let lift = (Metrics.previewScale - 1) / 2
         var rest = sourceFrame
-        let topLimit = max(safe.top, topInset) + 8 + Metrics.barHeight + Metrics.barGap + (detailCard.map { $0.bounds.height + 10 } ?? 0)
+        let topLimit = max(safe.top, topInset) + 8 + Metrics.barHeight + Metrics.barGap
         let bottomLimit = bounds.height - safe.bottom - 8 - (menu.isHidden ? 0 : menuSize.height + Metrics.menuGap)
         // Keep the bubble in place when possible; shift only as far as needed.
         if rest.maxY + rest.height * lift > bottomLimit { rest.origin.y = bottomLimit - rest.height * (1 + lift) }
@@ -284,9 +290,10 @@ final class MessageActionOverlay: UIView {
         tailDot.frame = CGRect(x: dotCenter.x - Metrics.tailDot / 2, y: dotCenter.y - Metrics.tailDot / 2, width: Metrics.tailDot, height: Metrics.tailDot)
 
         if let detailCard {
+            // Centered over the header, like Messages' reactor strip.
             detailCard.frame = CGRect(
-                x: isOutgoing ? bounds.width - Metrics.screenInset - detailCard.bounds.width : Metrics.screenInset,
-                y: finalBarFrame.minY - detailCard.bounds.height - 10,
+                x: (bounds.width - detailCard.bounds.width) / 2,
+                y: safe.top + Metrics.reactorTop,
                 width: detailCard.bounds.width,
                 height: detailCard.bounds.height
             )
@@ -299,9 +306,9 @@ final class MessageActionOverlay: UIView {
 
     /// The dot the capsule grows out of (and folds back into): just outside
     /// the bubble's top corner on the side the capsule runs toward.
-    private func barSeed(diameter: CGFloat, centerY: CGFloat) -> CGRect {
+    private func barSeed(diameter: CGFloat, centerY: CGFloat, inset: CGFloat = 9) -> CGRect {
         let preview = liftedFrame(for: CGRect(center: finalPreviewCenter, size: snapshotClip.bounds.size)).frame
-        let x = isOutgoing ? preview.minX + 9 : preview.maxX - 9
+        let x = isOutgoing ? preview.minX + inset : preview.maxX - inset
         return CGRect(x: x - diameter / 2, y: centerY - diameter / 2, width: diameter, height: diameter)
     }
 
@@ -355,7 +362,11 @@ final class MessageActionOverlay: UIView {
         // Capsule: a dot at the bubble's corner swells into a circle, then
         // stretches into the capsule; the tapbacks pop in left to right.
         let final = finalBarFrame
-        setBarFrame(barSeed(diameter: 10, centerY: previewTop - 8))
+        // From the menu the capsule grows out of a dot at the corner; from a
+        // tapped badge it grows out of the badge itself (same corner).
+        setBarFrame(detailCard == nil
+            ? barSeed(diameter: 10, centerY: previewTop - 8)
+            : barSeed(diameter: ConversationTheme.reactionBadgeSize, centerY: previewTop - 10, inset: 3))
         reactionBar.alpha = 0
         UIView.animate(withDuration: 0.05, delay: 0.08, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
         UIView.animate(withDuration: 0.1, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
@@ -386,7 +397,7 @@ final class MessageActionOverlay: UIView {
         if let detailCard {
             detailCard.alpha = 0
             detailCard.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-            UIView.animate(springDuration: 0.3, bounce: 0.15, options: [.allowUserInteraction]) {
+            UIView.animate(springDuration: 0.3, bounce: 0.15, initialSpringVelocity: 0, delay: 0.12, options: [.allowUserInteraction]) {
                 detailCard.alpha = 1
                 detailCard.transform = .identity
             }
@@ -494,8 +505,23 @@ private extension CGRect {
 
 extension ConversationViewController {
     func presentActions(for model: MessageRowModel, cell: MessageCell, mode: MessageActionOverlay.Mode) {
-        let contentFrame = cell.liftedContentFrame
-        guard let snapshot = cell.shiftable.resizableSnapshotView(from: contentFrame, afterScreenUpdates: false, withCapInsets: .zero) else { return }
+        // A tapped badge becomes the tapback capsule, so that preview leaves it out.
+        let detail = mode == .reactionDetail && !cell.reactionBadge.isHidden
+        let contentFrame = detail ? (cell.cellLayout?.contentFrame ?? cell.liftedContentFrame) : cell.liftedContentFrame
+        let snapshot: UIView?
+        if detail {
+            // Render the current model state (badge hidden) synchronously; a
+            // screen-update snapshot would capture the cell after it hides.
+            cell.reactionBadge.isHidden = true
+            let image = UIGraphicsImageRenderer(bounds: contentFrame).image { context in
+                cell.shiftable.layer.render(in: context.cgContext)
+            }
+            cell.reactionBadge.isHidden = false
+            snapshot = UIImageView(image: image)
+        } else {
+            snapshot = cell.shiftable.resizableSnapshotView(from: contentFrame, afterScreenUpdates: false, withCapInsets: .zero)
+        }
+        guard let snapshot else { return }
         let source = cell.convert(contentFrame, to: view)
         let message = model.message
         let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
@@ -564,7 +590,8 @@ extension ConversationViewController {
             }
         }
         overlay.topInset = header.frame.maxY
-        view.insertSubview(overlay, belowSubview: header)
+        // Above the header: Messages dims it too, and the reactor strip sits over it.
+        view.insertSubview(overlay, aboveSubview: header)
         overlay.layoutIfNeeded()
         overlay.present()
     }
