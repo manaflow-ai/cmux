@@ -12,6 +12,14 @@ import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
+import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
+import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
+import { stackTeamAdminLayer } from "./auth/team-admin.ts";
+import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
+import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
+import { sqlMeshStoreLayer } from "./db/mesh.ts";
+import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
+import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -30,6 +38,10 @@ export interface Env {
   readonly DEV_TEST_TENANT_IDS?: string;
   /** JSON object of Stack team id to live VM limit, overriding the default. */
   readonly TENANT_VM_QUOTAS?: string;
+  /** Mesh experiment (cx-0op): "1" turns it on for the tenants in CMUX_VM_MESH_TENANT_IDS; anything else is off. */
+  readonly CMUX_VM_MESH_EXPERIMENT?: string;
+  /** Stack team ids allowed into the mesh experiment: comma or space separated. */
+  readonly CMUX_VM_MESH_TENANT_IDS?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -39,7 +51,10 @@ const liveServices = (env: Env) => {
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(
-    sqlStoresLayer.pipe(Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString))),
+    // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer).pipe(
+      Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+    ),
     policy,
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
@@ -50,8 +65,31 @@ const liveServices = (env: Env) => {
       projectId: env.STACK_PROJECT_ID,
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
+    s3aServices(env),
+    meshServices(env),
+    stackTeamAdminLayer({
+      apiUrl: env.STACK_API_URL,
+      projectId: env.STACK_PROJECT_ID,
+      serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
+    }),
   );
 };
+
+/** The provider snapshot and terminal clients (slice S3a). */
+const s3aServices = (env: Env) => {
+  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY };
+  return Layer.mergeAll(upstreamSnapshotsLayer(upstream), upstreamTerminalsLayer(upstream));
+};
+
+/** The mesh experiment's provider client and its gate (off unless both vars say otherwise). */
+const meshServices = (env: Env) =>
+  Layer.mergeAll(
+    upstreamMeshLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
+    meshConfigLayer({
+      experiment: parseMeshExperiment(env.CMUX_VM_MESH_EXPERIMENT),
+      tenantIds: parseTenantList(env.CMUX_VM_MESH_TENANT_IDS),
+    }),
+  );
 
 let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
 

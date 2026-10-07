@@ -199,3 +199,12 @@ test("checking a task rewrites only its list", () => {
   expect(out.endsWith("\n\nOutro.\n")).toBe(true);
   expect(out).toContain("[x] open");
 });
+
+test("task widgets expose their state and check mark", () => {
+  editor.load("- [x] done\n- [ ] open\n");
+  const checkboxes = [...editor.editorView()!.dom.querySelectorAll<HTMLElement>(".cmux-markdown-checkbox")];
+  expect(checkboxes.map((checkbox) => checkbox.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+  expect(checkboxes[0]?.getAttribute("role")).toBe("checkbox");
+  expect(checkboxes[0]?.getAttribute("aria-readonly")).toBe("true");
+  expect(checkboxes[0]?.querySelector("path")).not.toBeNull();
+});
