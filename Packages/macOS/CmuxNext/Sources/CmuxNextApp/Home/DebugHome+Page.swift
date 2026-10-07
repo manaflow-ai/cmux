@@ -12,6 +12,11 @@ extension DebugHome {
                  "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
     }
 
+    /// Contacts the user has no direct conversation with.
+    static func teammatesWithoutDM(rows: [InboxRow], contacts: [HomeContact]) -> Int {
+        0
+    }
+
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
@@ -24,6 +29,13 @@ extension DebugHome {
                     "id": .string(row.id.rawValue), "title": .string(row.title), "kind": .string(String(describing: row.kind)),
                     "owner": .string(row.summary.owner.rawValue), "unread": .number(Double(row.unread)),
                     "mentions": .number(Double(row.mentions)), "pinned": .bool(row.isPinned),
+                    // What the tile and row preview read: the inbox entry's newest message
+                    // (its conversation and seq) and the summary's last_seq.
+                    "preview": .string(row.preview), "last_seq": .number(Double(row.summary.lastSeq)),
+                    "preview_source": row.summary.lastMessage.map { message in
+                        .object(["message": .string(message.id.rawValue), "conversation": .string(message.conversation.rawValue),
+                                 "seq": .number(Double(message.seq))])
+                    } ?? .null,
                     "participants": .array(row.summary.participants.map { person in
                         .object(["id": .string(person.id.rawValue), "name": .string(person.displayName),
                                  "invited": .bool(person.membership == .invited), "chief": .bool(person.isChief)])
@@ -35,6 +47,14 @@ extension DebugHome {
             "online": .bool(store.isOnline),
             "me": store.me.map { .string($0.id.rawValue) } ?? .null,
             "shown": view?.shown.map { .string($0.rawValue) } ?? .null,
+            // The opened transcript as the store holds it, to compare with the row's preview_source.
+            "shown_transcript": view?.shown.map { id in
+                let items = store.transcript(for: id)
+                return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)),
+                                "last_seq": items.compactMap(\.seq).max().map { .number(Double($0)) } ?? .null])
+            } ?? .null,
+            // Teammates with no DM yet (the search's Teammates section draws from these).
+            "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
             // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
             "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),
