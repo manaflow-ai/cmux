@@ -221,6 +221,24 @@ fn an_app_refusal_prints_the_refusal_and_no_retry_note() {
     }
 }
 
+#[test]
+fn a_tab_the_window_cannot_show_still_opens_and_says_why() {
+    let run = Run::app(AppMode::HomeNoReveal).cli(&["--json", "browser", "open", URL], None);
+    assert!(run.output.status.success(), "the tab exists: {}", run.stderr());
+    let reply: Value = serde_json::from_slice(&run.output.stdout).expect("JSON reply");
+    assert_eq!(reply["value"]["tab_id"], NEW_TAB, "{reply}");
+    let stderr = run.stderr();
+    let lines: Vec<_> = stderr.lines().collect();
+    assert_eq!(
+        lines,
+        vec![format!(
+            "cmux: tab opened in {WORKSPACE}, but the window could not show it: \
+             no window lists this workspace"
+        )],
+        "{stderr}"
+    );
+}
+
 struct Run {
     dir: PathBuf,
     app: Option<AppMode>,
@@ -236,6 +254,8 @@ enum AppMode {
     Home,
     /// Every openBrowser is refused.
     Refuse,
+    /// `Home`, and its window cannot show the new tab (`tab.focus` fails).
+    HomeNoReveal,
 }
 
 struct Finished {
@@ -358,9 +378,15 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
     let params = &request["params"];
     let refused = match mode {
         AppMode::Workspace => false,
-        AppMode::Home => params["action"] == "openBrowser" && params.get("target").is_none(),
+        AppMode::Home | AppMode::HomeNoReveal => {
+            params["action"] == "openBrowser" && params.get("target").is_none()
+        }
         AppMode::Refuse => true,
     };
+    if matches!(mode, AppMode::HomeNoReveal) && params["action"] == "tab.focus" {
+        return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
+            "message": "no window lists this workspace", "data": {}}});
+    }
     if refused {
         return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
             "message": HOME_REFUSAL,

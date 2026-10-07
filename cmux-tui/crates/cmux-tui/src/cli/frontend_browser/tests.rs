@@ -79,3 +79,11 @@ fn the_default_pane_is_the_daemons_current_one() {
         assert_eq!(selector[key], "current", "{key}");
     }
 }
+
+#[test]
+fn a_failed_reveal_names_the_workspace_and_the_reason() {
+    let line = reveal_failure("ws_a", &json!({"code": "unavailable", "message": "no window"}));
+    assert_eq!(line, "cmux: tab opened in ws_a, but the window could not show it: no window");
+    let line = reveal_failure("ws_a", &json!({"code": "app.unreachable"}));
+    assert!(line.ends_with(": app.unreachable"), "{line}");
+}

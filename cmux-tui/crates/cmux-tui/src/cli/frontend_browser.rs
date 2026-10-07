@@ -169,11 +169,6 @@ pub(super) fn open(
             (reply, tab, false)
         }
     };
-    if on_default_pane {
-        // Best effort: the tab exists; a window that cannot show it now
-        // still lists it.
-        let _ = super::app_focus::focus_in_app(app, &super::app_focus::AppFocus::Tab, &tab);
-    }
     if let Some(name) = params.get("name").and_then(Value::as_str) {
         let mut rename = route.clone();
         rename.insert("tab".into(), json!(tab));
@@ -181,8 +176,30 @@ pub(super) fn open(
         mutate(reader, ResourceOperation::TabRename, rename, &format!("{key}.name"))?;
     }
     let path = created_path(reader, &route, &tab)?;
+    if on_default_pane {
+        reveal(app, &tab, &path);
+    }
     let replayed = reply.get("replayed").and_then(Value::as_bool).unwrap_or(false);
     Ok(json!({"value": path, "replayed": replayed}))
+}
+
+/// Makes the app's window show `tab` (opened on the daemon's default pane,
+/// which the window does not show). Best effort: the tab exists either way,
+/// so a failure prints one line and the command still succeeds.
+fn reveal(app: &mut UnixStream, tab: &str, path: &Value) {
+    let focus = super::app_focus::AppFocus::Tab;
+    let Err(error) = super::app_focus::focus_in_app(app, &focus, tab) else { return };
+    let workspace = path.get("workspace_id").and_then(Value::as_str).unwrap_or("its workspace");
+    eprintln!("{}", reveal_failure(workspace, &error));
+}
+
+/// The line a failed reveal prints.
+pub(super) fn reveal_failure(workspace: &str, error: &Value) -> String {
+    let reason = ["message", "code"]
+        .iter()
+        .find_map(|key| error.get(*key).and_then(Value::as_str))
+        .unwrap_or("unknown error");
+    format!("cmux: tab opened in {workspace}, but the window could not show it: {reason}")
 }
 
 /// Runs `openBrowser` for `url` on `target` with idempotency key `key`:
