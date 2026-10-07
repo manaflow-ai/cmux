@@ -24,7 +24,10 @@ struct RemoteRdUpstreamTransportTests {
 
         /// The next control message from the viewer (skips datagrams).
         func nextControl() async throws -> RemoteRdControl {
-            while let frame = await frames.next() {
+            // A local copy: a mutating async call cannot target actor state.
+            var iterator = frames
+            defer { frames = iterator }
+            while let frame = await iterator.next() {
                 if frame.0 == 1 { return try RemoteRdControl.parse(frame.1) }
             }
             throw RemoteRdCoreError.failed
@@ -32,7 +35,9 @@ struct RemoteRdUpstreamTransportTests {
 
         /// Statuses until `done` holds; nil when the stream finished first.
         func status(where done: @Sendable (RemoteViewStatus) -> Bool) async -> RemoteViewStatus? {
-            while let status = await statuses.next() {
+            var iterator = statuses
+            defer { statuses = iterator }
+            while let status = await iterator.next() {
                 if done(status) { return status }
             }
             return nil
