@@ -98,14 +98,15 @@ concurrency:
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
   # finish so a 42-minute macOS build is not discarded by the next push.
-  # Main NIGHTLY and nightly-next install as the same app, so their publishing
-  # runs must share one group. This keeps the run-derived Sparkle build number
-  # ordered across both feeds; the nightly-next floor check otherwise rejects
-  # an older run that finishes after a newer main publication.
+  # nightly-next has its own group. Sharing main's group (#18150) let every
+  # main push replace the pending nightly-next run (run 37579667979, cancelled
+  # by main push run 37580645859 before any job ran), so nightly-next starved.
+  # The cross-feed floor check in build-nightly-app still refuses a nightly-next
+  # build that is not above main's feed, so the shared app never downgrades.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ (github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -1415,6 +1416,27 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
+      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # webviews app) are built from this commit's sources, never taken from a
+      # committed copy (cx-vn5). --force: a published build never trusts a stamp.
+      - name: Set up Bun (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: scripts/cmux-next/build-web-bundles.sh --force
+
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
       # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
@@ -1693,6 +1715,10 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           # Never ship a stale build: more than 24 h behind the tip fails.
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
+          # This run executes the tip's nightly.yml against the resolved
+          # commit, so the resolved commit must carry the same file: run
+          # 37568319518 called a dSYM script its older build commit lacked.
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
@@ -3117,9 +3143,13 @@ jobs:
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
 
+  # A cancelled job (a timeout reports as cancelled) counts as a failure. On
+  # nightly-next the signed release notes are part of the publication: a
+  # published build whose notes jobs did not both succeed is reported too
+  # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
-    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -3134,6 +3164,7 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -3144,7 +3175,16 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
-            const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
+            const failed = Object.entries(results)
+              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .map(([k, v]) => `${k} (${v.result})`);
+            // nightly-next: notes jobs that were skipped after a publication.
+            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success') {
+              for (const job of ['sign-release-notes', 'publish-release-notes']) {
+                const result = results[job]?.result;
+                if (result === 'skipped') failed.push(`${job} (skipped)`);
+              }
+            }
             const tagStale = process.env.TAG_STATUS === 'stale';
             const publicationLine = tagStale
               ? `${appName} published, tag marker stale for ${process.env.HEAD_SHA} (${refName}). Assets, release metadata, and appcasts are available; only the channel completion marker failed to advance.`
@@ -3165,8 +3205,10 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    # always(): a skipped notes job must not skip this job silently; the
+    # conditions below decide. nightly-next closes only with its notes published.
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

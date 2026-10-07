@@ -29,11 +29,13 @@ enum DebugNewTab {
             return openAndType(params, services: services)
         case "field":
             return await field(params, services)
-        case "bench_close", "bench_bang":
+        case "bench_close", "bench_bang", "bench_open":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
-            return params["action"]?.stringValue == "bench_close"
-                ? await DebugNewTabBench.close(params, controller, services)
-                : await DebugNewTabBench.bang(params, controller, services)
+            switch params["action"]?.stringValue {
+            case "bench_close": return await DebugNewTabBench.close(params, controller, services)
+            case "bench_open": return await DebugNewTabBench.open(params, controller, services)
+            default: return await DebugNewTabBench.bang(params, controller, services)
+            }
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
@@ -65,7 +67,8 @@ enum DebugNewTab {
     }
 
     private static func opening(_ opening: NewTabSparePool.Opening) -> JSONValue {
-        .object(["spare": .bool(opening.spare), "cross_window": .bool(opening.crossWindow), "ms": .number(opening.milliseconds)])
+        .object(["spare": .bool(opening.spare), "cross_window": .bool(opening.crossWindow), "refit": .bool(opening.refit),
+                 "ms": .number(opening.milliseconds)])
     }
 
     /// The window `index` (`window` param, an index into the main windows), else the first.

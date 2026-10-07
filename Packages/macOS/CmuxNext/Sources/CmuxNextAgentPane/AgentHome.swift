@@ -52,6 +52,13 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return AcpmuxPathPolicy.contains(root: standard, path: home)
     }
 
+    /// Whether `path` is the base, a workspace's folder or a folder inside one (by path components,
+    /// after `.` and `..` are resolved as text). Does not touch the disk.
+    public func contains(_ path: String) -> Bool {
+        let standard = (path as NSString).standardizingPath
+        return standard.hasPrefix("/") && AcpmuxPathPolicy.contains(root: base, path: standard)
+    }
+
     /// The folder of workspace `id`, nil for an id that is not safe. Does not touch the disk.
     public func path(for id: String) -> String? {
         guard Self.isSafeID(id) else { return nil }

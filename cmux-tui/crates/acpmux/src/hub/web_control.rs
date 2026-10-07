@@ -110,8 +110,11 @@ impl Hub {
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
                         None => {
-                            *session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) =
-                                v.as_str().map(str::to_owned);
+                            *session
+                                .floor
+                                .undeclared_mode
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     },
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
@@ -169,7 +172,7 @@ impl Hub {
             t.turn_id.clone()
         });
         if let Some(turn_id) = raised {
-            session.last_turn_web.store(true, Ordering::SeqCst);
+            session.floor.last_turn_web.store(true, Ordering::SeqCst);
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,
@@ -224,6 +227,9 @@ impl Hub {
         if control != Control::Web {
             return Ok(());
         }
+        if let Some(e) = self.local_claude_refusal(meta) {
+            return Err(e);
+        }
         let mode = crate::web_modes::mode_of(meta);
         let shown = mode.as_deref().unwrap_or("(unknown)").to_owned();
         if session.web_control_ended.load(Ordering::SeqCst) {
@@ -249,9 +255,18 @@ impl Hub {
                 "family": crate::web_modes::family_of(meta),
             })));
         }
+        // A remote chain's agent adopted with no record that it runs in the
+        // sandbox (it started before the sandbox existed).
+        if session.floor.unsandboxed.load(Ordering::SeqCst) {
+            return Err(RpcError::new(
+                -32000,
+                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
+        }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.
-        if session.harness_grant.load(Ordering::SeqCst) {
+        if session.floor.harness_grant.load(Ordering::SeqCst) {
             return Err(RpcError::new(
                 -32000,
                 "this session's agent holds a lasting grant (allow always) from the local user; a paired device cannot prompt it or answer its permissions until the agent restarts",
@@ -277,6 +292,43 @@ impl Hub {
             })));
         }
         Ok(())
+    }
+}
+
+impl Hub {
+    /// D13: a Claude Code session the Mac started (not a remote chain) runs
+    /// with the user's own Claude permission rules, whose allow rules run
+    /// tools with no acpmux request, so the remote floor cannot hold there:
+    /// a remote device never controls it (reads stay). A remote chain's
+    /// Claude Code runs with ask-only settings in the sandbox
+    /// (`remote_sandbox.rs`). Unknown (the profile is gone, or the config is
+    /// being written): refused.
+    pub(crate) fn local_claude_refusal(
+        &self,
+        meta: &crate::store::SessionMeta,
+    ) -> Option<RpcError> {
+        // Claude Code itself (claude-stdio) or a Claude adapter (family
+        // claude): both read the user's Claude settings.
+        let stdio = match self.config.try_read() {
+            Ok(cfg) => {
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()
+                    .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+            }
+            Err(_) => None,
+        };
+        let family = crate::web_modes::family_of(meta) == "claude";
+        // A remote chain's Claude Code (claude-stdio, remote origin) runs in
+        // the sandbox with ask-only settings; everything else that is or may
+        // be Claude is refused (unknown: refused).
+        let refused = !meta.remote_origin && (stdio != Some(false) || family);
+        refused.then(|| {
+            RpcError::new(
+                -32000,
+                "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.",
+            )
+            .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
+        })
     }
 }
 

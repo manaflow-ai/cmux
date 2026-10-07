@@ -237,7 +237,7 @@ select {
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 760px)/2)) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
-.acpmux-composer-box{position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:22px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
+.acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
 .acpmux-composer-box button{font:inherit;cursor:pointer}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--agent-text)}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -303,9 +303,9 @@ select {
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-text);color:var(--acpmux-base)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The picker menus open above the field, aligned with its edges. */
@@ -485,6 +485,8 @@ select {
 .acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
+/* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
+.acpmux-diff-tree-motion{display:contents}
 .acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:28px;box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
 .acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
@@ -559,7 +561,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
-.acpmux-composer{flex-wrap:wrap}.acpmux-attachments{flex-basis:100%;margin:0;border:0;min-width:0;display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 0 2px}.acpmux-attachment{position:relative;flex:none;box-sizing:border-box;border-radius:10px;background:var(--agent-control);box-shadow:inset 0 0 0 .5px var(--agent-border-strong)}.acpmux-attachment-image{width:56px;height:56px}.acpmux-attachment-image img{width:100%;height:100%;object-fit:cover;border-radius:9.5px;display:block}.acpmux-attachment-file{display:flex;align-items:center;height:32px;max-width:min(220px,70vw);padding:0 28px 0 10px;color:var(--agent-text)}.acpmux-attachment-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-composer .acpmux-attachment-remove{position:absolute;top:4px;right:4px;width:18px;height:18px;padding:0;border-radius:9px;display:grid;place-items:center;font-size:13px;line-height:1;background:rgb(0 0 0/.55);color:#fff;cursor:pointer}.acpmux-attachment-file .acpmux-attachment-remove{top:7px}.acpmux-attachment-note{color:var(--agent-muted);font-size:12px;white-space:nowrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
+.acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 max(18px,calc((100% - 760px)/2)) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
 /* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */
 .ui-title-tooltip{position:fixed;z-index:1000;max-width:min(320px,calc(100vw - 12px));padding:4px 8px;box-sizing:border-box;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,Canvas));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent),0 4px 14px var(--agent-shadow,rgb(0 0 0/.3));color:var(--agent-text);font:12px/16px system-ui,-apple-system,sans-serif;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
@@ -789,7 +791,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
   background: currentColor;
 }
 .cv-list > li.cv-task {
-  padding-left: 20px;
+  padding-left: 22px;
 }
 /* Adjacent lists (a task list after a numbered list) read as one list: no gap between. */
 .cv-list:has(+ .cv-list) {
@@ -802,22 +804,12 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-checkbox {
   position: absolute;
   left: 0.5px;
-  top: 5.5px;
-  width: 13.5px;
-  height: 14px;
-  box-sizing: border-box;
-  border-radius: 4px;
+  top: 0.35em;
+  --cmux-markdown-checkbox-secondary: var(--agent-muted);
+  --cmux-markdown-checkbox-accent: var(--agent-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--cv-text);
 }
-.cv-checkbox.is-checked {
-  background: var(--cv-check-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-check-ring);
-}
-/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+/* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
 :root[data-borders="none"] .cv-checkbox {
   box-shadow: none;
   background: var(--cv-check-fill);
@@ -1811,6 +1803,58 @@ pre.cv-math-source {
   opacity: 0.5;
   cursor: default;
 }
+/* A local image the pane does not show: outside the folders, missing or not loaded (D5). */
+.cv-image-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.cv-image-file .cv-chip__icon,
+.cv-image-file .cv-chip__lock {
+  margin: 0;
+  vertical-align: 0;
+  flex: none;
+}
+.cv-image-file__alt,
+.cv-image-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-image-file__name {
+  font-weight: 600;
+}
+.cv-image-file__alt + .cv-image-file__name {
+  font-weight: 400;
+  color: var(--cv-link);
+}
+.cv-image-file__alt {
+  font-weight: 600;
+}
+.cv-image-file__note {
+  color: var(--cv-link);
+  white-space: nowrap;
+}
+.cv-image-file__open {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cv-image-file__open:focus-visible {
+  outline: 1px solid var(--cv-link);
+  outline-offset: 1px;
+}
 /* The preview card's "Open in" menu (previewCard/OpenInMenu.tsx, decision D6). */
 .acpmux-open-in {
   display: inline-flex;
@@ -2167,14 +2211,15 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
 }
 
-/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+/* Send and Stop: the one filled control, in the terminal theme's text color (never the ANSI blue);
+   its arrow is the opaque base; it steps toward the base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover,
 .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active,
 .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
@@ -2383,6 +2428,95 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+/* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
+   the row sits inside the composer at the text's own inset, the attachments keep a gap between them
+   and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
+   composer's radius minus the inset). The remove button is a badge inside the thumbnail, never over
+   its edge or the composer's border, with a 22px click target. Theme tokens only. */
+.acpmux-composer-box {
+  --acpmux-attach-inset: 16px;
+  --acpmux-attach-gap: 8px;
+  --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
+}
+.acpmux-attachments {
+  flex-basis: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--acpmux-attach-gap);
+  margin: 0;
+  /* The text's inset on every side but the bottom; the field's own 15px top inset
+     (markdownField.css, which also places the placeholder) is the gap to the text. */
+  padding: var(--acpmux-attach-inset) var(--acpmux-attach-inset) 0;
+  border: 0;
+  overflow-x: auto;
+}
+.acpmux-attachment {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: var(--acpmux-attach-radius);
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong);
+}
+.acpmux-attachment-image {
+  width: 56px;
+  height: 56px;
+}
+.acpmux-attachment-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--acpmux-attach-radius);
+}
+.acpmux-attachment-file {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  max-width: min(220px, 70vw);
+  padding: 0 32px 0 10px;
+  color: var(--agent-text);
+}
+.acpmux-attachment-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-composer .acpmux-attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
+  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
+  box-shadow: 0 0 0 0.5px var(--acpmux-composer-edge);
+  color: var(--agent-text);
+  cursor: pointer;
+}
+.acpmux-attachment-file .acpmux-attachment-remove {
+  top: 5px;
+}
+.acpmux-composer .acpmux-attachment-remove:hover {
+  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+}
+.acpmux-composer .acpmux-attachment-remove:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-attachment-note {
+  color: var(--agent-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
 /* Cmd-K Search chats (reference prototype search.png): a 520px sheet centered over the pane,
    theme tokens only, no accent color. */
 .acpmux-search-layer {
@@ -3018,6 +3152,36 @@ fieldset.acpmux-permission-card {
   font-size: 15px;
   caret-color: var(--agent-ansi-5, #d670d6);
 }
+/* The edited-files card's Undo confirmation, per-file Undo results and collapse toggle
+   (conversation/EditedFilesCard.tsx). The card itself is styled in styles.css (.acpmux-edited). */
+.acpmux-edited-base{font-weight:600}
+.acpmux-edited-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);cursor:pointer}
+.acpmux-edited-toggle:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-edited-toggle:focus-visible,.acpmux-edited-cancel:focus-visible,.acpmux-edited-viewdiff:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-edited-undone{flex:none;color:var(--agent-muted);font-size:12px}
+.acpmux-edited-confirm{display:flex;align-items:center;gap:8px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--agent-border)}
+.acpmux-edited-confirm-text{flex:1;min-width:0;line-height:18px}
+.acpmux-edited-confirm-skip{color:var(--agent-muted);font-size:12px}
+.acpmux-edited-cancel{flex:none;height:28px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer}
+.acpmux-edited-cancel:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent))}
+.acpmux-edited-undo-confirm{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+.acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:24px;padding:0 12px 6px;color:var(--agent-muted);font-size:12px}
+.acpmux-edited-status-changed{color:var(--agent-warning,var(--agent-muted))}
+.acpmux-edited-viewdiff{height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer;text-decoration:underline}
+/* The card as drawn in the target (2026-10-07): a 1px theme border, a dark icon tile with the ±
+   glyph, the title over a secondary "View changes ↗" link, Undo as a text button and View changes
+   as an outlined one; rows put the directory in the secondary color and cut its middle. */
+.acpmux-edited::after{box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
+.acpmux-edited-icon{background:var(--agent-page-bg);color:var(--agent-text);box-shadow:inset 0 0 0 1px var(--agent-border)}
+.acpmux-edited-sub{display:flex;align-items:center;gap:8px;min-width:0;line-height:18px;font-size:12px}
+.acpmux-edited-link{display:inline-flex;align-items:center;gap:3px;min-width:0;height:18px;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
+.acpmux-edited-link:hover{color:var(--agent-text);text-decoration:underline}
+.acpmux-edited-link:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
+.acpmux-review-changes{background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
+.acpmux-review-changes:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
+.acpmux-edited-dir-head{flex:none}
+.acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
 
 </style>
 </head>

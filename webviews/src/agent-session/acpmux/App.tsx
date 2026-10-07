@@ -1,7 +1,6 @@
 import React, {
   memo,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -17,7 +16,6 @@ import {
   layoutConversation,
   paneHeader,
   placeRows,
-  plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
@@ -72,10 +70,10 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
-import { Counts } from "./changes/Counts";
-import { ChevronDown, DiffFile } from "./changeIcons";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { EditedFilesCard } from "./conversation/EditedFilesCard";
+import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
@@ -95,7 +93,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
-import { FolderChoice } from "./FolderChoice";
+import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -324,107 +322,10 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-const EDITED_FILES_SHOWN = 3;
-
-/// "Edited N files", ported from EditedFilesCard in the reference prototype's
-/// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
-/// each file opens the changes at that file. One edited file is named in the title instead.
-/// No Undo: asking the agent to revert let it run any command (git checkout) and lose edits made
-/// after the turn. Undo returns as a host revert that checks each file still holds the turn's bytes.
+/// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    const t = useT();
-    const [showAll, setShowAll] = useState(false);
-    const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const toolFiles = useMemo(() => turnFiles([row]), [row]);
-    // Once the turn's checkpoint has loaded, its files and counts replace the tool calls'.
-    const countsFor = useContext(TurnCountsContext);
-    const counts = useMemo(
-      () => (countsFor ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
-      [countsFor, row.id, toolFiles],
-    );
-    const files = counts.files;
-    // An edit whose tool call carried no diff still lists, without counts.
-    const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
-    const entries: { key: string; file?: TurnFile; text?: string }[] = [
-      ...files.map((file) => ({ key: file.path, file })),
-      ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
-    ];
-    const total = entries.length;
-    const { additions, deletions } = counts;
-    const single = total === 1 && files.length === 1 ? files[0] : undefined;
-    const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
-    const more = single ? 0 : total - shown.length;
-    const reviewable = onOpenDiff && files.length > 0;
-    return (
-      <div className="acpmux-edited">
-        <div className="acpmux-edited-head">
-          <span className="acpmux-edited-icon">
-            <DiffFile />
-          </span>
-          <div className="acpmux-edited-title">
-            <div>
-              {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
-            </div>
-            {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
-            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
-          </div>
-          {reviewable && (
-            <button
-              type="button"
-              className="acpmux-review-changes"
-              onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-            >
-              {t("edited.view")}
-            </button>
-          )}
-        </div>
-        {shown.map((entry) => {
-          if (!entry.file)
-            return (
-              <div className="acpmux-edited-file" key={entry.key}>
-                <span className="acpmux-edited-path">{entry.text}</span>
-              </div>
-            );
-          const file = entry.file;
-          const slash = file.displayPath.lastIndexOf("/");
-          const label = (
-            <>
-              <span className="acpmux-edited-path" title={file.path}>
-                <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
-                <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
-              </span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </>
-          );
-          return onOpenDiff ? (
-            <button
-              type="button"
-              className="acpmux-edited-file"
-              key={entry.key}
-              onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-            >
-              {label}
-            </button>
-          ) : (
-            <div className="acpmux-edited-file" key={entry.key}>
-              {label}
-            </div>
-          );
-        })}
-        {(more > 0 || showAll) && !single && total > EDITED_FILES_SHOWN && (
-          <button
-            type="button"
-            className="acpmux-edited-more"
-            aria-expanded={showAll}
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
-            <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
-          </button>
-        )}
-      </div>
-    );
+    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
@@ -957,8 +858,9 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
-  /// Reads the chat folder's trust again (useFolderTrustAsk.ts), after acpmux refused a prompt for it.
-  const trustRecheck = useRef<(() => void) | undefined>(undefined);
+  /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
+  /// folder it named, and `again` sends the held prompt after Trust.
+  const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
@@ -972,7 +874,7 @@ function AcpmuxPane() {
     },
     snapshot.origin !== "remote",
   );
-  trustRecheck.current = trustAsk.recheck;
+  trustRefused.current = trustAsk.refused;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -1589,28 +1491,50 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
-        const send = async (text: string, attachments: import("./attachments").ComposerAttachment[] = []) => {
-          // A harness switch holds the prompt until its session is ready.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
-          if (held) return held;
-          const sessionId = await client.ensureSession();
-          await persistSession(sessionId);
-          // acpmux holds the prompt while the folder's trust question is open: it goes back into
-          // the composer, and the question is read again so it shows.
-          const turn = client.send(text, attachments).catch((error: unknown) => {
+        /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
+        /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
+        /// Without it a refused prompt goes back into the composer.
+        const send = async (
+          text: string,
+          attachments: import("./attachments").ComposerAttachment[] = [],
+          accepted?: () => void,
+        ) => {
+          // acpmux holds the prompt while the folder's trust question is open (on session/new
+          // or session/prompt): the question shows for the folder acpmux named, and Trust sends
+          // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
+          const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
-              restorePrompt(text, attachments);
-              trustRecheck.current?.();
+              if (!inComposer) restorePrompt(text, attachments);
+              trustRefused.current?.(error, () => composerHandle.current?.send());
             }
             throw error;
-          });
+          };
+          // A harness switch holds the prompt in its own row until its session is ready, and
+          // hands it back to the composer when the switch fails.
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          if (held) {
+            accepted?.();
+            return held.catch((error: unknown) =>
+              refused(error, (error as { handedBack?: unknown }).handedBack === true),
+            );
+          }
+          const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
+          await persistSession(sessionId);
+          const turn = client
+            .send(text, attachments, undefined, accepted)
+            .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
-          "chat.send": ({ text, attachments }) =>
-            send(String(text ?? ""), Array.isArray(attachments) ? attachments : []),
+          // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
+          "chat.send": ({ text, attachments, accepted }) =>
+            send(
+              String(text ?? ""),
+              Array.isArray(attachments) ? attachments : [],
+              typeof accepted === "function" ? (accepted as () => void) : undefined,
+            ),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
@@ -1955,22 +1879,24 @@ function AcpmuxPane() {
     <ShellActionsContext.Provider value={shellActions}>
       <TurnActionsContext.Provider value={turnActions}>
         <TurnCountsContext.Provider value={turnCountsFor}>
-          <VirtualTranscript
-            rows={transcriptRows}
-            canLoadOlder={snapshot.canLoadOlder}
-            expanded={expanded}
-            registry={registry}
-            // The Quick Composer has no room for the changes view; its file rows stay plain.
-            onOpenDiff={quick ? undefined : openDiff}
-            onToggleActivity={(id) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-          />
+          <SessionRowsContext.Provider value={snapshot.rows}>
+            <VirtualTranscript
+              rows={transcriptRows}
+              canLoadOlder={snapshot.canLoadOlder}
+              expanded={expanded}
+              registry={registry}
+              // The Quick Composer has no room for the changes view; its file rows stay plain.
+              onOpenDiff={quick ? undefined : openDiff}
+              onToggleActivity={(id) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+            />
+          </SessionRowsContext.Provider>
         </TurnCountsContext.Provider>
       </TurnActionsContext.Provider>
     </ShellActionsContext.Provider>
@@ -2016,7 +1942,7 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
-      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
@@ -2041,11 +1967,18 @@ function AcpmuxPane() {
           // Shell mode's chips carry their commands' output as it is now.
           const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
           if (!snapshot.sessionId) claimShellRuns.current = true;
+          // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
+          // remote guard, the sandbox) leaves it there to send again.
+          let accept: (taken: true) => void = () => undefined;
+          const taken = new Promise<true>((resolve) => (accept = resolve));
           const send = async () => {
             if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
-            return callNative("chat.send", { text, attachments });
+            return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
           };
-          send().then(() => promptLanded.current(), cancelOpenInWindow);
+          const turn = send();
+          turn.then(() => promptLanded.current(), cancelOpenInWindow);
+          // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+          return Promise.race([taken, turn.then(() => true as const)]);
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}

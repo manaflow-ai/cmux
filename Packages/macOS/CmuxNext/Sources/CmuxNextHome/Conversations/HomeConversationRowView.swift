@@ -95,11 +95,12 @@ final class HomeConversationCellView: NSTableCellView {
             time.textColor = Palette.textTertiary
             time.font = Typography.caption
             badge.font = Typography.shortcut
-            badge.textColor = Palette.highlightText
-            badge.layer?.backgroundColor = Palette.highlight.cgColor
+            // The neutral app accent (Lawrence 2026-10-06): only sent bubbles are iMessage blue.
+            badge.textColor = Palette.textPrimary  // the accent is the foreground at 40 %: text in the foreground, as the sidebar badge
+            badge.layer?.backgroundColor = Palette.accent.cgColor
             mention.font = Typography.shortcut
-            mention.textColor = Palette.highlightText
-            mention.layer?.backgroundColor = Palette.highlight.cgColor
+            mention.textColor = Palette.textPrimary
+            mention.layer?.backgroundColor = Palette.accent.cgColor
         }
     }
 

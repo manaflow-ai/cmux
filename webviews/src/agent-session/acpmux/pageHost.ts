@@ -71,6 +71,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "editedFiles":
+      return window.cmuxAcpmuxEditedFiles?.(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "dictation":

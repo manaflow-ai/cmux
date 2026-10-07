@@ -51,6 +51,12 @@ pub struct DaemonConfig {
     /// Report `bookmarks-changed` as [`DaemonEvent::BookmarksChanged`] (one
     /// more connection while connected to a daemon with `bookmarks-v1`).
     pub bookmark_events: bool,
+    /// Additive capabilities the mirror's connections declare (for example
+    /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
+    /// and the event stream read those tabs in their canonical form). Only
+    /// the ones the daemon advertises in `identify` are declared; empty
+    /// declares nothing.
+    pub capabilities: Vec<String>,
 }
 
 impl DaemonConfig {
@@ -67,8 +73,14 @@ impl DaemonConfig {
             min_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(10),
             bookmark_events: true,
+            capabilities: Vec::new(),
         }
     }
+}
+
+/// The configured capabilities the daemon advertises, in configured order.
+fn declared_capabilities(configured: &[String], advertised: &[String]) -> Vec<String> {
+    configured.iter().filter(|c| advertised.contains(c)).cloned().collect()
 }
 
 /// What the worker learned when it connected.
@@ -290,7 +302,9 @@ fn session(
     }
 
     let client = cmux::Client::connect(
-        Config::from_socket_path(&info.socket).with_timeout(config.request_timeout),
+        Config::from_socket_path(&info.socket)
+            .with_timeout(config.request_timeout)
+            .with_capabilities(declared_capabilities(&config.capabilities, &info.capabilities)),
     )
     .map_err(|e| format!("connect {}: {e}", info.socket.display()))?;
     let result = follow(config, shared, on_event, backoff, &client, info);
@@ -450,5 +464,22 @@ impl Drop for BookmarkEvents {
         {
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::declared_capabilities;
+
+    #[test]
+    fn only_advertised_capabilities_are_declared_in_configured_order() {
+        let s = |v: &[&str]| v.iter().map(|c| c.to_string()).collect::<Vec<_>>();
+        let configured = s(&["agent-session-tabs-v1", "conversation-tabs-v1", "not-advertised-v1"]);
+        let advertised = s(&["conversation-tabs-v1", "bookmarks-v1", "agent-session-tabs-v1"]);
+        assert_eq!(
+            declared_capabilities(&configured, &advertised),
+            s(&["agent-session-tabs-v1", "conversation-tabs-v1"])
+        );
+        assert!(declared_capabilities(&configured, &[]).is_empty(), "identify failed: nothing");
     }
 }

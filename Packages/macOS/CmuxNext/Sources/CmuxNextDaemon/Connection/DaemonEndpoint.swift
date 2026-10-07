@@ -7,11 +7,17 @@ public struct DaemonEndpoint: Hashable, Sendable {
     public var socketPath: String
     public var pid: Int32?
     public var generation: DaemonGeneration?
+    /// A line every connection writes before the daemon protocol, answered
+    /// by one JSON line with `"ok": true` (``LinePreamble``): `cmux link`'s
+    /// `link.dial` when the socket is the link's and the daemon is a paired
+    /// server's (plans/cmux-next/server-reach.md 7 step 1). Nil: none.
+    public var preamble: String?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, preamble: String? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
+        self.preamble = preamble
     }
 }
 
@@ -232,7 +238,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -240,7 +246,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
+    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection

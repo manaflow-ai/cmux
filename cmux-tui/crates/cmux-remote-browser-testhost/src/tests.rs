@@ -11,7 +11,7 @@ use cmux_rd_proto::control::Control;
 use cmux_rd_proto::flags;
 use cmux_rd_proto::{SERVICE_REMOTE_BROWSER, STREAM_CONTROL, encode_stream_frame};
 
-use super::{Options, parse, session};
+use super::{Options, Page, parse, session};
 
 fn options(frames: u64) -> Options {
     Options { port: 4103, width: 320, height: 240, fps: 60, frames, once: true }
@@ -106,4 +106,45 @@ fn options_refuse_privileged_ports_and_odd_sizes() {
     assert!(parse(&args(&["--bogus", "1"])).is_err());
     let o = parse(&args(&["--port", "5000", "--frames", "3", "--once"])).expect("valid");
     assert_eq!((o.port, o.frames, o.once, o.width, o.height), (5000, 3, true, 1280, 720));
+}
+
+#[test]
+fn right_click_opens_a_context_menu_with_increasing_tokens() {
+    let mut page = Page::default();
+    let right = br#"{"e":"pointer","surface":0,"kind":"down","x":12.0,"y":30.0,"button":2,"buttons":2,"click_count":1,"modifiers":0,"pointer_type":"mouse"}"#;
+    let first = page.input(right).expect("menu");
+    assert_eq!(first["t"], "rb.menu.show");
+    assert_eq!(first["token"], 1);
+    assert_eq!(first["menu"]["anchor"]["x"], 12.0);
+    assert_eq!(page.input(right).expect("menu")["token"], 2);
+}
+
+#[test]
+fn cmd_click_opens_a_background_tab_and_a_plain_click_does_nothing() {
+    let mut page = Page::default();
+    let click = |modifiers: u32| {
+        format!(
+            r#"{{"e":"pointer","surface":0,"kind":"down","x":5.0,"y":5.0,"button":0,"buttons":1,"click_count":1,"modifiers":{modifiers},"pointer_type":"mouse"}}"#
+        )
+    };
+    assert_eq!(page.input(click(0).as_bytes()), None);
+    let tab = page.input(click(8).as_bytes()).expect("open_tab");
+    assert_eq!(tab["t"], "rb.open_tab");
+    assert_eq!(tab["request"], 1);
+    assert_eq!(tab["disposition"], "background_tab");
+    let up = br#"{"e":"pointer","surface":0,"kind":"up","x":5.0,"y":5.0,"button":0,"buttons":0,"click_count":1,"modifiers":8,"pointer_type":"mouse"}"#;
+    assert_eq!(page.input(up), None);
+}
+
+#[test]
+fn navigate_answers_with_the_page_and_other_messages_are_ignored() {
+    let mut page = Page::default();
+    let reply = page
+        .control(&serde_json::json!({"t": "rb.navigate", "url": "https://example.com/typed"}))
+        .expect("page");
+    assert_eq!(reply["t"], "rb.page");
+    assert_eq!(reply["url"], "https://example.com/typed");
+    assert_eq!(reply["loading"], false);
+    assert_eq!(page.control(&serde_json::json!({"t": "rb.visibility", "visible": true})), None);
+    assert_eq!(page.input(b"not json"), None);
 }

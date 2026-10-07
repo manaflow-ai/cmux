@@ -24,6 +24,7 @@ import type { HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
+import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import type { MockOptions } from "../pages/settings/mockProvider";
 import type { AccountsState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -55,6 +56,50 @@ export type PasswordsPageVariant = VariantBase & {
   steps?: PageFixtureStep[];
 };
 
+/** Public-safe answers for the agent pane's link/image/browser host calls. */
+export type ChipHostFixture = {
+  paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
+  sites?: Record<string, { icon?: string; title?: string }>;
+  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  images?: Record<string, string | null>;
+  browsers?: { id: string; name: string; icon?: string }[];
+};
+
+/** One step of an experiment's scripted interaction (the compare view replays them in sync). */
+export type ExperimentStep = { name: string; run: Play };
+
+/** Frame timings of one arm, from a matrix run on a Freestyle VM (scripts/gallery-matrix). */
+export type ArmMeasurement = {
+  /** The matrix run's name (its index is at :18796/matrix/<run>/). */
+  run: string;
+  engine: "chromium" | "webkit";
+  /** Frames sampled across the script's steps. */
+  frames: number;
+  /** Frame interval percentiles and maximum, in ms. */
+  p50: number;
+  p95: number;
+  max: number;
+  /** Frames over 16.7 ms. */
+  over16: number;
+  /** Main-thread time the arm spent planning its motion, in ms per toggle (largest). */
+  planMs?: number;
+  /** The frame strip image, relative to the run's folder. */
+  strip?: string;
+};
+
+/**
+ * An entry's experiment: the arms of `definition` render the same variant side by side in the
+ * `compare` view, and `script` drives them all at once. `setup` runs before step 1 with every
+ * animation finished at once (the starting state). `measurements` are the numbers a matrix run
+ * measured for each arm, shown in the cell captions.
+ */
+export type GalleryExperiment = {
+  definition: Experiment;
+  setup?: Play;
+  script: ExperimentStep[];
+  measurements?: Record<string, ArmMeasurement>;
+};
+
 /** Common to every variant. */
 type VariantBase = {
   /** One line for the stage header: what the variant shows. */
@@ -74,6 +119,10 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null. */
+  native?: Record<string, unknown>;
+  /** Gallery-only answers for the reply chips and preview card's host calls. */
+  chipHost?: ChipHostFixture;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -194,7 +243,11 @@ export type KeybindingsPageVariant = VariantBase & {
 };
 
 /** A React component with props, for components no page host draws on its own. */
-export type ComponentVariant<P> = VariantBase & { props: P };
+export type ComponentVariant<P> = VariantBase & {
+  props: P;
+  /** Gallery-only answers for the component's reply chip/preview host calls. */
+  chipHost?: ChipHostFixture;
+};
 
 /**
  * A native (Swift) view's variant: the view builder registered under the same id in
@@ -209,6 +262,8 @@ type EntryBase<V> = {
   title: string;
   /** Sidebar group. */
   area: string;
+  /** Flagged or unshipped surfaces live in the final Experimental sidebar group. */
+  experimental?: boolean;
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
@@ -225,6 +280,8 @@ type EntryBase<V> = {
   checks?: PlayChecks;
   /** Opt into viewer choices tied to a tracker item. */
   pick?: { beadId: string; recommendedId: string };
+  /** Arms of an experiment to compare side by side (view `compare`). */
+  experiment?: GalleryExperiment;
   variants: Record<string, V>;
 };
 
@@ -245,6 +302,11 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
   load: () => Promise<ComponentType<P>>;
   /** Stylesheets the component needs, loaded before it. */
   styles?: () => Promise<unknown>;
+  /**
+   * An agent pane component: the host loads the pane's strings and stylesheet and applies its
+   * theme (AgentPaneTheme through applyAgentTheme), as the pane has them around it.
+   */
+  pane?: boolean;
 };
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
@@ -347,6 +409,15 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
       if (!variants.includes(entry.pick.recommendedId)) problems.push(`${entry.id}: recommended variant is missing`);
     }
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
+    if (entry.experiment) {
+      const { definition, script, measurements } = entry.experiment;
+      for (const problem of validateExperiments([definition])) problems.push(`${entry.id}: ${problem}`);
+      if (script.length === 0) problems.push(`${entry.id}: the experiment script has no steps`);
+      if (new Set(script.map((step) => step.name)).size !== script.length)
+        problems.push(`${entry.id}: experiment step names repeat`);
+      for (const arm of Object.keys(measurements ?? {}))
+        if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
+    }
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
   return problems;

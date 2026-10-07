@@ -326,6 +326,15 @@ final class SequenceScroller: NSScroller {
         get { super.knobProportion }
         set { super.knobProportion = fixed?.proportion ?? newValue }
     }
+    /// AppKit invalidates its own knob rect when the value changes; the drawn bar sits up to
+    /// `knobBottomInset` (plus pixel rounding) above it and spans the expanded width, so every
+    /// invalidation covers the scroller's full width and 2 pt more at each end. (Without it a
+    /// slow knob drag left the bar's old top rows in the track: horizontal streaks above the
+    /// thumb in ours-scrollbar-drag-slow-take84, the row's transcript excess 4.7.)
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        guard !invalidRect.isEmpty else { return super.setNeedsDisplay(invalidRect) }
+        super.setNeedsDisplay(NSRect(x: bounds.minX, y: invalidRect.minY - 2, width: bounds.width, height: invalidRect.height + 4))
+    }
     /// Messages' scroll indicator, macOS 27 (lossless scrollbar-* references, right 20 pt strip):
     /// - at rest with overlay scrollers (Show scroll bars: Automatic with a trackpad, or When
     ///   scrolling): hidden; with legacy scrollers (Always, or Automatic with a mouse): shown.
