@@ -2,8 +2,8 @@
 //! the host call, and what the viewer gets back.
 
 use cmux_remote_browser::proto::{
-    Control, Dialog, DialogKind, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect,
-    ScreenInfo, SessionState, ViewerCaps,
+    Control, Dialog, DialogKind, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, PointerKind,
+    Rect, ScreenInfo, SessionState, ViewerCaps,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall};
 use cmux_remote_browser::session::ScreenSize;
@@ -14,6 +14,8 @@ struct Fake {
     calls: Vec<String>,
     /// The shim refuses capture (the browser has no view yet).
     refuse_capture: bool,
+    /// Every input call, as sent.
+    sent: Vec<RpCall>,
 }
 
 impl Presentation for Fake {
@@ -39,6 +41,7 @@ impl Presentation for Fake {
             other => format!("{other:?}"),
         };
         self.calls.push(format!("input {browser} {name}"));
+        self.sent.push(call.clone());
         true
     }
     fn context_menu_result(&mut self, fork_token: i64, command: Option<i64>) -> bool {
@@ -157,7 +160,7 @@ fn input_before_the_browser_exists_is_not_sent() {
     let mut tab = HostTab::new(1, 41, "https://example.com/");
     let click = InputEvent::Pointer {
         surface: 0,
-        kind: cmux_remote_browser::proto::PointerKind::Down,
+        kind: PointerKind::Down,
         x: 1.0,
         y: 2.0,
         button: 0,
@@ -396,4 +399,91 @@ fn a_select_popup_the_page_closed_is_cancelled_on_the_viewer_only() {
     let late = Control::MenuResult { token, choice: MenuChoice::Indices { indices: vec![1] } };
     tab.control("v1", &late, &mut fake);
     assert!(fake.calls.is_empty(), "a late viewer answer reaches nothing");
+}
+
+fn key_event(down: bool, code: &str, key: &str) -> InputEvent {
+    InputEvent::Key {
+        surface: 0,
+        down,
+        code: code.into(),
+        key: key.into(),
+        // Named keys (Shift) carry no text.
+        text: if down && key.chars().count() == 1 { key.into() } else { String::new() },
+        unmodified_text: if down && key.chars().count() == 1 { key.into() } else { String::new() },
+        modifiers: 0,
+        repeat: false,
+        location: 0,
+        edit_commands: vec![],
+    }
+}
+
+fn pointer(surface: u32, kind: PointerKind, x: f64, y: f64, button: u8) -> InputEvent {
+    InputEvent::Pointer {
+        surface,
+        kind,
+        x,
+        y,
+        button,
+        buttons: if kind == PointerKind::Down { 1 } else { 0 },
+        click_count: 1,
+        modifiers: 0,
+        pointer_type: "mouse".into(),
+    }
+}
+
+fn key_up(code: &str, key: &str) -> RpCall {
+    RpCall::SendKey {
+        down: false,
+        code: code.into(),
+        key: key.into(),
+        text: String::new(),
+        unmodified_text: String::new(),
+        modifiers: 0,
+        commands: vec![],
+    }
+}
+
+fn page_up(x: f64, y: f64, button: i32) -> RpCall {
+    RpCall::PageMouse { kind: 2, x, y, button, click_count: 1, modifiers: 0 }
+}
+
+#[test]
+fn release_all_releases_every_held_key_and_button_once() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    for event in [
+        key_event(true, "ShiftLeft", "Shift"),
+        key_event(true, "KeyA", "A"),
+        key_event(true, "KeyB", "B"),
+        key_event(false, "KeyB", ""),
+        pointer(0, PointerKind::Down, 10.0, 20.0, 0),
+        pointer(0, PointerKind::Move, 30.0, 40.0, 0),
+        pointer(0, PointerKind::Down, 30.0, 40.0, 2),
+        pointer(0, PointerKind::Up, 31.0, 41.0, 2),
+    ] {
+        assert_eq!(tab.input(&event, &mut fake), Ok(true));
+    }
+    fake.sent.clear();
+    tab.release_all(&mut fake);
+    // KeyB and the right button were released by the viewer; the left
+    // button goes up where the pointer was last.
+    assert_eq!(
+        fake.sent,
+        vec![key_up("KeyA", "A"), key_up("ShiftLeft", "Shift"), page_up(31.0, 41.0, 0)]
+    );
+    fake.sent.clear();
+    tab.release_all(&mut fake);
+    assert!(fake.sent.is_empty(), "a second release_all sends nothing: {:?}", fake.sent);
+}
+
+#[test]
+fn a_key_repeat_holds_one_key_and_a_viewer_closing_releases_what_it_held() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    for _ in 0..3 {
+        assert_eq!(tab.input(&key_event(true, "KeyW", "w"), &mut fake), Ok(true));
+    }
+    fake.sent.clear();
+    tab.control("v1", &Control::Close, &mut fake);
+    assert_eq!(fake.sent, vec![key_up("KeyW", "w")]);
 }

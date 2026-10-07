@@ -347,6 +347,11 @@ impl HostTab {
         }
     }
 
+    /// The engine's "release all keys and buttons" signal (the input
+    /// skipped a gap, so a release may be lost): a key-up for every key and
+    /// a button-up for every button a viewer holds down, then none is held.
+    pub fn release_all(&mut self, _p: &mut dyn Presentation) {}
+
     /// The anchor of a `<select>` popup in the page (helper for the shim's
     /// callback, which gives integers).
     pub fn anchor(x: i32, y: i32, width: i32, height: i32) -> Rect {
