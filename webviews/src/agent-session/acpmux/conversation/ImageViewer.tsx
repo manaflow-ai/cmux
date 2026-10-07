@@ -51,7 +51,14 @@ export function ImageViewer({
     viewRef.current = view;
   }, [view]);
   const [copied, setCopied] = useState<"copied" | "failed" | undefined>();
-  const stage = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement | null>(null);
+  // The stage as state too: the dialog's portal mounts it after the first commit, and the pinch
+  // and wheel listeners attach once it is there.
+  const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null);
+  const stageRef = useCallback((element: HTMLDivElement | null) => {
+    stage.current = element;
+    setStageElement(element);
+  }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const count = images.length;
@@ -81,7 +88,7 @@ export function ImageViewer({
   // event with Control. Command-scroll zooms too; a scroll pans a zoomed image. The listeners are
   // not passive, so the pane never scrolls or magnifies behind.
   useEffect(() => {
-    const element = stage.current;
+    const element = stageElement;
     if (!element) return;
     let pinchFrom: View | undefined;
     const onGesture = (event: Event) => {
@@ -112,7 +119,7 @@ export function ImageViewer({
       element.removeEventListener("wheel", onWheel);
       for (const type of ["gesturestart", "gesturechange", "gestureend"]) element.removeEventListener(type, onGesture);
     };
-  }, []);
+  }, [stageElement]);
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -159,13 +166,10 @@ export function ImageViewer({
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
       initialFocus={close}
+      // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
+      onKeyDown={onKeyDown}
     >
-      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
-      <div
-        className="acpmux-image-viewer-body"
-        // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
-        onKeyDown={onKeyDown}
-      >
+      <div className="acpmux-image-viewer-body">
         <div className="acpmux-image-viewer-bar">
           <span className="acpmux-image-viewer-title">{image.alt}</span>
           {count > 1 && (
@@ -199,7 +203,7 @@ export function ImageViewer({
         {/* Pointer zoom and pan; the keyboard does the same from the dialog (+, -, 0). */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
-          ref={stage}
+          ref={stageRef}
           className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
