@@ -569,8 +569,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (targetId !== undefined) tabFor(targetId);
       return { dataStore: DATA_STORE };
     },
-    "tabs.open": async ({ url, background, dataStore }, driver) => {
+    "tabs.open": async ({ url, background, dataStore, incognito }, driver) => {
       if (dataStore !== undefined && dataStore !== DATA_STORE) throw new DriverError("invalid", `tabs.open: no open tab uses data store ${JSON.stringify(dataStore)}`);
+      // driver-protocol.md: a driver without a store that keeps nothing
+      // opens nothing (never a persistent tab).
+      if (incognito === true) throw new DriverError("unsupported", "tabs.open: incognito tabs are not supported by the dev driver; nothing was opened");
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;

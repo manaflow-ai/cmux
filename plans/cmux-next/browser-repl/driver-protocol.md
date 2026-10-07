@@ -34,9 +34,9 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, incognito? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
-| `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
+| `tabs.open` | `{ url?, background?, dataStore?, incognito? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid`. With `incognito: true`, the tab opens in a store that keeps nothing (see "Incognito"); a driver without one fails with `unsupported` and opens nothing |
 | `tabs.close` | `{ targetId, runBeforeUnload?, timeoutMs?, reason? }` | `reason` is `"session_end"` only when the browser host closes a tab at the session's end (with `timeoutMs`); the app then closes it with raw `close-tabs {reason: "session_end"}` (`close-reason-v1`), so the close is not in Reopen Closed. An agent's own `tabs.close` carries no reason (the host removes one an agent sends); the app provider closes no tab for it (tabs belong to the person's layout) |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
@@ -48,7 +48,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.keep` | `{ targetId }` | |
 | `tab.handleEvents` | `{ targetId, events: ["dialog"\|"filechooser"\|"download"] }` | Replaces the events this session has a handler for in the tab. See below. |
 | `session.name` | `{ name }` | |
-| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
+| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy?, incognito? }`, each key replacing its value (`null` clears) | `{ proxy, incognito }`: whether tabs opened from now on use the proxy, and whether they open incognito. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends
@@ -162,6 +162,23 @@ like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
 drops the grants and new tabs open in the profile again (a proxy store keeps
 them). A proxy set after permissions gets the same grants and the same cookie
 copy.
+
+Incognito (private data P1, ff 2026-10-06). `tabs.open {incognito: true}`,
+and every `tabs.open` of a session after `session.configure {incognito:
+true}` (the app sets it for an incognito workspace), opens the tab in the
+session's incognito store. On the shared headless browser that is an
+in-memory browser context (Chromium keeps contexts it creates off the
+record: no disk cache, no persistent cookies) with no cookie of the profile
+(no copy in, nothing written back), named `<profile>/incognito-<n>`; its
+tabs and their popups list `incognito: true`. An incognito tab is never
+kept (`tab.keep` fails with `forbidden`) and never restored; the store
+closes when the session ends. No page visit of an incognito tab is recorded
+in history. In an incognito session `tabs.open {incognito: false}` fails
+with `forbidden`, tab-less `cookies.*` use the incognito store, and a
+tab-less `net.fetch` fails with `unsupported` (its hidden shell runs in the
+profile's store). Known gap: incognito with a proxy or permission grants is
+`unsupported`. App tabs (CEF, WebKit) answer `unsupported` until the app
+opens them in its non-persistent store; never a persistent tab.
 
 Permission names are Playwright's. The classic column is what the classic
 WebKit backend (the dev driver's Playwright WebKit) accepts; a name not known

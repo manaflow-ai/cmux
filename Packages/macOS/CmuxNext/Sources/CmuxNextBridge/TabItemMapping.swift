@@ -12,9 +12,10 @@ public struct TabItemMapping {
     /// page, whose recorded title is that page's address.
     /// A conversation tab (conversation-tabs-v1) rides a frontend browser
     /// record titled with the blank page's address: it shows `fallbackTitle`
-    /// (the conversation's) and the agent chat icon.
+    /// (the conversation's) and the agent chat icon. `isNewTabPage` marks a
+    /// tab still on the New Tab page, which draws the new-tab icon instead.
 
-    public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
+    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
@@ -28,7 +29,7 @@ public struct TabItemMapping {
             id: StripTabID(tab.id),
             title: title,
             subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: icon(tab, isBrowser: isBrowser, isConversation: isConversation),
+            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
