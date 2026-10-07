@@ -43,7 +43,7 @@ Pro is the only plan sold yearly: `interval=year&plan=pro` checks out `cmux-pro-
 
 ## Feature flags
 
-`pro-upgrade-ui-enabled-release` (PostHog id `741838`) gates all Pro UI and stays OFF in release until launch; DEBUG builds default it on. Public Pro and Team pricing CTAs always route through `/api/billing/checkout`, never the download confirmation page. `cmux __internal_flags`, once merged, inspects and overrides flags locally.
+The Pro UI is public and no longer gated by a rollout flag. Public Pro and Team pricing CTAs always route through `/api/billing/checkout`, never the download confirmation page. `cmux __internal_flags` remains available for the other runtime flags.
 
 ## Prod runbook
 

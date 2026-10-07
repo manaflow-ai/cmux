@@ -74,11 +74,6 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Opens the hosted Stripe customer portal in the user's default browser.
     func openBillingPortal()
 
-    /// Whether the Pro upgrade row should render. The host backs this with
-    /// a remotely toggleable feature flag; `true` when flags are
-    /// unavailable only in explicit dogfood builds whose flag default is on.
-    var isProUpgradeAvailable: Bool { get }
-
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
 

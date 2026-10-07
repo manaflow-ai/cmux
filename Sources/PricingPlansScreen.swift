@@ -331,10 +331,9 @@ private final class NativePricingPlanStore: ObservableObject {
     }
 
     static func refreshForProWelcomeChecklist() async {
-        // Skip the authenticated /api/billing/plan fetch when the checklist can't be shown
-        // anyway (already seen, or Pro upgrade UI flag off) so Release sign-ins skip the GET.
-        guard ProWelcomeChecklistPresenter.canPresentAutomatically(
-            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled) else { return }
+        // Skip the authenticated /api/billing/plan fetch when the checklist
+        // has already been shown.
+        guard ProWelcomeChecklistPresenter.canPresentAutomatically() else { return }
         let loadedState = await loadPlanState()
         presentWelcomeChecklistIfPro(loadedState)
     }

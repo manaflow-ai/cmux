@@ -187,10 +187,9 @@
   <h2>Feature flags (PostHog project 244066)</h2>
   <div class="card">
     <div class="row">
-      <span class="flag"><span class="dot on"></span> <code>pro-upgrade-ui-enabled-release</code> — badge + all Pro entrypoints · ON</span>
       <span class="flag"><span class="dot on"></span> <code>mobile-connect-button-enabled-release</code> — titlebar iPhone button · ON</span>
     </div>
-    <p style="margin-top:12px">Each is registered in code (owner + review date + safe default), gated live from the PostHog dashboard, and enforced by <code>scripts/lint-feature-flags.py</code> in CI against the posthog.com feature-flag-mistakes rules. Pricing checkout is launched and no longer feature-gated.</p>
+    <p style="margin-top:12px">The iPhone button is registered in code (owner + review date + safe default), gated live from the PostHog dashboard, and enforced by <code>scripts/lint-feature-flags.py</code> in CI against the posthog.com feature-flag-mistakes rules. Public pricing and Pro upgrade entrypoints are always visible.</p>
   </div>
 
   <h2>In-app pricing screen (native)</h2>

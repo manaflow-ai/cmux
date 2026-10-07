@@ -30,12 +30,6 @@ import os
 final class CmuxFeatureFlags {
     static let shared = CmuxFeatureFlags(publishesOffMainSnapshot: true)
 
-    #if DEBUG
-    private static let proUpgradeUIDefault = true
-    #else
-    private static let proUpgradeUIDefault = false
-    #endif
-
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
@@ -214,21 +208,6 @@ final class CmuxFeatureFlags {
     // included here without repeating their key literal.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
-            // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
-            // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
-            // card, palette command, Help menu item). Release builds hide them until
-            // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "pro-upgrade-ui-enabled-release",
-                title: String(localized: "featureFlags.proUpgrade.title", defaultValue: "Pro upgrade UI"),
-                flagDescription: String(
-                    localized: "featureFlags.proUpgrade.description",
-                    defaultValue: "Shows Pro upgrade entrypoints in the sidebar, Settings, command palette, and Help menu."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.proUpgradeUIDefault
-            ),
-
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
             // Shows the bottom-left sidebar iPhone button that opens the Tailscale
@@ -338,34 +317,30 @@ final class CmuxFeatureFlags {
         ]
     }()
 
-    var isProUpgradeUIEnabled: Bool {
+    var isMobileConnectButtonEnabled: Bool {
         effectiveValue(for: Self.allFlags[0])
     }
 
-    var isMobileConnectButtonEnabled: Bool {
-        effectiveValue(for: Self.allFlags[1])
-    }
-
     var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
-    }
-
-    var isSidebarAccountButtonEnabled: Bool {
         effectiveValue(for: Self.allFlags[2])
     }
 
+    var isSidebarAccountButtonEnabled: Bool {
+        effectiveValue(for: Self.allFlags[1])
+    }
+
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.allFlags[3])
     }
 
     var isComputerUseUXEnabled: Bool {
-        effectiveValue(for: Self.allFlags[5])
+        effectiveValue(for: Self.allFlags[4])
     }
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[7])
+        effectiveValue(for: Self.allFlags[6])
     }
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
