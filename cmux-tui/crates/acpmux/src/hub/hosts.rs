@@ -18,8 +18,9 @@ const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default)]
 struct OpenWork {
-    /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt, client).
-    turn: Option<(u64, String, String, String, String)>,
+    /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
+    /// client, control; a Web steer's `turn_control` raises it).
+    turn: Option<(u64, String, String, String, String, Control)>,
     /// The `session/prompt` request id written to this host for that turn,
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
@@ -33,6 +34,12 @@ struct OpenWork {
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     last_host_seq: u64,
+    /// The remote floor's marks (`remote_floor.rs`): the turn it cancelled,
+    /// who started the last turn, and whether this harness process was given
+    /// a lasting grant ("allow always").
+    floor_cancelled: Option<String>,
+    last_control: Option<Control>,
+    harness_grant: bool,
 }
 
 impl Hub {
@@ -290,7 +297,56 @@ impl Hub {
         let mut answered: std::collections::HashSet<String> = Default::default();
         let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
         let mut by_permission: HashMap<String, String> = HashMap::new();
+        // permissionId -> the ids of its "allow always" options.
+        let mut lasting: HashMap<String, Vec<String>> = HashMap::new();
+        let always = |request: Option<&Value>| -> Vec<String> {
+            request
+                .and_then(|r| r.get("options"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|o| o.get("kind").and_then(Value::as_str) == Some("allow_always"))
+                .filter_map(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        };
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if e.dir == "mux" {
+                let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
+                match e.kind.as_str() {
+                    "host_started" => {
+                        lasting.clear();
+                        work.harness_grant = false;
+                    }
+                    "permission_request" => {
+                        if let Some(pid) = text("permissionId") {
+                            lasting.insert(pid, always(e.msg.get("request")));
+                        }
+                    }
+                    "permission_decision" => {
+                        let chosen = e.msg.pointer("/outcome/optionId").and_then(Value::as_str);
+                        if let (Some(pid), Some(o)) = (text("permissionId"), chosen)
+                            && lasting.get(&pid).is_some_and(|ids| ids.iter().any(|i| i == o))
+                        {
+                            work.harness_grant = true;
+                        }
+                    }
+                    "permission_auto" => {
+                        if let Some(o) = text("optionId")
+                            && always(e.msg.get("request")).contains(&o)
+                        {
+                            work.harness_grant = true;
+                        }
+                    }
+                    "turn_started" => {
+                        work.last_control = Some(Control::from_recorded(
+                            e.msg.get("control").and_then(Value::as_str),
+                        ));
+                    }
+                    "turn_control" => work.last_control = Some(Control::Web),
+                    "remote_floor_cancel" => work.floor_cancelled = text("turnId"),
+                    _ => {}
+                }
+            }
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "host_started") => {
                     current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
@@ -313,9 +369,17 @@ impl Hub {
                         field("promptId"),
                         field("prompt"),
                         field("client"),
+                        Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
                     ));
                     work.prompt_request = None;
                     work.prompt_response = None;
+                }
+                ("mux", "turn_control") => {
+                    if let Some(t) = work.turn.as_mut()
+                        && e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str())
+                    {
+                        t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                    }
                 }
                 ("mux", "turn_result") => {
                     work.turn = None;
@@ -380,6 +444,18 @@ impl Hub {
         work
     }
 
+    /// The remote floor's marks of an adopted host (`open_work`).
+    fn recover_floor(session: &Session, work: &OpenWork) {
+        session.harness_grant.store(work.harness_grant, Ordering::SeqCst);
+        session.last_turn_web.store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        if let Some((_, turn_id, ..)) = &work.turn
+            && work.floor_cancelled.as_ref() == Some(turn_id)
+        {
+            *session.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(turn_id.clone());
+        }
+    }
+
     /// Rebuild the turn and the unanswered agent requests of an adopted host.
     async fn recover_work(
         self: &Arc<Self>,
@@ -387,7 +463,8 @@ impl Hub {
         child: &Arc<ChildAgent>,
         work: OpenWork,
     ) {
-        if let Some((turn_seq, turn_id, prompt_id, prompt, client)) = work.turn.clone() {
+        Self::recover_floor(session, &work);
+        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
                 // it): nothing can answer it any more.
@@ -403,11 +480,11 @@ impl Hub {
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
-                        // Adopted after a restart: who prompted is not
-                        // recorded, so it counts as Web (no chat allowance,
-                        // which a restart clears anyway).
-                        control: Control::Web,
+                        // Who prompted, as `turn_started` recorded it; an
+                        // older record without it counts as Web.
+                        control,
                     });
+                    session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
