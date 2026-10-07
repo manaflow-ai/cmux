@@ -27,6 +27,10 @@ type HarnessChoice = {
   unavailable?: string;
   acpmuxHarness?: string;
   pickable: boolean;
+  /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`) and its state. */
+  folder?: ModelPickerProps["catalog"][number]["folder"];
+  /** The brand the row's mark draws (a folder profile's `icon` or `family`, else its id). */
+  mark?: string;
 };
 
 type ModelChoice = {
@@ -75,9 +79,23 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
+  // The chat folder's own profiles stand apart, after the harnesses, and never merge by name.
+  const profiles: HarnessChoice[] = catalog
+    .filter((entry) => entry.folder)
+    .map((entry) => ({
+      id: entry.id,
+      ids: [entry.id],
+      name: entry.name,
+      models: entry.models,
+      unavailable: entry.unavailable,
+      acpmuxHarness: entry.id,
+      pickable: entry.pickable !== false,
+      folder: entry.folder,
+      mark: entry.icon ?? entry.family ?? entry.id,
+    }));
   // Terminal and unknown harnesses are routing entries, not installed choices.
   const entries: HarnessChoice[] = catalog
-    .filter((entry) => entry.pickable !== false)
+    .filter((entry) => !entry.folder && entry.pickable !== false)
     .map((entry) => ({
       id: entry.id,
       ids: [entry.id],
@@ -113,8 +131,12 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
     existing.unavailable ??= entry.unavailable;
   }
-  return result;
+  return [...result, ...profiles];
 }
+
+/// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
+const blockedProfile = (entry: HarnessChoice | undefined) =>
+  entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
 
 function matches(model: ModelChoice, query: string): boolean {
   const text = `${model.name} ${model.id}`.toLowerCase();
@@ -130,7 +152,8 @@ function matches(model: ModelChoice, query: string): boolean {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
-  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode, catalogRefresh } = props;
+  const { catalog, harness, label, onLand, onHarness, onHarnessHint, onHarnessEnable, fastMode, catalogRefresh } =
+    props;
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
@@ -309,7 +332,7 @@ export function ModelPicker(props: ModelPickerProps) {
       move(-1);
     } else if (event.key === "ArrowLeft" && !query) {
       event.preventDefault();
-      menu.current?.querySelector<HTMLElement>(`.acpmux-mp-harness:nth-child(${activeHarness + 1})`)?.focus();
+      menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -332,6 +355,24 @@ export function ModelPicker(props: ModelPickerProps) {
     }
   };
   const modelLabel = selected?.ids.includes(harness ?? "") ? label : (selected?.name ?? label);
+  // A folder profile waiting for Enable asks for it from the click or key press itself: the host's
+  // confirmation takes that gesture (no await before the request).
+  const enableProfile = (entry: HarnessChoice) => {
+    if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
+    onHarnessEnable?.(entry.folder.folder, entry.id);
+    close();
+    return true;
+  };
+  const folderNote = (entry: HarnessChoice) =>
+    entry.folder?.state === "needs-enable"
+      ? t("picker.enableHarness")
+      : entry.folder?.state === "needs-trust"
+        ? t("picker.needsTrust")
+        : entry.folder?.state === "error"
+          ? unavailableText
+          : undefined;
+  const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
+  const firstProfile = harnesses.findIndex((entry) => entry.folder);
   return (
     <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
       <button
@@ -410,13 +451,19 @@ export function ModelPicker(props: ModelPickerProps) {
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
               <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
                 <div className="acpmux-mp-harness-list-inner">
-                  {harnesses.map((entry, index) => (
+                  {harnesses.map((entry, index) => [
+                    index === firstProfile && (
+                      <div key="folder-section" className="acpmux-mp-section" role="presentation">
+                        {t("picker.thisFolder")}
+                      </div>
+                    ),
                     <button
                       type="button"
                       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
                       role="option"
-                      key={entry.name}
+                      key={entry.folder ? `folder:${entry.id}` : entry.name}
                       aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                      aria-disabled={blockedProfile(entry) || undefined}
                       disabled={!entry.pickable}
                       className="acpmux-mp-harness"
                       tabIndex={index === activeHarness ? 0 : -1}
@@ -431,6 +478,8 @@ export function ModelPicker(props: ModelPickerProps) {
                           event.currentTarget.parentElement
                             ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
                             [next]?.focus();
+                        } else if (event.key === "Enter" && enableProfile(entry)) {
+                          event.preventDefault();
                         } else if (event.key === "ArrowRight" || event.key === "Enter") {
                           event.preventDefault();
                           search.current?.focus();
@@ -438,17 +487,19 @@ export function ModelPicker(props: ModelPickerProps) {
                       }}
                       onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
                       onClick={() => {
+                        if (enableProfile(entry)) return;
                         setSelectedHarness(entry.id);
                         setActiveHarness(index);
                         setQuery("");
                         setActive(0);
                       }}
                     >
-                      <AgentMark agent={entry.id} size={16} />
+                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
                       <span>{entry.name}</span>
+                      {folderNote(entry) && <span className="acpmux-menu-description">{folderNote(entry)}</span>}
                       {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                    </button>
-                  ))}
+                    </button>,
+                  ])}
                 </div>
               </div>
             </div>
@@ -459,7 +510,30 @@ export function ModelPicker(props: ModelPickerProps) {
               role="listbox"
               aria-label={selected?.name ?? modelText}
             >
-              {visible.length === 0 ? (
+              {selectedOther && blockedProfile(selected) ? (
+                // A folder profile that cannot start says why, in place of its models.
+                <div className="acpmux-mp-empty">
+                  {selected.folder?.state === "needs-trust"
+                    ? t("picker.trustFirst")
+                    : (selected.folder?.diagnostic ?? unavailableText)}
+                </div>
+              ) : selectedOther && selected.folder?.state === "needs-enable" ? (
+                <button type="button" className="acpmux-mp-row" onClick={() => enableProfile(selected)}>
+                  <span className="acpmux-menu-label">{t("harness.enable")}</span>
+                </button>
+              ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
+                // An enabled folder profile that lists no models starts a new chat on its own.
+                <button
+                  type="button"
+                  className="acpmux-mp-row"
+                  onClick={() => {
+                    onHarness?.(selected.id);
+                    close();
+                  }}
+                >
+                  <span className="acpmux-menu-label">{t("picker.newChat")}</span>
+                </button>
+              ) : visible.length === 0 ? (
                 <div className="acpmux-mp-empty">{noMatchesText}</div>
               ) : (
                 visible.map((model, index) => (

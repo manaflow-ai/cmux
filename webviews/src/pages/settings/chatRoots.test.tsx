@@ -7,14 +7,21 @@ afterAll(() => restore());
 const { renderPage, settle, rowElement } = await import("./testing");
 
 test("chat roots show locked managed rows and refusal reasons; removal writes only user roots", async () => {
-  const page = await renderPage({ path: "/settings/general", mock: {
-    values: { "agents.chats.roots": ["/opt/user", "/opt/shared"] },
-    chatFolders: [
-      { path: "/opt/user", managed: false, reason: null },
-      { path: "/opt/shared", managed: true, reason: null },
-      { path: "/Users/test/Documents/chats", managed: true, reason: "This folder is protected by macOS privacy controls." },
-    ],
-  } });
+  const page = await renderPage({
+    path: "/settings/general",
+    mock: {
+      values: { "agents.chats.roots": ["/opt/user", "/opt/shared"] },
+      chatFolders: [
+        { path: "/opt/user", managed: false, reason: null },
+        { path: "/opt/shared", managed: true, reason: null },
+        {
+          path: "/Users/test/Documents/chats",
+          managed: true,
+          reason: "This folder is protected by macOS privacy controls.",
+        },
+      ],
+    },
+  });
   const row = rowElement(page.container, "agents.chats.roots");
   expect(row.querySelectorAll("[data-locked]").length).toBe(2);
   expect(row.querySelector("[data-locked] button")).toBeNull();

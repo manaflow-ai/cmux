@@ -117,7 +117,7 @@ fi
 DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
 DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
 if [ "$DMG_STATUS" != "Accepted" ]; then
-  echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS" >&2
+  echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS (submission $DMG_SUBMIT_ID)" >&2
   "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
   exit 1
 fi

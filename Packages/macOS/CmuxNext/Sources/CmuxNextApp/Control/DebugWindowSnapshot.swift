@@ -17,12 +17,15 @@ import WebKit
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
 /// `width`, `height` (pixels), `kind`, `window_number`, `method`
-/// (`composited` or `appkit`) and `child_windows` (how many visible child
-/// windows the window has). Child windows are composited by the window
-/// server over the window: a Chromium page draws into its own child window,
-/// and overlay panels sit above content. The async verb also paints each
-/// engine's own image of every shown page (`webviews`, `chromium_pages`,
-/// with `_composited` and `_failed` counts), since the window server
+/// (`composited` or `appkit`), `child_windows` (how many of the window's
+/// visible child windows the image includes) and `child_windows_failed`
+/// (how many it leaves out because the window server gave no image of
+/// them; AppKit drawing never includes a child window). Child windows are
+/// composited by the window server over the window: a Chromium page draws
+/// into its own child window, and overlay panels sit above content. The
+/// async verb also paints each engine's own image of every shown page
+/// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
+/// since the window server
 /// leaves out page content other processes draw unless the app has the
 /// Screen Recording grant. `webviews: false` skips the page images (the
 /// window server's image alone).
@@ -41,10 +44,12 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let (size, method) = try window.writeSnapshot(to: URL(fileURLWithPath: path))
+            let children = window.visibleChildWindows.count
             return .object([
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
-                "child_windows": JSONValue(method == .composited ? window.visibleChildWindows.count : 0),
+                "child_windows": JSONValue(method == .composited ? children : 0),
+                "child_windows_failed": JSONValue(method == .composited ? 0 : children),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -78,8 +83,14 @@ enum DebugWindowSnapshot {
             // composited base has only the page windows.
             let base = webViews.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: webViews)
             var layers: [Layer] = []
+            // The child windows each layer brings, so the result counts only
+            // the ones the image includes (none from a missing layer).
+            let children = window.visibleChildWindows
+            let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
+            var childrenIncluded = base.method == .composited ? pageChildren : 0
             if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
                 layers.append(.window(pageWindows))
+                childrenIncluded += pageChildren
             }
             var failed = 0
             for webView in webViews {
@@ -106,6 +117,7 @@ enum DebugWindowSnapshot {
             }
             if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                 layers.append(.window(panels))
+                childrenIncluded += children.count - pageChildren
             }
             let output = composite(base: base.image, window: window, layers: layers) ?? base.image
             let rep = NSBitmapImageRep(cgImage: output)
@@ -117,7 +129,8 @@ enum DebugWindowSnapshot {
                 "path": .string(path), "width": JSONValue(rep.pixelsWide), "height": JSONValue(rep.pixelsHigh),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
-                "webviews_failed": JSONValue(failed), "child_windows": JSONValue(window.visibleChildWindows.count),
+                "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
+                "child_windows_failed": JSONValue(children.count - childrenIncluded),
                 "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),

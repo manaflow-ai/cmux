@@ -102,9 +102,16 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     case "folder_list":
       if (row.key === "agents.chats.roots") {
         // Full home/TCC/symlink validation belongs to the native host; this is the portable shape.
-        return Array.isArray(value) && value.every((item) => typeof item === "string" && item.startsWith("/")
-          && item !== "/" && !/^\/(Volumes|Network|net)(\/|$)/i.test(item))
-          ? null : "expected absolute, unprotected chat folder paths";
+        return Array.isArray(value) &&
+          value.every(
+            (item) =>
+              typeof item === "string" &&
+              item.startsWith("/") &&
+              item !== "/" &&
+              !/^\/(Volumes|Network|net)(\/|$)/i.test(item),
+          )
+          ? null
+          : "expected absolute, unprotected chat folder paths";
       }
       return Array.isArray(value) &&
         value.every((item) => typeof item === "string" && (item.startsWith("/") || item.startsWith("~/")))
