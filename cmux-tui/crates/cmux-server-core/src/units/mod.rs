@@ -20,10 +20,9 @@ pub use windows::{scheduled_task_xml, windows_service_create_argv, windows_servi
 use crate::layout::Layout;
 use crate::platform::InstallMode;
 
-/// The frozen arguments after the binary. launchd plists already append
-/// `--mode <mode>` ([`host_run_argv_with_mode`]); systemd and Windows units
-/// move to `--mode` and drop `Environment=CMUX_SERVER_MODE` once the
-/// `cmux host run --mode` parser lands with the server stack.
+/// The frozen arguments after the binary. Every unit appends `--mode
+/// <user|system>` (launchd through [`host_run_argv_with_mode`]); none sets
+/// CMUX_SERVER_MODE.
 pub const HOST_RUN_ARGS: [&str; 2] = ["host", "run"];
 /// System-mode service user on Linux (server.md 4.3).
 pub const SERVICE_USER: &str = "cmux";
@@ -40,9 +39,8 @@ pub enum UnitError {
     BadBundleId,
 }
 
-/// The full frozen command line as argv, without the mode (systemd and
-/// Windows units; they move to [`host_run_argv_with_mode`] after the
-/// `--mode` parser lands).
+/// The full frozen command line as argv, without the mode (callers that
+/// add their own `--mode`).
 pub fn host_run_argv(layout: &Layout) -> Vec<String> {
     let mut argv = vec![layout.current_cmux.to_string()];
     argv.extend(HOST_RUN_ARGS.iter().map(|s| (*s).to_owned()));

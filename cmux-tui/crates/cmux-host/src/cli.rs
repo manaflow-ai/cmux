@@ -195,9 +195,26 @@ fn split_mode(args: &[String]) -> Result<(Option<InstallMode>, Vec<String>), Str
     Ok((mode, rest))
 }
 
+/// The deprecation line for a mode taken from CMUX_SERVER_MODE (an old
+/// unit); `None` when --mode was given or the variable is unset.
+fn env_mode_deprecation(flag: Option<InstallMode>, env: Option<&str>) -> Option<String> {
+    match (flag, env) {
+        (None, Some(value)) => Some(format!(
+            "cmux host: CMUX_SERVER_MODE={value} is deprecated and goes away next release; \
+             the service unit passes --mode (run `cmux server install` to rewrite it)"
+        )),
+        _ => None,
+    }
+}
+
 /// The install layout roles receive: the units' `--mode`, else
 /// CMUX_SERVER_MODE, else system as root.
 fn install_layout(mode: Option<InstallMode>) -> Result<(Layout, InstallMode), String> {
+    if let Some(line) =
+        env_mode_deprecation(mode, std::env::var("CMUX_SERVER_MODE").ok().as_deref())
+    {
+        eprintln!("{line}");
+    }
     let mode = mode.unwrap_or_else(|| cmux_server::host::resolve_mode(false));
     cmux_server::host::layout_for(mode, &cmux_server::host::layout_env())
         .map(|layout| (layout, mode))
