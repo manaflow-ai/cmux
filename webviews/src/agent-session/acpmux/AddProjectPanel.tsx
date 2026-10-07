@@ -86,7 +86,7 @@ export function AddProjectPanel({
       live = false;
       setLoading(false);
     };
-  }, [host, requested, step, retry]);
+  }, [host, requested, step, retry, onBrowse, onPick, onClose, t]);
 
   const back = () => {
     setStep(step === "directory" ? "source" : "environment");
