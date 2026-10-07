@@ -973,5 +973,127 @@ class FreezeRegression(unittest.TestCase):
             self.assertIn("coordinator", result.stderr)
 
 
+class MergedHeadChecksRegression(unittest.TestCase):
+    """Before a feat-cmux-next merge, the merged head passes the Swift god-file
+    check (CmuxNext changes) and vp check (webviews changes), run with the base
+    branch's copy of the god-file script and baseline."""
+
+    GODFILES = (
+        "#!/usr/bin/env bash\n"
+        "# fixture: fails on a GOD marker in the merged package; logs its arguments\n"
+        "printf '%s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
+        "dir=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n"
+        "grep -q base-baseline \"$dir/godfile-baseline.tsv\" || { echo 'not the base baseline'; exit 3; }\n"
+        "pkg=\"${@: -1}\"\n"
+        "if [ -e \"$pkg/GOD\" ]; then echo 'god type: Example spans 1013 lines'; exit 1; fi\n"
+    )
+
+    def git(self, *args, cwd):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+    def fixture(self, directory, pr_files, *, pr_script=None):
+        directory = Path(directory)
+        origin = directory / "origin.git"
+        work = directory / "work"
+        self.git("init", "-q", "--bare", str(origin), cwd=directory)
+        self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=directory)
+        for args in (("config", "user.email", "t@example.invalid"), ("config", "user.name", "t")):
+            self.git(*args, cwd=work)
+        scripts = work / "scripts/cmux-next"
+        scripts.mkdir(parents=True)
+        (scripts / "check-no-godfiles.sh").write_text(self.GODFILES)
+        (scripts / "check-no-godfiles.sh").chmod(0o755)
+        (scripts / "godfile-baseline.tsv").write_text("base-baseline\n")
+        (work / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        (work / "Packages/macOS/CmuxNext/Package.swift").write_text("// package\n")
+        (work / "webviews").mkdir()
+        (work / "webviews/package.json").write_text("{}\n")
+        self.git("add", "-A", cwd=work)
+        self.git("commit", "-qm", "base", cwd=work)
+        self.git("remote", "add", "origin", str(origin), cwd=work)
+        self.git("push", "-q", "origin", "feat-cmux-next", cwd=work)
+        self.git("checkout", "-qb", "pr", cwd=work)
+        for path, text in pr_files.items():
+            (work / path).parent.mkdir(parents=True, exist_ok=True)
+            (work / path).write_text(text)
+        if pr_script is not None:
+            (scripts / "check-no-godfiles.sh").write_text(pr_script)
+            (scripts / "godfile-baseline.tsv").write_text("pr-raised-baseline\n")
+        self.git("add", "-A", cwd=work)
+        self.git("commit", "-qm", "pr", cwd=work)
+        head = self.git("rev-parse", "HEAD", cwd=work)
+        self.git("push", "-q", "origin", f"{head}:refs/pull/42/head", cwd=work)
+        self.git("checkout", "-q", "feat-cmux-next", cwd=work)
+        bun = directory / "bin/bun"
+        bun.parent.mkdir()
+        bun.write_text(
+            "#!/bin/sh\n"
+            "printf 'bun %s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && [ -e BAD.tsx ]; then echo 'Formatting issues found'; exit 1; fi\n"
+        )
+        bun.chmod(0o755)
+        return work, head, directory / "bin"
+
+    def run_merge(self, directory, pr_files, **kwargs):
+        global HEAD
+        work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
+        log = Path(directory) / "checks.log"
+        log.touch()
+        saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG")
+        HEAD = head
+        os.environ.update(GH_MERGE_GREEN_REPO_DIR=str(work), CHECK_LOG=str(log), PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        try:
+            marker = Path(directory) / "merged"
+            result = InstalledHelperRegression.run_helper(self, directory, marker, changed_files=tuple(pr_files))
+        finally:
+            HEAD = saved[0]
+            os.environ["PATH"] = saved[2]
+            for name, value in (("GH_MERGE_GREEN_REPO_DIR", saved[1]), ("CHECK_LOG", saved[3])):
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        return result, marker, log.read_text()
+
+    def test_a_merged_head_that_grows_a_god_type_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/GOD": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("god", result.stderr)
+            self.assertIn("--only swift --base", log)
+
+    def test_a_clean_swift_change_merges_after_the_god_file_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--only swift --base", log)
+            self.assertNotIn("bun", log)
+
+    def test_the_base_copy_of_the_god_file_script_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/GOD": "x\n"}, pr_script="#!/usr/bin/env bash\nexit 0\n")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_a_webviews_change_that_fails_vp_check_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"webviews/BAD.tsx": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("vp check", result.stderr)
+            self.assertIn("bun install --frozen-lockfile --ignore-scripts", log)
+
+    def test_a_clean_webviews_change_merges_after_vp_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"webviews/Good.tsx": "x\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("bun x vp check", log)
+            self.assertNotIn("--only swift", log)
+
+
 if __name__ == "__main__":
     unittest.main()
