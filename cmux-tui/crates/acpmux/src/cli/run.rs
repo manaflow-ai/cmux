@@ -11,7 +11,7 @@ use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
-pub(crate) use permission::answer_permission;
+pub(crate) use permission::{answer_permission, answer_question};
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
@@ -641,6 +641,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         }
         Command::Allow { session, option } => answer_permission(&session, option, true).await,
         Command::Deny { session } => answer_permission(&session, None, false).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

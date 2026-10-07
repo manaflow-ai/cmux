@@ -31,6 +31,9 @@ pub enum Item {
         title: String,
         options: Vec<(String, String, String)>,
         decided: Option<String>,
+        /// The request's `toolCall._meta.acpmux.question`: a question a
+        /// person answers (question_answer.rs), never a blank allow.
+        question: Option<Value>,
     },
     Status {
         text: String,
@@ -625,7 +628,8 @@ impl Transcript {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.items.push(Item::Permission { id, title, options, decided: None });
+                let question = crate::question_answer::question(req).cloned();
+                self.items.push(Item::Permission { id, title, options, decided: None, question });
             }
             "permission_decision" | "permission_auto" => {
                 let id = msg.get("permissionId").and_then(Value::as_str).unwrap_or("");
@@ -659,6 +663,7 @@ impl Transcript {
                         title,
                         options: vec![],
                         decided: Some(decided),
+                        question: None,
                     });
                 }
             }

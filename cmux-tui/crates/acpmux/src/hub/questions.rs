@@ -45,9 +45,9 @@ pub(super) fn check_reply(
     match answers {
         Some(_) if !allows => Err(RpcError::invalid_params("answers go only with an allow option")),
         Some(answers) => check_answers(request, answers),
-        None if allows && needs_person(request) => {
-            Err(RpcError::invalid_params("a question is answered with answers"))
-        }
+        None if allows && needs_person(request) => Err(RpcError::invalid_params(
+            "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
+        )),
         None => Ok(()),
     }
 }
