@@ -78,6 +78,9 @@ const onVm =
   (error: UpstreamError): NotFound | Conflict | ServiceUnavailable =>
     error.status === 404 ? vmNotFound() : error.status === 409 ? conflict(conflictMessage) : unavailable();
 
+/** Provider failures reading a VM: 404 means it is gone; anything else is ours. */
+const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.status === 404 ? vmNotFound() : unavailable());
+
 /** Provider failures on a create. */
 const onCreate = (error: UpstreamError): BadRequest | Conflict | QuotaExceeded | ServiceUnavailable => {
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
@@ -209,7 +212,7 @@ const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:writ
       Effect.gen(function* () {
         const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
         if (owns === null) return yield* Effect.fail(vmNotFound());
-        const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError(onVm("")));
+        const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError(onRead));
         return toVm(vm.value, owns, current);
       }),
     );
@@ -484,7 +487,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) =>
         Effect.gen(function* () {
           const upstream = yield* UpstreamClient;
-          const current = yield* upstream.getVm(vm, proofs).pipe(Effect.mapError(onVm("")));
+          const current = yield* upstream.getVm(vm, proofs).pipe(Effect.mapError(onRead));
           return toVm(vm.value, proofs.owns, current);
         }),
       ),
@@ -515,7 +518,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
-            const current = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onVm("")));
+            const current = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead));
             if (current.state !== "paused") {
               return yield* Effect.fail(conflict("Only a paused VM can be resumed; use start to boot a stopped VM"));
             }
@@ -547,13 +550,13 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
-            const current = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onVm("")));
+            const current = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead));
             if (current.state === "stopped") return toVm(vm.value, proofs.owns, current);
             if (current.state !== "running") {
               return yield* Effect.fail(conflict("Only a running VM can be stopped; resume a paused VM first"));
             }
             yield* upstream.shutdownVm(vm, proofs).pipe(Effect.mapError(onVm("The VM did not accept the shutdown")));
-            const after = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onVm("")));
+            const after = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead));
             return toVm(vm.value, proofs.owns, after);
           }),
         ),

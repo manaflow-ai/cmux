@@ -8,6 +8,7 @@
 export interface FakeVm {
   id: string;
   state: string;
+  resources: { cpu: number; memory: number; storage: number };
   idleTimeoutSeconds: number | null;
   displayName: string | null;
   metadata: Record<string, string>;
@@ -41,7 +42,8 @@ export type UpstreamOperation =
   | "exec"
   | "read"
   | "write"
-  | "dir";
+  | "dir"
+  | "resize";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
@@ -51,13 +53,22 @@ const vmBody = (vm: FakeVm) => ({
   slug: `tenant-slug-${vm.id}`,
   snapshotId: vm.snapshotId ?? `sc-${vm.id}`,
   state: vm.state,
-  resources: { cpu: 4, memory: 8192, storage: 16384 },
+  resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: "2026-10-02T00:00:00Z",
 });
+
+/** The provider's public base images and their sizes (upstream/sdk/vms/types.d.ts). */
+const BASE_IMAGES: Readonly<Record<string, { cpu: number; memory: number; storage: number }>> = {
+  "freestyle/ubuntu-sm": { cpu: 2, memory: 4096, storage: 16384 },
+  "freestyle/ubuntu-lg": { cpu: 8, memory: 16384, storage: 65536 },
+  "freestyle/ubuntu-xl": { cpu: 16, memory: 32768, storage: 131072 },
+  "freestyle/ubuntu-2xl": { cpu: 32, memory: 65536, storage: 131072 },
+};
+const DEFAULT_RESOURCES = { cpu: 4, memory: 8192, storage: 32768 };
 
 const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" }, { status: 404 });
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
@@ -92,13 +103,15 @@ export function makeFakeUpstream(apiKey: string) {
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);
         const snapshotId = read("snapshotId");
-        if (typeof snapshotId === "string" && !snapshots.has(snapshotId)) {
+        const base = typeof snapshotId === "string" ? BASE_IMAGES[snapshotId] : undefined;
+        if (typeof snapshotId === "string" && base === undefined && !snapshots.has(snapshotId)) {
           return Response.json({ code: "BAD_REQUEST", message: "no such snapshot" }, { status: 400 });
         }
         const metadata = read("metadata");
         const created: FakeVm = {
           id: `vm-${crypto.randomUUID()}`,
           state: "starting",
+          resources: { ...(base ?? DEFAULT_RESOURCES) },
           idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
           displayName: typeof read("displayName") === "string" ? String(read("displayName")) : null,
           metadata:
@@ -144,6 +157,20 @@ export function makeFakeUpstream(apiKey: string) {
         if (!snapshots.has(id)) return Response.json({ code: "NOT_FOUND", message: "no such snapshot" }, { status: 404 });
         snapshots.delete(id);
         return new Response(null, { status: 204 });
+      }
+      case "resize": {
+        if (vm === undefined) return notFound();
+        const body: unknown = await request.clone().json();
+        const want = (key: "cpu" | "memory" | "storage"): number => {
+          const value: unknown = typeof body === "object" && body !== null && key in body ? Reflect.get(body, key) : undefined;
+          return typeof value === "number" ? value : vm.resources[key];
+        };
+        const next = { cpu: want("cpu"), memory: want("memory"), storage: want("storage") };
+        if (next.cpu < vm.resources.cpu || next.memory < vm.resources.memory || next.storage < vm.resources.storage) {
+          return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 });
+        }
+        vm.resources = next;
+        return Response.json(vmBody(vm));
       }
       case "exec": {
         if (vm === undefined) return notFound();
@@ -220,6 +247,7 @@ export function makeFakeUpstream(apiKey: string) {
       "POST start": "start",
       "POST pause": "pause",
       "POST snapshot": "snapshot",
+      "POST resize": "resize",
       "POST exec-await": "exec",
       "GET fs/read": "read",
       "PUT fs/write": "write",
@@ -264,6 +292,7 @@ export function makeFakeUpstream(apiKey: string) {
       const vm: FakeVm = {
         id: `vm-${crypto.randomUUID()}`,
         state,
+        resources: { cpu: 4, memory: 8192, storage: 16384 },
         idleTimeoutSeconds: 300,
         displayName: null,
         metadata: {},

@@ -5,16 +5,19 @@
 import { PGlite } from "@electric-sql/pglite";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
-import migration from "../../migrations/0001_cmux_vm_ownership.sql?raw";
+import migration1 from "../../migrations/0001_cmux_vm_ownership.sql?raw";
+import migration2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import { hashApiKey, generateApiKey } from "../../src/auth/credentials.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
-import { ApiKeyStore, OwnershipStore, sqlStoresLayer } from "../../src/db/stores.ts";
+import { ApiKeyStore, AuditStore, OwnershipStore, sqlStoresLayer, type OwnedResource } from "../../src/db/stores.ts";
 import { newApiKeyId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 
 let pg: PGlite;
-let layer: Layer.Layer<OwnershipStore | ApiKeyStore>;
+let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore>) => Effect.runPromise(Effect.provide(effect, layer));
+const migration = `${migration1}\n${migration2}`;
+
+const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
 beforeEach(async () => {
   pg = new PGlite();
@@ -33,16 +36,31 @@ beforeEach(async () => {
 });
 
 describe("migration", () => {
-  it("is idempotent and additive", async () => {
+  it("is idempotent and creates nothing outside the cmux_vm schema", async () => {
     await pg.exec(migration);
-    const tables = await pg.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
+    const tables = await pg.query<{ name: string }>(
+      `SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
     );
-    expect(tables.rows.map((row) => row.table_name)).toEqual(["cmux_vm_api_keys", "cmux_vm_resources"]);
+    expect(tables.rows.map((row) => row.name)).toEqual(["cmux_vm.api_keys", "cmux_vm.audit_log", "cmux_vm.resources"]);
+    const indexes = await pg.query<{ name: string }>(
+      `SELECT schemaname || '.' || indexname AS name FROM pg_indexes
+        WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
+    );
+    expect(indexes.rows.map((row) => row.name)).toEqual([
+      "cmux_vm.api_keys_key_hash_key",
+      "cmux_vm.api_keys_pkey",
+      "cmux_vm.api_keys_tenant_idx",
+      "cmux_vm.audit_log_pkey",
+      "cmux_vm.audit_log_tenant_created_idx",
+      "cmux_vm.resources_kind_upstream_key",
+      "cmux_vm.resources_pkey",
+      "cmux_vm.resources_tenant_kind_created_idx",
+    ]);
   });
 
   it("refuses a second claim on the same upstream id and a mismatched id prefix", async () => {
-    const insert = "INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by) VALUES ($1, $2, $3, $4, 'user:x')";
+    const insert = "INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by) VALUES ($1, $2, $3, $4, 'user:x')";
     await pg.query(insert, [newVmId(), "team_a", "vm", "vm-upstream-1"]);
     await expect(pg.query(insert, [newVmId(), "team_b", "vm", "vm-upstream-1"])).rejects.toThrow();
     await expect(pg.query(insert, [newVmId(), "team_b", "snapshot", "sc-1"])).rejects.toThrow();
@@ -61,6 +79,8 @@ describe("ownership store", () => {
           upstreamId: UpstreamId.make("vm-upstream-1"),
           createdBy: "user:alice",
           createdAt: new Date("2026-10-01T00:00:00Z"),
+          displayName: null,
+          labels: {},
         }),
       ),
     );
@@ -75,7 +95,7 @@ describe("ownership store", () => {
   it("hides soft-deleted resources", async () => {
     const vmId = newVmId();
     await pg.query(
-      "INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, deleted_at) VALUES ($1, 'team_a', 'vm', 'vm-up-2', 'user:x', now())",
+      "INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, deleted_at) VALUES ($1, 'team_a', 'vm', 'vm-up-2', 'user:x', now())",
       [vmId],
     );
     const found = await run(Effect.flatMap(OwnershipStore, (store) => store.find(TenantId.make("team_a"), "vm", vmId)));
@@ -89,7 +109,7 @@ describe("api key store", () => {
     const hash = await Effect.runPromise(hashApiKey(secret));
     const id = newApiKeyId();
     await pg.query(
-      `INSERT INTO cmux_vm_api_keys (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, expires_at, revoked_at)
+      `INSERT INTO cmux_vm.api_keys (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, expires_at, revoked_at)
        VALUES ($1, 'team_a', 'ci', $2, $3, $4, 'user:alice', $5::timestamptz, CASE WHEN $6 THEN now() ELSE NULL END)`,
       [id, hash, options.scopes, options.allowlist ?? null, options.expiresAt ?? null, options.revoked ?? false],
     );
@@ -120,5 +140,82 @@ describe("api key store", () => {
     expect(Option.isNone(await find(revoked.hash))).toBe(true);
     expect(Option.isNone(await find(expired.hash))).toBe(true);
     expect(Option.isSome(await find(future.hash))).toBe(true);
+  });
+});
+
+describe("S2 ownership queries", () => {
+  const tenantA = TenantId.make("team_a");
+  const row = (overrides: Partial<OwnedResource> & { readonly cmuxId: string; readonly createdAt: Date }): OwnedResource => ({
+    tenantId: tenantA,
+    kind: "vm",
+    upstreamId: UpstreamId.make(`vm-${overrides.cmuxId}`),
+    createdBy: "key:vmk_x",
+    displayName: null,
+    labels: {},
+    ...overrides,
+  });
+  const record = (resource: OwnedResource) => run(Effect.flatMap(OwnershipStore, (store) => store.record(resource)));
+
+  it("pages newest first by keyset, counts live rows and hides deleted ones", async () => {
+    const ids = [newVmId(), newVmId(), newVmId()];
+    for (const [index, cmuxId] of ids.entries()) {
+      await record(row({ cmuxId, createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)), displayName: `box ${index}` }));
+    }
+    await record(row({ cmuxId: newVmId(), createdAt: new Date("2026-10-02T00:00:00Z"), tenantId: TenantId.make("team_b") }));
+
+    const page1 = await run(Effect.flatMap(OwnershipStore, (store) => store.listPage(tenantA, "vm", { limit: 2, after: null, only: null, labels: null })));
+    expect(page1.map((found) => found.cmuxId)).toEqual([ids[2], ids[1]]);
+    expect(page1[0]?.displayName).toBe("box 2");
+    const last = page1.at(-1);
+    if (last === undefined) throw new Error("empty page");
+    const page2 = await run(
+      Effect.flatMap(OwnershipStore, (store) =>
+        store.listPage(tenantA, "vm", { limit: 2, after: { createdAt: last.createdAt, cmuxId: last.cmuxId }, only: null, labels: null }),
+      ),
+    );
+    expect(page2.map((found) => found.cmuxId)).toEqual([ids[0]]);
+
+    expect(await run(Effect.flatMap(OwnershipStore, (store) => store.countLive(tenantA, "vm")))).toBe(3);
+    await run(Effect.flatMap(OwnershipStore, (store) => store.markDeleted(TenantId.make("team_b"), "vm", ids[0] ?? "", new Date())));
+    expect(await run(Effect.flatMap(OwnershipStore, (store) => store.countLive(tenantA, "vm")))).toBe(3);
+    await run(Effect.flatMap(OwnershipStore, (store) => store.markDeleted(tenantA, "vm", ids[0] ?? "", new Date())));
+    expect(await run(Effect.flatMap(OwnershipStore, (store) => store.countLive(tenantA, "vm")))).toBe(2);
+    const found = await run(Effect.flatMap(OwnershipStore, (store) => store.find(tenantA, "vm", ids[0] ?? "")));
+    expect(Option.isNone(found)).toBe(true);
+  });
+
+  it("filters by allowlist and labels", async () => {
+    const ci = newVmId();
+    const dev = newVmId();
+    await record(row({ cmuxId: ci, createdAt: new Date("2026-10-01T00:00:00Z"), labels: { role: "ci", "actions/run": "42" } }));
+    await record(row({ cmuxId: dev, createdAt: new Date("2026-10-01T00:01:00Z"), labels: { role: "dev" } }));
+
+    const list = (options: { only: ReadonlySet<string> | null; labels: Readonly<Record<string, string>> | null }) =>
+      run(Effect.flatMap(OwnershipStore, (store) => store.listPage(tenantA, "vm", { limit: 10, after: null, ...options })));
+
+    expect((await list({ only: null, labels: { role: "ci" } })).map((found) => found.cmuxId)).toEqual([ci]);
+    expect((await list({ only: null, labels: { role: "ci", "actions/run": "42" } })).map((found) => found.labels)).toEqual([
+      { role: "ci", "actions/run": "42" },
+    ]);
+    expect((await list({ only: new Set([dev]), labels: null })).map((found) => found.cmuxId)).toEqual([dev]);
+    expect(await list({ only: new Set([dev]), labels: { role: "ci" } })).toEqual([]);
+  });
+
+  it("appends audit rows and refuses free text in their id column", async () => {
+    const vmId = newVmId();
+    await run(
+      Effect.flatMap(AuditStore, (store) =>
+        store.append({ tenantId: tenantA, actor: "key:vmk_x", action: "vm.exec", cmuxId: vmId, outcome: "ok", at: new Date() }),
+      ),
+    );
+    const rows = await pg.query<{ action: string; cmux_id: string }>("SELECT action, cmux_id FROM cmux_vm.audit_log");
+    expect(rows.rows).toEqual([{ action: "vm.exec", cmux_id: vmId }]);
+    await expect(
+      run(
+        Effect.flatMap(AuditStore, (store) =>
+          store.append({ tenantId: tenantA, actor: "key:vmk_x", action: "vm.exec", cmuxId: "rm -rf /", outcome: "ok", at: new Date() }),
+        ),
+      ),
+    ).rejects.toThrow();
   });
 });

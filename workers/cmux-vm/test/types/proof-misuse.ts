@@ -34,6 +34,21 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.getVm(a, { owns: ownsA, scope: write });
         // @ts-expect-error a raw id is not a named id
         yield* upstream.getVm(vmA, { owns: ownsA, scope: read });
+
+        // S2: each mutation demands its own scope about the same caller and VM.
+        yield* upstream.pauseVm(a, { owns: ownsA, scope: write });
+        // @ts-expect-error vm:read cannot pause
+        yield* upstream.pauseVm(a, { owns: ownsA, scope: read });
+        // @ts-expect-error vm:read cannot delete
+        yield* upstream.deleteVm(a, { owns: ownsA, scope: read });
+        // @ts-expect-error a proof about VM A does not delete VM B
+        yield* upstream.deleteVm(b, { owns: ownsA, scope: write });
+        // @ts-expect-error vm:write is not vm:exec
+        yield* upstream.exec(a, { owns: ownsA, scope: write }, { command: "true" });
+        // @ts-expect-error vm:write is not vm:files
+        yield* upstream.listFiles(a, { owns: ownsA, scope: write }, "/");
+        // @ts-expect-error a create needs a TenantMayCreate proof
+        yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
       }),
     );
 

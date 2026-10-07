@@ -131,7 +131,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.find",
             `SELECT ${RESOURCE_COLUMNS}
-               FROM cmux_vm_resources
+               FROM cmux_vm.resources
               WHERE cmux_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL
               LIMIT 1`,
             [cmuxId, tenantId, kind],
@@ -154,7 +154,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         return sql
           .query(
             "ownership.record",
-            `INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
+            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
              VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
             params,
           )
@@ -174,7 +174,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.list",
             `SELECT ${RESOURCE_COLUMNS}
-               FROM cmux_vm_resources
+               FROM cmux_vm.resources
               WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
@@ -189,7 +189,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         sql
           .query(
             "ownership.count",
-            `SELECT count(*)::int AS live FROM cmux_vm_resources WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL`,
+            `SELECT count(*)::int AS live FROM cmux_vm.resources WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL`,
             [tenantId, kind],
           )
           .pipe(
@@ -200,7 +200,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         sql
           .query(
             "ownership.delete",
-            `UPDATE cmux_vm_resources SET deleted_at = $4::timestamptz
+            `UPDATE cmux_vm.resources SET deleted_at = $4::timestamptz
               WHERE tenant_id = $1 AND kind = $2 AND cmux_id = $3 AND deleted_at IS NULL`,
             [tenantId, kind, cmuxId, at.toISOString()],
           )
@@ -212,7 +212,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         sql
           .query(
             "audit.append",
-            `INSERT INTO cmux_vm_audit_log (tenant_id, actor, action, cmux_id, outcome, created_at)
+            `INSERT INTO cmux_vm.audit_log (tenant_id, actor, action, cmux_id, outcome, created_at)
              VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
             [entry.tenantId, entry.actor, entry.action, entry.cmuxId, entry.outcome, entry.at.toISOString()],
           )
@@ -228,7 +228,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                     array_to_string(scopes, ' ') AS scopes,
                     CASE WHEN resource_allowlist IS NULL THEN NULL
                          ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist
-               FROM cmux_vm_api_keys
+               FROM cmux_vm.api_keys
               WHERE key_hash = $1
                 AND revoked_at IS NULL
                 AND (expires_at IS NULL OR expires_at > $2::timestamptz)

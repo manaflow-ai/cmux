@@ -35,7 +35,10 @@ export const authenticationLayer = Layer.effect(
         if (!isApiKeyShaped(key)) return yield* Effect.fail(unauthorized());
         const now = new Date(yield* Clock.currentTimeMillis);
         const hash = yield* hashApiKey(key);
-        const record = yield* apiKeys.findActiveByHash(hash, now).pipe(Effect.mapError(() => unavailable()));
+        const record = yield* apiKeys.findActiveByHash(hash, now).pipe(
+          Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: error.operation }))),
+          Effect.mapError(() => unavailable()),
+        );
         if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
         const principal: Principal = {
           tenantId: record.value.tenantId,
@@ -57,10 +60,17 @@ export const authenticationLayer = Layer.effect(
         const userId = yield* sessions.verify(token, now).pipe(
           Effect.catchTags({
             SessionRejected: () => Effect.fail(unauthorized()),
-            IdentityUnavailable: () => Effect.fail(unavailable()),
+            IdentityUnavailable: (error) =>
+              Effect.logWarning("cmux-vm dependency unavailable").pipe(
+                Effect.annotateLogs({ operation: `stack.${error.reason}` }),
+                Effect.zipRight(Effect.fail(unavailable())),
+              ),
           }),
         );
-        const member = yield* membership.isMember(tenant.value, userId).pipe(Effect.mapError(() => unavailable()));
+        const member = yield* membership.isMember(tenant.value, userId).pipe(
+          Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: `stack.${error.reason}` }))),
+          Effect.mapError(() => unavailable()),
+        );
         if (!member) return yield* Effect.fail(new Forbidden({ message: "You are not a member of this team" }));
         const principal: Principal = {
           tenantId: tenant.value,

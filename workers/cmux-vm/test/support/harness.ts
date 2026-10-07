@@ -7,10 +7,14 @@ import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
-import { ApiKeyStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
+import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
-import { makeUpstreamClient, UpstreamClient } from "../../src/upstream/client.ts";
+import { memoryLimitsLayer } from "../../src/limits/service.ts";
+import { tenantPolicyLayer } from "../../src/policy.ts";
+import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
+import { UpstreamClient } from "../../src/upstream/client.ts";
+import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 
 export const STACK_API_URL = "https://stack.test";
@@ -57,7 +61,15 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
   const billed = new Set<string>(["team_alpha", "team_bravo"]);
-  void options;
+  /** Public ids marked deleted; their rows stay in `resources` for inspection. */
+  const deleted = new Set<string>();
+  const live = (row: OwnedResource) => !deleted.has(row.cmuxId);
+  /** Strictly increasing creation times, so "newest first" is deterministic within a millisecond. */
+  let lastCreatedMs = 0;
+  const nextCreatedAt = (at: Date) => {
+    lastCreatedMs = Math.max(at.getTime(), lastCreatedMs + 1);
+    return new Date(lastCreatedMs);
+  };
 
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
@@ -66,9 +78,49 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const ownership = Layer.succeed(OwnershipStore, {
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
-        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)),
+        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
-    record: (resource) => Effect.sync(() => void resources.push(resource)),
+    record: (resource) => Effect.sync(() => void resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) })),
+    // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
+    listPage: (tenantId, kind, page) =>
+      Effect.sync(() =>
+        resources
+          .filter((row) => row.tenantId === tenantId && row.kind === kind && live(row))
+          .filter((row) => page.only === null || page.only.has(row.cmuxId))
+          .filter((row) => page.labels === null || Object.entries(page.labels).every(([key, value]) => row.labels[key] === value))
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.cmuxId < b.cmuxId ? 1 : -1))
+          .filter(
+            (row) =>
+              page.after === null ||
+              row.createdAt.getTime() < page.after.createdAt.getTime() ||
+              (row.createdAt.getTime() === page.after.createdAt.getTime() && row.cmuxId < page.after.cmuxId),
+          )
+          .slice(0, page.limit),
+      ),
+    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row)).length),
+    markDeleted: (tenantId, kind, cmuxId) =>
+      Effect.sync(() => {
+        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
+      }),
+  });
+
+  const auditStore = Layer.succeed(AuditStore, {
+    append: (entry) =>
+      Effect.sync(() => {
+        audit.push({ tenantId: entry.tenantId, actor: entry.actor, action: entry.action, cmuxId: entry.cmuxId, outcome: entry.outcome });
+      }),
+  });
+
+  const policy = tenantPolicyLayer({
+    environment: options.environment ?? "local",
+    ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
+    ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
+    ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
+    ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+  });
+
+  const entitlements = Layer.succeed(Entitlements, {
+    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
   });
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
@@ -83,6 +135,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
+    auditStore,
+    policy,
+    entitlements,
+    memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
       makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
@@ -101,6 +157,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Every upstream call, in order. */
     upstreamRequests,
     resources,
+    /** Whether the ownership row for `cmuxId` is marked deleted. */
+    isDeleted: (cmuxId: string) => deleted.has(cmuxId),
     audit,
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
     setBilling(tenant: string, allowed: boolean) {
@@ -117,7 +175,9 @@ export async function makeHarness(options: HarnessOptions = {}) {
         cmuxId: vmId,
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
-        createdAt: new Date(),
+        createdAt: nextCreatedAt(new Date()),
+        displayName: null,
+        labels: {},
       });
       return { vmId, upstreamId };
     },
@@ -131,7 +191,9 @@ export async function makeHarness(options: HarnessOptions = {}) {
         cmuxId: snapshotId,
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
-        createdAt: new Date(),
+        createdAt: nextCreatedAt(new Date()),
+        displayName: null,
+        labels: {},
       });
       return { snapshotId, upstreamId };
     },

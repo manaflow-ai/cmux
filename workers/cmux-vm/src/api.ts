@@ -187,6 +187,7 @@ export class ExecResult extends Schema.Class<ExecResult>("ExecResult")({
 }) {}
 
 export const FileEntryKind = Schema.Literal("file", "directory", "symlink", "other");
+export type FileEntryKind = typeof FileEntryKind.Type;
 
 export class FileEntry extends Schema.Class<FileEntry>("FileEntry")({
   name: Schema.String,
@@ -372,6 +373,7 @@ export class FilesGroup extends HttpApiGroup.make("files")
       .setUrlParams(FilePathParams)
       .setHeaders(ReadFileHeaders)
       .addSuccess(HttpApiSchema.Uint8Array())
+      .addError(BadRequest)
       .addError(NotFound)
       .addError(Conflict)
       .addError(QuotaExceeded)
@@ -409,6 +411,7 @@ export class FilesGroup extends HttpApiGroup.make("files")
       .setUrlParams(FilePathParams)
       .setHeaders(TeamHeaders)
       .addSuccess(FileList)
+      .addError(BadRequest)
       .addError(NotFound)
       .addError(Conflict)
       .addError(QuotaExceeded)

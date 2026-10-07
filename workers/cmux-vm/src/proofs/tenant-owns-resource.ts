@@ -1,9 +1,11 @@
 /**
  * Trusted module: the only place a TenantOwnsResource proof is minted.
  *
- * The proof carries the upstream id it found as evidence. That is the only way
- * code outside the stores can obtain an upstream id, so an upstream call cannot
- * be pointed at a resource the ownership table did not resolve for this caller.
+ * The upstream id the ownership lookup found is the proof's evidence. It is
+ * kept in a module-private WeakMap keyed by the exact proof object, never on
+ * the proof itself, so a copied or hand-built proof (`{ ...proof }`) carries
+ * no upstream id and cannot be pointed at another resource. Only code holding
+ * a minted proof can read the id, through `upstreamIdOf`.
  */
 import { defineProof, name, type Named, type NameOf, type Proof } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
@@ -16,11 +18,19 @@ const TenantOwnsResource = defineProof("TenantOwnsResource");
 
 /** The tenant of caller `C` owns the public resource named `R`, and `C` may reach it. */
 export interface TenantOwnsResource<C, R> extends Proof<"TenantOwnsResource", [C, R]> {
-  readonly upstreamId: UpstreamId;
-  /** The resource's display name and labels from the ownership row. */
+  /** The ownership row's display name and labels (public data, not evidence). */
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
 }
+
+const evidence = new WeakMap<object, UpstreamId>();
+
+/** The upstream id this proof was minted for. A proof not minted here has none. */
+export const upstreamIdOf = <C, R>(proof: TenantOwnsResource<C, R>): UpstreamId => {
+  const upstreamId = evidence.get(proof);
+  if (upstreamId === undefined) throw new Error("TenantOwnsResource proof was not minted by src/proofs");
+  return upstreamId;
+};
 
 const owns = <C, R>(
   caller: Named<C, Principal>,
@@ -33,21 +43,26 @@ const owns = <C, R>(
     const store = yield* OwnershipStore;
     const found = yield* store.find(principal.tenantId, kind, resource.value);
     if (Option.isNone(found) || found.value.tenantId !== principal.tenantId) return null;
-    const proof: TenantOwnsResource<C, R> = Object.freeze({
-      ...TenantOwnsResource.prove(caller, resource),
-      upstreamId: found.value.upstreamId,
-      displayName: found.value.displayName,
-      labels: found.value.labels,
-    });
-    return proof;
+    return mint(caller, resource, found.value);
   });
+
+/** A fresh object per mint: the WeakMap entry belongs to this proof only. */
+const mint = <C, R>(caller: Named<C, Principal>, resource: Named<R, unknown>, row: OwnedResource): TenantOwnsResource<C, R> => {
+  const proof: TenantOwnsResource<C, R> = Object.freeze({
+    ...TenantOwnsResource.prove(caller, resource),
+    displayName: row.displayName,
+    labels: row.labels,
+  });
+  evidence.set(proof, row.upstreamId);
+  return proof;
+};
 
 export const tenantOwnsVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmId>) => owns(caller, vm, "vm");
 
 export const tenantOwnsSnapshot = <C, R>(caller: Named<C, Principal>, snapshot: Named<R, SnapshotId>) =>
   owns(caller, snapshot, "snapshot");
 
-/** What a list handler may read from an ownership row; the upstream id stays inside the proof. */
+/** What a list handler may read from an ownership row; the upstream id stays with the proof. */
 export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels">;
 
 /** One row of a list page, with its ownership proof, scoped to the callback. */
@@ -63,9 +78,9 @@ export interface OwnedVmPage<A> {
 
 /**
  * Lists the caller's tenant's live VMs newest first (honoring a key's resource
- * allowlist) and visits each with a proof that the tenant owns it. The rows
- * come from a query keyed by the caller's tenant, so each proof stands on the
- * same fact a single `tenantOwnsVm` check establishes.
+ * allowlist and a label filter) and visits each with a proof that the tenant
+ * owns it. The rows come from a query keyed by the caller's tenant, so each
+ * proof stands on the same fact a single `tenantOwnsVm` check establishes.
  */
 export const visitOwnedVms = <C, A, E, R>(
   caller: Named<C, Principal>,
@@ -78,18 +93,14 @@ export const visitOwnedVms = <C, A, E, R>(
     const store = yield* OwnershipStore;
     const rows = yield* store.listPage(principal.tenantId, "vm", { ...page, only: principal.resourceAllowlist });
     const results = yield* Effect.forEach(
-      rows.filter((row) => row.tenantId === principal.tenantId),
+      rows.filter((row) => row.tenantId === principal.tenantId && row.kind === "vm"),
       (row) => {
         const parsed = parseVmId(row.cmuxId);
         if (Option.isNone(parsed)) return Effect.succeed(Option.none<A>());
         return name(parsed.value, (vm) => {
-          const owns: TenantOwnsResource<C, NameOf<typeof vm>> = Object.freeze({
-            ...TenantOwnsResource.prove(caller, vm),
-            upstreamId: row.upstreamId,
-            displayName: row.displayName,
-            labels: row.labels,
-          });
-          return Effect.map(visit(vm, owns, { cmuxId: row.cmuxId, displayName: row.displayName, createdAt: row.createdAt, labels: row.labels }), Option.some);
+          const owns: TenantOwnsResource<C, NameOf<typeof vm>> = mint(caller, vm, row);
+          const view: OwnedRowView = { cmuxId: row.cmuxId, displayName: row.displayName, createdAt: row.createdAt, labels: row.labels };
+          return Effect.map(visit(vm, owns, view), Option.some);
         });
       },
       { concurrency },

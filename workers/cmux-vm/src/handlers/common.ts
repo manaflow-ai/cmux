@@ -11,7 +11,7 @@ import { Clock, Effect, Option } from "effect";
 import { AuditStore } from "../db/stores.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
-import { missingScope, QuotaExceeded, unavailable, vmNotFound } from "../errors.ts";
+import { missingScope, QuotaExceeded, unavailable, vmNotFound, type ServiceUnavailable } from "../errors.ts";
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
@@ -19,12 +19,23 @@ import { TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
+/** Logs which dependency failed (an operation name only, never ids or causes) and answers 503. */
+export const dependencyDown =
+  (operation: string) =>
+  (_error: unknown): Effect.Effect<never, ServiceUnavailable> =>
+    Effect.logWarning("cmux-vm dependency unavailable").pipe(
+      Effect.annotateLogs({ operation }),
+      Effect.zipRight(Effect.fail(unavailable())),
+    );
+
 /** Spends one request from the tenant's per-minute budget for `rateClass`, or fails with 429. */
 export const rateLimit = (principal: Principal, rateClass: RateClass) =>
   Effect.gen(function* () {
     const policy = yield* TenantPolicy;
     const limits = yield* TenantLimits;
-    const decision = yield* limits.rate(principal.tenantId, rateClass, policy.rate(rateClass)).pipe(Effect.mapError(() => unavailable()));
+    const decision = yield* limits
+      .rate(principal.tenantId, rateClass, policy.rate(rateClass))
+      .pipe(Effect.catchAll(dependencyDown("limits.rate")));
     if (!decision.ok) {
       return yield* Effect.fail(
         new QuotaExceeded({ message: "Too many requests for this team; retry later", retryAfterSeconds: decision.retryAfterSeconds }),
@@ -78,7 +89,7 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
         return yield* name(parsed.value, (vm) =>
           Effect.gen(function* () {
-            const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+            const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
             if (owns === null) return yield* Effect.fail(vmNotFound());
             return yield* k(caller, vm, { owns, scope: granted });
           }),
