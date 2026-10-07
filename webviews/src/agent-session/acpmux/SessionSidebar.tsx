@@ -65,6 +65,7 @@ export function SessionSidebar({
   onNewChat,
   account,
   preview = false,
+  groupByProject = false,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
@@ -75,6 +76,11 @@ export function SessionSidebar({
   account?: SidebarAccount;
   /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
   preview?: boolean;
+  /**
+   * Unpinned sessions sit under one header per folder. Off until those are real project
+   * folders (AGENT-PANE-PROJECTS-HIDDEN-UNTIL-WORKING): one flat list, newest first.
+   */
+  groupByProject?: boolean;
 }) {
   const t = useT();
   const [picked, setView] = useState<SidebarView>("sessions");
@@ -137,6 +143,7 @@ export function SessionSidebar({
                 onQuery={setQuery}
                 expanded={expanded}
                 onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
+                groupByProject={groupByProject}
               />
             ) : (
               <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
@@ -190,7 +197,7 @@ function RailButton({
   );
 }
 
-/** Pinned sessions, then every other acpmux session grouped by folder, newest first. */
+/** Pinned sessions, then every other acpmux session, newest first, grouped by folder when asked. */
 function SessionsView({
   sessions,
   selectedId,
@@ -200,6 +207,7 @@ function SessionsView({
   onQuery,
   expanded,
   onExpand,
+  groupByProject,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
@@ -209,6 +217,7 @@ function SessionsView({
   onQuery: (query: string) => void;
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
+  groupByProject: boolean;
 }) {
   const t = useT();
   const newChat = onNewChat && (
@@ -218,7 +227,15 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
+  const { pinned, groups } = useMemo(() => {
+    const sections = sidebarSections(sessions, query);
+    if (groupByProject || sections.groups.length === 0) return sections;
+    // One headerless group holding every unpinned session, newest first.
+    const all = sections.groups
+      .flatMap((group) => group.sessions)
+      .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+    return { pinned: sections.pinned, groups: [{ key: "", label: "", sessions: all }] };
+  }, [sessions, query, groupByProject]);
   if (sessions.length === 0)
     return (
       <>
@@ -279,34 +296,43 @@ function SessionsView({
         </section>
       )}
       {groups.length > 0 && (
-        <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
+        <section
+          className="acpmux-sidebar-projects"
+          aria-label={t(groupByProject ? "sidebar.projects" : "sidebar.sessions")}
+        >
           {labelled && (
             <div className="acpmux-sidebar-section" aria-hidden="true">
-              {t("sidebar.projects")}
+              {t(groupByProject ? "sidebar.projects" : "sidebar.sessions")}
             </div>
           )}
           {groups.map((group) => {
             // A search shows every match, so it never hides rows behind "Show more".
-            const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
+            const { rows, hidden } = visibleSessions(
+              group,
+              !groupByProject || searching || expanded.has(group.key),
+              selectedId,
+            );
             const mark = groupMark(group, selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
-                <div
-                  className="acpmux-sidebar-project"
-                  title={
-                    group.host ? t("sidebar.folderOnHost", { folder: group.cwd ?? "", host: group.host }) : group.cwd
-                  }
-                >
-                  <Icon name="folder" size={ROW_ICON} row />
-                  <span>{group.label}</span>
-                  {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
-                  {mark && (
-                    <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} title={t(MARK_LABELS[mark])}>
-                      {MARK_GLYPHS[mark]}
-                      <span className="acpmux-hidden-label">{t(MARK_LABELS[mark])}</span>
-                    </span>
-                  )}
-                </div>
+                {groupByProject && (
+                  <div
+                    className="acpmux-sidebar-project"
+                    title={
+                      group.host ? t("sidebar.folderOnHost", { folder: group.cwd ?? "", host: group.host }) : group.cwd
+                    }
+                  >
+                    <Icon name="folder" size={ROW_ICON} row />
+                    <span>{group.label}</span>
+                    {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
+                    {mark && (
+                      <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} title={t(MARK_LABELS[mark])}>
+                        {MARK_GLYPHS[mark]}
+                        <span className="acpmux-hidden-label">{t(MARK_LABELS[mark])}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
                 <ul>
                   {rows.map((session) => (
                     <SessionRow

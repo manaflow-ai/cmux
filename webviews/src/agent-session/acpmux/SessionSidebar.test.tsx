@@ -128,8 +128,10 @@ test("by default the list is flat: no Projects label and no folder headers until
   ]);
   // Every unpinned session, newest first across folders, with nothing behind "Show more".
   expect(
-    [...container.querySelectorAll(".acpmux-sidebar-projects .acpmux-session-row-title")].map((node) => node.textContent),
-  ).toEqual(sessions.map((session) => session.displayTitle));
+    [...container.querySelectorAll(".acpmux-sidebar-projects .acpmux-session-row-title")].map(
+      (node) => node.textContent,
+    ),
+  ).toEqual(sessions.map((session) => session.displayTitle!));
   expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
   await act(async () => root.unmount());
 });
@@ -183,7 +185,9 @@ test("pinned sessions get their own section, an all-cloud project names its mach
       updatedAt: 4,
     },
   ];
-  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {}, groupByProject: true })));
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {}, groupByProject: true })),
+  );
   expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
     "Pinned",
     "Projects",
