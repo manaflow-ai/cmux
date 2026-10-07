@@ -1166,9 +1166,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-19 lld-19 llvm-19
 
+      # libghostty-vt's Zig: the ghostty-next manifest sets it. Zig's darwin
+      # headers and libSystem stub must match the version Ghostty builds with.
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5

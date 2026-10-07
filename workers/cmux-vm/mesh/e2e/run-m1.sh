@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M1c proof launcher (cx-0op.3). Runs e2e.ts on cmux-lawrence-2 (userspace only,
+# Mesh proof launcher (M1c cx-0op.3, M2 cx-0op.4). Runs e2e.ts on cmux-lawrence-2 (userspace only,
 # no sudo). The provider key file is never read here: the shell redirects it
 # into ssh's stdin, and e2e.ts holds it in memory only.
 #   workers/cmux-vm/mesh/e2e/run-m1.sh <exact feat-cmux-next sha>
@@ -18,5 +18,5 @@ ssh "$HOST" "cd ~/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e && PATH
 rc=$?
 set -e
 mkdir -p "$HERE/evidence"
-rsync -a --exclude device.key --exclude mesh.json "$HOST:cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/" "$HERE/evidence/"
+rsync -a --exclude "*.key" --exclude "mesh*.json" "$HOST:cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/" "$HERE/evidence/"
 exit $rc
