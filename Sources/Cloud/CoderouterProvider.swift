@@ -62,7 +62,10 @@ struct CoderouterProvider: Hashable {
         let quotedOrganization = Self.shellQuote(organizationID)
         switch scope {
         case .teamOverride:
-            return "\(CoderouterTeamEnvironment.shellAssignment(teamID: organizationID)) \(addCommand)"
+            // Also pass --team: if the terminal's `cmux cr` resolves an older
+            // CLI that ignores the variable, the add still targets this team
+            // (or fails loudly) instead of the saved default organization.
+            return "\(CoderouterTeamEnvironment.shellAssignment(teamID: organizationID)) \(addCommand) --team \(quotedOrganization)"
         case .teamOption:
             return "\(addCommand) --team \(quotedOrganization)"
         case .isolatedConfiguration:

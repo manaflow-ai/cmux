@@ -17,7 +17,8 @@ extension CMUXCLI {
         route codex, claude, pi, and opencode through. Any other verb, and every
         `cmux cr ...`, runs the CodeRouter CLI, offering to install it first when
         this machine has none. It uses the team selected in cmux unless you pass
-        --team or set CODEROUTER_TEAM_ID.
+        --team or set CODEROUTER_TEAM_ID; org, login, logout, and transfer keep
+        CodeRouter's own saved default.
 
           cmux coderouter status [--team <id>] [--json]
               Sign-in state, selected team, and the team's Claude upstream accounts.

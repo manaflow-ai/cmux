@@ -14,27 +14,69 @@ enum CoderouterTeamEnvironment {
     /// The `capabilities --json` feature that says the variable is honored.
     static let teamOverrideFeature = "team-override"
 
-    /// Whether the invocation already names its team, through the variable
-    /// (present at all, even empty) or a `--team` option before a `--`
-    /// terminator. cmux never overrides a team the user chose.
-    static func hasExplicitTeam(arguments: [String], environment: [String: String]) -> Bool {
-        if environment[variable] != nil { return true }
-        for argument in arguments {
-            if argument == "--" { return false }
-            if argument == "--team" || argument.hasPrefix("--team=") { return true }
+    /// Commands whose remaining arguments belong to another program, exactly
+    /// as coderouter's `extract_team_flag` lists them. A `--team` after one
+    /// of these is the child's argument, not coderouter's.
+    static let passThroughCommands: Set<String> = ["codex", "opencode", "pi", "naked", "direct", "claude-david"]
+
+    /// Commands that manage the saved default organization or the sign-in
+    /// itself. Pinning them to the app's team would be wrong (`org switch`
+    /// would not change what later commands use), so they run unpinned.
+    static let persistedScopeCommands: Set<String> = [
+        "org", "organization", "team", "login", "logout", "auth", "transfer",
+    ]
+
+    /// The coderouter command word and whether a coderouter `--team` option
+    /// is present, parsed the way coderouter's `extract_team_flag` does: the
+    /// option counts anywhere until the first word is a pass-through command,
+    /// `--team` takes the next argument as its value, and `--` means nothing.
+    static func parse(arguments: [String]) -> (command: String?, hasTeamOption: Bool) {
+        var command: String?
+        var hasTeamOption = false
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if argument == "--team" {
+                hasTeamOption = true
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--team=") {
+                hasTeamOption = true
+            } else if command == nil {
+                command = argument
+                if passThroughCommands.contains(argument) { break }
+            }
+            index += 1
         }
-        return false
+        return (command, hasTeamOption)
+    }
+
+    /// Whether the invocation already names its team, through the variable
+    /// (present at all, even empty) or coderouter's own `--team` option.
+    /// cmux never overrides a team the user chose.
+    static func hasExplicitTeam(arguments: [String], environment: [String: String]) -> Bool {
+        environment[variable] != nil || parse(arguments: arguments).hasTeamOption
+    }
+
+    /// Whether `cmux cr` should pin this invocation to the app's team: the
+    /// user named none, and the command does not manage the saved default.
+    static func wantsAppTeam(arguments: [String], environment: [String: String]) -> Bool {
+        guard !hasExplicitTeam(arguments: arguments, environment: environment) else { return false }
+        guard let command = parse(arguments: arguments).command else { return true }
+        return !persistedScopeCommands.contains(command)
     }
 
     /// The child environment for `cmux cr`: the selected cmux team is added
-    /// only when the user did not name a team and the app reported one.
+    /// only when ``wantsAppTeam(arguments:environment:)`` and the app
+    /// reported one.
     static func environment(
         _ environment: [String: String],
         arguments: [String],
         appTeamID: String?
     ) -> [String: String] {
         guard let appTeamID = normalizedTeamID(appTeamID),
-              !hasExplicitTeam(arguments: arguments, environment: environment) else {
+              wantsAppTeam(arguments: arguments, environment: environment) else {
             return environment
         }
         var scoped = environment

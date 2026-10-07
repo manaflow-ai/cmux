@@ -62,7 +62,7 @@ extension CMUXCLI {
         // Follow the team selected in the app unless the user already named
         // one. The probe is skipped entirely when it could not change anything.
         var scopedEnvironment = environment
-        if !CoderouterTeamEnvironment.hasExplicitTeam(arguments: commandArgs, environment: environment) {
+        if CoderouterTeamEnvironment.wantsAppTeam(arguments: commandArgs, environment: environment) {
             scopedEnvironment = CoderouterTeamEnvironment.environment(
                 environment,
                 arguments: commandArgs,
