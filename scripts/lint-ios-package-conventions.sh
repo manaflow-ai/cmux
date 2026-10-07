@@ -3,8 +3,8 @@
 #
 # Mechanical enforcement of the modular-refactor conventions (CLAUDE.md
 # "Modern Swift concurrency" + "Package design discipline") over the iOS
-# line: the mobile packages and the iOS app shell. ios/CmuxiOS (the rewritten
-# app package) is not in scope yet.
+# line: the mobile packages, the iOS app shell, and the cmux-next iOS tree
+# (ios/CmuxiOS and every package listed in scripts/cmux-next/mobile-scan-roots.txt).
 #
 # A finding is suppressed when the offending line, or one of the two lines
 # above it, contains one of:
@@ -43,8 +43,8 @@ if [ -n "$FILES_FROM" ]; then
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
-      Packages/*.swift|ios/cmux/*.swift) [ -f "$path" ] || { echo "error: file does not exist: $path" >&2; exit 2; } ;;
-      *) echo "error: scoped lint only accepts Packages/*.swift or ios/cmux/*.swift: $path" >&2; exit 2 ;;
+      Packages/*.swift|ios/cmux/*.swift|ios/CmuxiOS/*.swift) [ -f "$path" ] || { echo "error: file does not exist: $path" >&2; exit 2; } ;;
+      *) echo "error: scoped lint only accepts Packages/*.swift, ios/cmux/*.swift or ios/CmuxiOS/*.swift: $path" >&2; exit 2 ;;
     esac
     TARGET_FILES+=("$path")
   done < "$FILES_FROM"
@@ -53,8 +53,15 @@ fi
 
 BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
-  [ -d "$d" ] && SCOPES+=("$d")
+MOBILE_ROOTS=()
+while IFS= read -r d; do
+  case "$d" in ''|'#'*) continue ;; esac
+  MOBILE_ROOTS+=("$d")
+done < scripts/cmux-next/mobile-scan-roots.txt
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux ${MOBILE_ROOTS[@]+"${MOBILE_ROOTS[@]}"}; do
+  [ -d "$d" ] || continue
+  case " ${SCOPES[*]-} " in *" $d "*) continue ;; esac
+  SCOPES+=("$d")
 done
 
 fail=0
@@ -133,7 +140,7 @@ scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private
 
 echo "== namespace-enums and namespace-types =="
 NS_TYPE_ROOTS=()
-for d in Packages/*/*/Sources ios/cmux; do
+for d in Packages/*/*/Sources ios/cmux ios/CmuxiOS/Sources; do
   [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
 done
 NAMESPACE_FILES=()
