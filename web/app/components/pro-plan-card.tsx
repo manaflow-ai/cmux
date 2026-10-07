@@ -33,6 +33,8 @@ export function ProPlanCard({
   requiresSignIn,
   ctaLabel,
   action,
+  monthlyOnly = false,
+  initialInterval = "year",
   children,
 }: {
   name: string;
@@ -46,9 +48,17 @@ export function ProPlanCard({
   ctaLabel: string;
   /** A non-checkout action (manage billing, App Store); hides the period toggle. */
   action?: ReactNode;
+  /**
+   * The account's checkout goes to the Stripe portal plan switch, which
+   * offers monthly prices only (a Go subscriber upgrading), so no toggle.
+   */
+  monthlyOnly?: boolean;
+  /** A link back from checkout (`?interval=month`) keeps the buyer's period. */
+  initialInterval?: BillingInterval;
   children: ReactNode;
 }) {
-  const [interval, setInterval] = useState<BillingInterval>("year");
+  const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
+  const interval = monthlyOnly ? "month" : chosen;
   const select = (next: BillingInterval) => {
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
@@ -66,7 +76,7 @@ export function ProPlanCard({
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
-      {action ? (
+      {action || monthlyOnly ? (
         <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
       ) : (
         <div className="flex items-center justify-between gap-3">

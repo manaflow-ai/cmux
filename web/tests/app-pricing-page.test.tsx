@@ -267,7 +267,6 @@ describe("app pricing page", () => {
       searchParams: Promise.resolve({
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
-        interval: "month",
       }),
     });
     const html = (await renderSettled(element));

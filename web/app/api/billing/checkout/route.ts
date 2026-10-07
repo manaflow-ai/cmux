@@ -352,18 +352,18 @@ async function stripePersonalCheckout(
       }
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
       captureCheckoutDecision(user.id, plan, stripeBillingStatus.activePlanId,
-        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution);
+        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution, interval);
       return NextResponse.redirect(portalURL);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // An App Store subscriber changes plans in the App Store; a Stripe
     // subscription on top would bill them twice for one entitlement.
     if (status.billingSource === "apple") {
-      captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution);
+      captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
     }
     if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
-      captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution);
+      captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution, interval);
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 
@@ -567,12 +567,13 @@ function captureCheckoutDecision(
   currentPlan: string | null,
   decision: "switch_plan" | "manage_billing" | "already_active" | "app_store_managed",
   attribution: CheckoutAttribution,
+  interval: BillingInterval = "month",
 ): void {
   void captureServerEvent({
     event: "cmux_billing_checkout_routed",
     distinctId: userId,
     properties: { requested_plan: plan, current_plan: currentPlan, decision,
-      billing_interval: "month", ...checkoutAttributionProperties(attribution) },
+      billing_interval: interval, ...checkoutAttributionProperties(attribution) },
   });
 }
 

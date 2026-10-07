@@ -366,6 +366,8 @@ function PricingContent({
       <ProPlanCard
         name={t("pro.name")}
         surface="public_pricing"
+        monthlyOnly={isGo}
+        initialInterval={query.interval === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}

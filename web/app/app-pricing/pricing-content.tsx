@@ -262,6 +262,8 @@ export function AppPricingContent({
       <ProPlanCard
         name={pricing.pro.name}
         surface="app_pricing"
+        monthlyOnly={isGo}
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         location="app_pricing"
