@@ -126,15 +126,33 @@ export function reportCoderouterFailure(
         fingerprint: `coderouter.${failure}:${provider}`,
         level: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",
         error,
-        properties: {
-          coderouter_failure: failure,
-          coderouter_error_type: errorType,
-          ...(requestId ? { coderouter_request_id: requestId } : {}),
-          ...safeContext,
-        },
+        properties: backgroundExceptionProperties(failure, errorType, requestId, safeContext),
       }),
     ]);
   }
+}
+
+/**
+ * Outside a route (cron, deferred ledger or analytics work); a failure inside
+ * one is filed by the route finalizer. `operation` is the cross-product label
+ * for server exceptions, so a caller's own step name moves to
+ * `coderouter_operation` instead of replacing it.
+ */
+function backgroundExceptionProperties(
+  failure: CodeRouterFailure,
+  errorType: string,
+  requestId: string | undefined,
+  safeContext: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
+  const { operation: step, ...rest } = safeContext;
+  return {
+    coderouter_failure: failure,
+    coderouter_error_type: errorType,
+    ...(requestId ? { coderouter_request_id: requestId } : {}),
+    ...rest,
+    ...(step === undefined ? {} : { coderouter_operation: step }),
+    operation: "coderouter.background",
+  };
 }
 
 export function sanitizeCoderouterFailureContext(

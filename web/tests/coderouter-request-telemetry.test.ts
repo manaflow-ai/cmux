@@ -131,6 +131,9 @@ describe("traceEvents", () => {
     expect(exception.properties.$exception_level).toBe("error");
     expect(exception.properties.$exception_fingerprint).toBe("coderouter:provider_unavailable:account_selection:codex");
     expect(exception.properties.$ai_trace_id).toBe("req-2");
+    // Server exceptions are grouped by `operation` across cmux; coderouter's
+    // carry the surface so they are not an unlabeled bucket.
+    expect(exception.properties.operation).toBe("coderouter.responses");
     expect((exception.properties.$exception_list as Array<{ type: string }>)[0]!.type).toBe("coderouter_provider_unavailable");
     expect(operatorEvents[0]!.properties.$ai_is_error).toBe(true);
     expect(operatorEvents[0]!.properties.$ai_error).toBe("provider_unavailable/account_selection");
@@ -139,6 +142,29 @@ describe("traceEvents", () => {
     upstream.outcome = { outcome: "upstream_error", failureStage: "upstream_response", status: 529, provider: "claude" };
     const warning = traceEvents(upstream, { status: 529, durationMs: 50 }).find((entry) => entry.event === "$exception")!;
     expect(warning.properties.$exception_level).toBe("warning");
+  });
+
+  test("a tenant fault (no usable account) produces a trace but no $exception", () => {
+    const request = new Request("https://coderouter.dev/v1/messages", { method: "POST" });
+    for (const [surface, provider, failureStage] of [
+      ["messages", "claude", "provider_config"],
+      ["responses", "codex", "account_selection"],
+    ] as const) {
+      const context = newCoderouterRequestContext({ request, surface, route: "/v1/messages", requestId: `tenant-${provider}` });
+      context.outcome = { outcome: "no_usable_account", failureStage, status: 503, provider };
+      const events = traceEvents(context, { status: 503, durationMs: 5 });
+      // The team has no account or every one is cooling: its own account
+      // state, answered with a 503 and kept in the ClickHouse route row.
+      expect({ provider, events: events.map((entry) => entry.event) }).toEqual({ provider, events: ["$ai_trace"] });
+      expect(events[0]!.properties.coderouter_fault).toBe("tenant");
+      expect(events[0]!.properties.$ai_is_error).toBe(true);
+    }
+  });
+
+  test("a background failure exception carries an operation label", () => {
+    reportCoderouterFailure("usage_ledger", new Error("db down"), { provider: "codex" });
+    const exception = captured().find((entry) => entry.event === "$exception")!;
+    expect(exception.properties.operation).toBe("coderouter.background");
   });
 
   test("a caller fault produces a trace but no $exception", () => {

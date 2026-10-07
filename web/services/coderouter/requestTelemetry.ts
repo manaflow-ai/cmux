@@ -10,10 +10,12 @@
 // wrapper records the route in ClickHouse. PostHog receives only operational
 // exceptions:
 //
-// - `$exception` (Error Tracking) for every failure that is not the caller's
-//   fault, fingerprinted by outcome, stage and provider, `error` level when the
-//   fault is ours (RDS, config, crash), `warning` when an upstream provider or
-//   the tenant's account state caused it.
+// - `$exception` (Error Tracking) for operator and upstream faults,
+//   fingerprinted by outcome, stage and provider and labeled
+//   `operation: coderouter.<surface>`, `error` level when the fault is ours
+//   (RDS, config, crash), `warning` when an upstream provider caused it. A
+//   caller or tenant fault (no account added, every account cooling down) is
+//   the customer's own state: it is answered and kept in ClickHouse only.
 //
 // The ledger request id (`x-coderouter-request-id` on every response) is the
 // ClickHouse `request_id`, so one id joins the customer's report, the
@@ -342,7 +344,7 @@ export function traceEvents(
     ? derivedOutcome(context, input)
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
-  const shouldEmitException = fault !== "none" && fault !== "caller";
+  const shouldEmitException = isExceptionFault(fault);
   const attribution = coderouterAttribution(context);
   const teamId = attribution.teamId;
   const userId = attribution.stackUserId;
@@ -360,6 +362,11 @@ export function traceEvents(
   appendCoderouterSpanEvents(events, context, userId, teamId);
   if (shouldEmitException) appendCoderouterExceptionEvent(events, context, input, outcome, fault, userId, teamId, common);
   return events;
+}
+
+/** Faults that file a PostHog Error Tracking issue: ours and our providers'. */
+function isExceptionFault(fault: CoderouterFault): boolean {
+  return fault === "operator" || fault === "upstream";
 }
 
 function coderouterCommonProperties(
@@ -496,6 +503,7 @@ function appendCoderouterExceptionEvent(
     properties: {
       ...common,
       ...(cause ? safeCauseProperties(cause) : {}),
+      operation: `coderouter.${context.surface}`,
       coderouter_route: context.route,
       $ai_trace_id: context.requestId,
     },
