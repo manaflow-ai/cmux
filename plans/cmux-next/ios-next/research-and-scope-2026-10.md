@@ -27,15 +27,15 @@ The product target is a phone that gets a user from an actionable agent event or
 
 ### External product and design research
 
-These public references were used to check the proposed information architecture and interaction principles (accessed 2026-10-07):
+These public references were used to check the proposed information architecture and interaction principles (accessed 2026-10-07). The private comparison set supplied for this project was used as hypothesis input; public source names are intentionally omitted from this repository.
 
 * [Apple Human Interface Guidelines: Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars) — keep top-level destinations stable and scannable; put secondary destinations behind a deliberate More/settings path. This supports Feed, Workspaces, Compose, Hosts, and Settings as the shell destinations, with feature flags controlling availability while the tree is incomplete.
 * [Apple HIG: Onboarding](https://developer.apple.com/design/human-interface-guidelines/onboarding) — teach value in context, let users defer optional setup, and make the first useful action clear. C10 should therefore end on a successful paired or SSH-only action, not on a permission checklist.
 * [Apple HIG: Notifications](https://developer.apple.com/design/human-interface-guidelines/notifications) — notification actions should be short, contextual, and safe to repeat. Feed intent keys and “answered elsewhere”/“not sent” states are required for an inline action to be trustworthy.
 * [Apple HIG: Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility), [Navigation and search](https://developer.apple.com/design/human-interface-guidelines/navigation-and-search), and [Playing haptics](https://developer.apple.com/design/human-interface-guidelines/playing-haptics) — every control needs a discoverable label/action, search must not trap the user, and haptics should reinforce state changes while respecting a setting. These map directly to the D3 accessibility checklist and C11/E5 settings.
 * [Apple HIG: Privacy](https://developer.apple.com/design/human-interface-guidelines/privacy) — explain why a permission is useful immediately before requesting it and keep optional access optional. This informs C10 permission priming and the SSH-without-account path.
-* [Termius on the App Store](https://apps.apple.com/us/app/termius-modern-ssh-client/id549039908) — a useful reference for host inventory, quick connect, key/known-host trust, and file-oriented SSH workflows. cmux should preserve the fast host path while showing ownership and realtime state clearly.
-* Public Codex, Claude, and T3Code product surfaces motivate the same interaction hypothesis: a stream of work with an obvious pending action, a compact composer, and a visible running/completed state. These are hypotheses to validate in C6/C8 dogfood, not dependencies or visual copying; the cmux-specific differentiator is that the output is a live Mac workspace and terminal.
+* Public mobile SSH client surfaces — a useful reference for host inventory, quick connect, key/known-host trust, and file-oriented SSH workflows. cmux should preserve the fast host path while showing ownership and realtime state clearly.
+* Public agent-work surfaces motivate the same interaction hypothesis: a stream of work with an obvious pending action, a compact composer, and a visible running/completed state. These are hypotheses to validate in C6/C8 dogfood, not dependencies or visual copying; the cmux-specific differentiator is that the output is a live Mac workspace and terminal.
 
 ## User journeys and product outcomes
 
