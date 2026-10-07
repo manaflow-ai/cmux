@@ -65,7 +65,7 @@ The brain host (`optchat-chief host`) serves a read-only JSON API and the page o
   header that is not this loopback address gets 403 (DNS rebinding).
 - One random 256-bit token per host start, in `optchat/inspector.json` (0600, with the URL). The
   app reads it, asks `GET /api/ticket` with `Authorization: Bearer`, and opens `/?ticket=T`.
-  A ticket works once within 60 s and buys an HttpOnly, SameSite=Strict session cookie, so no
+  A ticket works once within 60 s (a reload of the same URL within 10 s gets the same session) and buys an HttpOnly, SameSite=Strict session cookie, so no
   live secret appears in a URL or the browser history. GET and HEAD only; anything else is 405.
 - Endpoints: `status`, `turns`, `turn?key=K|now`, `node?name=id+n`, `level?l&from&limit`,
   `date?id`, `search?q`. `OPTCHAT_INSPECTOR=0` turns the server off.
