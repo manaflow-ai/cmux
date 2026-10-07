@@ -2,6 +2,7 @@ import CmuxiOSAuth
 import CmuxiOSFeatureKit
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSWorkspaces
 import UIKit
 
 /// Builds the signed-in shell from the container: Home in its navigation
@@ -25,8 +26,15 @@ enum ShellComposition {
         // Lane C9: the Hosts tab over this account's host records and the
         // device's SSH logins, keys and pinned host keys.
         let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice)
+        // Lane C5: the Workspaces tab; terminals open over C1's sources once
+        // registered, else the mock host. `workspaces.makePicker` is the
+        // picker the composer (C8) presents.
+        let workspaces = WorkspacesFeature(
+            source: sources.workspaces, terminalSources: container.terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            isMock: sources.resolved[.workspaces] != .real)
         let content = ShellContent(sources: sources, home: home, settings: settings,
-                                   screens: [.hosts: { ssh.makeHostsScreen() }])
+                                   screens: [.hosts: { ssh.makeHostsScreen() },
+                                             .workspaces: { workspaces.makeWorkspacesScreen() }])
         return ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),

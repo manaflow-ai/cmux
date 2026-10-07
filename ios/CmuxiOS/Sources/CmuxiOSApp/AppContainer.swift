@@ -12,6 +12,8 @@ import CmuxiOSOnboardingCore
 import CmuxiOSPush
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSWorkspaces
+import CmuxiOSWorkspacesCore
 import Foundation
 import OSLog
 import UIKit
@@ -59,6 +61,9 @@ final class AppContainer {
     let realFactories: RealFeatureFactories
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane C1 sets the cmux session host's byte sources (`.host` over
+    /// `CmuxLink`); nil keeps A2's mock host behind workspace terminals.
+    var terminalSources: (any WorkspaceTerminalSourceFactory)?
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
@@ -116,6 +121,15 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
+        // Lane C5: workspaces of the account's paired Macs over the control
+        // plane. B1 replaces the channel factory with its ControlPlaneClient
+        // adapter (c5-workspaces.md section 4); until then each Mac shows as
+        // unreachable with this reason.
+        let unavailable = WorkspacesFeature.controlPlaneUnavailable
+        factories.workspaces = { devices in
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices),
+                                        channels: UnavailableWorkspaceChannelFactory(reason: unavailable))
+        }
         realFactories = factories
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
