@@ -8,9 +8,11 @@
 //! `adoption` (resuming a harness's own session on `session/new`).
 
 mod adoption;
+mod catalog_reload;
 mod fork;
 mod handoff;
 mod harness_view;
+mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -323,6 +325,7 @@ pub struct Hub {
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
+    pub(super) harness_watch: harness_watch::HarnessWatchState,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -396,6 +399,7 @@ impl Hub {
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
+            harness_watch: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

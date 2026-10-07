@@ -50,6 +50,8 @@ export interface ApiKeyRecord {
   readonly tenantId: TenantId;
   readonly scopes: ReadonlyArray<string>;
   readonly resourceAllowlist: ReadonlyArray<string> | null;
+  /** When the key stops working; null for no expiry. */
+  readonly expiresAt: Date | null;
 }
 
 export interface OwnershipStoreService {
@@ -116,6 +118,7 @@ const ApiKeyRow = Schema.Struct({
   tenant_id: TenantId,
   scopes: words,
   resource_allowlist: words,
+  expires_at: Schema.NullOr(Schema.Union(Schema.DateFromSelf, Schema.Date)),
 });
 
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
@@ -227,7 +230,8 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             `SELECT id, tenant_id,
                     array_to_string(scopes, ' ') AS scopes,
                     CASE WHEN resource_allowlist IS NULL THEN NULL
-                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist
+                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist,
+                    expires_at
                FROM cmux_vm.api_keys
               WHERE key_hash = $1
                 AND revoked_at IS NULL
@@ -243,6 +247,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                 tenantId: row.tenant_id,
                 scopes: row.scopes ?? [],
                 resourceAllowlist: row.resource_allowlist,
+                expiresAt: row.expires_at,
               })),
             ),
           ),

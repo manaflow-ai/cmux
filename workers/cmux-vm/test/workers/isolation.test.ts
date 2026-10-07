@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import openapiText from "../../openapi.json?raw";
-import { ALL_SCOPES, allScopesExcept, bearer, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
+import { ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS, SNAPSHOT_ENDPOINTS, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -37,6 +37,8 @@ describe("the endpoint table", () => {
       "GET /healthz",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
+      ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
+      ...MESH_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
     ];
     expect([...published].sort()).toEqual([...covered].sort());
   });
