@@ -349,8 +349,7 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     subtleSelection: Bool = false,
     isEmphasized: Bool = true,
     increaseContrast: Bool = false,
-    accent: CmuxAccentColor = CmuxAccentColor(),
-    selectionAccent: SidebarSelectionAccent = .blue
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
@@ -472,8 +471,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     brightenInDarkMode: Bool = true,
     isEmphasized: Bool = true,
     increaseContrast: Bool = false,
-    accent: CmuxAccentColor = CmuxAccentColor(),
-    selectionAccent: SidebarSelectionAccent = .blue
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
@@ -482,8 +480,7 @@ func sidebarWorkspaceRowBackgroundStyle(
         subtleSelection: subtleSelection,
         isEmphasized: isEmphasized,
         increaseContrast: increaseContrast,
-        accent: accent,
-        selectionAccent: selectionAccent
+        accent: accent
     )
     // Glass selection: a light translucent fill with a hairline edge, so the
     // selected row reads as a lighter patch of the glass (Aside-style).

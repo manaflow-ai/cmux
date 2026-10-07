@@ -16159,8 +16159,7 @@ struct TabItemView: View, Equatable {
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             subtleSelection: settings.subtleSelection,
-            accent: settings.accentColor,
-            selectionAccent: settings.selectionAccent
+            accent: settings.accentColor
         )
     }
 
@@ -16974,8 +16973,7 @@ struct TabItemView: View, Equatable {
             brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
-            accent: settings.accentColor,
-            selectionAccent: settings.selectionAccent
+            accent: settings.accentColor
         )
     }
 

@@ -41,8 +41,7 @@ extension VerticalTabsSidebar {
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
-            accent: settings.accentColor,
-            selectionAccent: settings.selectionAccent
+            accent: settings.accentColor
         )
         let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
@@ -228,8 +227,7 @@ extension VerticalTabsSidebar {
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
-            accent: settings.accentColor,
-            selectionAccent: settings.selectionAccent
+            accent: settings.accentColor
         )
         let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
