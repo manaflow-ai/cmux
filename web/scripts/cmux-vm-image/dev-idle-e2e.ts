@@ -8,8 +8,10 @@
  *  3. idle_seconds=60 on M1, M2 and M3 only; 15 s dev heartbeat on each (a pause is decided
  *     when a report is applied).
  *  4. M2: a person's attached client sends input every 20 s. M1: one input, then nothing.
- *     M3: an agent connection (no client info, not attached) sends v2 terminal.input.write
- *     every 20 s; since b1cc37e52362 that input is not a person's, so it must not keep M3 awake.
+ *     M3: one person input (a report with no activity time is never idle), then an agent
+ *     connection (no client info, not attached) sends v2 terminal.input.write every 20 s; since
+ *     b1cc37e52362 that input is not a person's, so it must not keep M3 awake. Before the flip the
+ *     run records M3's activity probe: last_user_input_at must stay at the person's input.
  *  5. Flip team policy cloud.idlePause=true; wait until M1 and M3 are paused; check M2 still
  *     runs.
  *  6. Always: restore the policy (rollback to the pre-test version, else clear the key) within
@@ -198,6 +200,10 @@ export async function main(argv = process.argv): Promise<number> {
       if (!r.stdout.includes("person-ready")) throw new Error(`guest setup failed: ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
     }
     await run(vm2, "setsid nohup python3 /root/person.py keep 20 420 >/root/person.log 2>&1 < /dev/null & echo started");
+    const once3 = await run(vm3, "python3 /root/person.py once");
+    const sent3 = JSON.parse(once3.stdout.trim().split("\n").at(-1) ?? "{}") as { sent_at_ms?: number; ok?: boolean };
+    if (!sent3.ok || !sent3.sent_at_ms) throw new Error(`M3 person input failed: ${once3.stdout.slice(-200)} ${once3.stderr.slice(-200)}`);
+    result.m3_person_input_ms = sent3.sent_at_ms;
     await run(vm3, "setsid nohup python3 /root/agent.py 20 420 >/root/agent.log 2>&1 < /dev/null & echo started");
     // The agent's v2 writes must succeed, or M3 proves nothing. Checked before the flip: a provider
     // exec on a paused machine could resume it, and exec steps the guest clock during the wait.
@@ -205,6 +211,10 @@ export async function main(argv = process.argv): Promise<number> {
     const agentFirst = agentLines.map((l: string) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
     result.m3_agent_first_writes = agentFirst;
     if (!agentFirst.some((l: any) => l.ok)) throw new Error(`M3 agent v2 input failed: ${agentLines.join(" ").slice(-300)}`);
+    const probe3 = (await run(vm3, "/usr/local/bin/bun /opt/cmux/guest/vm-agent.ts --probe-activity")).stdout.trim();
+    result.m3_probe_after_agent_write = probe3;
+    const userInput3 = (JSON.parse(probe3.split("\n").at(-1) ?? "{}") as { activity?: { last_user_input_at?: number } }).activity?.last_user_input_at ?? 0;
+    if (userInput3 > sent3.sent_at_ms + 1_000) throw new Error(`M3: the agent's v2 input moved last_user_input_at to ${userInput3} (person input ${sent3.sent_at_ms})`);
     const once = await run(vm1, "python3 /root/person.py once");
     const sent = JSON.parse(once.stdout.trim().split("\n").at(-1) ?? "{}") as { sent_at_ms?: number; ok?: boolean };
     if (!sent.ok || !sent.sent_at_ms) throw new Error(`M1 input failed: ${once.stdout.slice(-200)} ${once.stderr.slice(-200)}`);
@@ -219,7 +229,7 @@ export async function main(argv = process.argv): Promise<number> {
     const budget = Math.min(6 * 60_000, HARD_LIMIT_MS - 90_000);
     const [paused, paused3] = await Promise.all([m1, m3].map(async (m) => ({ m: await waitStatus(api, m, isPaused, budget), at: Date.now() })));
     result.m1 = { status: paused.m.status, pause_reason: paused.m.pause_reason, paused_after_last_input_s: (paused.at - sent.sent_at_ms) / 1000, paused_after_flip_s: (paused.at - flippedAt) / 1000 };
-    result.m3 = { status: paused3.m.status, pause_reason: paused3.m.pause_reason, paused_after_flip_s: (paused3.at - flippedAt) / 1000, agent_writes_every_s: 20 };
+    result.m3 = { status: paused3.m.status, pause_reason: paused3.m.pause_reason, paused_after_person_input_s: (paused3.at - sent3.sent_at_ms) / 1000, paused_after_flip_s: (paused3.at - flippedAt) / 1000, agent_writes_every_s: 20 };
     await sleep(Math.min(60_000, Math.max(0, flippedAt + HARD_LIMIT_MS - 120_000 - Date.now())));
     const m2now = await api.read("cloud.machine.get", { machine: m2 });
     result.m2 = { status: m2now.status, pause_reason: m2now.pause_reason ?? null, checked_after_flip_s: (Date.now() - flippedAt) / 1000 };

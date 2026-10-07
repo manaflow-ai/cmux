@@ -78,7 +78,7 @@ cmux action describe "browser screenshot-page"
 cmux browser screenshot-page
 ```
 
-## Removed, no replacement yet
+## Not in the per-tab CLI (use the REPL)
 
 The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
@@ -86,8 +86,10 @@ The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `tab list|new|switch|close` inside a browser, `identify`, `profile`,
-`design-mode status` and `--snapshot-after` have no command in the new CLI.
-Waits are not supported yet; do not poll with `eval`. For a one-shot read that
+`design-mode status` and `--snapshot-after` have no per-tab command. Waits,
+cookies, storage, saved state, console, dialogs, downloads, screenshots, hover
+and scroll are in the browser REPL ([repl-guide.md](repl-guide.md)); do not
+poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 
 See also [snapshot-refs.md](snapshot-refs.md) and

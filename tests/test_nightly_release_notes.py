@@ -235,14 +235,48 @@ class CollectionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "pagination"):
             NOTES.collect_prs(github, BASE, HEAD, "main")
 
-    def test_missing_or_truncated_associations_fail_instead_of_omitting_prs(self):
-        for obj in (None, self.associations(more=True)):
-            with self.subTest(response=obj):
-                github = self.github([{"status": "ahead", "total_commits": 1,
-                                       "commits": [{"sha": "c" * 40}]}])
-                github.graphql.return_value = {"c0": obj}
-                with self.assertRaises(RuntimeError):
-                    NOTES.collect_prs(github, BASE, HEAD, "main")
+    def test_missing_associations_fail_instead_of_omitting_prs(self):
+        github = self.github([{"status": "ahead", "total_commits": 1,
+                               "commits": [{"sha": "c" * 40}]}])
+        github.graphql.return_value = {"c0": None}
+        with self.assertRaises(RuntimeError):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
+
+    def test_commit_with_more_than_ten_associated_prs_pages_through_all_of_them(self):
+        # A main commit merged into feat-cmux-next is associated with every
+        # open PR that contains it. nightly-next run 37557900719 failed its
+        # publish on such a commit; the overflow is paged, not refused.
+        sha = "c" * 40
+        github = self.github([{"status": "ahead", "total_commits": 1, "commits": [{"sha": sha}]}])
+        noise = [{**self.merged(100 + n, "f" * 40), "mergedAt": None, "mergeCommit": None} for n in range(10)]
+        expected = self.merged(10, sha)
+        calls = []
+
+        def graphql(query):
+            calls.append(query)
+            if len(calls) == 1:
+                return {"c0": self.associations(*noise, more=True)}
+            after = re.search(r'after: "([^"]+)"', query)
+            if after is None:
+                return {"c0": {"associatedPullRequests": {
+                    "pageInfo": {"hasNextPage": True, "endCursor": "page-2"}, "nodes": noise}}}
+            self.assertEqual(after.group(1), "page-2")
+            return {"c0": {"associatedPullRequests": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [expected]}}}
+
+        github.graphql.side_effect = graphql
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
+        self.assertEqual(len(calls), 3)
+        self.assertIn(sha, calls[1])
+        self.assertIn("first: 100", calls[1])
+
+    def test_endless_association_pages_fail_instead_of_looping(self):
+        github = self.github([{"status": "ahead", "total_commits": 1,
+                               "commits": [{"sha": "c" * 40}]}])
+        github.graphql.return_value = {"c0": {"associatedPullRequests": {
+            "pageInfo": {"hasNextPage": True, "endCursor": "again"}, "nodes": []}}}
+        with self.assertRaisesRegex(RuntimeError, "associated PRs"):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
 
 
 class AppcastTests(unittest.TestCase):
