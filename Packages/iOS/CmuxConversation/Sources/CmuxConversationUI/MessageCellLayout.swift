@@ -41,6 +41,8 @@ struct MessageCellLayout {
     var linkCardIsLast = false
     /// Poll card, its "Add Choice" stamp and its "Poll vote failed." line.
     var poll: PollCellLayout? = nil
+    /// The translation caption ("Show Original") under a translated bubble.
+    var translationFrame: CGRect? = nil
 }
 
 @MainActor
@@ -321,6 +323,11 @@ extension MessageCellLayout {
             replayFrame = footerRect(y + 4)
             y += 4 + footerHeight
         }
+        var translationFrame: CGRect?
+        if model.translation != nil {
+            translationFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -395,7 +402,8 @@ extension MessageCellLayout {
             audioExpiryFrame: audioExpiryFrame,
             linkCardFrame: linkCardFrame,
             linkCard: linkCard,
-            linkCardIsLast: linkCardIsLast
+            linkCardIsLast: linkCardIsLast,
+            translationFrame: translationFrame
         )
     }
 }

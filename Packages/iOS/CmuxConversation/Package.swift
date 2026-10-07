@@ -27,14 +27,19 @@ let package = Package(
         ),
         .target(name: "CmuxConversationGeometry", dependencies: ["CmuxConversationCore"], swiftSettings: swiftSettings),
         .target(
+            name: "CmuxConversationTranslation",
+            dependencies: ["CmuxConversationCore"],
+            swiftSettings: swiftSettings
+        ),
+        .target(
             name: "CmuxConversationUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),
         .target(
             name: "CmuxConversationMacUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),

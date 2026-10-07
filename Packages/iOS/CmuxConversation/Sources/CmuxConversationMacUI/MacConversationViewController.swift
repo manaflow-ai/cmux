@@ -210,6 +210,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
         installCatchUp()
+        installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         installAudio()
         store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
@@ -268,7 +269,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let layout = layoutCache.layout(model, width: transcriptWidth)
         var bottom = layout.contentFrame.maxY
         if let bubble = layout.bubbleFrame { bottom = max(bottom, bubble.maxY + MacConversationTheme.tailDrop) }
-        for frame in [layout.footerFrame, layout.editedFrame, layout.repliesFrame].compactMap({ $0 }) {
+        for frame in [layout.footerFrame, layout.editedFrame, layout.repliesFrame, layout.translationFrame].compactMap({ $0 }) {
             bottom = max(bottom, frame.maxY)
         }
         return max(0, layout.height - bottom)
@@ -287,7 +288,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         // nominal drop); rows carry their own trailing space,
         // so the inset subtracts the last row's. It grows with the field.
         let composerGrowth = max(0, composer.fieldHeight - 32)
-        let bottom = 50 - lastRowTrailingSpace() + composerGrowth + (replyBanner.isHidden ? 0 : 30)
+        let bottom = 50 - lastRowTrailingSpace() + composerGrowth + (replyBanner.isHidden ? 0 : 30) + layoutTranslationIndicator(aboveBottom: replyBanner.isHidden ? 0 : 30)
         let content = tableView.bounds.height
         let visible = scrollView.bounds.height - top - bottom
         // Short transcripts sit at the bottom, like Messages.
@@ -1219,6 +1220,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showReactors(model, from: rowView.badge)
             return true
         }
+        if !rowView.translationLabel.isHidden, rowView.translationLabel.frame.insetBy(dx: 0, dy: -3).contains(local) {
+            store.translations.toggleOriginal(rowID: model.rowID)
+            return true
+        }
         if handlePollClick(model, rowView: rowView, local: local) { return true }
         // Messages opens the thread focus from the replies link and from a
         // reply's quote.
@@ -1401,6 +1406,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(message.text, forType: .string)
         })
+        if let translate = translateMenuItem(for: model) { menu.addItem(translate) }
         if message.isScheduled {
             // Send Later: the Edit menu's actions, with Cancel Send Later.
             for scheduledItem in sendLaterMenu(rowID: model.rowID, anchor: rowView, cancelTitle: true).items {
@@ -1588,6 +1594,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             return "ok"
         case "poll":
             return pollLabCommand(argument)
+        case "translate", "translateconv", "translation", "untranslate", "toggletranslation", "translationindicator", "translatemenu":
+            return labTranslationCommand(verb, argument)
         case "escape":
             tapbackPopover?.close()
             exitReplyOrEdit()

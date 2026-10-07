@@ -5,6 +5,7 @@ import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, mentionText, messageText, pick, pollContent, randInt, replyText, type Rng } from "./corpus";
 import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
 import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
+import { INTL_PEOPLE, intlHistory, intlText } from "./intl";
 
 // ---------------------------------------------------------------- types
 
@@ -152,6 +153,7 @@ const GROUP_UNREAD = Number(process.env.GROUP_UNREAD ?? 60);
 const DIRECT_UNREAD = Number(process.env.DIRECT_UNREAD ?? 3);
 // Senders not in my contacts: their links arrive as "Tap to Load Preview".
 const STRANGERS = new Set((process.env.STRANGERS ?? "austin").split(",").filter(Boolean));
+const INTL_COUNT = Number(process.env.INTL_MESSAGES ?? 300);
 
 const knobs = {
   latencyScale: 1,
@@ -251,6 +253,8 @@ class Store {
   scheduled = new Map<string, Scheduled>();
   scheduledByClientId = new Map<string, Scheduled>();
   scheduledCounter = 0;
+  /** Per-sender text for conversations with their own corpus (intl). */
+  speak?: (rng: Rng, senderId: string) => string;
   constructor(public conv: Conversation) {}
 
   /** Messages from others after the read marker. */
@@ -597,8 +601,20 @@ function boot() {
   }
   stores.set("group", group);
   stores.set("direct", direct);
+  // Spanish, Japanese and French speakers for Translate; its own seed stream.
+  const intl = new Store({
+    id: "intl",
+    title: "Amigos",
+    kind: "group",
+    participants: [ME, ...INTL_PEOPLE.map(({ lang, ...p }) => p)],
+  });
+  intl.speak = intlText;
+  for (const m of intlHistory(mulberry32(SEED + 2), INTL_COUNT, ME.id)) {
+    intl.append({ ...m, replyCount: 0, reactions: [], attachments: [], ...(m.senderId === ME.id ? { status: "delivered" as const } : {}) });
+  }
+  stores.set("intl", intl);
   log(
-    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} media=${media.size} in ${Math.round(performance.now() - t0)}ms`,
+    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} intl=${intl.headSeq} images=${media.size} in ${Math.round(performance.now() - t0)}ms`,
   );
 }
 
@@ -1275,7 +1291,7 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
   if (R() < 0.05 && !m.poll && !m.attachments.some((a) => a.kind === "audio")) {
     void (async () => {
       await botSleep(uniform(4000, 20_000));
-      const next = editedText(R, m.text || "photo");
+      const next = store.speak ? store.speak(R, bot.id) : editedText(R, m.text || "photo");
       keepUnchangedMentions(m, next);
       m.text = next;
       m.textRuns = undefined;
@@ -1322,23 +1338,24 @@ async function botReply(store: Store, mine: Message) {
   const typing = Math.min(total * 0.7, typingMs("x".repeat(40)));
   await botSleep(total - typing);
   const bot = pick(R, store.bots());
-  await botSay(store, bot, replyText(R), R() < 0.35 ? { replyToId: mine.id } : {}, typing);
+  await botSay(store, bot, store.speak ? store.speak(R, bot.id) : replyText(R), R() < 0.35 ? { replyToId: mine.id } : {}, typing);
 }
 
-function randomBotMessage(store: Store, bot: Participant): { text: string; opts: Partial<Message> } {
+function randomBotMessage(store: Store, bot?: Participant): { text: string; opts: Partial<Message> } {
   const opts: Partial<Message> = {};
-  let text = messageText(R);
+  let text = store.speak && bot ? store.speak(R, bot.id) : messageText(R);
   // Bots occasionally mention someone (half the time me).
-  const target = R() < 0.12 ? mentionTarget(R, store.conv, bot) : undefined;
+  // Conversations with their own corpus (intl) skip mentions, recordings and links.
+  const target = !store.speak && bot && R() < 0.12 ? mentionTarget(R, store.conv, bot) : undefined;
   if (target) {
     const mention = mentionMessage(R, target);
     return { text: mention.text, opts: { mentions: mention.mentions } };
   }
-  if (R() < 0.03) {
+  if (!store.speak && R() < 0.03) {
     opts.attachments = [makeAudioAttachment(`aud_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`, R)];
     return { text: "", opts };
   }
-  if (R() < knobs.botLinkRate) return { text: pick(R, LINK_MESSAGES), opts };
+  if (!store.speak && R() < knobs.botLinkRate) return { text: pick(R, LINK_MESSAGES), opts };
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
@@ -1717,4 +1734,4 @@ setInterval(() => {
 }, 250);
 
 for (const s of stores.values()) void botLoop(s);
-log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct)`);
+log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct|intl)`);

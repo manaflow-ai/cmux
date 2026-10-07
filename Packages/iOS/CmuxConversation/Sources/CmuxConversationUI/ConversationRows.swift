@@ -69,6 +69,8 @@ struct MessageRowModel: Hashable {
     var bodyText: String { linkSplit?.bodyText ?? message.text }
     /// Set for poll messages (see ConversationPolls.swift).
     var poll: PollRowModel? = nil
+    /// "Show Original" / "View Translation" and friends under a translated bubble.
+    var translation: ConversationTranslationCaption? = nil
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -97,8 +99,14 @@ enum ConversationRowBuilder {
 
         let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingIDs)
         var typingPlaced = typingIDs.isEmpty
-        for (index, message) in messages.enumerated() {
+        let translations = store.translations
+        for (index, original) in messages.enumerated() {
             let entry = plan.entries[index]
+            // A translated bubble draws the translation; everything else
+            // (grouping, quotes, ids) keys off the original message.
+            let translation = translations.presentation(for: original)
+            var message = original
+            if let translation { message.text = translation.text }
             if message.isScheduled, let scheduledAt = message.scheduledAt {
                 // Scheduled messages trail everything, typing included.
                 if !typingPlaced {
@@ -145,7 +153,8 @@ enum ConversationRowBuilder {
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
                 meID: meID,
-                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview)
+                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview),
+                translation: translation?.caption
             ), store: store)))
         }
         if !typingPlaced {

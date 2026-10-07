@@ -228,6 +228,7 @@ public final class ConversationViewController: UIViewController {
         }
         installCatchUp()
         observeKeyboardFrames()
+        installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
         rebuild(change: .reset)
@@ -285,7 +286,7 @@ public final class ConversationViewController: UIViewController {
     /// the visible content moves with it, unless the finger is driving.
     func updateInsets() {
         let top = header.frame.maxY + 4
-        let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 10
+        let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 10 + translationIndicatorReserve
         let old = collectionView.contentInset
         guard old.top != top || old.bottom != bottom else { return }
         // Resting on the newest message counts as following it, whatever the

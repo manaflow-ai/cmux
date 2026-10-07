@@ -171,6 +171,15 @@ async function main() {
   check(true, "direct: my message becomes read with readAt");
   d.close();
 
+  console.log("intl conversation");
+  const intl = await Client.connect("intl");
+  const ih = await intl.call("hello", { clientId: "selftest-i" });
+  check(ih.conversation.title === "Amigos" && ih.conversation.participants.length === 4, "intl conversation 'Amigos' with 3 speakers");
+  const ipage = await intl.call("history", { beforeSeq: null, limit: 60 });
+  const others = ipage.messages.filter((m: any) => m.senderId !== "aziz").map((m: any) => m.text).join(" ");
+  check(/[ぁ-んァ-ン一-龯]/.test(others) && /[¿¡ñ]/.test(others) && /\b(je|les|la|est)\b/i.test(others), "intl history mixes Japanese, Spanish and French");
+  intl.close();
+
   console.log("react / edit");
   const reacted = await c.call("react", { messageId: mid, reaction: "heart" });
   check(reacted.message.reactions.some((r: any) => r.participantId === "aziz" && r.reaction === "heart"), "react adds my reaction");

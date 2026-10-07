@@ -75,6 +75,8 @@ struct MacMessageRowModel: Hashable {
     var bodyText: String { linkSplit?.bodyText ?? message.text }
     /// Set for poll messages (see MacConversationPolls.swift).
     var poll: MacPollRowModel? = nil
+    /// "Show Original" / "View Translation" and friends under a translated bubble.
+    var translation: ConversationTranslationCaption? = nil
 }
 
 /// Builds rows from store state with the shared Messages grouping rules.
@@ -93,7 +95,7 @@ enum MacConversationRowBuilder {
         }
         rows += messageRows(
             store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
-            quote: { store.message(id: $0) }
+            quote: { store.message(id: $0) }, translations: store.translations
         ).map { MacPollRowModel.attach(to: $0, store: store) }
         if !store.typingParticipantIDs.isEmpty {
             // Scheduled (Send Later) messages trail everything, typing included.
@@ -119,7 +121,7 @@ enum MacConversationRowBuilder {
             plain.replyCount = 0
             return plain
         }
-        var rows = messageRows(thread, info: info, meID: store.meID, typingParticipantIDs: [], quote: { _ in nil }, footers: false)
+        var rows = messageRows(thread, info: info, meID: store.meID, typingParticipantIDs: [], quote: { _ in nil }, footers: false, translations: store.translations)
             .map { MacPollRowModel.attach(to: $0, store: store) }
         // The thread always opens with the root's timestamp.
         if let first = thread.first, rows.first.map({ if case .timestamp = $0 { return false } else { return true } }) ?? false {
@@ -130,13 +132,19 @@ enum MacConversationRowBuilder {
 
     private static func messageRows(
         _ messages: [ConversationMessage], info: ConversationInfo, meID: String?, typingParticipantIDs: [String],
-        quote quoted: (String) -> ConversationMessage?, footers: Bool = true
+        quote quoted: (String) -> ConversationMessage?, footers: Bool = true,
+        translations: ConversationTranslations? = nil
     ) -> [MacConversationRow] {
         var rows: [MacConversationRow] = []
         let isGroup = info.kind == .group
         let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs)
-        for (index, message) in messages.enumerated() {
+        for (index, original) in messages.enumerated() {
             let entry = plan.entries[index]
+            // A translated bubble draws the translation; everything else keys
+            // off the original message.
+            let translation = translations?.presentation(for: original)
+            var message = original
+            if let translation { message.text = translation.text }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
@@ -180,7 +188,8 @@ enum MacConversationRowBuilder {
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
                 myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction)),
                 meID: meID,
-                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview)
+                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview),
+                translation: translation?.caption
             )))
         }
         return rows
@@ -283,6 +292,8 @@ struct MacMessageLayout {
     var linkCardIsLast = false
     /// Poll card, its "Add Choice" stamp and its "Poll vote failed." line.
     var poll: MacPollCellLayout? = nil
+    /// The translation caption ("Show Original") under a translated bubble.
+    var translationFrame: CGRect? = nil
 }
 
 @MainActor
@@ -517,6 +528,11 @@ extension MacMessageLayout {
             replayFrame = footerRect(y + 2)
             y += 2 + 14
         }
+        var translationFrame: CGRect?
+        if model.translation != nil {
+            translationFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
         if model.message.editedAt != nil {
             editedFrame = footerRect(y + 2)
             y += 2 + 14
@@ -588,7 +604,8 @@ extension MacMessageLayout {
             audioExpiryFrame: audioExpiryFrame,
             linkCardFrame: linkCardFrame,
             linkCard: linkCard,
-            linkCardIsLast: linkCardIsLast
+            linkCardIsLast: linkCardIsLast,
+            translationFrame: translationFrame
         )
     }
 }
