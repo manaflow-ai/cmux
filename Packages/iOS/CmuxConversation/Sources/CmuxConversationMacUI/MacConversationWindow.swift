@@ -43,7 +43,8 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        sidebar.onSelect = { [weak self] entry in self?.select(entry) }
+        // Arrowing through the list keeps focus there; a click moves it to the composer.
+        sidebar.onSelect = { [weak self] entry in self?.select(entry, focusComposer: !MacKeyboardNavigation.isActive) }
         // Every conversation stays live so the sidebar previews update.
         for entry in entries { entry.store.start() }
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -90,11 +91,13 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         super.viewDidAppear()
         guard !didSetInitialSidebarWidth else { return }
         didSetInitialSidebarWidth = true
+        // Messages opens with the message field focused.
+        if let composer = selected?.controller.composer { view.window?.makeFirstResponder(composer.textView) }
         // Measured: Messages' sidebar glass panel ends 328 pt from the window edge.
         splitView.setPosition(328, ofDividerAt: 0)
     }
 
-    func select(_ entry: MacConversationEntry) {
+    func select(_ entry: MacConversationEntry, focusComposer: Bool = true) {
         selected = entry
         sidebar.markSelected(entry.id)
         let controller = entry.controller
@@ -110,7 +113,48 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         if let info = entry.store.info {
             titleView.configure(info: info, meID: entry.store.meID, connected: entry.store.connection == .connected)
         }
-        view.window?.makeFirstResponder(controller.composer.textView)
+        updateKeyViewLoop()
+        if focusComposer { view.window?.makeFirstResponder(controller.composer.textView) }
+    }
+
+    // MARK: Keyboard navigation
+
+    /// Tab order, as in Messages: search, conversation list, transcript, composer.
+    private func updateKeyViewLoop() {
+        guard let controller = selected?.controller else { return }
+        sidebar.searchField.nextKeyView = sidebar.tableView
+        sidebar.tableView.nextKeyView = controller.tableView
+        controller.tableView.nextKeyView = controller.composer.textView
+        controller.composer.textView.nextKeyView = sidebar.searchField
+    }
+
+    /// Conversation commands reach the selected conversation from anywhere
+    /// in the window (the sidebar included).
+    override func supplementalTarget(forAction action: Selector, sender: Any?) -> Any? {
+        if let controller = selected?.controller, controller.responds(to: action) { return controller }
+        return super.supplementalTarget(forAction: action, sender: sender)
+    }
+
+    /// Edit > Search > Find… (⌘F): Messages searches every conversation from the sidebar.
+    @objc func searchConversations(_ sender: Any?) {
+        if let item = splitViewItems.first, item.isCollapsed { item.animator().isCollapsed = false }
+        view.window?.makeFirstResponder(sidebar.searchField)
+    }
+
+    /// Window > Go to Next Conversation (⌃⇥).
+    @objc func selectNextConversation(_ sender: Any?) { stepConversation(by: 1) }
+
+    /// Window > Go to Previous Conversation (⌃⇧⇥).
+    @objc func selectPreviousConversation(_ sender: Any?) { stepConversation(by: -1) }
+
+    private func stepConversation(by delta: Int) {
+        let ids = sidebar.visibleIDs
+        guard !ids.isEmpty else { return }
+        let current = selected.flatMap { ids.firstIndex(of: $0.id) } ?? -delta
+        let next = ((current + delta) % ids.count + ids.count) % ids.count
+        guard let entry = entries.first(where: { $0.id == ids[next] }), entry !== selected else { return }
+        let focusInSidebar = (view.window?.firstResponder as? NSView)?.isDescendant(of: sidebar.view) == true
+        select(entry, focusComposer: !focusInSidebar)
     }
 
     private func layoutComposer() {
@@ -350,8 +394,10 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private var selectedID: String?
     /// Newest seq each conversation had while it was on screen.
     private var seenSeq: [String: Int] = [:]
-    private let table = NSTableView()
+    private let table = MacKeyLoopTableView()
     private let search = NSSearchField()
+    var searchField: NSSearchField { search }
+    var tableView: NSTableView { table }
     private let searchPill = MacFlippedView()
     private let noResults = makeMacLabel()
     var onSelect: ((MacConversationEntry) -> Void)?
@@ -510,6 +556,9 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
         }
         guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
+        // The first selection can land before the table has loaded its rows;
+        // without a selected row, arrow keys in the list do nothing.
+        if table.numberOfRows != visible.count { table.reloadData() }
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
 
@@ -718,7 +767,7 @@ public enum MacConversationLab {
             return MacConversationEntry(id: id, endpoint: components.url!)
         }
         let split = MacConversationSplitController(entries: entries)
-        let window = NSWindow(
+        let window = MacConversationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false

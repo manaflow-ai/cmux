@@ -18,6 +18,8 @@ app.setActivationPolicy(driven ? .prohibited : .regular)
 if arguments.count > 2 {
     app.appearance = NSAppearance(named: arguments[2] == "light" ? .aqua : .darkAqua)
 }
+// Messages' menu bar (Edit > Reply/Tapback/Edit Last, Window > Next Conversation…).
+MainActor.assumeIsolated { app.mainMenu = MacConversationLab.makeMainMenu() }
 let controller = MainActor.assumeIsolated { MacConversationLab.open(endpoint: endpoint) }
 // The lab opens on the display named by CMUX_LAB_DISPLAY (default "LG HDR 4K"),
 // never on the person's main working display.
@@ -70,6 +72,9 @@ if arguments.count > 3 {
                         } else if line.hasPrefix("appearance ") {
                             app.appearance = NSAppearance(named: line.hasSuffix("light") ? .aqua : .darkAqua)
                             reply = "ok"
+                        } else if let input = MacConversationLab.labInput(line) {
+                            // key/click/drag/rclick/copyprobe/kstate: synthesized AppKit input.
+                            reply = input
                         } else {
                             reply = (MacConversationLab.selectedController ?? controller).labCommand(line)
                         }

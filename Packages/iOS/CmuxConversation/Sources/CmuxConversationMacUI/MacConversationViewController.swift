@@ -22,6 +22,38 @@ final class MacTranscriptTableView: NSTableView {
     override func menu(for event: NSEvent) -> NSMenu? {
         interaction?.contextMenu(for: event, in: self)
     }
+
+    /// Bubble text takes clicks itself (selection, drag-out); a table only
+    /// lets controls in its rows become first responder by default.
+    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
+        responder is MacBubbleTextView || super.validateProposedFirstResponder(responder, for: event)
+    }
+
+    // Up / Down move the selected message; Esc leaves the transcript.
+    override func keyDown(with event: NSEvent) {
+        guard let interaction, event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+            return super.keyDown(with: event)
+        }
+        switch event.keyCode {
+        case 48: moveKeyFocus(event)
+        case 126: interaction.moveMessageSelection(by: -1)
+        case 125: interaction.moveMessageSelection(by: 1)
+        case 53: interaction.cancelOperation(nil)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { interaction?.transcriptDidBecomeFocused() }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { interaction?.transcriptFocusMayHaveLeft() }
+        return resigned
+    }
 }
 
 /// A Messages-style conversation for macOS over any `ConversationBackend`.
@@ -36,6 +68,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     var onComposerHeightChange: (() -> Void)?
     var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
+    let keyboard = MacConversationKeyboardState()
     private let initialSpinner = NSProgressIndicator()
 
     private(set) var rows: [MacConversationRow] = []
@@ -71,7 +104,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     // Reply / edit state.
     private var replyTarget: ConversationMessage?
-    private var replyFocus: MacReplyFocusView?
+    var replyFocus: MacReplyFocusView?
     private var editingMessageID: String?
     /// Rows animating to zero height before Delete removes them.
     private var collapsingRowIDs: Set<String> = []
@@ -126,6 +159,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(scrollView)
 
         composer.delegate = self
+        installKeyboardSupport()
         replyBanner.translatesAutoresizingMaskIntoConstraints = false
         replyBanner.isHidden = true
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
@@ -164,7 +198,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     public override func viewDidAppear() {
         super.viewDidAppear()
-        view.window?.makeFirstResponder(composer.textView)
+        // A new window starts in the composer; on a conversation switch the
+        // split controller decides (arrowing the list keeps focus there).
+        if !(view.window?.firstResponder is NSView) { view.window?.makeFirstResponder(composer.textView) }
         if hasPositioned, isPinnedToBottom { scrollToBottom() }
     }
 
@@ -738,6 +774,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
+            applyMessageSelection(to: view.row)
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
@@ -982,6 +1019,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     public override func cancelOperation(_ sender: Any?) {
         if reactionPicker != nil { dismissReactionFocus(); return }
+        if cancelMessageSelection() { return }
         exitReplyOrEdit()
     }
 
@@ -995,6 +1033,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func handleClick(_ event: NSEvent, in table: NSTableView) -> Bool {
+        if event.clickCount == 1 { updateMessageSelection(forClick: event, in: table) }
         guard event.clickCount == 1, let (index, point) = row(at: event, in: table),
               let model = messageModel(at: index), let rowView = rowView(at: index) else { return false }
         let local = rowView.convert(point, from: table)
@@ -1064,6 +1103,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     func dismissReactionFocus() {
         reactionPicker = nil
+        restoreFocusAfterReactionFocus(replyFocus)
         dismissReplyFocus(sent: false)
     }
 
@@ -1355,7 +1395,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 }
                 if commit, let model = messageModel(at: index) { enterReply(model.message) }
             }
-            setTimestampReveal(0, animated: true)
+            setTimestampReveal(keyboard.showsTimes ? 1 : 0, animated: true)
             swipeRowID = nil
             swipeAccumulatedX = 0
             return true
@@ -1364,7 +1404,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
     }
 
-    private func setTimestampReveal(_ value: CGFloat, animated: Bool = false) {
+    func setTimestampReveal(_ value: CGFloat, animated: Bool = false) {
         timestampsRevealed = value
         let apply = {
             for index in 0..<self.rows.count {
@@ -1571,6 +1611,14 @@ final class MacReplyFocusView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
+
+    /// Keyboard tapback (⌘T): digits pick, Esc cancels.
+    var onKeyDown: ((NSEvent) -> Bool)?
+    override var acceptsFirstResponder: Bool { onKeyDown != nil }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyDown?(event) != true { super.keyDown(with: event) }
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
