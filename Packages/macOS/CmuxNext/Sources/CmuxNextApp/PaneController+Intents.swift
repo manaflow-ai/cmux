@@ -52,6 +52,10 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // A user's tab switch may end link-tab opener relations (Chrome's rule).
+        if source.isUserIntent, stripModel.selectedID != id {
+            services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+        }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
             return applySelection(id)
@@ -216,16 +220,22 @@ extension PaneController {
         let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
             ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
             : commands
+        // The user's own refused close says so; automation gets the task's failure.
+        let userClose = CloseUndoToasts.isUserClose
         services.registry.track(Task {
             var failed = false
             var unknown = false
+            var codes: [String] = []
             for command in runs {
                 switch await daemon.runReportingTimeout(command.0, command.1) {
                 case .succeeded: break
-                case .failed: failed = true
+                case .failed(let code):
+                    failed = true
+                    if let code { codes.append(code) }
                 case .unknown: unknown = true
                 }
             }
+            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.

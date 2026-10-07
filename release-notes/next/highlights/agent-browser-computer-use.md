@@ -1,3 +1,5 @@
 title: Agents can use the cmux browser and computer use
+category: new
+docs: https://cmux.com/docs/computer-use
 
-Every agent session cmux starts (Claude Code, Codex and the other ACP agents) now gets the cmux Computer Use tools, and the browser REPL tools when MCP is on in cmux.json. Claude Code also gets the `cmux:cmux-browser` and `cmux:cmux-cua` skills. Computer use still runs only when you ask for it.
+Agent sessions that cmux starts now get the cmux browser and Computer Use tools, and Claude Code gets matching skills. Computer use still runs only when you ask for it.

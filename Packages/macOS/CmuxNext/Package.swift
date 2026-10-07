@@ -101,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3494fdc61366d8a0cde7cdc09992587744aac137/CCmuxAppFFI.xcframework.zip",
-    checksum: "968a7a2d6484753b8f92d2e50d6b9da9a9865f7b579ab9c151d8712961b84588"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-e39f2136ac370adba141a8b750e1ecf2aee3228e/CCmuxAppFFI.xcframework.zip",
+    checksum: "c5a6d57f13c1c4b2914f78dc1b41413fa3e364f16b68f3b75f808a59ccc52a76"
 )
 
 let package = Package(
@@ -580,8 +580,11 @@ let package = Package(
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
+            // WhatsNew: the bundled What's New documents and media
+            // (scripts/whats-new/sync-app-bundle.sh copies them from whats-new/).
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/WhatsNew"),
             ],
             swiftSettings: uiSwiftSettings
         ),

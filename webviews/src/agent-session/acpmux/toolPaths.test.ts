@@ -1,6 +1,6 @@
 // The paths a file tool call edits, from every harness's tool input shape (EditedFilesCard rows).
 import { describe, expect, test } from "bun:test";
-import { editedPaths } from "./toolPaths";
+import { editedPaths, toolLabel } from "./toolPaths";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -65,5 +65,24 @@ describe("editedPaths", () => {
     expect(editedPaths(call("Edit `src/a.ts`", "{}"))).toEqual(["src/a.ts"]);
     expect(editedPaths(call("Write", '{"content":"import json, sys, urllib.request'))).toEqual([]);
     expect(editedPaths(call("e1", undefined, { inputSummary: undefined }))).toEqual([]);
+  });
+});
+
+describe("toolLabel", () => {
+  const ran = (command: string) => `Ran ${command}`;
+
+  test("uses a Write path instead of showing its full raw input", () => {
+    const tool = call("", { content: "print('hello')", file_path: "gen.py" });
+    expect(toolLabel(tool, "Write", ran)).toBe("Write gen.py");
+  });
+
+  test("labels commands and reads, then falls back to the tool name", () => {
+    expect(toolLabel(call("", { command: "bun test" }, { kind: "execute", command: "bun test" }), "Run", ran)).toBe(
+      "Ran bun test",
+    );
+    expect(toolLabel(call("", { file_path: "src/main.ts" }, { kind: "read" }), "Read", ran)).toBe("Read src/main.ts");
+    expect(toolLabel(call("mcp.cua_repl", { apps: [] }, { kind: "execute" }), "mcp.cua_repl", ran)).toBe(
+      "mcp.cua_repl",
+    );
   });
 });

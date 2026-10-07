@@ -147,6 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
+        services.pageHostPool.start(
+            isMainWindow: { [weak services] window in
+                services?.windows.controllers.contains { $0.window === window } == true
+            },
+            fallback: { [weak services] window in
+                services?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
+            })
+        services.pageHostPool.noteLikely()
         AgentTabImport.start(services)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
@@ -236,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
+            // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
+            _ = try? await settings.migrateLegacyWorkspaceRowKeys()
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)

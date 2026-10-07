@@ -31,6 +31,34 @@ import type { MenuNode } from "./useMenuTree";
 
 export type PickerData = ReturnType<typeof pickerData>;
 
+type HarnessChoice = ModelPickerProps["catalog"][number];
+
+/// Harness rows use the same nearest-anchor rule as model rows. The current harness counts as
+/// most relevant, then the viewer's recent harnesses, then catalog order. Labels are unique so a
+/// duplicate probe entry such as two "Claude Code" rows never makes the picker ambiguous.
+export function rankHarnesses(
+  harnesses: HarnessChoice[],
+  recents: Combo[],
+  current: string | undefined,
+): HarnessChoice[] {
+  const ids = [current, ...recents.map((combo) => combo.harness)];
+  const rank = (harness: HarnessChoice) => {
+    const at = ids.indexOf(harness.id);
+    return at < 0 ? ids.length : at;
+  };
+  const seen = new Set<string>();
+  return harnesses
+    .map((harness, index) => ({ harness, index, rank: rank(harness) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.harness)
+    .filter((harness) => {
+      const label = harness.name.trim().toLocaleLowerCase();
+      if (seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    });
+}
+
 /// The current harness's models as layers, with what the session runs and the recents it can run.
 /// Models of other harnesses never enter: every row comes from this taxonomy.
 export function pickerData(props: ModelPickerProps) {
@@ -51,7 +79,11 @@ export function pickerData(props: ModelPickerProps) {
       ? (combo.effortName ?? effortName(combo.effort))
       : undefined;
   // Other harnesses are offered only as a new chat, and only when the pane can start one.
-  const harnesses = props.catalog.filter((harness) => harness.id === props.harness || props.onHarness);
+  const harnesses = rankHarnesses(
+    props.catalog.filter((harness) => harness.id === props.harness || props.onHarness),
+    props.recents,
+    props.harness,
+  );
   const land = (landing: Landing | undefined) => {
     if (landing) props.onLand(landing.model, landing.effort);
   };
@@ -308,7 +340,10 @@ export function menuNodes(
         label: data.harnessName,
         icon: props.harness ? <AgentMark agent={props.harness} size={14} /> : undefined,
         detail: t("picker.harness"),
-        children: data.harnesses.map((harness) => harnessNode(harness, props, t)),
+        children: ordered(
+          data.harnesses.map((harness) => harnessNode(harness, props, t)),
+          order,
+        ),
       };
     },
     /// The reasoning row: the current effort, with the slider as its submenu.
