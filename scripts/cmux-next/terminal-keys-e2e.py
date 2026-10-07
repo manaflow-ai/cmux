@@ -186,7 +186,8 @@ def cleanup():
 def main():
     global app
     if os.path.exists(SOCKET):
-        if subprocess.run(["pgrep", "-f", APP + "/Contents/MacOS/"], capture_output=True).returncode == 0:
+        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
+        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
             sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
         os.remove(SOCKET)  # a stale socket of an earlier run of this script
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -200,24 +201,42 @@ def main():
         print("debug.surfaces:", json.dumps(rpc("debug.surfaces"))[:800], flush=True)
         print("debug.windows:", json.dumps(rpc("debug.windows"))[:800], flush=True)
         sys.exit("the tagged app did not come up")
+    # Earlier runs of this script left their workspaces in the tag's state: close them.
+    for old in set(re.findall(r"(ws_[0-9a-f]+)\s+keys-e2e", run("workspace", "list").stdout)):
+        run("workspace", old, "close")
     made = run("workspace", "create", "--name", "keys-e2e")
     print("workspace create:", (made.stdout + made.stderr)[-400:], flush=True)
     workspace = re.search(r"value\.workspace_id\s+(\S+)", made.stdout)
     terminal = re.search(r"value\.terminal_id\s+(term_\S+)", made.stdout)
+    tab = re.search(r"value\.tab_id\s+(tab_\S+)", made.stdout)
     if workspace:
         run("workspace", workspace.group(1), "focus")
-    # The mux focus does not move the Mac window off Home; select the new (last) workspace.
-    print("selectLast:", rpc("action.run", {"action": "workspace.selectLast"}), flush=True)
+    # The mux focus does not move the Mac window off Home: select the window's workspaces by
+    # number until the new one (its tab) shows.
+    for index in range(1, 10):
+        rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
+        if wait(lambda: any(p.get("selected_tab") == (tab and tab.group(1)) for p in panes()), 3):
+            print("new workspace is number", index, flush=True)
+            break
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
         print("panes:", json.dumps(panes())[:1500], flush=True)
     time.sleep(2)  # test harness: shell prompt
     clear_check("single terminal", terminal.group(1) if terminal else "")
     before = terminal_ids()
     print("splitRight:", rpc("action.run", {"action": "splitRight"}), flush=True)
-    new = wait(lambda: terminal_ids() - before, 30)
+    new = wait(lambda: terminal_ids() - before, 10)
+    if not new:
+        # The new split may open on the New Tab page (the default kind): open a terminal tab in it.
+        print("newSurface in split:", rpc("action.run", {"action": "newSurface"}), flush=True)
+        new = wait(lambda: terminal_ids() - before, 20)
     wait(lambda: (focused_pane() or {}).get("kind") == "terminal" and len(panes()) >= 2, 30)
     time.sleep(2)  # test harness: shell prompt
-    clear_check("split terminal", sorted(new)[0] if new else "")
+    # Automation never moves focus: the original terminal keeps it, now inside a split.
+    clear_check("split terminal (left, focused)", terminal.group(1) if terminal else "")
+    # The user's Cmd-Option-Right moves focus to the new split; Cmd-K clears that one.
+    print("focus right:", key("right", ["cmd", "option"]).get("action"), flush=True)
+    time.sleep(1)  # test harness: focus settles
+    clear_check("split terminal (right)", sorted(new)[0] if new else "")
     for name, mods, label in [("=", ["cmd"], "Cmd-="), ("0", ["cmd"], "Cmd-0"), ("up", ["cmd"], "Cmd-Up"),
                               ("g", ["cmd", "shift"], "Cmd-Shift-G"), ("left", ["option"], "Option-Left")]:
         reply = key(name, mods)
@@ -225,8 +244,11 @@ def main():
         row(f"terminal {label}", "the terminal (Ghostty) gets it", owner, not reply.get("action"))
     print("newAgentChat:", rpc("action.run", {"action": "palette.newAgentChat"}), flush=True)
     time.sleep(2)  # test harness: a new chat may open in a new workspace (L3)
-    if (focused_pane() or {}).get("kind") == "terminal":
-        print("selectLast:", rpc("action.run", {"action": "workspace.selectLast"}), flush=True)
+    for index in range(1, 10):
+        if (focused_pane() or {}).get("kind") == "agent":
+            break
+        rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
+        wait(lambda: (focused_pane() or {}).get("kind") == "agent", 3)
     wait(lambda: (focused_pane() or {}).get("kind") not in (None, "terminal"), 30)
     time.sleep(3)  # test harness: the agent page loads
     pane = focused_pane() or {}
