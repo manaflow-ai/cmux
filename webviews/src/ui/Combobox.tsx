@@ -112,7 +112,16 @@ export function Combobox({
         )}
       </Autocomplete.Collection>
       {disabledSuggestions.map((item) => (
-        <li key={item} data-disabled className={cx("ui-combobox-item", itemClassName)}>
+        <li
+          key={item}
+          // The disabled rows stay out of Base UI's collection, but retain listbox semantics.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
+          role="option"
+          aria-disabled="true"
+          aria-selected="false"
+          data-disabled
+          className={cx("ui-combobox-item", itemClassName)}
+        >
           {renderItemContent(item)}
         </li>
       ))}
