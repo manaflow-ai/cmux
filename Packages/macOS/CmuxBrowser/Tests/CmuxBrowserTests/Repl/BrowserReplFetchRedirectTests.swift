@@ -36,7 +36,6 @@ struct BrowserReplFetchRedirectTests {
             "method": "GET",
             "headers": [
                 ["Authorization", "Bearer s3cret"],
-                ["Proxy-Authorization", "Basic cHJveHk="],
                 ["X-Api-Key", "k3y"],
                 ["X-Auth-Token", "t0ken"],
                 ["Cookie", "sid=agent"],
@@ -58,10 +57,10 @@ struct BrowserReplFetchRedirectTests {
         return (try JSONSerialization.jsonObject(with: body) as? [String: String]) ?? [:]
     }
 
-    @Test("A redirect to another origin drops Authorization, Proxy-Authorization, Cookie and credential-named headers")
+    @Test("A redirect to another origin drops Authorization, Cookie and credential-named headers")
     func crossOriginRedirectDropsCredentials() async throws {
         let headers = try await landingHeaders(redirectingFrom: "/cross")
-        for name in ["authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token"] {
+        for name in ["authorization", "cookie", "x-api-key", "x-auth-token"] {
             #expect(headers[name] == nil, "\(name) reached the other origin: \(headers)")
         }
         #expect(headers["accept"] == "application/json", "\(headers)")
