@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record idle side runners while keeping trusted jobs on the owned label.
+"""Choose the live route for trusted side-lane jobs and record idle runners.
 
 Side-lane workflows (owned_pool_rescue.SIDE_WORKFLOW_PATHS) have no picker.
 On attempt 1 of a trusted run their macOS jobs took vars.CI_SIDE_LANE_RUNNER,
@@ -14,9 +14,10 @@ trusted run. It lists the runners through the org route App
 (pr_runner_pool.GitHub.runners(), as admission_placement.py does) and places
 JOBS, in priority order, with pr_runner_pool.idle_placement(), the rule the
 main picker places the light side lanes with: one job per runner carrying
-SIDE_LABEL that is online and idle now. The result is telemetry only. Trusted
-jobs always keep the owned side label, including when no runner is idle; the
-rescue supplies the measured overflow boundary after the mini queue drains.
+SIDE_LABEL that is online and idle now. When no online runner carries the side
+label, jobs use its owned pool label so the std minis can accept them. When a
+side label is online but busy, jobs remain on it and the rescue supplies the
+measured overflow boundary after the mini queue drains.
 
 Anything uncertain decides nothing and keeps the owned label watched by the
 rescue: an attempt after 1, a SIDE_LABEL that is not a glaeda-side-* label (a
@@ -26,6 +27,8 @@ Outputs, each job key delimited by spaces with one at each end so a runs-on's
 contains(' <key> ') matches whole keys only:
 - `owned_jobs`: the jobs an idle owned runner takes;
 - `fallback_jobs`: retained for the workflow output contract and always empty;
+- `runner`: the live side label, or the owned pool label when no online side
+  runner carries it;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise.
 """
@@ -48,6 +51,16 @@ def _picker():
 
 
 pool = _picker()
+
+
+def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Use the side label while online, otherwise its owned pool label."""
+    if runners is None:
+        return ""
+    if any(runner.get("status") == "online" and label in pool.runner_labels(runner)
+           for runner in runners):
+        return label
+    return pool.pool_label(label)
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
@@ -85,12 +98,17 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners ({error})")
     owned, fallback, why = decide(env, runners)
+    label = (env.get("SIDE_LABEL") or "").strip()
+    route = route_label(label, runners)
+    if route and route != label:
+        why += f"; no online side runner, routing jobs on `{route}`"
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\nwatch={watch}\n")
+            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
+                         f"runner={route}\nwatch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
