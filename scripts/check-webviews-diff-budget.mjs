@@ -28,16 +28,12 @@ function budgetFromEnvironment(name, fallback) {
   return value;
 }
 
-const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-)/;
+const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-|diff-labels-)/;
 // Monaco (the code editor page's `view` chunk and its worker) loads only after the editor opens a
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
-// The diff surface and page budgets were 1,500,000. d69da1e49f2 (cx-64k) sources the diff labels
-// from the shared catalog, and labels.ts imports every language's table statically: about 120 KB
-// in chunks/diffSurface.mjs (1,424,812 -> 1,549,515 bytes on 2026-10-07). Translated labels are
-// the feature; evaluating all 21 languages is not. The 1,600,000 budgets hold until labels.ts loads
-// only the active language, then go back to 1,500,000.
-const diffBudgetBytes = 1_600_000;
+// English is the fallback; translated diff labels must remain lazy locale chunks.
+const diffBudgetBytes = 1_500_000;
 const surfaces = [
   {
     name: "diff surface",
@@ -126,6 +122,13 @@ for (const surface of surfaces) {
     }
     if (surface.forbidden.includes(relativePath)) {
       failures.push(`${surface.name}: ${relativePath} is reachable through static imports but must stay out of its eager set`);
+    }
+  }
+  if (surface.name === "diff surface" || surface.name === "diff page") {
+    for (const file of eager.keys()) {
+      const source = readFileSync(file, "utf8");
+      for (const label of ["Dateien ausblenden", "ファイルを隠す"])
+        if (source.includes(label)) failures.push(`${surface.name}: translated diff labels leaked into ${relative(bundleDirectory, file)}`);
     }
   }
   if (totalBytes > surface.budgetBytes) {
