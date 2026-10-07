@@ -185,7 +185,7 @@ class WebValidationTests(unittest.TestCase):
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
-        self.assertIn("bun run test", block)
+        self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
         self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)

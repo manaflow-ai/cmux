@@ -265,9 +265,11 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # One bun process per test file with a per-file timeout: a single
+      # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       - name: Test webviews
         working-directory: webviews
-        run: bun run test
+        run: ../scripts/ci/run-webviews-tests.sh
 
       - name: React Doctor
         working-directory: webviews
