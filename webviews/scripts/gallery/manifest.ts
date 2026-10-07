@@ -11,7 +11,8 @@
 // --entries / --variants  comma-separated ids or id prefixes (default: all)
 // --locales  en (default), shipped (21), all (21 + 2 pseudo), or a list
 // --themes   default (Apple System Colors), pair (+ its Light), sample (12), all (every shipped), or a list
-// --frame    window (default: the entry in a real-size cmux window; the viewport is the window)
+// --frame    window (default: the surface at its real pane size in a real-size cmux window; the
+//            viewport is that pane, nothing native is drawn)
 //            or component (the entry alone at a pane width)
 // --windows  window sizes for window mode: 16x9 (default), all, or presets / <w>x<h>
 // --layouts  pane layouts for window mode: one (default), all, or one|two|agent-right
@@ -19,11 +20,11 @@
 // --limit    at most N cases (after the order above)
 import fs from "node:fs";
 import { parseArgs } from "node:util";
-import { readShippedThemes } from "../../dev-server/galleryHost";
+import { readChromeMetrics, readShippedThemes } from "../../dev-server/galleryHost";
 import { LOCALES, PSEUDO_LOCALES, WIDTHS, widthPx, type WidthName } from "../../src/gallery/env";
 import { stageHeight, type GalleryEntry } from "../../src/gallery/format";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark } from "../../src/gallery/theme/ghostty";
-import { PANE_LAYOUTS, WINDOW_PRESETS, windowSize } from "../../src/gallery/window";
+import { entryPaneSize, PANE_LAYOUTS, WINDOW_PRESETS } from "../../src/gallery/window";
 import { loadEntries } from "./entries";
 
 export const SAMPLE_THEMES = [
@@ -110,11 +111,11 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
             const colorScheme = themeIsDark(byName.get(theme)!) ? "dark" : "light";
             const base = { entry: entry.id, variant, locale, theme, colorScheme };
             if ("window" in shape) {
-              const size = windowSize(shape.window);
+              // The viewport is the surface's real pane size in that window (nothing native drawn).
+              const size = entryPaneSize(shape.window, shape.layout as never, "comfortable", readChromeMetrics());
               const id = [entry.id, variant, locale, theme, shape.window, shape.layout]
                 .join("--")
                 .replace(/[^A-Za-z0-9._-]+/g, "_");
-              // The viewport is the window at its real size; the runner renders it at device scale 2.
               cases.push({
                 id,
                 path_or_url: "frame.html",

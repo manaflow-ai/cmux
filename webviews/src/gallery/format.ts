@@ -18,7 +18,42 @@ import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
 import type { ProviderRow } from "../pages/coderouter/types";
 import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
+import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
+import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
+import type { HistoryEntry } from "../pages/history/types";
+import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
+import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
+import type { MockOptions } from "../pages/settings/mockProvider";
+import type { AccountsState, HostLists } from "../pages/settings/ops";
+import type { MockData } from "../pages/passwords/mockProvider";
+
+/** Initial gestures use the real controls, so local forms remain interactive. */
+export type PageFixtureStep = {
+  selector: string;
+  action: "click" | "input" | "change" | "focus" | "select" | "enter" | "wait";
+  value?: string;
+};
+export type SettingsPageVariant = VariantBase & {
+  section: string;
+  focus?: string;
+  options?: MockOptions;
+  host?: Partial<HostLists>;
+  accounts?: AccountsState;
+  /** Public-safe thumbnail data URLs for native-origin backdrop images. */
+  backdropImages?: Record<string, string>;
+  loading?: boolean;
+  steps?: PageFixtureStep[];
+};
+export type PasswordsPageVariant = VariantBase & {
+  data: MockData;
+  loading?: boolean;
+  authenticate?: boolean;
+  gesture?: boolean;
+  confirm?: boolean;
+  failure?: { op: string; code: string; message: string };
+  steps?: PageFixtureStep[];
+};
 
 /** Common to every variant. */
 type VariantBase = {
@@ -26,6 +61,11 @@ type VariantBase = {
   note?: string;
   /** The stage's height in px; else the entry's. */
   height?: number;
+  /**
+   * Steps that drive the mounted page into the variant's state (play.ts): an open menu, a typed
+   * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
+   */
+  play?: Play;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -112,6 +152,46 @@ export type IconPickerPageVariant = VariantBase & {
   mode?: "normal" | "empty";
 };
 
+/** The code editor page (src/pages/editor) on a cmuxPage host with a fixture file. */
+export type EditorPageVariant = VariantBase & {
+  path?: string;
+  text?: string;
+  hash?: string;
+  size?: number;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason;
+  recoveredText?: string;
+  settings?: unknown;
+  files?: Record<string, EditorFile>;
+  recents?: Array<{ path: string; name?: string; openedAt: number }>;
+  /** Leave the first host request pending so the page's loading state remains visible. */
+  loading?: boolean;
+  error?: "network" | "permission" | "not-found" | "not-file" | "too-large";
+  conflict?: { hash: string; text?: string; deleted?: boolean };
+};
+
+/** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
+export type HistoryPageVariant = VariantBase & {
+  entries?: HistoryEntry[];
+  loading?: boolean;
+  error?: "network" | "permission" | "not-found";
+  query?: {
+    text?: string;
+    filter?: HistoryFilter;
+    grouping?: HistoryGrouping;
+    selectIndex?: number;
+    menuIndex?: number;
+  };
+};
+
+/** The keyboard shortcuts page (src/pages/keybindings) on a cmuxPage host with bindings. */
+export type KeybindingsPageVariant = VariantBase & {
+  bindings?: Binding[];
+  loading?: boolean;
+  error?: "network" | "unsupported" | "not-found";
+  query?: { text?: string; conflictsOnly?: boolean; selectIndex?: number; editIndex?: number; record?: boolean };
+};
+
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & { props: P };
 
@@ -138,6 +218,12 @@ type EntryBase<V> = {
   height?: number;
   /** The width presets in px, when the entry's own differ from the host's. */
   widths?: Partial<Record<WidthName, number>>;
+  /** Elements that must not move while a play step acts on something else (play.ts). */
+  anchors?: PlayTarget[];
+  /** Looser play checks than the strict defaults, each with its written reason. */
+  checks?: PlayChecks;
+  /** Opt into viewer choices tied to a tracker item. */
+  pick?: { beadId: string; recommendedId: string };
   variants: Record<string, V>;
 };
 
@@ -149,6 +235,9 @@ export type CloudPageEntry = EntryBase<CloudPageVariant> & { host: "cloud-page" 
 export type CodeRouterPageEntry = EntryBase<CodeRouterPageVariant> & { host: "coderouter-page" };
 export type ChangelogPageEntry = EntryBase<ChangelogPageVariant> & { host: "changelog-page" };
 export type IconPickerPageEntry = EntryBase<IconPickerPageVariant> & { host: "icon-picker-page" };
+export type EditorPageEntry = EntryBase<EditorPageVariant> & { host: "editor-page" };
+export type HistoryPageEntry = EntryBase<HistoryPageVariant> & { host: "history-page" };
+export type KeybindingsPageEntry = EntryBase<KeybindingsPageVariant> & { host: "keybindings-page" };
 export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVariant<P>> & {
   host: "component";
   /** The component; loaded only in a stage frame. */
@@ -159,6 +248,8 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
 
+export type SettingsPageEntry = EntryBase<SettingsPageVariant> & { host: "settings-page" };
+export type PasswordsPageEntry = EntryBase<PasswordsPageVariant> & { host: "passwords-page" };
 export type GalleryEntry =
   | AgentPaneEntry
   | MarkdownPageEntry
@@ -168,8 +259,21 @@ export type GalleryEntry =
   | CodeRouterPageEntry
   | ChangelogPageEntry
   | IconPickerPageEntry
+  | EditorPageEntry
+  | HistoryPageEntry
+  | KeybindingsPageEntry
+  | SettingsPageEntry
+  | PasswordsPageEntry
   | ComponentEntry<any>
   | NativeEntry;
+export const settingsPageEntry = (entry: Omit<SettingsPageEntry, "host">): SettingsPageEntry => ({
+  ...entry,
+  host: "settings-page",
+});
+export const passwordsPageEntry = (entry: Omit<PasswordsPageEntry, "host">): PasswordsPageEntry => ({
+  ...entry,
+  host: "passwords-page",
+});
 export type HostKind = GalleryEntry["host"];
 
 /** Identity helpers that check an entry against its host's variant type. */
@@ -199,6 +303,18 @@ export const iconPickerPageEntry = (entry: Omit<IconPickerPageEntry, "host">): I
   ...entry,
   host: "icon-picker-page",
 });
+export const editorPageEntry = (entry: Omit<EditorPageEntry, "host">): EditorPageEntry => ({
+  ...entry,
+  host: "editor-page",
+});
+export const historyPageEntry = (entry: Omit<HistoryPageEntry, "host">): HistoryPageEntry => ({
+  ...entry,
+  host: "history-page",
+});
+export const keybindingsPageEntry = (entry: Omit<KeybindingsPageEntry, "host">): KeybindingsPageEntry => ({
+  ...entry,
+  host: "keybindings-page",
+});
 export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
   return { ...entry, host: "component" };
 }
@@ -225,7 +341,12 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     if (variants.length === 0) problems.push(`${entry.id}: no variants`);
     for (const name of variants)
       if (!VARIANT_NAME.test(name)) problems.push(`${entry.id}#${name}: variant names are lower kebab case`);
+    if (entry.pick) {
+      if (!/^cx-[a-z0-9.]+$/.test(entry.pick.beadId)) problems.push(`${entry.id}: invalid pick bead id`);
+      if (!variants.includes(entry.pick.recommendedId)) problems.push(`${entry.id}: recommended variant is missing`);
+    }
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
+    for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
   return problems;
 }

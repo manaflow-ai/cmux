@@ -407,6 +407,7 @@ impl V2Tool {
                 idempotency_key,
                 stream: false,
                 resolve: Vec::new(),
+                view: Default::default(),
             },
             session,
             page,

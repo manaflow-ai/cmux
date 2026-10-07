@@ -56,6 +56,17 @@ public final class UpdaterService {
     public internal(set) var whatsNew: ReleaseNotes?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
+    /// UPDATE-CARD: the staged update's display version (kept while it
+    /// installs) and its verified notes, fetched once when it was staged.
+    public internal(set) var stagedVersion: String?
+    public internal(set) var stagedNotes: ReleaseNotes?
+    @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// The staged appcast item's build (replaced by tests).
+    @ObservationIgnored var stagedBuild: () -> String? = { nil }
+    /// `updates.downloadAutomatically` (the card's Automatic Updates box).
+    public internal(set) var automaticUpdates = true
+    /// Writes `updates.downloadAutomatically` (set by the App).
+    @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -127,6 +138,7 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
