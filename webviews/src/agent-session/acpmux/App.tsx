@@ -2166,7 +2166,6 @@ function AcpmuxPane() {
               <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
                 <header className="acpmux-header">
                   <div>
-                    <strong className="acpmux-title">{header.title}</strong>
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">

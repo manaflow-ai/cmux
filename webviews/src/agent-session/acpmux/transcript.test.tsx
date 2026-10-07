@@ -988,7 +988,6 @@ describe("acpmux host handshake", () => {
       },
     };
     const doc = dom.window.document;
-    const title = () => doc.querySelector(".acpmux-title")?.textContent;
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -996,13 +995,13 @@ describe("acpmux host handshake", () => {
     const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(() => title() === "Claude Code" && Boolean(actions()?.["chat.new"]));
-      expect(title()).toBe("Claude Code");
+      await waitFor(() => Boolean(actions()?.["chat.new"]));
+      expect(doc.querySelector(".acpmux-title")).toBeNull();
       // No timer or reply runs between the pick and this read.
       act(() => {
         void actions()["chat.new"]!({ harness: "codex" });
       });
-      expect(title()).toBe("Codex");
+      expect(doc.querySelector(".acpmux-title")).toBeNull();
       expect(sent.some((request) => request.method === "session/new")).toBe(true);
       act(() => {
         void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
@@ -1016,7 +1015,7 @@ describe("acpmux host handshake", () => {
       expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
       await waitFor(() => doc.querySelector(".cv-user__status") === null);
       expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
-      expect(title()).toBe("Codex");
+      expect(doc.querySelector(".acpmux-title")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1084,9 +1083,8 @@ describe("acpmux host handshake", () => {
     const file = { id: "a1", kind: "text", name: "notes.md", mimeType: "text/markdown", size: 2, text: "hi" };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(
-        () => Boolean(actions()?.["chat.new"]) && doc.querySelector(".acpmux-title")?.textContent === "Claude Code",
-      );
+      await waitFor(() => Boolean(actions()?.["chat.new"]));
+      expect(doc.querySelector(".acpmux-title")).toBeNull();
       act(() => {
         void actions()["chat.new"]!({ harness: "gemini" });
         void actions()["chat.send"]!({ text: "read this", attachments: [file] }).catch(() => undefined);
