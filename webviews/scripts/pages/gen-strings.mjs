@@ -67,9 +67,7 @@ export const PAGES = {
   diff: {
     splitLocales: true,
     out: "webviews/src/pages/diff/generated/strings.json",
-    catalogs: [
-      { file: "Resources/Localizable.xcstrings", keys: (all) => all.filter((key) => key.startsWith("diffViewer.")) },
-    ],
+    catalogs: [{ file: "webviews/src/pages/diff/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
