@@ -16,7 +16,7 @@ mod session_ffi;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use cmux_rd_core::reassembly::CompleteFrame;
-use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
+use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
 pub use input::InputChannel;
 pub use input_ffi::*;
@@ -37,6 +37,8 @@ pub const CMUX_RD_ERR_PANIC: i32 = -6;
 
 /// Frame flag of a lossless tile frame (`CMUX_RD_FLAG_TILE`, rd change C3).
 pub const CMUX_RD_FLAG_TILE: u32 = 0x08;
+/// Message kind of a bulk chunk (`CMUX_RD_MESSAGE_BULK`, rd change C5).
+pub const CMUX_RD_MESSAGE_BULK: u32 = 3;
 pub const CMUX_RD_CARRIER_DATAGRAM: u32 = 0;
 pub const CMUX_RD_CARRIER_STREAM: u32 = 1;
 
@@ -429,7 +431,7 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
     // SAFETY: guaranteed by the caller.
     let Some(payload) = (unsafe { bytes_in(payload, len) }) else { return CMUX_RD_ERR_NULL };
     let Ok(kind) = u8::try_from(kind) else { return CMUX_RD_ERR_INVALID };
-    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM) {
+    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
         return CMUX_RD_ERR_INVALID;
     }
     catch_unwind(|| {
