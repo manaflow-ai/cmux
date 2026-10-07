@@ -26,6 +26,8 @@ export interface MembershipCacheService {
   readonly rememberMember: (tenantId: TenantId, userId: UserId, askedAt: Date) => Effect.Effect<void, StoreError>;
   /** Drops the positive answer and records the revocation: no answer asked at or before `at` is valid again. */
   readonly revoke: (tenantId: TenantId, userId: UserId, at: Date) => Effect.Effect<void, StoreError>;
+  /** `revoke` in every tenant that holds an entry for the user (Stack `user.deleted`). */
+  readonly revokeUser: (userId: UserId, at: Date) => Effect.Effect<void, StoreError>;
 }
 
 export class MembershipCache extends Context.Tag("cmux-vm/MembershipCache")<MembershipCache, MembershipCacheService>() {}
@@ -55,6 +57,13 @@ export function makeMemoryMembershipCache() {
         const row = rows.get(key) ?? { askedAt: null, revokedAt: null };
         if (row.revokedAt === null || at > row.revokedAt) row.revokedAt = at;
         rows.set(key, row);
+      }),
+    revokeUser: (userId, at) =>
+      Effect.sync(() => {
+        for (const [key, row] of rows) {
+          if (!key.endsWith(`\u0000${userId}`)) continue;
+          if (row.revokedAt === null || at > row.revokedAt) row.revokedAt = at;
+        }
       }),
   };
   return { service, layer: Layer.succeed(MembershipCache, service), rows };
