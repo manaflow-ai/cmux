@@ -96,9 +96,16 @@ enum MacConversationRowBuilder {
             quote: { store.message(id: $0) }
         ).map { MacPollRowModel.attach(to: $0, store: store) }
         if !store.typingParticipantIDs.isEmpty {
-            rows.append(.typing(participantIDs: store.typingParticipantIDs))
+            // Scheduled (Send Later) messages trail everything, typing included.
+            rows.insert(.typing(participantIDs: store.typingParticipantIDs), at: typingSlot(in: rows))
         }
         return rows
+    }
+
+    /// Where the typing indicator goes: after the transcript, above any
+    /// Send Later rows.
+    static func typingSlot(in rows: [MacConversationRow]) -> Int {
+        rows.firstIndex { if case .sendLaterHeader = $0 { return true } else { return false } } ?? rows.count
     }
 
     /// A thread as Messages shows it in reply focus: the root and its replies

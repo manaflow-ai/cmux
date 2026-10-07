@@ -422,9 +422,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
         var newRows = MacConversationRowBuilder.rows(store: store)
         #if DEBUG
-        if debugTyping, newRows.last.map({ if case .typing = $0 { return false } else { return true } }) ?? true,
+        if debugTyping, !newRows.contains(where: { if case .typing = $0 { return true } else { return false } }),
            let someone = store.info?.participants.first(where: { $0.id != store.meID }) {
-            newRows.append(.typing(participantIDs: [someone.id]))
+            newRows.insert(.typing(participantIDs: [someone.id]), at: MacConversationRowBuilder.typingSlot(in: newRows))
         }
         #endif
         let oldRows = rows
@@ -436,8 +436,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         announceArrivals(newRows.filter { !oldIDs.contains($0.id) }, change: change)
         // A typing indicator that stops without a message collapses first, so
         // the rows above glide down instead of jumping.
-        let typingLeft = oldRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
-        let typingNow = newRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
+        // The indicator sits at the end of the transcript, above any Send Later rows.
+        let isTyping: (MacConversationRow) -> Bool = { if case .typing = $0 { return true } else { return false } }
+        let oldTypingIndex = oldRows.firstIndex(where: isTyping)
+        let typingLeft = oldTypingIndex != nil
+        let typingNow = newRows.contains(where: isTyping)
         if case .live = change {
             let arrivals = newRows.compactMap { row -> String? in
                 // A bubble effect is the row's entrance; other arrivals fade in.
@@ -449,9 +452,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let handoff = typingLeft && !typingNow ? arrivals.last : nil
             for id in arrivals where id != handoff { arrivingRowIDs.insert(id) }
         }
-        let lastIsNew = newRows.last.map { !oldIDs.contains($0.id) } ?? false
-        if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let typing = oldRows.last {
-            newRows.append(typing)
+        let slot = MacConversationRowBuilder.typingSlot(in: newRows)
+        let lastIsNew = slot > 0 && !oldIDs.contains(newRows[slot - 1].id)
+        if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let oldTypingIndex {
+            newRows.insert(oldRows[oldTypingIndex], at: slot)
             animateTyping(to: 0)
         } else if typingNow, !typingLeft {
             typingProgress = 0
@@ -758,7 +762,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         typingLink?.invalidate()
         typingLink = nil
         if typingTarget == 0, store.typingParticipantIDs.isEmpty, !isDebugTyping,
-           rows.last.map({ if case .typing = $0 { return true } else { return false } }) == true {
+           rows.contains(where: { if case .typing = $0 { return true } else { return false } }) {
             storeDidChange(.typing)
         }
     }
