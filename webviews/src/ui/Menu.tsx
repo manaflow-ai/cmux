@@ -137,6 +137,15 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       disabled={disabled}
+      onKeyUp={(event) => {
+        if (event.key !== " ") return;
+        const active = event.currentTarget.ownerDocument.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]')
+          ?? event.currentTarget.ownerDocument.activeElement?.closest<HTMLElement>('[role^="menuitem"]');
+        if (!active) return;
+        event.preventDefault();
+        event.stopPropagation();
+        active.click();
+      }}
       onPointerDown={(event) => {
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();

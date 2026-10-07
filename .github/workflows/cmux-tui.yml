@@ -724,14 +724,15 @@ jobs:
   # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
   # the `test (macos)` matrix entry, which was their only macOS run. The
   # relay builds no Ghostty or Zig code, so this job needs only Rust.
-  # Attempt 1 runs on the owned AWS runners (aws-m4pro-7..9), as the
-  # cmux-tui-artifacts macOS legs do (7e6904a4); a rerun goes back to the
+  # Attempt 1 takes the owned AWS minis through CI_AWS_SIDE_RUNNER
+  # (CI_SIDE_LANE_RUNNER when it is empty); workflow text never names an owned
+  # pool label (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the
   # background lane.
   macos-relay:
     name: chatmux-relay tests (macOS)
     needs: validate-inputs
     if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && 'glaeda-aws-std-xcode-26.6' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

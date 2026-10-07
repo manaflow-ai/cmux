@@ -2,7 +2,6 @@
   "comment": "Components and pages with no gallery entry yet (test/gallery-coverage.test.ts). Shrink it: add an entry, then rerun with CMUX_GALLERY_UPDATE_ALLOWLIST=1. `owners` names the lane that writes the entries under a path prefix; do not write those yourself.",
   "owners": {
     "agent-session/acpmux/ModelPicker": "Leo: composer pickers (entry agent-pane.model-picker)",
-    "agent-session/acpmux/summary/": "Leo: subagent group (entry agent-pane.subagents)",
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
@@ -40,10 +39,8 @@
     "agent-session/acpmux/ModelPickerShell.tsx#ModelPickerShell",
     "agent-session/acpmux/NewTabPage.tsx#KindIcon",
     "agent-session/acpmux/NewTabPage.tsx#NewTabPage",
-    "agent-session/acpmux/ProjectChooser.tsx#ProjectChooser",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
-    "agent-session/acpmux/SearchChats.tsx#SearchChats",
     "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/TrustAsk.tsx#TrustAsk",
@@ -122,10 +119,6 @@
     "agent-session/acpmux/shell/MoveRow.tsx#MoveRow",
     "agent-session/acpmux/shell/ShellRow.tsx#ShellActionsContext",
     "agent-session/acpmux/shell/ShellRow.tsx#ShellRow",
-    "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
-    "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
-    "agent-session/acpmux/summary/SummaryPopover.tsx#SummaryPopover",
-    "agent-session/acpmux/summary/SummarySection.tsx#SummarySection",
     "agent-session/shared/AgentMark.tsx#AgentMark",
     "comments/CommentComposer.tsx#CommentComposer",
     "comments/CommentsSection.tsx#CommentsSidebarSection",

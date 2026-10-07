@@ -19,6 +19,8 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     // Retired (S1, DOGFOOD-CALL-2026-10-06): "new_workspace" and
     // "import_sync" were sidebar items; their actions stay in the palette
     // and menus, and stored layouts drop them (`retiredItemOps`).
+    /// Search Chats: the command palette's agent chats page.
+    case searchChats = "search_chats"
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
