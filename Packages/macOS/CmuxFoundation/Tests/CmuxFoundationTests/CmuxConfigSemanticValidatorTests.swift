@@ -41,6 +41,15 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("accepts an inline VS Code folder shortcut binding")
+    func acceptsInlineVSCodeFolderShortcut() throws {
+        let result = try issues([
+            "schemaVersion": 1,
+            "shortcuts": ["bindings": ["openFolderInVSCodeInline": "cmd+shift+o"]],
+        ])
+        #expect(result.isEmpty)
+    }
+
     @Test("accepts canonical classic catalog sections")
     func acceptsCanonicalClassicCatalogSections() throws {
         let result = try issues([
