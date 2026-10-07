@@ -27,9 +27,7 @@ struct InstallHostAccountTests {
         #expect(principal == MobileLinkHostPrincipal(hostID: "host_m1", accountUserID: "user_1", install: "inst_mac1",
                                                      environment: "staging", apiBaseURL: URL(string: "https://api.example")!))
         let registration = try #require(await api.registrations.first)
-        #expect(registration["kind"] as? String == "mac")
-        #expect(registration["platform"] as? String == "macos")
-        #expect(registration["op_classes"] == nil)
+        #expect(registration == ["kind": "mac", "platform": "macos", "op_classes": "default"])
         let enrollment = try #require(await api.enrollments.first)
         #expect(enrollment.name == "Studio")
         #expect(enrollment.bearer?.hasPrefix("e30.") == true)

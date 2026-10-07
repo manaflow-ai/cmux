@@ -5,7 +5,7 @@ import Foundation
 /// The API Worker routes a Mac install touches: `user.ensure`,
 /// `install.register`, the challenge and token mint, and `host.enroll`.
 actor FakeAPI: InstallAuthTransport {
-    var registrations: [[String: Any]] = []
+    var registrations: [[String: String]] = []
     var enrollments: [(name: String, key: String, bearer: String?)] = []
     var installKey: P256.Signing.PublicKey?
     var mints = 0
@@ -28,7 +28,8 @@ actor FakeAPI: InstallAuthTransport {
             case "user.ensure":
                 return try reply(["ok": true, "value": ["id": "user_1", "stack_user_id": "stack_1"]])
             case "install.register":
-                registrations.append(params)
+                registrations.append(["kind": params["kind"] as? String ?? "", "platform": params["platform"] as? String ?? "",
+                                      "op_classes": params["op_classes"] == nil ? "default" : "narrowed"])
                 let jwk = params["public_jwk"] as! [String: String]
                 let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
                 installKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
