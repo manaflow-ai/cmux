@@ -133,14 +133,27 @@ export default agentPaneEntry({
     "access-menu": {
       note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
       snapshot: chat(finished, {
-        modes: {
-          currentModeId: "ask",
-          availableModes: [
-            { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
-            { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
-            { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-            { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
-          ],
+        summary: {
+          sessionId: "gallery-access",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          usage: { used: 48_000, size: 200_000 },
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "ask",
+            availableModes: [
+              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
+              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
+              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
+              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+            ],
+          },
         },
       }),
       play: async (ctx) => {
