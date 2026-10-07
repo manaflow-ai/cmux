@@ -44,6 +44,8 @@ let package = Package(
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSSSH",
+                "CmuxiOSSSHCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -171,6 +173,20 @@ let package = Package(
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Hosts tab, host editor, keys, trust prompts and SSH terminal screen.
+        .target(
+            name: "CmuxiOSSSH",
+            dependencies: [
+                "CmuxiOSSSHCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                "CmuxiOSTerminal",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Root navigation, placeholder screens, feature flags, DEV sources.

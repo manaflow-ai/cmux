@@ -30,7 +30,7 @@ C5 (SSH workspaces in the list) and C4 (SFTP) on top of the same connection owne
 | `CmuxiOSSSHCore` | config parser, known_hosts file and TOFU verifier, device-local host settings, secret vault, `LocalHostsStore`, `SSHTerminalByteSource`, session state | Foundation, FeatureKit, CmuxMobileSSH, RenderCore |
 | `CmuxiOSSSH` | Hosts tab, host editor, config import, keys screen, trust prompts, SSH terminal screen | UIKit, SwiftUI, Core, Design, CmuxiOSTerminal |
 
-The shell gets the Hosts screen by injection: `ShellContent` takes `ShellScreens` (tab to factory)
+The shell gets the Hosts screen by injection: `ShellContent(screens:)` takes tab-to-factory closures
 from the composition root, so `CmuxiOSShell` never imports a feature module and lanes stop colliding
 on one switch.
 

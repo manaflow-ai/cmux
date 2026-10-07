@@ -1,6 +1,7 @@
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
 import CmuxiOSShell
+import CmuxiOSSSH
 import UIKit
 
 /// Builds the signed-in shell from the container: Home in its navigation
@@ -16,7 +17,11 @@ enum ShellComposition {
             developer: developerScreen(container: container),
             signOut: { [weak container] in await container?.auth.signOut() }
         )
-        let content = ShellContent(sources: sources, home: home, settings: settings)
+        // Lane C9: the Hosts tab over this account's host records and the
+        // device's SSH logins, keys and pinned host keys.
+        let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice)
+        let content = ShellContent(sources: sources, home: home, settings: settings,
+                                   screens: [.hosts: { ssh.makeHostsScreen() }])
         return ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),

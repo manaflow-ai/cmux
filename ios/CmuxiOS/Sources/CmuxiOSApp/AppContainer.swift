@@ -6,6 +6,7 @@ import CmuxiOSFeatureKit
 import CmuxiOSIdentity
 import CmuxiOSPush
 import CmuxiOSShell
+import CmuxiOSSSHCore
 import Foundation
 import OSLog
 import UIKit
@@ -23,7 +24,9 @@ final class AppContainer {
     let sourceModes: FeatureSourceModeStore
     /// Real seam implementations. Each feature lane sets its slot here when
     /// its carrier lands; an empty slot keeps that seam on its mock.
-    let realFactories = RealFeatureFactories()
+    let realFactories: RealFeatureFactories
+    /// SSH state that stays on this device (lane C9): logins, keys, pins.
+    let sshDevice: SSHDeviceState
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
@@ -57,6 +60,14 @@ final class AppContainer {
         let isDebug = false
         #endif
         flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        // Lane C9: SSH and direct host records live on this device until B1
+        // syncs them; one owner instance per process, shared by every shell.
+        let sshDirectory = Self.sshDirectory()
+        sshDevice = SSHDeviceState(directory: sshDirectory)
+        let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
+        var factories = RealFeatureFactories()
+        factories.hosts = { localHosts }
+        realFactories = factories
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
@@ -109,6 +120,13 @@ final class AppContainer {
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
         updateRequired = requirement
+    }
+
+    /// Application Support/ssh: SSH records and device state (no secrets).
+    private static func sshDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("ssh", isDirectory: true)
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
