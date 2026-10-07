@@ -19,7 +19,7 @@ nonisolated final class CompletionProcess: Sendable {
 
     private init(pid: pid_t) { self.pid = pid }
 
-    static func run(path: String, arguments: [String], environment: [String: String], folder: String)
+    static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration)
         async throws(AgentPaneShellCompletion.Failure) -> Data {
         var pipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
@@ -37,7 +37,7 @@ nonisolated final class CompletionProcess: Sendable {
         let output: Data? = await withCheckedContinuation { continuation in
             process.state.withLock { $0.continuation = continuation }
             process.start(reading: pipe[0])
-            deadline.schedule(after: AgentPaneShellCompletion.deadline) { process.give(up: true) }
+            deadline.schedule(after: timeout) { process.give(up: true) }
         }
         deadline.cancel()
         guard let output else { throw .timedOut }

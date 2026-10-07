@@ -466,6 +466,8 @@ final class RowCell: UICollectionViewCell {
     let receiptOld = CALayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
+    /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
+    var markdownOverlay: MarkdownOverlay?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -580,6 +582,8 @@ final class RowCell: UICollectionViewCell {
         motionChecked = -1
         key = ""
         tiled?.detach(self)
+        markdownOverlay?.detach()
+        CustomRows.host?.detach(self)
         dropWant()
     }
 
@@ -645,7 +649,7 @@ final class RowCell: UICollectionViewCell {
         CATransaction.setDisableActions(true)
         // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
         configureBadge(spec)
-        if TiledBubble.applies(spec) { TiledBubble.configure(self, spec); CATransaction.commit(); return }
+        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
@@ -723,6 +727,8 @@ final class RowCell: UICollectionViewCell {
             }
         }
         receiptOld.contents = nil
+        MarkdownOverlay.configure(self, spec)
+        CustomRows.host?.configure(self, spec)
         CATransaction.commit()
     }
 
@@ -742,6 +748,7 @@ final class RowCell: UICollectionViewCell {
         MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
+        CustomRows.host?.configure(self, spec)
     }
 
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
