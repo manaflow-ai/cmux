@@ -51,12 +51,18 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(opened: string[], shown: readonly AcpmuxRow[] = rows, changeFiles?: readonly TurnFile[]) {
+async function render(
+  opened: string[],
+  shown: readonly AcpmuxRow[] = rows,
+  changeFiles?: readonly TurnFile[],
+) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) })),
+      root.render(
+        createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) }),
+      ),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
@@ -110,11 +116,20 @@ test("the Changes files match the totals' turn", async () => {
       version: 1,
       at: 3,
       kind: "activity",
-      items: [tool({ id: "edit-2", kind: "edit", title: "Write", diffs: [{ path: "/repo/latest.md", newText: "new\n" }] })],
+      items: [
+        tool({ id: "edit-2", kind: "edit", title: "Write", diffs: [{ path: "/repo/latest.md", newText: "new\n" }] }),
+      ],
     },
   ] satisfies AcpmuxRow[];
   const { button, popover, unmount } = await render(opened, shown, [
-    { path: "/repo/latest.md", displayPath: "latest.md", edits: [], additions: 1, deletions: 0, created: true },
+    {
+      path: "/repo/latest.md",
+      displayPath: "latest.md",
+      edits: [],
+      additions: 1,
+      deletions: 0,
+      created: true,
+    },
   ]);
   await act(async () => button.click());
   const fileLinks = [...popover()!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-link[title]")];
