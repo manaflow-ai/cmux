@@ -10,26 +10,43 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
+    let sourcePanelID: UUID?
+    let rootDirectory: String?
 
     @Published private(set) var focusFlashToken: Int = 0
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
-    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    private weak var toolFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
+    private var fileWorkspaceModelStorage: FileWorkspaceModel?
     private var sessionIndexStoreStorage: SessionIndexStore?
+    private var gitGraphModelStorage: GitGraphPanelModel?
+    private var herdModelStorage: HerdPanelModel?
+    private var remoteFileOpenTask: Task<Void, Never>?
     private var workspaceObservationCancellable: AnyCancellable?
     private var rootSyncTask: Task<Void, Never>?
     private var rootSyncGeneration: UInt64 = 0
 
-    init(workspace: Workspace, mode: RightSidebarMode) {
+    init(
+        workspace: Workspace,
+        mode: RightSidebarMode,
+        sourcePanelID: UUID? = nil,
+        rootDirectory: String? = nil
+    ) {
         self.id = UUID()
         self.mode = mode
+        self.sourcePanelID = sourcePanelID
+        self.rootDirectory = rootDirectory
+        if mode == .herd {
+            self.herdModelStorage = HerdPanelModel()
+        }
         reattach(to: workspace)
     }
 
     deinit {
+        remoteFileOpenTask?.cancel()
         rootSyncTask?.cancel()
     }
 
@@ -51,6 +68,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return state
     }
 
+    var fileWorkspaceModel: FileWorkspaceModel {
+        if let model = fileWorkspaceModelStorage { return model }
+        let model = FileWorkspaceModel()
+        fileWorkspaceModelStorage = model
+        return model
+    }
+
     var sessionIndexStore: SessionIndexStore {
         if let store = sessionIndexStoreStorage { return store }
         let store = SessionIndexStore()
@@ -59,6 +83,23 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             syncSessionIndexRoot(from: workspace, store: store)
         }
         return store
+    }
+
+    var gitGraphModel: GitGraphPanelModel {
+        if let model = gitGraphModelStorage { return model }
+        let model = GitGraphPanelModel()
+        gitGraphModelStorage = model
+        if let workspace {
+            syncGitGraphRoot(from: workspace, model: model)
+        }
+        return model
+    }
+
+    var herdModel: HerdPanelModel {
+        guard let model = herdModelStorage else {
+            preconditionFailure("Herd model requested for a non-Herd tool panel")
+        }
+        return model
     }
 
     var displayTitle: String { mode.label }
@@ -77,8 +118,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerContainerView = container
     }
 
-    fileprivate func attachSessionIndexFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
-        sessionIndexFocusAnchorView = anchor
+    fileprivate func attachToolFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+        toolFocusAnchorView = anchor
     }
 
     func syncWorkspaceRoot(from workspace: Workspace) {
@@ -89,14 +130,24 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .machines, .customSidebar:
+        case .gitGraph:
+            guard let model = gitGraphModelStorage else { return }
+            syncGitGraphRoot(from: workspace, model: model)
+        case .herd, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
 
     func openFilePreview(_ filePath: String) {
+        if mode == .files {
+            openFileInWorkspace(filePath)
+            return
+        }
+
         guard let workspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let paneId = workspace.paneId(forPanelId: id)
+                ?? workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
         FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
@@ -106,17 +157,52 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             })
     }
 
+    private func openFileInWorkspace(_ filePath: String) {
+        guard let workspace else { return }
+
+        remoteFileOpenTask?.cancel()
+        remoteFileOpenTask = nil
+        fileWorkspaceModel.cancelRemoteFileOpenRequest()
+
+        if workspace.isRemoteWorkspace {
+            let store = fileExplorerStore
+            let requestID = fileWorkspaceModel.beginRemoteFileOpenRequest()
+            remoteFileOpenTask = Task { [weak self, weak workspace, weak store] in
+                guard let self, let workspace, let store else { return }
+                do {
+                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
+                    guard !Task.isCancelled else { return }
+                    self.fileWorkspaceModel.completeRemoteFileOpenRequest(
+                        requestID,
+                        workspaceID: workspace.id,
+                        filePath: localURL.path
+                    )
+                } catch {
+                    guard !Task.isCancelled,
+                          self.fileWorkspaceModel.failRemoteFileOpenRequest(requestID) else { return }
+                    NSSound.beep()
+                }
+            }
+            return
+        }
+
+        fileWorkspaceModel.openFile(workspaceID: workspace.id, filePath: filePath)
+    }
+
     var isFocusedInWorkspace: Bool {
         workspace?.focusedPanelId == id
     }
 
     func close() {
+        remoteFileOpenTask?.cancel()
+        remoteFileOpenTask = nil
         rootSyncGeneration &+= 1
         rootSyncTask?.cancel(); rootSyncTask = nil
         fileExplorerContainerView = nil
-        sessionIndexFocusAnchorView = nil
+        toolFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
+        fileWorkspaceModelStorage?.close()
         workspaceObservationCancellable = nil
     }
 
@@ -126,11 +212,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             _ = fileExplorerContainerView?.focusOutline()
         case .find:
             _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions:
-            guard let anchor = sessionIndexFocusAnchorView,
+        case .sessions, .herd:
+            guard let anchor = toolFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .machines, .customSidebar:
+        case .gitGraph, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -147,12 +233,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         _ = window
         switch mode {
         case .files, .find:
-            guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
+            let explorerOwnsFocus = fileExplorerContainerView?.ownsKeyboardFocus(responder) == true
+            let editorOwnsFocus = mode == .files
+                && fileWorkspaceModelStorage?.ownsFocus(responder, in: window) == true
+            guard explorerOwnsFocus || editorOwnsFocus else { return nil }
             return .panel
-        case .sessions:
-            guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
+        case .sessions, .herd:
+            guard toolFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .machines, .customSidebar:
+        case .gitGraph, .feed, .dock, .machines, .customSidebar:
             return nil
         }
     }
@@ -187,7 +276,45 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
-        store.syncWorkspaceRoot(from: workspace)
+
+        // The shared resolver owns Cloud authority, observation and retry.
+        // Local and SSH roots stay pane-local: they follow this pane's terminal directory.
+        let resolved = FileExplorerWorkspaceRootResolver().resolve(workspace)
+        switch resolved {
+        case .remoteCloud:
+            store.syncWorkspaceRoot(from: workspace)
+        case .none:
+            store.applyWorkspaceRoot(.none)
+        case .remoteSSH(let workspaceId, let connection, let displayTarget, _, let isAvailable, let unavailableDetail):
+            store.workspaceRootObservation?.stop()
+            store.workspaceRootObservation = nil
+            store.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: workspaceId,
+                    connection: connection,
+                    displayTarget: displayTarget,
+                    rootPath: resolvedFileExplorerDirectory(from: workspace),
+                    isAvailable: isAvailable,
+                    unavailableDetail: unavailableDetail
+                )
+            )
+        case .local(let workspaceId, let fallbackPath):
+            store.workspaceRootObservation?.stop()
+            store.workspaceRootObservation = nil
+            store.applyWorkspaceRoot(
+                .local(
+                    workspaceId: workspaceId,
+                    path: resolvedFileExplorerDirectory(from: workspace) ?? fallbackPath
+                )
+            )
+        }
+    }
+
+    private func resolvedFileExplorerDirectory(from workspace: Workspace) -> String? {
+        workspace.repositoryToolDirectory(
+            sourcePanelID: sourcePanelID,
+            rootDirectory: rootDirectory
+        )
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
@@ -199,6 +326,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
     }
+
+    private func syncGitGraphRoot(from workspace: Workspace, model: GitGraphPanelModel) {
+        model.setDirectory(
+            resolvedFileExplorerDirectory(from: workspace),
+            isRemote: workspace.usesRemoteDirectoryProvenance
+        )
+    }
 }
 
 struct RightSidebarToolPanelView: View {
@@ -206,6 +340,8 @@ struct RightSidebarToolPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
+    let appearance: PanelAppearance
     let resolvedChromeBackgroundColor: NSColor
     let onRequestPanelFocus: () -> Void
 
@@ -229,14 +365,28 @@ struct RightSidebarToolPanelView: View {
     private var content: some View {
         switch panel.mode {
         case .files:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: panel.openFilePreview,
-                presentation: .files,
-                placement: .pane,
+            FileWorkspacePanelView(
+                model: panel.fileWorkspaceModel,
+                explorerStore: panel.fileExplorerStore,
+                explorerState: panel.fileExplorerState,
+                isFocused: isFocused,
+                isVisibleInUI: isVisibleInUI,
+                portalPriority: portalPriority,
+                appearance: appearance,
+                onOpenFile: panel.openFilePreview,
+                onRequestPanelFocus: requestPanelFocusIfNeeded,
+                onExplorerContainerChange: panel.attachFileExplorerContainer
+            )
+        case .gitGraph:
+            GitGraphPanelView(
+                model: panel.gitGraphModel,
+                onFocus: requestPanelFocusIfNeeded
+            )
+        case .herd:
+            HerdPanelView(
+                model: panel.herdModel,
                 onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
+                onFocusAnchorChange: panel.attachToolFocusAnchor
             )
         case .find:
             FileExplorerPanelView(
@@ -263,7 +413,7 @@ struct RightSidebarToolPanelView: View {
                 }
             )
             .background(
-                RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
+                RightSidebarToolFocusAnchor(onViewChange: panel.attachToolFocusAnchor)
                     .frame(width: 0, height: 0)
             )
         case .machines:
