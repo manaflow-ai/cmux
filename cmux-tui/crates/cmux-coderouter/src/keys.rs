@@ -126,7 +126,7 @@ impl KeyRing {
         getrandom::fill(&mut raw)?;
         let secret = Secret::new(raw);
         raw.zeroize();
-        let digest = self.digest(id, secret.expose());
+        let digest = self.digest(id, secret.expose()).ok_or(getrandom::Error::UNSUPPORTED)?;
         self.keys.insert(id, Record { digest, scope });
         let clear = Secret::new(format!("{KEY_PREFIX}{id}_{}", hex(secret.expose())));
         Ok((id, clear))
@@ -155,7 +155,7 @@ impl KeyRing {
     pub fn validate(&self, presented: &str, now: u64) -> Result<(KeyId, &KeyScope), KeyError> {
         let (id, secret) = parse(presented).ok_or(KeyError::Malformed)?;
         let record = self.keys.get(&id).ok_or(KeyError::Unknown)?;
-        let mut mac = self.mac(id);
+        let mut mac = self.mac(id).ok_or(KeyError::Mismatch)?;
         mac.update(secret.expose());
         mac.verify_slice(&record.digest).map_err(|_| KeyError::Mismatch)?;
         if record.scope.expires_at.is_some_and(|expiry| now >= expiry) {
@@ -164,18 +164,17 @@ impl KeyRing {
         Ok((id, &record.scope))
     }
 
-    fn mac(&self, id: KeyId) -> HmacSha256 {
-        // HMAC accepts a key of any length, so this cannot fail.
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(self.install_secret.expose())
-            .unwrap_or_else(|_| unreachable!("HMAC takes any key length"));
+    fn mac(&self, id: KeyId) -> Option<HmacSha256> {
+        // HMAC accepts a key of any length; `None` is unreachable in practice.
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(self.install_secret.expose()).ok()?;
         mac.update(&id.0);
-        mac
+        Some(mac)
     }
 
-    fn digest(&self, id: KeyId, secret: &[u8]) -> [u8; 32] {
-        let mut mac = self.mac(id);
+    fn digest(&self, id: KeyId, secret: &[u8]) -> Option<[u8; 32]> {
+        let mut mac = self.mac(id)?;
         mac.update(secret);
-        mac.finalize().into_bytes().into()
+        Some(mac.finalize().into_bytes().into())
     }
 }
 

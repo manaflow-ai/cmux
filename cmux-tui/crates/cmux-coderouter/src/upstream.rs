@@ -137,10 +137,9 @@ pub struct Upstream {
 
 impl Upstream {
     /// The provider's real endpoint for `auth`.
-    pub fn new(auth: UpstreamAuth) -> Self {
-        let base = Url::parse(auth.default_base())
-            .unwrap_or_else(|_| unreachable!("built-in base URLs parse"));
-        Self { base, auth }
+    pub fn new(auth: UpstreamAuth) -> Result<Self, UpstreamError> {
+        let base = auth.default_base();
+        Self::with_base(base, auth)
     }
 
     /// `auth` at `base` (an https URL, or http on a loopback host).
