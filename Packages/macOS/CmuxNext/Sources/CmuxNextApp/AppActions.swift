@@ -70,6 +70,7 @@ enum AppActions {
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
         TopPages.installTabTargetReasons(services)
+        HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()
         DestructiveConfirmation.install(services)

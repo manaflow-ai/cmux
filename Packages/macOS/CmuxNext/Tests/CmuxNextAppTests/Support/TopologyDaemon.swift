@@ -131,7 +131,8 @@ nonisolated final class TopologyDaemon: Sendable {
             commands.names.withLock { $0.append(request["cmd"]?.stringValue ?? "") }
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = (DaemonCapabilities.shared.required + extraCapabilities).map { "\"\($0)\"" }.joined(separator: ",")
+                // tab-drag-v1 advertises move-tab-to-new-workspace, served below.
+                let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.tabDrag] + extraCapabilities).map { "\"\($0)\"" }.joined(separator: ",")
                 let revision = state.tree.withLock { $0.revision }
                 return ok(#"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":\#(revision)}"#)
             case "list-workspaces":

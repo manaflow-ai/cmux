@@ -38,11 +38,19 @@ struct PasswordCSVFiles {
         }
     }
 
+    /// Counts only. Sign-ins saved with another password get their own line:
+    /// cmux kept the saved password, and the person should know they differ.
+    static func summaryLines(_ report: PasswordImportReport) -> [String] {
+        var lines = [PasswordCSVStrings.counts(imported: report.imported, notImported: report.notImportedOtherThanConflicts)]
+        if report.conflicts > 0 { lines.append(PasswordCSVStrings.conflicts(report.conflicts)) }
+        return lines
+    }
+
     /// The counts, and the file's fate: it still holds every password in plain text.
     static func offerTrash(_ url: URL, report: PasswordImportReport) {
         let spec = CmuxDialogSpec(
             title: PasswordCSVStrings.doneTitle,
-            lines: [PasswordCSVStrings.counts(imported: report.imported, notImported: report.notImported), PasswordCSVStrings.plaintextWarning],
+            lines: summaryLines(report) + [PasswordCSVStrings.plaintextWarning],
             buttons: [CmuxDialogButton(id: "keep", title: PasswordCSVStrings.keepFile, role: .cancel),
                       CmuxDialogButton(id: "trash", title: PasswordCSVStrings.moveToTrash, role: .default)],
             identifier: "cmux.dialog.passwordCSV.trash")
@@ -63,6 +71,9 @@ enum PasswordCSVStrings {
     static func counts(imported: Int, notImported: Int) -> String {
         String(format: t("passwords.csv.counts", "Imported: %1$lld. Not imported: %2$lld (already saved, repeated, or not a website sign-in)."),
                imported, notImported)
+    }
+    static func conflicts(_ count: Int) -> String {
+        String(format: t("passwords.csv.conflicts", "Already saved with a different password: %lld. cmux kept the saved password."), count)
     }
     static var plaintextWarning: String {
         t("passwords.csv.plaintext", "The CSV file still holds these passwords in plain text. Move it to the Trash?")
