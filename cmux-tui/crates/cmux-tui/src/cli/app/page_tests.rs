@@ -263,3 +263,54 @@ fn input_verbs_take_the_old_cli_forms() {
         assert!(tab_page(bad).is_err(), "{bad:?}");
     }
 }
+
+#[test]
+fn browser_tab_verbs_list_open_select_and_close_app_tabs() {
+    let (method, params) =
+        call(parse(&args(&["browser", "page", "tabs", "--all"])).unwrap().unwrap());
+    assert_eq!(method, "browser.page.tabs");
+    assert_eq!(params, json!({ "all": true }));
+    // Open, select and close wait for the app's action unless --no-wait.
+    let command =
+        parse(&args(&["browser", "tab_01ab", "new-tab", "https://cmux.com"])).unwrap().unwrap();
+    assert_eq!(call_timeout(&command), Some(WAITING_RUN_TIMEOUT));
+    assert_eq!(
+        call(command),
+        ("browser.page.new_tab", json!({ "tab": "tab_01ab", "url": "https://cmux.com" }))
+    );
+    assert_eq!(
+        call(parse(&args(&["browser", "page", "new-tab"])).unwrap().unwrap()),
+        ("browser.page.new_tab", json!({}))
+    );
+    for verb in ["select", "switch"] {
+        assert_eq!(
+            call(parse(&args(&["browser", "tab_01ab", verb])).unwrap().unwrap()),
+            ("browser.page.select", json!({ "tab": "tab_01ab" }))
+        );
+    }
+    assert_eq!(
+        call(parse(&args(&["browser", "tab_01ab", "close"])).unwrap().unwrap()),
+        ("browser.page.close", json!({ "tab": "tab_01ab" }))
+    );
+    assert!(parse(&args(&["browser", "page", "close", "tab_02"])).is_err());
+    assert!(parse(&args(&["browser", "page", "tabs", "--bogus"])).is_err());
+    let command = parse(&args(&["browser", "tab_01ab", "close", "--no-wait"])).unwrap().unwrap();
+    assert_eq!(call_timeout(&command), Some(READ_TIMEOUT));
+    assert_eq!(call(command), ("browser.page.close", json!({ "tab": "tab_01ab", "wait": false })));
+    assert!(parse(&args(&["browser", "tab_01ab", "select", "--all"])).is_err());
+}
+
+/// A retried open, select or close is one run: each carries a key.
+#[test]
+fn browser_tab_runs_carry_an_idempotency_key() {
+    let response =
+        json!({ "id": 1, "ok": true, "result": { "ran": true, "created": ["tab_02cd"] } });
+    let (socket, app) = fake_app(vec![response]);
+    let command =
+        parse(&args(&["browser", "page", "new-tab", "https://cmux.com"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(request["method"], "browser.page.new_tab");
+    assert!(request["params"]["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
+}
