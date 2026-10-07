@@ -1,30 +1,28 @@
-# App FFI release: publishing by hand
+# App FFI release: publishing
 
 `.github/workflows/app-ffi-release.yml` builds `CCmuxAppFFI.xcframework` on every
-FFI source push to `feat-cmux-next` and tries to publish it as the prerelease
-`cmux-app-ffi-<full sha>`. The publish job fails loud with "Publish by hand"
-when it cannot create the release:
+FFI source push to `feat-cmux-next` and publishes it as the prerelease
+`cmux-app-ffi-<full sha>`. The publish job creates the release with a token of
+the FFI release GitHub App, minted in the `app-ffi-release` environment:
 
-- workflow files changed since the last FFI tag (GitHub refuses a
-  `GITHUB_TOKEN` tag over workflow-file changes, run 37272232472, HTTP 403);
-- the create returns an error such as HTTP 403;
-- the job finishes without a release (run 37556534995).
+- `GITHUB_TOKEN` cannot do it. GitHub refuses a `GITHUB_TOKEN` tag over
+  workflow-file changes (run 37272232472, HTTP 403), and ruleset 24624526
+  "cmux-app-ffi tags: admin create only" admits only admins and its bypass
+  list. The App has contents and workflows write on this repository only and
+  is in that bypass list.
+- Ruleset 24624527 "cmux-app-ffi tags: immutable" (update and deletion, no
+  bypass) still applies to the App: a wrong release cannot be replaced.
+- The App's id and key (`CMUX_APP_FFI_RELEASE_APP_ID`,
+  `CMUX_APP_FFI_RELEASE_APP_KEY`) live only in the `app-ffi-release`
+  environment, whose branch policy admits `feat-cmux-next`. Only the publish
+  job reads them (tests/test_app_ffi_release_workflow.py).
 
-The hand publish is the accepted path (coordinator decision 2026-10-07; revisit
-an App token if this happens more than about twice a week). The CI lead runs it,
-never a rebuild. Every check below is required; if one fails, stop and report.
-
-FFI tags `cmux-app-ffi-*` are protected by two repository rulesets that the
-coordinator applies:
-
-- 24624526 "cmux-app-ffi tags: admin create only" (creation; admins bypass).
-- 24624527 "cmux-app-ffi tags: immutable" (update and deletion; no bypass).
-
-The workflow's `GITHUB_TOKEN` therefore cannot create these tags, and the hand
-publish by an admin is the path. A wrong release cannot be fixed by replacing
-it, so verify before `gh release create`. Emergency exit only: an admin deletes
-ruleset 24624527 (the rollback lines are in the coordinator's window log), then
-restores it.
+The publish job still fails loud with "Publish by hand" when it cannot create
+the release (the App token cannot be minted, the create returns an error, or
+the job ends without a release, run 37556534995). Then the CI lead publishes by
+hand, never from a rebuild. Every check below is required; if one fails, stop
+and report. Emergency exit only: an admin deletes ruleset 24624527 (the
+rollback lines are in the coordinator's window log), then restores it.
 
 ## Steps
 
