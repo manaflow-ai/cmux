@@ -31,6 +31,7 @@ extension SidebarBridge {
     /// Runs item `id` as a click does: a top-section item that stands for a
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
+        if id == WhatsNewPage.sidebarItemID { WhatsNewPage.open(services, in: state); return }
         guard let item = model.layout.item(id) else { return }
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
            TopPages.show(route, services: services, in: state) != nil { return }
