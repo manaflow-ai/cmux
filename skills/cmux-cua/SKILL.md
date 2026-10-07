@@ -19,6 +19,13 @@ helper has its own TCC identity, so Accessibility and Screen Recording never
 belong to the main cmux app and granting Screen Recording never requires
 restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
+The tools never act on the user's cmux (`com.cmuxterm.app` and every
+`com.cmuxterm.app.*` bundle and window), other terminal apps, the helper itself,
+or macOS security surfaces: such a call returns `target_not_allowed` (its
+`structuredContent.reason` says which) and must not be retried. A session may
+drive its own tagged cmux DEV app only when its profile or preset env sets
+`CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS=com.cmuxterm.app.debug.<tag>`.
+
 Do not invoke this skill, start its helper, request permissions, or perform a
 GUI action when the user is only reading, asking about, quoting, or mentioning
 cmux Computer Use. Wait for a direct user request to use cmux Computer Use; missing tools

@@ -35,6 +35,7 @@ mod stream;
 #[cfg(target_os = "linux")]
 mod testapp;
 mod token;
+mod upstream;
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
