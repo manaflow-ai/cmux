@@ -43,6 +43,8 @@ extension AgentPaneView {
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
         let line = switch asked {
         case .option(let id, let value): String(format: confirmOptionMessage, id, value)
+        // A mode never reaches the sheet (`needsSheet`); named like an option if it did.
+        case .mode(let mode): String(format: confirmOptionMessage, "mode", mode)
         }
         return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])

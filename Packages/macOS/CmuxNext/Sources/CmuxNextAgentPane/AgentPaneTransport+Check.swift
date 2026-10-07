@@ -78,12 +78,10 @@ extension AgentPaneTransport {
             }
             facts.harnessEnable = method == "_acpmux/harness_enable"
         }
-        // A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access); another
-        // option that is not free still asks.
-        if let requested = AcpmuxPaneMethods.requestedSetting(frame), requested.configId != "mode" {
+        if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
             let value = requested.value ?? configValueText(frame)
             facts.setting = Setting(sessionId: requested.sessionId, configId: requested.configId, value: requested.value,
-                                    asked: .option(id: requested.configId, value: value))
+                                    asked: requested.configId == "mode" ? .mode(value) : .option(id: requested.configId, value: value))
         }
         // The LocalApp token goes into the first frame after every rule read the page's own frame.
         if snapshot.isFirst, let token = snapshot.localAppToken { frame = AcpmuxPaneMethods.withLocalAppToken(frame, token) }

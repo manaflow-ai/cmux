@@ -183,9 +183,12 @@ nonisolated enum AcpmuxPaneMethods {
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
-    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?) -> String {
+    /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
+    /// a refused folder as a root, so it never sets it.
+    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }
+        if rootRequested { data["rootRequested"] = true }
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
         let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return #"{"jsonrpc":"2.0","id":"# + requestID + #","error":"# + encoded + "}"

@@ -240,9 +240,10 @@ extension AgentPaneTransport {
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
         }
-        // R2 and P2: a mode, or a config option that is not free, needs the user's native
-        // confirmation unless the daemon says that the value keeps the session asking.
-        if let setting = facts.setting {
+        // P2: a config option that is not free needs the user's native confirmation unless the
+        // daemon says that the value keeps the session asking. A mode needs only the gesture rule
+        // (Lawrence 2026-10-07: no sheet for full access).
+        if let setting = facts.setting, setting.asked.needsSheet {
             let answer = await webModes(setting.sessionId, setting.configId, setting.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             let asks = answer?.freeConfigIds.contains(setting.configId) == true || answer?.asks == true
