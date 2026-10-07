@@ -3,7 +3,8 @@ import Foundation
 /// One change to a state resource the app mirrors, from a `session.events`
 /// delta. A nil payload removes the record.
 public enum SessionStateChange: Sendable, Hashable {
-    case workspace(ResourceID, ephemeral: Bool)
+    /// A workspace upsert: its ephemeral flag and its agent folder (`extra.agent_folder`).
+    case workspace(ResourceID, ephemeral: Bool, agentFolder: String?)
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
@@ -72,6 +73,8 @@ enum SessionWire {
         var extra: [String: JSONValue]?
 
         var ephemeral: Bool { extra?["ephemeral"] == .bool(true) }
+        /// The folder new agent chats start in (`workspace.agent_folder.set`).
+        var agentFolder: String? { extra?["agent_folder"]?.stringValue }
 
         var screenState: SessionStateMirror.ScreenState {
             SessionStateMirror.ScreenState(pinned: extra?["pinned"] == .bool(true), color: extra?["color"]?.stringValue,
@@ -122,8 +125,9 @@ enum SessionWire {
 
         func mirror(_ state: StateLists) -> SessionStateMirror {
             var mirror = SessionStateMirror()
-            for workspace in workspaces?.compactMap(\.value) ?? [] where workspace.ephemeral {
-                mirror.ephemeralWorkspaces.insert(workspace.id)
+            for workspace in workspaces?.compactMap(\.value) ?? [] {
+                if workspace.ephemeral { mirror.ephemeralWorkspaces.insert(workspace.id) }
+                if let folder = workspace.agentFolder { mirror.agentFolders[workspace.id] = folder }
             }
             for screen in screens?.compactMap(\.value) ?? [] { mirror.screens[screen.id] = screen.screenState }
             for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs[tab.id] = tab.tabRecord }
@@ -148,7 +152,9 @@ enum SessionWire {
             let id = try c.decode(String.self, forKey: .id)
             let rid = ResourceID(rawValue: id)
             switch (kind, resource) {
-            case ("upsert", "workspace"): change = .workspace(rid, ephemeral: try c.decode(Entity.self, forKey: .value).ephemeral)
+            case ("upsert", "workspace"):
+                let workspace = try c.decode(Entity.self, forKey: .value)
+                change = .workspace(rid, ephemeral: workspace.ephemeral, agentFolder: workspace.agentFolder)
             case ("delete", "workspace"): change = .workspaceRemoved(rid)
             case ("upsert", "screen"): change = .screen(rid, try c.decode(Entity.self, forKey: .value).screenState)
             case ("delete", "screen"): change = .screen(rid, nil)

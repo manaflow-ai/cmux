@@ -160,6 +160,46 @@ fn workspace_update_sends_set_and_cleared_fields_and_decodes_the_snapshot() {
 }
 
 #[test]
+fn workspace_agent_folder_set_sends_the_path_or_null_and_decodes_the_snapshot() {
+    let mock = mock(|stream, reader| {
+        let set = request(reader, "workspace.agent_folder.set");
+        assert_eq!(set["idempotency_key"], "folder-1");
+        assert_eq!(
+            set["params"],
+            json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
+                   "path": "/Users/me/project"})
+        );
+        let workspace = json!({"id": WORKSPACE, "session_id": SESSION, "name": "w", "index": 0,
+                               "focused": true, "extra": {"agent_folder": "/Users/me/project"}});
+        mutation_ok(stream, &set, workspace);
+
+        let clear = request(reader, "workspace.agent_folder.set");
+        assert_eq!(clear["params"]["path"], Value::Null);
+        let workspace = json!({"id": WORKSPACE, "session_id": SESSION, "name": "w", "index": 0,
+                               "focused": true, "extra": {}});
+        mutation_ok(stream, &clear, workspace);
+    });
+    let client = mock.client();
+    let workspace = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .workspace(WorkspaceId::parse(WORKSPACE).unwrap());
+    let set = workspace
+        .set_agent_folder_with(
+            Some("/Users/me/project".to_string()),
+            MutationOptions::new("folder-1").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(set.value.extra["agent_folder"], "/Users/me/project");
+    let cleared = workspace.set_agent_folder(None).unwrap();
+    assert!(!cleared.value.extra.contains_key("agent_folder"));
+    // A relative path is refused before any request.
+    let error = workspace.set_agent_folder(Some("project".to_string())).unwrap_err();
+    assert!(matches!(error, Error::InvalidArgument(_)), "{error:?}");
+    client.close().unwrap();
+    mock.finish();
+}
+
+#[test]
 fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
     let mock = mock(|stream, reader| {
         let pin = request(reader, "tab.pin");
