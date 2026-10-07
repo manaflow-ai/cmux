@@ -1033,7 +1033,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         focus.show(placed, animated: animated)
     }
 
-    private func dismissReplyFocus(sent: Bool) {
+    private func dismissReplyFocus(sent: Bool, then completion: (@MainActor () -> Void)? = nil) {
         if let focus = threadFocus {
             threadFocus = nil
             threadRootID = nil
@@ -1047,7 +1047,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
            let row = rowView(at: index) {
             destination = row.convert(row.bounds, to: focus)
         }
-        focus.dismiss(returningTo: destination)
+        focus.dismiss(returningTo: destination, then: completion)
     }
 
     func enterEdit(_ message: ConversationMessage) {
@@ -1160,8 +1160,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let frame = row.convert(row.bounds, to: focus)
         let mine = model.message.reactions.first { $0.participantID == store.meID }?.reaction
         let picker = MacReactionPickerView(current: mine) { [weak self] reaction in
-            self?.store.react(messageID: model.message.id, reaction: mine == reaction ? nil : reaction)
-            self?.dismissReactionFocus()
+            // Fold the picker away first; the tapback lands after, like Messages.
+            let next = mine == reaction ? nil : reaction
+            self?.dismissReactionFocus {
+                self?.store.react(messageID: model.message.id, reaction: next)
+                if next != nil { self?.landReactionBadge(messageID: model.message.id) }
+            }
         }
         reactionPicker = picker
         let bubble = row.convert(row.rowLayout?.bubbleFrame ?? row.contentFrame, to: focus)
@@ -1172,10 +1176,35 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private var reactionPicker: MacReactionPickerView?
 
-    func dismissReactionFocus() {
+    func dismissReactionFocus(then completion: (@MainActor () -> Void)? = nil) {
         reactionPicker = nil
         restoreFocusAfterReactionFocus(replyFocus)
-        dismissReplyFocus(sent: false)
+        dismissReplyFocus(sent: false, then: completion)
+    }
+
+    /// A new tapback lands as a tiny badge that swells (slight overshoot),
+    /// after the picker has folded away, as on iOS Messages.
+    func landReactionBadge(messageID: String) {
+        guard let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == messageID } else { return false } }),
+              let row = rowView(at: index), !row.badge.isHidden, let layer = row.badge.layer else { return }
+        let bounds = row.badge.bounds
+        let scaled = CATransform3DConcat(
+            CATransform3DConcat(CATransform3DMakeTranslation(-bounds.midX, -bounds.midY, 0), CATransform3DMakeScale(0.1, 0.1, 1)),
+            CATransform3DMakeTranslation(bounds.midX, bounds.midY, 0)
+        )
+        let grow = CASpringAnimation(keyPath: "transform")
+        grow.fromValue = NSValue(caTransform3D: scaled)
+        grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        grow.mass = 1
+        grow.stiffness = 380
+        grow.damping = 22
+        grow.duration = grow.settlingDuration
+        layer.add(grow, forKey: "land")
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.08
+        layer.add(fade, forKey: "landFade")
     }
 
     private func link(in model: MacMessageRowModel, at point: CGPoint, width: CGFloat) -> URL? {
@@ -1775,20 +1804,9 @@ final class MacReplyFocusView: NSView {
         addSubview(picker)
         accessoryView = picker
         picker.wantsLayer = true
-        for layer in picker.animatedLayers {
-            let pop = CASpringAnimation(keyPath: "transform.scale")
-            pop.fromValue = 0.6
-            pop.toValue = 1
-            pop.damping = 18
-            pop.stiffness = 320
-            pop.duration = pop.settlingDuration
-            layer.add(pop, forKey: "pop")
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0
-            fade.toValue = 1
-            fade.duration = 0.15
-            layer.add(fade, forKey: "fade")
-        }
+        // Messages' (shared ChatKit) picker grows out of a dot at the bubble's
+        // top corner; see MacReactionPickerView.animateIn.
+        picker.animateIn(seed: CGPoint(x: outgoing ? bubble.minX + 9 : bubble.maxX - 9, y: bubble.minY - 8))
     }
 
     func showAccessory(_ content: NSView, anchoredAbove anchor: CGRect, trailing: Bool) {
@@ -1865,8 +1883,10 @@ final class MacReplyFocusView: NSView {
         }
     }
 
-    func dismiss(returningTo destination: CGRect?) {
-        if let accessoryView {
+    func dismiss(returningTo destination: CGRect?, then completion: (@MainActor () -> Void)? = nil) {
+        if let picker = accessoryView as? MacReactionPickerView {
+            picker.animateOut()
+        } else if let accessoryView {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.15
                 accessoryView.animator().alphaValue = 0
@@ -1894,7 +1914,10 @@ final class MacReplyFocusView: NSView {
             context.duration = destination == nil ? 0.18 : 0.28
             blur.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated { self?.removeFromSuperview() }
+            MainActor.assumeIsolated {
+                self?.removeFromSuperview()
+                completion?()
+            }
         })
     }
 }
@@ -2078,6 +2101,11 @@ final class MacReactionPickerView: MacFlippedView {
     private let circle: NSView
     private let dots = [MacFlippedView(), MacFlippedView()]
     private let stack = NSStackView()
+    /// Clips the tapbacks to the capsule's current outline while it grows,
+    /// so the capsule reveals them in place instead of dragging them along.
+    private let clip = MacFlippedView()
+    private var finalCapsule: CGRect = .zero
+    private var seed: CGPoint = .zero
     private let onPick: (ConversationReaction) -> Void
     private let current: ConversationReaction?
 
@@ -2113,11 +2141,9 @@ final class MacReactionPickerView: MacFlippedView {
             button.setAccessibilityIdentifier("conversation.tapback.\(reaction.rawValue)")
             stack.addArrangedSubview(button)
         }
-        if #available(macOS 26.0, *), let glass = capsule as? NSGlassEffectView {
-            glass.contentView = stack
-        } else {
-            capsule.addSubview(stack)
-        }
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        clip.addSubview(stack)
         let smiley = NSImageView(image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular)) ?? NSImage())
         smiley.contentTintColor = .secondaryLabelColor
@@ -2133,6 +2159,7 @@ final class MacReactionPickerView: MacFlippedView {
         }
         addSubview(circle)
         addSubview(capsule)
+        addSubview(clip)
         setAccessibilityIdentifier("conversation.reactionPicker")
     }
 
@@ -2143,10 +2170,11 @@ final class MacReactionPickerView: MacFlippedView {
         CGSize(width: CGFloat(ConversationReaction.allCases.count) * 36 + 12, height: 42)
     }
 
-    var animatedLayers: [CALayer] { [capsule, circle].compactMap(\.layer) + dots.compactMap(\.layer) }
-
     func place(capsule frame: CGRect, circleCenter: CGPoint, outgoing: Bool) {
+        finalCapsule = frame
         capsule.frame = frame
+        clip.frame = frame
+        clip.layer?.cornerRadius = frame.height / 2
         stack.frame = CGRect(origin: .zero, size: frame.size)
         let d: CGFloat = 35
         circle.frame = CGRect(x: circleCenter.x - d / 2, y: circleCenter.y - d / 2, width: d, height: d)
@@ -2161,6 +2189,115 @@ final class MacReactionPickerView: MacFlippedView {
 
     func contains(_ point: CGPoint) -> Bool {
         capsule.frame.contains(point) || circle.frame.contains(point)
+    }
+
+    /// `keepRadius` holds the current rounding while shrinking, so a
+    /// collapsing capsule stays round instead of squaring off.
+    private func setCapsuleFrame(_ frame: CGRect, animated: Bool, keepRadius: Bool = false) {
+        let target = animated ? capsule.animator() : capsule
+        target.frame = frame
+        (animated ? clip.animator() : clip).frame = frame
+        (animated ? stack.animator() : stack).setFrameOrigin(CGPoint(x: finalCapsule.minX - frame.minX, y: finalCapsule.minY - frame.minY))
+        guard !keepRadius else { return }
+        let radius = min(finalCapsule.height, min(frame.width, frame.height)) / 2
+        clip.layer?.cornerRadius = radius
+        if #available(macOS 26.0, *) { (capsule as? NSGlassEffectView)?.cornerRadius = radius }
+    }
+
+    private func circleFrame(diameter: CGFloat, centerY: CGFloat) -> CGRect {
+        CGRect(x: seed.x - diameter / 2, y: centerY - diameter / 2, width: diameter, height: diameter)
+    }
+
+    /// iOS 26 Messages' measured choreography (the Mac picker is the same
+    /// ChatKit balloon): a dot at the bubble's corner swells into a circle,
+    /// stretches into the capsule, and the tapbacks pop in left to right;
+    /// the emoji circle and its dots follow.
+    func animateIn(seed: CGPoint) {
+        self.seed = seed
+        let final = finalCapsule
+        setCapsuleFrame(circleFrame(diameter: 10, centerY: seed.y), animated: false)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            setCapsuleFrame(circleFrame(diameter: final.height, centerY: final.midY + 4), animated: true)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.isFolding else { return }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.34
+                    // Close to a critically damped spring: fast start, no overshoot.
+                    context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+                    context.allowsImplicitAnimation = true
+                    self.setCapsuleFrame(final, animated: true)
+                }
+            }
+        })
+        let now = CACurrentMediaTime()
+        for (index, view) in stack.arrangedSubviews.enumerated() {
+            view.wantsLayer = true
+            pop(view, from: 0.3, at: now + 0.14 + Double(index) * 0.035, bounce: true)
+        }
+        for dot in dots { pop(dot, from: 0.2, at: now + 0.18, bounce: true) }
+        pop(circle, from: 0.2, at: now + 0.22, bounce: true)
+    }
+
+    private var isFolding = false
+
+    /// Reverse: tapbacks fade, the capsule folds back into its dot (~0.3 s).
+    func animateOut() {
+        isFolding = true
+        capsule.layer?.removeAllAnimations()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            for view in stack.arrangedSubviews + [circle] + dots { view.animator().alphaValue = 0 }
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            setCapsuleFrame(circleFrame(diameter: finalCapsule.height - 2, centerY: finalCapsule.midY + 6), animated: true)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.12
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    context.allowsImplicitAnimation = true
+                    self.setCapsuleFrame(self.circleFrame(diameter: 4, centerY: self.seed.y), animated: true, keepRadius: true)
+                    self.capsule.animator().alphaValue = 0
+                    self.clip.animator().alphaValue = 0
+                }
+            }
+        })
+    }
+
+    /// Scale-from-center pop on a layer-backed view (AppKit layers anchor at
+    /// their origin, so the scale is composed about the bounds center).
+    private func pop(_ view: NSView, from scale: CGFloat, at time: CFTimeInterval, bounce: Bool) {
+        guard let layer = view.layer else { return }
+        let b = view.bounds
+        let start = CATransform3DConcat(
+            CATransform3DConcat(CATransform3DMakeTranslation(-b.midX, -b.midY, 0), CATransform3DMakeScale(scale, scale, 1)),
+            CATransform3DMakeTranslation(b.midX, b.midY, 0)
+        )
+        let grow = CASpringAnimation(keyPath: "transform")
+        grow.fromValue = NSValue(caTransform3D: start)
+        grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        grow.mass = 1
+        grow.stiffness = 300
+        grow.damping = bounce ? 20 : 35
+        grow.duration = grow.settlingDuration
+        grow.beginTime = time
+        grow.fillMode = .backwards
+        layer.add(grow, forKey: "pop")
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.08
+        fade.beginTime = time
+        fade.fillMode = .backwards
+        layer.add(fade, forKey: "popFade")
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

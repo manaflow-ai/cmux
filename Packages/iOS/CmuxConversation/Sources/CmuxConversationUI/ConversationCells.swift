@@ -193,12 +193,13 @@ final class MessageCell: UICollectionViewCell {
         if let anchor = layout.reactionAnchor {
             reactionBadge.isHidden = false
             let kinds = model.reactionKinds
-            reactionBadge.pointsLeft = !model.isOutgoing
+            // Messages: the badge's center sits 3 pt inside the bubble's top
+            // corner and 10 pt above it; its dots trail outward, away from the bubble.
+            reactionBadge.pointsLeft = model.isOutgoing
             reactionBadge.configure(reactions: kinds, mine: model.hasMyReaction && kinds.count == 1)
             let size = ReactionBadgeView.size(count: kinds.count)
-            // Overlaps the corner by ~12 pt in each direction.
-            let x = model.isOutgoing ? anchor.x - size.width + 12 : anchor.x - 12
-            reactionBadge.frame = CGRect(x: x, y: anchor.y - size.height + 14, width: size.width, height: size.height)
+            let x = model.isOutgoing ? anchor.x + 3 - ReactionBadgeView.dotInset - ConversationTheme.reactionBadgeSize / 2 : anchor.x - 3 - size.width + ReactionBadgeView.dotInset + ConversationTheme.reactionBadgeSize / 2
+            reactionBadge.frame = CGRect(x: x, y: anchor.y - 10 - ConversationTheme.reactionBadgeSize / 2, width: size.width, height: size.height)
         } else {
             reactionBadge.isHidden = true
         }

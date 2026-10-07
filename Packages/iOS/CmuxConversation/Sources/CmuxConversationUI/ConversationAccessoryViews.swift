@@ -131,9 +131,12 @@ final class ReactionBadgeView: UIView {
         setNeedsLayout()
     }
 
+    /// Room beside the circle for the trailing dots.
+    static let dotInset: CGFloat = 6
+
     static func size(count: Int) -> CGSize {
         let s = ConversationTheme.reactionBadgeSize
-        return CGSize(width: s + CGFloat(max(0, min(count, 3) - 1)) * s * 0.55 + 6, height: s + 6)
+        return CGSize(width: s + CGFloat(max(0, min(count, 3) - 1)) * s * 0.55 + dotInset, height: s + 10)
     }
 
     override func layoutSubviews() {
@@ -145,14 +148,13 @@ final class ReactionBadgeView: UIView {
         for (index, glyph) in glyphViews.enumerated() {
             glyph.frame = CGRect(x: CGFloat(index) * s * 0.55, y: 0, width: s, height: s).insetBy(dx: 3, dy: 3)
         }
+        // Measured on Messages (d34 badge): large dot d8.5 at center
+        // offset (12, 14.5), small d4.5 at (17.7, 23.3), toward the outside.
         let large: CGFloat = 9, small: CGFloat = 4.5
-        if pointsLeft {
-            dotLarge.frame = CGRect(x: 4, y: s - large * 0.55, width: large, height: large)
-            dotSmall.frame = CGRect(x: 0, y: s + large * 0.45, width: small, height: small)
-        } else {
-            dotLarge.frame = CGRect(x: bubble.frame.maxX - large - 4, y: s - large * 0.55, width: large, height: large)
-            dotSmall.frame = CGRect(x: bubble.frame.maxX - small, y: s + large * 0.45, width: small, height: small)
-        }
+        let side: CGFloat = pointsLeft ? -1 : 1
+        let edge = pointsLeft ? bubble.frame.minX + s / 2 : bubble.frame.maxX - s / 2
+        dotLarge.frame = CGRect(x: edge + side * 12 - large / 2, y: s / 2 + 14.5 - large / 2, width: large, height: large)
+        dotSmall.frame = CGRect(x: edge + side * 17.7 - small / 2, y: s / 2 + 23.3 - small / 2, width: small, height: small)
         dotLarge.layer.cornerRadius = large / 2
         dotSmall.layer.cornerRadius = small / 2
     }

@@ -1462,6 +1462,23 @@
           }
         }
       }
+    },
+    "conversation.reaction.reacted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reacted with %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@でリアクションしました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
