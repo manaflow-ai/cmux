@@ -5,7 +5,9 @@
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
 import type { GalleryEntry } from "../format";
-import { entries } from "../registry";
+import { errorText, readyEntries } from "../entryStore";
+import { entryStore } from "../registry";
+import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
@@ -31,9 +33,22 @@ const byName = new Map(themes.map((theme) => [theme.name, theme]));
 const themeNamed = (name: string, fallback: string): GhosttyTheme =>
   byName.get(name) ?? byName.get(fallback) ?? fail(`No Ghostty theme named ${JSON.stringify(name)}`);
 
+// Every entry file loads on its own (entryStore.ts): a broken sibling file does not stop this stage.
+const settled = await entryStore.settled();
+const entryState = settled.find((state) => state.entry?.id === params.get("entry"));
+// The live dev server: a save of this stage's entry file (or of any file, while it does not load)
+// reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
+watchStageErrors(entryState?.path);
 const entry: GalleryEntry =
-  entries.find((candidate) => candidate.id === params.get("entry")) ??
-  fail(`No gallery entry ${JSON.stringify(params.get("entry"))}`);
+  readyEntries(settled).find((candidate) => candidate.id === params.get("entry")) ??
+  fail(
+    [
+      `No gallery entry ${JSON.stringify(params.get("entry"))}.`,
+      ...settled
+        .filter((state) => state.status === "error")
+        .map((state) => `\n${state.path} does not load:\n${errorText(state.error)}`),
+    ].join("\n"),
+  );
 const variantName = params.get("variant") ?? Object.keys(entry.variants)[0]!;
 if (!entry.variants[variantName]) fail(`No variant ${JSON.stringify(variantName)} in ${entry.id}`);
 
@@ -126,6 +141,16 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountMarkdownPage(entry.variants[variantName]!, context);
     case "diff-page":
       return (await import("./pages")).mountDiffPage(entry.variants[variantName]!, context);
+    case "apps-page":
+      return (await import("./pages")).mountAppsPage(entry.variants[variantName]!, context);
+    case "cloud-page":
+      return (await import("./pages")).mountCloudPage(entry.variants[variantName]!, context);
+    case "coderouter-page":
+      return (await import("./pages")).mountCodeRouterPage(entry.variants[variantName]!, context);
+    case "changelog-page":
+      return (await import("./pages")).mountChangelogPage(entry.variants[variantName]!, context);
+    case "icon-picker-page":
+      return (await import("./pages")).mountIconPickerPage(entry.variants[variantName]!, context);
     case "editor-page":
       return (await import("./pages")).mountEditorPage(entry.variants[variantName]!, context);
     case "history-page":
@@ -136,6 +161,7 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountSettingsPage(entry.variants[variantName]!, context);
     case "passwords-page":
       return (await import("./pages")).mountPasswordsPage(entry.variants[variantName]!, context);
+
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":

@@ -3,7 +3,8 @@
 One entry is one file, `<Name>.gallery.ts` (or `.tsx`), next to the page or component it shows. Its
 default export is the entry. The gallery finds every such file under `webviews/src` by itself
 (`src/gallery/registry.ts` in the browser, `scripts/gallery/entries.ts` in tests). There is no list
-to edit.
+to edit. Each file loads on its own: if yours does not compile, throws or exports nothing, the
+gallery shows an error card for it alone and every other entry keeps working.
 
 ## The entry
 
@@ -181,8 +182,14 @@ chat). Do not write those entries yourself.
 ## Seeing it
 
 - Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.
-- Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it).
-- Shared: `scripts/gallery-deploy.sh` in hq publishes a build at
+- Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it), or
+  `bun run gallery:dev` for the gallery alone at `http://127.0.0.1:4210/gallery/`.
+- Live, with hot reload (tailnet): `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`
+  follows `feat-cmux-next` within about 20 s of a push. A save shows in the open page by itself.
+- Your branch before it lands: `scripts/gallery-live.sh up <branch>` in hq serves the pushed branch
+  at `.../18796/wt/<name>/` (it prints the URL) and follows its pushes; it stops after 2 h with no
+  requests. At most 6 run at once; `scripts/gallery-live.sh down <name>` stops one.
+- Static (the stable fallback): `scripts/gallery-deploy.sh` in hq publishes a build at
   `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/latest/`.
 - Screenshots: `bun scripts/gallery/manifest.ts --entries <your id>` writes a manifest, and
   `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on Freestyle VMs. Never run a

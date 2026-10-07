@@ -21,7 +21,9 @@ pub use compact::{
 };
 pub use memory::{Checkpoint, Memory, NotRunning, Store, Work};
 pub use node::{Kind, NodeId};
-pub use render::{cache_marks, cache_pieces, render_view, zoom, RenderedView, ZoomError};
+pub use render::{
+    cache_marks, cache_pieces, render_parts, render_view, view_line, zoom, RenderedView, ZoomError,
+};
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
 pub const NODE: usize = 512;
