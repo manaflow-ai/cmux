@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { RENDER_FRAME_URL, RenderCard } from "./RenderCard";
+import { RenderGroup } from "./RenderGroup";
 import { renderCall } from "./renderCall";
 import { RENDER, turnView } from "./turns";
 
@@ -34,6 +35,27 @@ describe("render calls", () => {
     expect(renderCall(tool("render", { html: "<p>x</p>" }))).toEqual({ html: "<p>x</p>", title: undefined });
   });
 
+  test("reads which option the agent recommends", () => {
+    expect(renderCall(tool("render", { html: "<p>x</p>", recommended: true }))?.recommended).toBe(true);
+    expect(renderCall(tool("render", { html: "<p>x</p>", recommended: "yes" }))).toEqual({ html: "<p>x</p>", title: undefined });
+  });
+
+  test("options sit side by side with the recommended one marked and each one expandable", () => {
+    const html = renderToStaticMarkup(
+      createElement(RenderGroup, {
+        calls: [
+          { html: "<p>a</p>", title: "Nested 4 px", recommended: true },
+          { html: "<p>b</p>", title: "Nested 8 px" },
+        ],
+      }),
+    );
+    expect(html).toContain("grid-template-columns:repeat(2, minmax(0, 1fr))");
+    expect(html.match(/<iframe/g)).toHaveLength(2);
+    expect(html.match(/>Recommended</g)).toHaveLength(1);
+    expect(html.indexOf(">Recommended<")).toBeLessThan(html.indexOf("Nested 8 px"));
+    expect(html.match(/>Expand</g)).toHaveLength(2);
+  });
+
   test("leaves other tools, empty HTML and failed calls alone", () => {
     expect(renderCall(tool("mcp__cmux__prerender", { html: "<p>x</p>" }))).toBeUndefined();
     expect(renderCall(tool("Render the page", { html: "<p>x</p>" }))).toBeUndefined();
@@ -42,7 +64,7 @@ describe("render calls", () => {
     expect(renderCall(tool("render", { html: "<p>x</p>" }, { status: "failed" }))).toBeUndefined();
   });
 
-  test("an ended turn shows each render above its answer, in call order; a running one waits", () => {
+  test("an ended turn shows its renders as one row above its answer, in call order; a running one waits", () => {
     const rows = [
       row("u", "user", 0, { text: "mock two pricing pages" }),
       call("r1", { html: "<p>A</p>" }),
@@ -52,8 +74,8 @@ describe("render calls", () => {
     ];
     const view = turnView(rows, new Set(), { now: 10 });
     const at = view.findIndex((entry) => entry.kind === RENDER);
-    expect(view.slice(at, at + 3).map((entry) => entry.id)).toEqual(["render-r1", "render-r2", "a"]);
-    expect(view[at]!.items![0]!.tool!.id).toBe("r1");
+    expect(view.slice(at, at + 2).map((entry) => entry.id)).toEqual(["render-r1", "a"]);
+    expect(view[at]!.items!.map((item) => item.tool!.id)).toEqual(["r1", "r2"]);
     expect(
       turnView(rows.slice(0, 4), new Set(), { now: 10, working: true }).some((entry) => entry.kind === RENDER),
     ).toBe(false);

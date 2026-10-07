@@ -9,6 +9,8 @@ export type RenderCall = {
   html: string;
   /// The card's heading, when the call names one.
   title?: string;
+  /// The option the agent suggests among several renders in one turn.
+  recommended?: boolean;
 };
 
 /// A render card's frame height before the page reports one (RenderCard.tsx).
@@ -24,7 +26,7 @@ export function renderCall(tool: Tool): RenderCall | undefined {
   const html = input?.html;
   if (typeof html !== "string" || !html.trim()) return undefined;
   const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : undefined;
-  return { html, title };
+  return { html, title, ...(input?.recommended === true && { recommended: true }) };
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {

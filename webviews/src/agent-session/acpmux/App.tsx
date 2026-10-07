@@ -81,6 +81,7 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { RenderCard, canRender } from "./conversation/RenderCard";
+import { RenderGroup } from "./conversation/RenderGroup";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "./SearchChats";
@@ -299,12 +300,17 @@ const PreviewRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
-/// An ended turn's render call, live (conversation/RenderCard.tsx).
+/// An ended turn's render calls, live: one card, or the options side by side
+/// (conversation/RenderCard.tsx, RenderGroup.tsx).
 const RenderRow = memo(
   function RenderRow({ row }: RowProps) {
-    const tool = row.items?.[0]?.tool;
-    const call = tool && canRender() ? renderCall(tool) : undefined;
-    return call ? <RenderCard call={call} /> : null;
+    if (!canRender()) return null;
+    const calls = (row.items ?? []).flatMap((item) => {
+      const call = item.tool && renderCall(item.tool);
+      return call ? [call] : [];
+    });
+    if (calls.length > 1) return <RenderGroup calls={calls} />;
+    return calls[0] ? <RenderCard call={calls[0]} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );

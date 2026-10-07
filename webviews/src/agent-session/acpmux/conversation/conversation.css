@@ -1158,6 +1158,27 @@ pre.cv-math-source {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.acpmux-render-card-recommended {
+  flex: none;
+  color: var(--agent-accent, #3b82f6);
+  font-size: 12px;
+}
+/* Options from one turn (RenderGroup.tsx): side by side; Expand shows one alone under Show all. */
+.acpmux-render-group {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.acpmux-render-group .acpmux-render-card {
+  margin-bottom: 0;
+}
+.acpmux-render-group.is-focused {
+  display: block;
+}
+.acpmux-render-group-back {
+  height: 24px;
+  margin-bottom: 6px;
+}
 .acpmux-render-card-frame {
   display: block;
   width: 100%;

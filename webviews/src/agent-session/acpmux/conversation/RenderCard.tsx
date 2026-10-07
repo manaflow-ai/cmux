@@ -9,8 +9,9 @@ import { useT } from "../i18n";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
-/// The tallest a card draws until the reader expands it.
+/// The tallest a card draws until the reader expands it; a card among options is shorter.
 const COLLAPSED_MAX_HEIGHT = 560;
+const COMPACT_MAX_HEIGHT = 320;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
 const EXPANDED_MAX_HEIGHT = 4000;
 
@@ -35,11 +36,23 @@ function themeCSS(): string {
   ].join("");
 }
 
-export function RenderCard({ call }: { call: RenderCall }) {
+/// One render. Among options (RenderGroup.tsx) it is `compact`: shorter, and Expand asks the group
+/// to show it alone (`onExpand`), opened (`startExpanded`).
+export function RenderCard({
+  call,
+  compact = false,
+  startExpanded = false,
+  onExpand,
+}: {
+  call: RenderCall;
+  compact?: boolean;
+  startExpanded?: boolean;
+  onExpand?: () => void;
+}) {
   const t = useT();
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(startExpanded);
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
@@ -56,14 +69,21 @@ export function RenderCard({ call }: { call: RenderCall }) {
     return () => removeEventListener("message", onMessage);
   }, [call.html]);
   const title = call.title ?? t("render.untitled");
-  const tall = height > COLLAPSED_MAX_HEIGHT;
+  const cap = compact ? COMPACT_MAX_HEIGHT : COLLAPSED_MAX_HEIGHT;
+  const tall = height > cap;
   return (
     <div className="acpmux-render-card">
       <div className="acpmux-render-card-head">
         <span className="acpmux-render-card-title" title={title}>
           {title}
         </span>
-        {tall && (
+        {call.recommended && <span className="acpmux-render-card-recommended">{t("render.recommended")}</span>}
+        {onExpand ? (
+          <button type="button" className="acpmux-review-changes" onClick={onExpand}>
+            {t("render.expand")}
+          </button>
+        ) : (
+          tall && (
           <button
             type="button"
             className="acpmux-review-changes"
@@ -72,6 +92,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
           >
             {expanded ? t("render.collapse") : t("render.expand")}
           </button>
+          )
         )}
       </div>
       <iframe
@@ -81,7 +102,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
         title={title}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        style={{ height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
+        style={{ height: expanded ? height : Math.min(height, cap) }}
       />
     </div>
   );
