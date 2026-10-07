@@ -75,7 +75,7 @@ public final class OnboardingModel {
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
         computerUse = ComputerUseStepModel(source: computerUseSource)
-        if isFirstRun { services.onboardingDidReach(step) }
+        if isFirstRun { services.onboardingDidReach(step, interacted: true) }
     }
 
     private func foundNothing(_ step: Step) -> Bool {
@@ -138,7 +138,7 @@ public final class OnboardingModel {
     public func go(to target: Step) {
         guard target != step, steps.contains(target) else { return }
         step = target
-        if isFirstRun { services.onboardingDidReach(target) }
+        if isFirstRun { services.onboardingDidReach(target, interacted: true) }
         stepDidAppear()
     }
 
@@ -166,7 +166,7 @@ public final class OnboardingModel {
     /// rebuilding it): the run is not over. Work stops and an uncommitted
     /// theme is put back, but nothing is recorded as skipped, so the first
     /// run resumes at its step.
-    public func leave() {
+    public func leave(notNow: Bool = true) {
         guard !ended else { return }
         ended = true
         projects.stop()

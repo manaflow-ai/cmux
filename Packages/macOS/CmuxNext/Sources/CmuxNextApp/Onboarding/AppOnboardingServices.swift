@@ -216,7 +216,7 @@ final class AppOnboardingServices: OnboardingServices {
         owner.didEnd(completed: completed)
     }
 
-    func onboardingDidReach(_ step: OnboardingModel.Step) {
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
         owner.recordProgress(step)
     }
 }

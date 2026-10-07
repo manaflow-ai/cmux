@@ -56,6 +56,12 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
+    /// Closes the window for the App (a rebuild for another step), which is
+    /// not the person's "not now".
+    public func closeForRebuild() {
+        close()
+    }
+
     public func windowWillClose(_ notification: Notification) {
         model.leave()
         onClose?()
