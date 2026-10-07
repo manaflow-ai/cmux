@@ -22,7 +22,14 @@ use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
 /// Example profiles shipped with acpmux, by id (`harness add --example`).
-pub const EXAMPLES: &[(&str, &str)] = &[];
+pub const EXAMPLES: &[(&str, &str)] = &[
+    ("claude", include_str!("../../harnesses/claude.toml")),
+    ("codex", include_str!("../../harnesses/codex.toml")),
+    ("opencode", include_str!("../../harnesses/opencode.toml")),
+    ("pi", include_str!("../../harnesses/pi.toml")),
+    ("gemini", include_str!("../../harnesses/gemini.toml")),
+    ("aider", include_str!("../../harnesses/aider.toml")),
+];
 
 /// The prompt doctor sends.
 pub const DOCTOR_PROMPT: &str = "Reply with the single word OK.";
@@ -143,7 +150,6 @@ pub struct ListRow {
 }
 
 pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
-    return Vec::new(); // red: not implemented yet
     cfg.harnesses
         .iter()
         .map(|(id, p)| {
@@ -205,7 +211,6 @@ pub struct Added {
 
 /// Write a new profile file into the user's harness folder and check it.
 pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
-    return Err(anyhow!("red: not implemented")); // red: not implemented yet
     let dir = sources
         .user_dir
         .clone()
@@ -287,7 +292,6 @@ fn with_id(text: &str, id: &str) -> String {
 
 /// A commented profile for `command`.
 pub fn scaffold(id: &str, command: &str, protocol: &str) -> String {
-    return String::new(); // red: not implemented yet
     let mut name: Vec<char> = id.replace('-', " ").chars().collect();
     if let Some(first) = name.first_mut() {
         *first = first.to_ascii_uppercase();
@@ -416,7 +420,6 @@ impl Report {
 
 /// Check one harness end to end. Never returns an env value in any field.
 pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorReport {
-    return DoctorReport { id: id.to_owned(), ok: true, steps: Vec::new(), reply: None }; // red: not implemented yet
     let mut r = Report { id: id.to_owned(), steps: Vec::new(), reply: None, masks: Vec::new() };
     // 1. The profile.
     let problems: Vec<&profiles::Diagnostic> =
