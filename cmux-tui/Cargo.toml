@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-history",
+    "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-chief",

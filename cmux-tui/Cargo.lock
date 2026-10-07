@@ -821,6 +821,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chat-index"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
