@@ -17,11 +17,7 @@ struct CloudDesktopReachabilityTests {
         init(reply: @escaping @Sendable (NWConnection) -> Void) throws {
             listener = try NWListener(using: .tcp, on: .any)
             listener.newConnectionHandler = { [weak self] connection in
-                // Retain the accepted connection before starting it. The
-                // listener callback runs on `queue`; appending asynchronously
-                // could let a silent peer deallocate between `start` and its
-                // first receive, turning the intended deadline into EOF.
-                self?.connections.append(connection)
+                self?.queue.async { self?.connections.append(connection) }
                 connection.start(queue: DispatchQueue(label: "fake-proxy-connection"))
                 reply(connection)
             }
