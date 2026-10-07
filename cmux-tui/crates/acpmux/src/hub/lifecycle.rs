@@ -129,7 +129,8 @@ impl Hub {
                 },
             };
             let session = self.make_session(meta);
-            *session.fork_from.lock().unwrap() = fork_from.clone();
+            *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                fork_from.clone();
             sessions.insert(id.clone(), session.clone());
             session
         };
