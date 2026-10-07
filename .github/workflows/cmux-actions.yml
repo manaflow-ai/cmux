@@ -12,7 +12,7 @@ on:
       - .github/workflows/**
       - .github/actions/**
   push:
-    branches: [main]
+    branches: [main, feat-cmux-next]
     paths:
       - workers/cmux-actions/**
       - .github/workflows/**

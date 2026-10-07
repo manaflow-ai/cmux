@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import openapiText from "../../openapi.json?raw";
-import { ALL_SCOPES, allScopesExcept, bearer, SNAPSHOT_ENDPOINTS, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
+import { ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS, SNAPSHOT_ENDPOINTS, TENANT_ENDPOINTS, VM_ENDPOINTS, type VmEndpointCase } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -35,9 +35,16 @@ describe("the endpoint table", () => {
     );
     const covered = [
       "GET /healthz",
+      // No credential (the one-time code is one); test/workers/mesh-m2.test.ts covers it.
+      "POST /v1/meshes/{meshId}/device-enrollments",
+      // No credential (the device's install-key signature is one); test/workers/mesh-m3.test.ts covers them.
+      "POST /v1/devices/{deviceId}/signed/peers",
+      "POST /v1/devices/{deviceId}/signed/tunnel",
+      "POST /v1/devices/{deviceId}/signed/rotate-key",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
+      ...MESH_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
     ];
     expect([...published].sort()).toEqual([...covered].sort());
   });

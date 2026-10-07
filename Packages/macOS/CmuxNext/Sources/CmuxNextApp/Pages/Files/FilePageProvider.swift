@@ -64,8 +64,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
     /// them in place (following a link it showed).
     private var linked: Set<String> = []
-    /// A recovered crash draft of the tab's file: the next config carries it once (the editor page
-    /// loads it as an unsaved edit).
+    /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
+    /// editor pages load it as an unsaved edit).
     var recoveredText: String?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
@@ -233,7 +233,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private func config(_ file: FileSnapshot) -> JSONValue {
         var config: [String: JSONValue] = ["path": .string(file.url.path), "text": .string(file.text), "hash": .string(file.hash)]
         writable = file.readOnlyReason == nil
-        if let recovered = recoveredText, kind == .editor, file.url == self.file {
+        if let recovered = recoveredText, file.url == self.file {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
         }
