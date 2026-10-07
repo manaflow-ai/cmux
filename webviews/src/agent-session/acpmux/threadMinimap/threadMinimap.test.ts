@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { currentTurn, minimapTurns, popoverOffset, replyPreview, tickLayout, tickWidth, turnScrollTop } from "./model";
+import {
+  currentTurn,
+  minimapTurns,
+  popoverOffset,
+  replyPreview,
+  tickLayout,
+  tickWidth,
+  turnScrollTop,
+  visibleTurns,
+} from "./model";
 import { createBookmarkStore } from "./bookmarks";
 
 const row = (id: string, kind: string, text: string, at = 1): AcpmuxRow => ({ id, version: 1, at, kind, text });

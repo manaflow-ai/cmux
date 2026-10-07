@@ -106,6 +106,21 @@ export function currentTurn(
   return Math.max(0, low - 1);
 }
 
+/// The turns on screen, first to last: a turn runs from its prompt to the next prompt (or the end).
+export function visibleTurns(
+  turns: readonly MinimapTurn[],
+  tops: Float64Array,
+  totalHeight: number,
+  scrollTop: number,
+  viewportHeight: number,
+): { first: number; last: number } {
+  const bottom = scrollTop + viewportHeight;
+  const first = currentTurn(turns, tops, scrollTop, 0);
+  let last = first;
+  while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
+  return { first, last };
+}
+
 /// The scroll offset that puts a turn's prompt at the top of the viewport (the thread's padding stays above it).
 export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
   return Math.max(0, tops[turn.index] ?? 0);

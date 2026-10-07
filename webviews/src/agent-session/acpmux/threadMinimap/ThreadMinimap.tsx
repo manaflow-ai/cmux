@@ -19,6 +19,7 @@ import {
   TICK_MAX_WIDTH,
   POPOVER_LEFT,
   turnScrollTop,
+  visibleTurns,
   type MinimapTurn,
 } from "./model";
 
@@ -54,6 +55,7 @@ export function ThreadMinimap({
   const [popoverHeight, setPopoverHeight] = useState(0);
   const { first, pitch } = tickLayout(turns.length, viewportHeight);
   const current = turns.length ? currentTurn(turns, layout.tops, scrollTop, viewportHeight) : 0;
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, scrollTop, viewportHeight);
   const active = hovered ?? current;
   const turn: MinimapTurn | undefined = hovered === undefined ? undefined : turns[hovered];
 
@@ -136,7 +138,13 @@ export function ThreadMinimap({
             top={index * pitch}
             pitch={pitch}
             width={tickWidth(hovered === undefined ? undefined : index - hovered)}
-            tone={index === active ? (hovered === undefined ? "current" : "active") : "rest"}
+            tone={
+              hovered === index
+                ? "active"
+                : hovered === undefined && index >= onScreen.first && index <= onScreen.last
+                  ? "current"
+                  : "rest"
+            }
             tabbable={index === active}
             current={index === current}
             label={t(bookmarks.marks.has(entry.key) ? "minimap.tickBookmarked" : "minimap.tick", {
