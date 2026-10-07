@@ -241,7 +241,7 @@ final class BrowserHibernation {
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: placeholder.profileID, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
-            let tab = cache.webKit.makeWebKitTab(configuration)
+            let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
             if !tab.restore(placeholder.restoreState), let url = placeholder.state.url { tab.load(url) }
             finishRestore(key, token: token, page: tab)
         case .cef:
