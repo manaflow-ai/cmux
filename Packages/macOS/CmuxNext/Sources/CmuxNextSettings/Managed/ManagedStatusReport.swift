@@ -50,7 +50,7 @@ public nonisolated enum ManagedStatusReport {
 
     /// Decision E2: the MDM value wins and the conflict is reported.
     public static func conflicts(managed: ManagedPreferences, team: TeamPolicyLayer) -> [JSONValue] {
-        team.enforced.keys.sorted().compactMap { key in
+        team.enforced.keys.sorted().filter { !ChatSettings.keys.contains($0) }.compactMap { key in
             guard let device = managed.forced[key], let teamValue = team.enforced[key], device != teamValue else { return nil }
             return .object(["key": .string(key), "mdm_value": device, "team_value": teamValue, "winner": "mdm"])
         }

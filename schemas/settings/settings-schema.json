@@ -3114,6 +3114,163 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.enabled.help",
+        "text" : "Show chats stored on this device. Nothing is uploaded."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.enabled",
+      "keywords" : [
+        "agents",
+        "chats",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.enabled",
+        "text" : "Enable Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.discovery.help",
+        "text" : "Find harness chat folders automatically. When off, only the listed folders are used."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.discovery",
+      "keywords" : [
+        "agents",
+        "chats",
+        "discovery",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "discovery"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.discovery",
+        "text" : "Discover Chat Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/opt/cmux-chat-data"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.roots.help",
+        "text" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.roots",
+      "keywords" : [
+        "agents",
+        "chats",
+        "folders",
+        "roots",
+        "privacy"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "roots"
+      ],
+      "refuses" : [
+        "/opt/cmux-chat-data",
+        [
+          "~/chats"
+        ],
+        [
+          "/"
+        ],
+        [
+          "/Volumes/chats"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.roots",
+        "text" : "Chat Folders"
+      },
+      "validation" : "domain:chat_roots"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -11899,7 +12056,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ab525d7049c62d35e3ecb86ea9cbe18ef8f12b8bfa096ea09a164c1e0c1c6a79",
+  "schema_hash" : "02aa0ba2d07a9a9df1f883fe385c28677c79fb4ad9fd8b3f5bded1699ce5c8e4",
   "sections" : [
     {
       "id" : "general",
