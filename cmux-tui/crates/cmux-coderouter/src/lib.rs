@@ -259,12 +259,12 @@ impl KeyRing {
         if parts.next() != Some("crl") || parts.next() != Some(self.store.install_id()) {
             return None;
         }
-        let Some(key_id) = parts.next() else { return None };
-        let Some(secret) = parts.next() else { return None };
+        let key_id = parts.next()?;
+        let secret = parts.next()?;
         if parts.next().is_some() {
             return None;
         }
-        let Some(record) = self.keys.get(key_id) else { return None };
+        let record = self.keys.get(key_id)?;
         let Ok(bytes) = hex::decode(secret) else { return None };
         if bytes.len() != 32 {
             return None;
