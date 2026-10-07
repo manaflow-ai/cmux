@@ -17,6 +17,11 @@ use cmux_encode::openh264::{OpenH264, OpenH264Api};
 pub use cmux_encode::H264Encoder;
 
 /// Encoder settings.
+// A build with no encoder feature (and no VideoToolbox) reads none of them.
+#[cfg_attr(
+    not(any(feature = "openh264", feature = "bench", feature = "x264", target_os = "macos")),
+    allow(dead_code)
+)]
 pub struct EncCfg<'a> {
     pub width: u32,
     pub height: u32,
