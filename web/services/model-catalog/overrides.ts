@@ -4,11 +4,14 @@ import type { EffortValue, HarnessModel } from "./types";
 // each one offers, and what the feed does not say (display names, harness ids, fast mode, effort).
 // Edit this file to change the catalog; GET /api/models/catalog applies it to every feed refresh.
 
-/** Feed models a catalog harness lists. `include`/`exclude` are id prefixes or `*suffix` globs. */
+/** Feed models a catalog harness lists. `include`/`exclude` are id prefixes or `*suffix` globs.
+ *  A model the feed marks as having no tool calling is never listed (an agent needs tools). */
 export interface HarnessSource {
   provider: string;
   include?: string[];
   exclude?: string[];
+  /** Feed models released before this date ("2026-04-01") are left out (old generations). */
+  minReleaseDate?: string;
 }
 
 /** Per-model fields cmux sets over the feed; `hidden` removes the model from the harness. */
@@ -30,7 +33,8 @@ export interface HarnessOverride {
   dropEfforts?: EffortValue[];
   /** Text removed from the start of a model name for the composer chip ("Claude "). */
   shortNamePrefix?: string;
-  /** Group labels by feed family id ("claude-opus" -> "Opus"); unknown families keep the feed id. */
+  /** Group labels by feed family id ("claude-opus" -> "Opus"), in display order; unknown families
+   *  keep the feed id and follow, newest first. */
   familyNames?: Record<string, string>;
   /** Group by the model's provider (multi-provider harnesses) instead of its family. */
   groupByProvider?: boolean;
@@ -58,6 +62,12 @@ export const METADATA_PROVIDERS = [
 /** Dated snapshot ids ("claude-opus-4-5-20251101") duplicate their undated alias. */
 const DATED = "*-20[0-9][0-9][0-9][0-9][0-9][0-9]";
 
+/** Gateway ids that are a mode, a media model or a variant of a listed model, not a chat model. */
+const GATEWAY_VARIANTS = [
+  "*-fast", "*-highspeed", "*-flashx", "*-exp", "*-pro", "*-nano", "*-chat-latest",
+  "*-tts", "*-image", "*-image-preview", "*-live", "*-live-extended-thinking", "*-transcribe",
+];
+
 export const HARNESS_OVERRIDES: HarnessOverride[] = [
   {
     id: "claude",
@@ -77,18 +87,20 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     brand: "openai",
     families: ["codex"],
     modelSource: "catalog",
-    sources: [{ provider: "openai", include: ["gpt-5", "gpt-6"], exclude: ["*-chat-latest", "*-nano", "gpt-5-mini", "*-pro"] }],
+    sources: [
+      { provider: "openai", include: ["gpt-"], exclude: ["gpt-oss", "gpt-realtime", "gpt-image", "gpt-audio", "*-latest", "*-nano", "*-pro"], minReleaseDate: "2026-04-01" },
+    ],
     defaultModel: "gpt-5.5",
     defaultEffort: "medium",
     dropEfforts: ["none"],
     familyNames: {
-      gpt: "GPT",
-      "gpt-mini": "GPT mini",
-      "gpt-codex": "GPT Codex",
       "gpt-sol": "Sol",
+      "gpt-astra": "Astra",
       "gpt-luna": "Luna",
       "gpt-terra": "Terra",
-      "gpt-astra": "Astra",
+      gpt: "GPT",
+      "gpt-codex": "GPT Codex",
+      "gpt-mini": "GPT mini",
     },
   },
   { id: "opencode", name: "OpenCode", brand: "opencode", families: ["opencode"], modelSource: "probe" },
@@ -103,7 +115,8 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
       {
         provider: "vercel",
         include: ["anthropic/claude-", "openai/gpt-5", "openai/gpt-6", "google/gemini-3", "xai/grok-", "deepseek/", "moonshotai/", "zai/", "alibaba/qwen3-coder"],
-        exclude: [DATED, "*-chat-latest", "*-nano"],
+        exclude: [DATED, "*-[0-9][0-9][0-9][0-9]", ...GATEWAY_VARIANTS],
+        minReleaseDate: "2026-01-01",
       },
     ],
     defaultModel: "anthropic/claude-sonnet-5",
