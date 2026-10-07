@@ -26,6 +26,12 @@ process and keep growing.
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
+| `keepAudio` | `{messageId}` | `{message: Message}` |
+| `audioPlayed` | `{messageId}` | `{}` |
+
+`keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
+`audioPlayed` reports that I listened to someone's recording; it starts that
+recording's 2-minute expiry, as Messages does.
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -58,8 +64,14 @@ Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?,
   reactions: [{participantId, reaction}],
-  attachments: [{id, kind: "image", width, height, url}],
+  attachments: [Attachment],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
+}
+Attachment {
+  id, kind: "image"|"audio", width, height, url,
+  // audio only:
+  durationMs, waveform: [Int 0-100] (peak levels, evenly spaced),
+  transcript?, expiresAt? (epoch ms; absent = kept), kept?
 }
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 ```
@@ -68,11 +80,19 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 
 - `GET /media/<id>.png`: procedurally generated image, served after a latency
   delay.
+- `GET /media/<id>.wav`: procedurally generated speech-like 16 kHz mono WAV
+  for an audio attachment (waveform derived from the same syllables).
 - `POST /upload` with raw image bytes and `Content-Type`: returns
-  `{attachment}` usable in `send.attachmentIds`.
+  `{attachment}` usable in `send.attachmentIds`. Audio: `POST
+  /upload?kind=audio&durationMs=<ms>&waveform=<0-100,...>` with the recording
+  (`audio/wav` or `audio/mp4`) and optional `X-Transcript` (percent-encoded);
+  a WAV's duration is read from the bytes when `durationMs` is omitted. Sending
+  it makes an audio message that expires 2 minutes later unless kept.
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
+  one participant sends `n` audio messages back to back (auto-play testing).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.
@@ -94,3 +114,8 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
   message ~5% of the time.
+
+Audio messages: ~1.5% of history (its own seeded rng, so the rest of history
+is unchanged) plus, in each conversation's newest page, two consecutive
+recordings from one participant and one of mine. Bots send a recording 3% of
+the time. Every recording has a spoken transcript.

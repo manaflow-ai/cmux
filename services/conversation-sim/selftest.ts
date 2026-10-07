@@ -246,6 +246,43 @@ async function main() {
   const withImg = await l.call("send", { clientMessageId: `img-${crypto.randomUUID()}`, text: "", attachmentIds: [up.attachment.id] });
   check(withImg.message.attachments[0]?.id === up.attachment.id, "send with attachmentIds attaches the upload");
 
+  console.log("audio");
+  let aud: any;
+  for (let before: number | null = null; !aud; ) {
+    const page = await l.call("history", { beforeSeq: before, limit: 200 });
+    aud = page.messages.flatMap((m: any) => m.attachments).find((a: any) => a.kind === "audio");
+    before = page.messages[0].seq;
+  }
+  check(aud.durationMs > 1000 && aud.waveform.length >= 12 && aud.waveform.every((v: number) => v >= 0 && v <= 100), `history audio ${aud.durationMs}ms with ${aud.waveform.length}-level waveform`);
+  check(typeof aud.transcript === "string" && aud.transcript.length > 0, "history audio carries a transcript");
+  const wav = new Uint8Array(await (await fetch(aud.url)).arrayBuffer());
+  const wavMs = (new DataView(wav.buffer).getUint32(40, true) / 32000) * 1000;
+  check(String.fromCharCode(...wav.slice(0, 4)) === "RIFF" && Math.abs(wavMs - aud.durationMs) < 5, `GET ${new URL(aud.url).pathname} -> WAV of ${Math.round(wavMs)}ms`);
+  // Bursts above pushed group's seeded tail away; direct still ends with history.
+  const dc = await Client.connect("direct");
+  await dc.call("hello", { clientId: "selftest-audio" });
+  const recent = await dc.call("history", { beforeSeq: null, limit: 40 });
+  dc.close();
+  const recentAudio = recent.messages.filter((m: any) => m.attachments.some((a: any) => a.kind === "audio"));
+  const pair = recent.messages.findIndex(
+    (m: any, i: number) => i + 1 < recent.messages.length && m.senderId !== "aziz" && m.attachments[0]?.kind === "audio" && recent.messages[i + 1].attachments[0]?.kind === "audio" && recent.messages[i + 1].senderId === m.senderId,
+  );
+  check(pair >= 0 && recentAudio.some((m: any) => m.senderId === "aziz"), "newest page has two consecutive incoming recordings and one of mine");
+  const myWav = new Uint8Array(wav.slice(0, 44 + 16000 * 2 * 2));
+  new DataView(myWav.buffer).setUint32(40, 16000 * 2 * 2, true);
+  const upa = await fetch(`${base}/upload?kind=audio&waveform=10,90,40`, { method: "POST", body: myWav, headers: { "content-type": "audio/wav", "x-transcript": encodeURIComponent("hi there") } }).then((x) => x.json());
+  check(upa.attachment.kind === "audio" && upa.attachment.durationMs === 2000 && upa.attachment.waveform.join() === "10,90,40" && upa.attachment.transcript === "hi there", "audio upload reads WAV duration, waveform and transcript");
+  const sentAudio = (await l.call("send", { clientMessageId: `aud-${crypto.randomUUID()}`, text: "", attachmentIds: [upa.attachment.id] })).message;
+  check(sentAudio.attachments[0].kind === "audio" && sentAudio.attachments[0].expiresAt > Date.now(), "sent audio expires unless kept");
+  const kept = (await l.call("keepAudio", { messageId: sentAudio.id })).message;
+  check(kept.attachments[0].kept === true && kept.attachments[0].expiresAt === undefined, "keepAudio clears expiry");
+  const adm = await post("/admin/audio?conversation=group&count=2");
+  check(adm.messageIds.length === 2, "admin audio sends consecutive recordings");
+  await l.waitFor(() => l.events().filter((e) => adm.messageIds.includes(e.message.id)).length >= 2, 3000, "admin audio events");
+  await l.call("audioPlayed", { messageId: adm.messageIds[0] });
+  await l.waitFor(() => l.events().find((e) => e.message.id === adm.messageIds[0] && e.message.attachments[0].expiresAt), 3000, "played expiry");
+  check(true, "audioPlayed starts the expiry of an incoming recording");
+
   console.log("admin disconnect");
   await post("/admin/disconnect");
   await l.waitFor(() => l.closed, 3000, "socket drop");
