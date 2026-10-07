@@ -120,11 +120,13 @@ struct ShortcutListStableLazyView: View {
         let entries: [ShortcutListRowEntry]
         let revision: Int
 
+        /// Compares only immutable row state so unchanged lazy rows stay mounted.
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
             lhs.entries.map(\.snapshot) == rhs.entries.map(\.snapshot)
                 && lhs.revision == rhs.revision
         }
 
+        /// Renders the stable empty state and shortcut rows.
         @MainActor
         var body: some View {
             LazyVStack(spacing: 0) {
