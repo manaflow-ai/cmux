@@ -281,14 +281,7 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
-            // and the command palette's chats page ("Show all", decision K1).
-            guard id == "newTab.page" || id == "agentPane.searchChats" || newTab?.tools.contains(where: { $0.id == id || $0.menu.contains(id) }) == true || (id == "palette.welcomeChecklist" && newTab != nil),
-                  let onRunAction else {
-                return Self.unsupported("action.run")
-            }
-            onRunAction(id)
-            return AgentPaneReply.success()
+            return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
