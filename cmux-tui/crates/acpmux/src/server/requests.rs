@@ -947,7 +947,10 @@ async fn dispatch_request(
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
-        method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
+        method::MUX_HANDOFF_START => {
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.handoff_start(&params, control).await
+        }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
         // Anything else that names a session goes to the agent untouched, from the
         // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
