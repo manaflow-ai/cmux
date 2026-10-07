@@ -118,7 +118,7 @@ Flow:
 
 Rotation: every 90 days and on demand [TR §8]. The device makes a new key and calls `POST /v1/devices/{deviceId}/rotate-key {newPublicKey, signature}`; the Worker calls `rotate_tunnel_key {clientPublicKey}` (tunnel id, addresses and attachments stay [OA, FD:tunnels]) and returns the new `serverPublicKey` (it changes too [TR §7]); overlay peers get the key in a peer-map delta; the device deletes the old key after the ack. The old key stops in ~2.8 s [TR §13.2].
 
-Revocation: `DELETE /v1/devices/{deviceId}` (owner or tenant admin), install revocation, or removal from the Stack team. The Worker deletes the tunnel (its rules go with it [OA:create_firewall_rule]), removes the key from every peer map, and `HostDO` refuses its relay tickets [TR §8]. Measured block time ~0.2-0.26 s [TR §13.2]. Team removal is detected on the next authenticated call and by a reconcile sweep every 60 s that compares devices with Stack team membership. A lost device keeps its key, but nothing accepts it [TR §8].
+Revocation: `DELETE /v1/devices/{deviceId}` (owner or tenant admin), install revocation, or removal from the Stack team. The Worker deletes the tunnel (its rules go with it [OA:create_firewall_rule]), removes the key from every peer map, and `HostDO` refuses its relay tickets [TR §8]. Measured block time ~0.2-0.26 s [TR §13.2]. Team removal is detected on the next authenticated call and, for the experiment only, by a reconcile sweep every 60 s that compares devices with Stack team membership. That sweep leaves a removed member up to 60 s of access; before any external user, removal revokes at once on the Stack team-membership webhook, or on every token refresh where the webhook is unavailable (GA blocker G1, section 9). A lost device keeps its key, but nothing accepts it [TR §8].
 
 ## 4. ACL
 
@@ -216,24 +216,86 @@ Threat model:
 | Private key exposure | keys made on device; Worker never omits `clientPublicKey`; fail closed on a minted key; Keychain `ThisDeviceOnly` [TR §8] |
 | Enrollment code theft | single use, 10 min, hashed, bound to mesh and tags, audited |
 | Worker compromise or Freestyle API key leak | one key controls every tenant's VPCs and tunnels (shared account [WEB:privateNetwork.ts]); key only in Worker secrets [D:V3]; drift detection; ask Freestyle for scoped keys (question 13) |
-| Noisy tenant exhausts the account rule or tunnel limit | per-tenant budgets in the Worker (experiment: 50 devices, 500 compiled rules per mesh), refused with 429 before any upstream call; `{vpcId}` source compression |
+| Noisy tenant exhausts the account rule or tunnel limit | per-tenant budgets in the Worker (section 7.1), refused with a typed 429 before any upstream call; operator alert at 70 % of the shared account's rule limit; `{vpcId}` source compression |
 | Freestyle as an observer | the gateway terminates the tunnel, so plain L3 traffic to VMs (for example HTTP on 8080) is visible to Freestyle, same trust as hosting the VM; overlay traffic is end-to-end WireGuard and the relay sees ciphertext only [TR §0, §9.1] |
 | ACL drift (a failed or silent call) | re-list after apply; periodic reconcile; `evaluate_firewall` is not trusted as proof (it disagrees with the data plane [TR §7]); proofs use data-plane probes |
 
-Device to device with no tunnel-to-tunnel forwarding [D:T3, TR §7]: Mac↔Mac uses `direct_lan`, then `direct_wan` (punched IPv4 or IPv6), then the `HostDO` relay [D:D38, TR §4]. The Freestyle firewall is not on these paths, so the ACL is enforced by the receiving host's peer map (unknown keys get no answer [WG:mesh.rs]), `HostDO` admission (only installs in the host's compiled reachability [TR §6]), the link's registered-port filter [TR §12a] and the link `hello`. Measured: punch about 1 RTT; office-to-cloud punch success 47 %; relay 7.8 ms p50 in the same metro [TR §13.1, §13.3]. A cmux relay VM inside the VPC would keep Freestyle in the path (+2.6 ms [TR §7]) but costs an always-on VM per mesh; it is not used. If Freestyle adds tunnel-to-tunnel forwarding, the compiler emits `{tunnelId} -> {tunnelId, port}` rules and the path ladder gains `via_cloud_region` for device pairs.
+### 7.1 Budgets and the shared-account alert
 
-Security review before any external user [D:M4].
+The Worker enforces every budget before it makes an upstream call, with the existing typed error `QuotaExceeded` (HTTP 429, fields `message` and optional `retryAfterSeconds` [VM:src/errors.ts]), extended with a `budget` field naming the budget that was hit. A refused request changes nothing upstream.
+
+| Budget | Experiment value | Checked at | `retryAfterSeconds` |
+| --- | --- | --- | --- |
+| `mesh.perTenant` | 1 | `POST /v1/meshes` | absent (frees only on delete) |
+| `device.perMesh` | 50 | enroll | absent |
+| `enrollmentCode.perMeshPerHour` | 20 | code create | seconds until the hour window frees one |
+| `firewallRule.perMesh` | 500 compiled rules | ACL preview and apply, enroll, VM join | absent; preview reports the count so the policy can be tightened |
+| `aclApply.perMeshPerMinute` | 10 | ACL apply | seconds until the window frees one |
+
+Budgets are config values (the same mechanism as `TENANT_VM_QUOTAS` [VM:README]) with per-tenant overrides. The Worker keeps a count of live upstream firewall rules it owns across all tenants (ownership rows of kind `fwrule`) and alerts the operator when it reaches 70 % of `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT`, a config value. The real limit is unknown until Freestyle answers question 3; until then the value is a conservative guess, and an upstream 409 "account is at its firewall rule limit" [OA:create_firewall_rule] also pages the operator and is returned to the caller as `QuotaExceeded` with `budget: "firewallRule.account"`.
+
+### 7.2 Device to device
+
+Device to device with no tunnel-to-tunnel forwarding [D:T3, TR §7]: Mac↔Mac uses `direct_lan`, then `direct_wan` (punched IPv4 or IPv6), then the `HostDO` relay [D:D38, TR §4]. The Freestyle firewall is not on these paths, so the ACL is enforced by the receiving host's peer map (unknown keys get no answer [WG:mesh.rs]), `HostDO` admission (only installs in the host's compiled reachability [TR §6]), the link's registered-port filter [TR §12a] and the link `hello`. Measured: punch about 1 RTT; office-to-cloud punch success 47 %; relay 7.8 ms p50 in the same metro [TR §13.1, §13.3]. A cmux relay VM inside the VPC would keep Freestyle in the path (+2.6 ms [TR §7]) but costs an always-on VM per mesh; it is not used. The `HostDO` relay never decrypts Mac-to-Mac traffic: it forwards WireGuard packets that stay end-to-end encrypted between the two devices' keys, and it sees only outer addresses, peer ids, sizes and timing [TR §0 item 1, §6, §9.1]. It writes nothing to storage on the datagram path [TR §6]. If Freestyle adds tunnel-to-tunnel forwarding, the compiler emits `{tunnelId} -> {tunnelId, port}` rules and the path ladder gains `via_cloud_region` for device pairs.
+
+Security review before any external user [D:M4]; the full gate list is section 9.
 
 ## 8. Trade-offs
 
 | Choice | Alternative | Why |
 | --- | --- | --- |
-| One tunnel and one key per (device, mesh) | one tunnel per install attached to every team VPC (TR §7) | each tunnel has exactly one owning tenant (V3 ownership rows, per-tenant revoke and budgets) and no attachment-overlap coupling across teams; cost: one more gateway session per extra team, which `WgMesh` supports [WG:mesh_gateway.rs]. Needs coordinator confirmation because it changes TR §7. |
-| ACL source of truth in the cmux VM Worker (`MeshDO` + Postgres) | `TeamDO` (NP) | V1 puts every Freestyle call behind the cmux VM API; `TeamDO` can read the API later |
+| One tunnel and one key per (device, mesh) | one tunnel per install attached to every team VPC (TR §7) | each tunnel has exactly one owning tenant (V3 ownership rows, per-tenant revoke and budgets) and no attachment-overlap coupling across teams; cost: one more gateway session per extra team, which `WgMesh` supports [WG:mesh_gateway.rs]. Confirmed by the coordinator 2026-10-07; TR §7 amended on this branch. |
+| ACL source of truth in the cmux VM Worker (`MeshDO` + Postgres) | `TeamDO` (NP) | V1 puts every Freestyle call behind the cmux VM API; `TeamDO` calls the cmux VM API for policy and devices. Confirmed by the coordinator 2026-10-07; NP amendment text in appendix A. |
 | Pairwise identity rules | CIDR rules per group with pinned attachment addresses | identity rules are documented to work; CIDR compression waits for question 7 |
-| Userspace WireGuard, `cmux`-mediated ping/SSH | Network Extension system tunnel | no root, no VPN prompt, decided path [UW, D:M2]; system-wide is the existing opt-in |
+| Userspace WireGuard, `cmux`-mediated ping/SSH | Network Extension system tunnel | no root, no VPN prompt, decided path [UW, D:M2]; system-wide is the existing opt-in. Confirmed for the proof by the coordinator 2026-10-07. |
 | Create-before-delete apply | delete-first | never interrupts traffic both versions allow; old-only traffic lasts at most one apply (~1-3 s) |
 
 Strongest expert objection: "This is not Tailscale. Freestyle gives one San Francisco gateway, no regions, no tunnel-to-tunnel forwarding, allow-only rules with an unpublished account-wide limit and no atomic update. Device-to-device traffic (most of what a tailnet does) bypasses Freestyle and runs on your own relay and NAT traversal, so 'not caring about infra' fails, and a shared vendor account makes one key the blast radius for every customer. Use Tailscale/Headscale or your own WireGuard nodes."
 
 Answer: VMs live on Freestyle and have no public ports, so VM ingress must be Freestyle's VPC and firewall in any design; the mesh adds only per-device tunnels and rules on top of what Cloud attach already runs in production [UW, WEB:privateNetwork.ts]. The device-to-device path (LAN direct, punch, DO relay) is required anyway, because a LAN path beats any hub, and it is already built and measured [TR §13, §15]. Tailscale or Headscale would replace our identity and ACL with theirs (M1 requires our own) and still need relays. The objection's real content is the limits and the shared key: the experiment measures them (P6, P8), refuses over-budget tenants before Freestyle sees a call, and makes questions 1, 3 and 13 the gate for any external user. If Freestyle answers no to regions, decision T1's Fly.io ingress nodes are the fallback.
+
+## 9. GA blockers (before any external user)
+
+| Id | Blocker | Why |
+| --- | --- | --- |
+| G1 | Revoke on the Stack team-membership webhook (or on every token refresh), replacing the 60 s sweep | the sweep leaves a removed member up to 60 s of access (section 3) |
+| G2 | Freestyle answers questions 1, 3 and 13 (regions, limits, scoped keys), and `FREESTYLE_ACCOUNT_FIREWALL_RULE_LIMIT` is set from the real limit | the shared account is the cross-tenant blast radius (section 7) |
+| G3 | Security review of the mesh [D:M4] | decision M4 |
+| G4 | Budgets in section 7.1 reviewed against measured use from the proof | experiment values are guesses |
+
+## 10. Order of work
+
+Code waits until cmux VM S2 lands on `feat-cmux-next`. The first code slice is a branch from `feat-cmux-next`: the mesh, device and tunnel resources with their proofs (section 5) and the cross-tenant 404 tests, with the failing tests committed first. ACL compile/apply, enrollment codes, regions and the proof run follow in later slices.
+
+## Appendix A. Amended text for `spec/network-policy.md` (for the coordinator)
+
+The spec repo belongs to the coordinator, so this is the exact replacement text; nothing in that repo was edited.
+
+A1. In "Goals", replace the first bullet with:
+
+> - One network policy per team, in the spirit of a Tailscale ACL: groups, tags, hosts, source/destination/port rules, SSH rules mapped to Linux users, and built-in tests. The cmux VM API Worker owns it (versions in Postgres, one `MeshDO` per team mesh as the single writer of compile and apply; workers/cmux-vm/mesh/DESIGN.md section 4). `TeamDO` reads and changes it only through the cmux VM API.
+
+A2. Replace the paragraph under "Policy document" that begins "Stored in `TeamDO`" with:
+
+> Stored by the cmux VM API Worker as immutable versions (`cmux_vm.mesh_acl_versions`); JSON with comments allowed in the editor; canonical JSON stored.
+
+A3. In "Reconciler", replace item (a) with:
+
+> - (a) Phase 1, Freestyle: one VPC per team (D37), created as a cmux VM API mesh; each machine (Cloud VMs, the team VM, streaming hosts) is a VPC member with its tags recorded by cmux; each device gets one Freestyle WireGuard tunnel per team mesh it joins (one tunnel and one key per (device, mesh), never one tunnel shared across teams), created with the device's public key; compiled ACLs become pairwise Freestyle firewall rules, created before surplus rules are deleted, by the cmux VM API Worker when the policy, the directory or a machine changes.
+
+A4. Replace "How a Mac joins" steps 2, 3 and 5 with:
+
+> 2. The app calls the cmux VM API `POST /v1/meshes/{meshId}/devices {wgPublicKey, installPublicKey, signature}` (a headless machine uses a one-time enrollment code). The Worker checks the install signature, the user's team membership and the per-tenant budgets.
+> 3. The Worker creates the device's Freestyle tunnel for that team's VPC with the device's public key (the platform never sees a private key), routes limited to the mesh CIDRs, applies the firewall rules that involve the device, and returns the structured tunnel config to the app.
+> 5. A user in several teams has one tunnel and one WireGuard key per team mesh; the `cmux link` mesh holds one gateway session per tunnel.
+
+A5. Replace the "Revocation" paragraph's first sentence with:
+
+> Revocation: `DELETE /v1/devices/{deviceId}`, install revocation in `UserDO`, or removal from the team (at once on the Stack team-membership webhook or token refresh; a 60 s sweep only in the experiment) makes the cmux VM API Worker delete that team's tunnel for the device (its firewall rules go with it), stop issuing SSH certificates (existing ones expire within minutes; the team VM's revocation list cuts them at once), and drop the device from phase-2 peer maps.
+
+A6. In "Latency", append:
+
+> Device-to-device traffic never uses the VPC (Freestyle does not forward tunnel to tunnel); it uses same-LAN direct, NAT-punched direct, or the `HostDO` relay, which forwards end-to-end-encrypted WireGuard packets and sees only outer addresses and sizes.
+
+A7. In "Data and audit", replace "are stored by `TeamDO` and projected to PlanetScale `cmux-next`" with "are stored by the cmux VM API Worker in PlanetScale (schema `cmux_vm`)".
+
