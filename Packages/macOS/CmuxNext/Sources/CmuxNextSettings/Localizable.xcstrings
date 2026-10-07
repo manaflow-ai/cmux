@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.app.globalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصار عام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalna prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global genvejstast"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globaler Kurzbefehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Hot Key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajo global"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourci global"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorciatoia globale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រាប់ចុចកាត់សកល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 단축키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global hurtigtast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalny skrót"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atalho global"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальная горячая клавиша"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มลัดส่วนกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genel kısayol tuşu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальна гаряча клавіша"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phím tắt toàn cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域快速鍵"
+          }
+        }
+      }
+    },
+    "settings.app.globalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل إظهار/إخفاء كل النوافذ (⌃⌥⌘.) أثناء وجود تطبيق آخر في المقدمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži/sakrij sve prozore (⌃⌥⌘.) radi dok je druga aplikacija u prvom planu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker, mens en anden app er forrest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Alle Fenster ein-/ausblenden“ (⌃⌥⌘.) funktioniert, während eine andere App im Vordergrund ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas las ventanas (⌃⌥⌘.) funciona mientras otra app está en primer plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher/masquer toutes les fenêtres (⌃⌥⌘.) fonctionne lorsqu’une autre app est au premier plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra/nascondi tutte le finestre (⌃⌥⌘.) funziona mentre un’altra app è in primo piano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリが前面にあっても「すべてのウインドウを表示/非表示」(⌃⌥⌘.)が使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ/លាក់បង្អួចទាំងអស់ (⌃⌥⌘.) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이 앞에 있을 때도 모든 윈도우 보기/가리기(⌃⌥⌘.)가 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker mens en annen app er foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż/ukryj wszystkie okna (⌃⌥⌘.) działa, gdy na pierwszym planie jest inna aplikacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas as janelas (⌃⌥⌘.) funciona enquanto outro app está em primeiro plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показать/скрыть все окна» (⌃⌥⌘.) работает, когда впереди другое приложение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง/ซ่อนหน้าต่างทั้งหมด (⌃⌥⌘.) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm pencereleri göster/gizle (⌃⌥⌘.), başka bir uygulama öndeyken de çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показати/сховати всі вікна» (⌃⌥⌘.) працює, коли попереду інша програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện/ẩn tất cả cửa sổ (⌃⌥⌘.) hoạt động khi một ứng dụng khác ở phía trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他应用位于前台时，“显示/隐藏所有窗口”(⌃⌥⌘.)也可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他 App 位於前景時，「顯示/隱藏所有視窗」(⌃⌥⌘.) 也能使用。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeClosingTab": {
       "extractionState": "manual",
       "localizations": {

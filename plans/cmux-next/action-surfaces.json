@@ -6030,6 +6030,7 @@
       "default_shortcut" : {
         "key" : "k",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -7721,6 +7722,80 @@
       },
       "title" : "Archive Chief",
       "title_key" : "action.home.archiveChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-previous-conversation",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.previousConversation",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Previous Conversation",
+      "title_key" : "action.home.previousConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-next-conversation",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.nextConversation",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Next Conversation",
+      "title_key" : "action.home.nextConversation",
       "title_table" : "HomeActions"
     },
     {
@@ -16003,7 +16078,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -16013,14 +16088,9 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "k",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPane.searchChats",
-      "mcp" : "liveInput",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -20806,7 +20876,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.clear",
       "mcp" : "offered",
       "palette" : "offered",
@@ -22990,6 +23065,7 @@
       "default_shortcut" : {
         "key" : "k",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -23526,17 +23602,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "k",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "paletteOpen"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -29738,7 +29804,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-
+                  "terminalFocused"
                 ]
               }
             }

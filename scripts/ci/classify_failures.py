@@ -10,8 +10,11 @@ Each failed job gets a verdict from SIGNATURES, one table of log patterns:
   machine   the runner or its products failed: a runner hook refused the job,
             the compiled products did not restore, the CLI loaded package
             frameworks from another build, the runner went away, the runner
-            lacks the Xcode the job pins. The job's
-            test failures, if any, are not evidence about the code.
+            lacks the Xcode the job pins, GitHub's artifact storage did not
+            deliver the compiled products. The job's
+            test failures, if any, are not evidence about the code (except
+            after a failed artifact download: a test or compile failure the
+            job still printed decides it).
   code      a test recorded an issue, a compile or guard failed, and no
             machine signature matched.
   unknown   nothing in the table matched. The comment names the failed step.
@@ -23,6 +26,8 @@ jobs whose log says they stopped for another job (verdict `derived`).
 A machine signature counts only where the job failed: in a step that printed
 an `##[error]`, or in a failure annotation. A cache save that warns about the
 disk, or a script that spells a signature it never prints, does not count.
+A signature may also be bound to one step (a timeout counts only in the
+artifact download, where it is GitHub's storage, not a hung test).
 
 `act` writes the verdicts to the job summary and to one bot comment on the
 pull request, edited in place, and re-runs the failed jobs when every failed
@@ -46,7 +51,10 @@ noise dropped), and each gets an owner:
   yours             its file is one the pull request changes, or tests one
   also red on main  main's latest red full-suite run (the data main_full_suite.py
                     writes into its open issue) fails the same way
-  new in this PR    neither: most likely the pull request's
+  seen on other PRs this bot saw the same test fail, or crash, on another pull
+                    request's run in the last SEEN_DAYS days: likely flaky
+  new in this PR    none of these: most likely the pull request's ("main, whose
+                    full suite is green" only when main's latest full-suite run passed)
 
 The comment's first line is the verdict in those words. A pull request that
 merged before its CI finished still gets the comment (fix forward on main).
@@ -65,7 +73,7 @@ import os
 import re
 import sys
 import urllib.parse
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -103,14 +111,23 @@ class Signature:
     verdict: str
     pattern: re.Pattern[str]
     why: str
+    # Counts only in a step whose `Run ...` header matches.
+    step: re.Pattern[str] | None = None
+    # A machine fault that a code match elsewhere in the job still outweighs.
+    yields_to_code: bool = False
 
 
-def sig(name: str, verdict: str, pattern: str, why: str) -> Signature:
-    return Signature(name, verdict, re.compile(pattern), why)
+def sig(name: str, verdict: str, pattern: str, why: str, step: str | None = None,
+        yields_to_code: bool = False) -> Signature:
+    return Signature(name, verdict, re.compile(pattern), why, re.compile(step) if step else None, yields_to_code)
 
+
+# The step that fetches the compiled test products from GitHub's artifact storage.
+DOWNLOAD_ARTIFACT_STEP = r"^actions/download-artifact@"
 
 # First match per verdict is the evidence. A derived match decides the job,
-# then a machine match (only in a failed step), then a code match.
+# then a machine match (only in a failed step), then a code match, then a
+# machine match that yields to code.
 SIGNATURES = (
     sig("admission-declined", DERIVED, r"macOS admission gate declined: ",
         "compile admission stopped because a Linux job failed"),
@@ -137,6 +154,16 @@ SIGNATURES = (
         r"\[cmux-ci machine: xcode-pin-missing\]|^Pinned Xcode developer dir (?:does not exist|has no usable macOS SDK): "
         r"|^This macOS \d+ runner has no Xcode \S+, the version scripts/ci/xcode-pins\.txt pins",
         "the runner does not have the Xcode this job pins (install it: scripts/ci/xcode_pin_audit.py)"),
+    # `Download compiled (app-host) test product`: GitHub's artifact storage did not deliver the
+    # products (runs 37388244997 attempts 2 and 3, 37388340030 attempt 2). The steps after it fail
+    # for want of them; a test or compile failure the job still printed outweighs it.
+    sig("artifact-download-failed", MACHINE,
+        r"^Unable to download artifact\(s\): .*Artifact download failed after \d+ retries",
+        "GitHub's artifact storage did not deliver the compiled test product",
+        step=DOWNLOAD_ARTIFACT_STEP, yields_to_code=True),
+    sig("artifact-download-timeout", MACHINE, r"^The action has timed out\.$",
+        "downloading the compiled test product from GitHub's artifact storage timed out",
+        step=DOWNLOAD_ARTIFACT_STEP, yields_to_code=True),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
     sig("compile-error", CODE, r"\S+\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\d+:\d+: error: ",
@@ -147,17 +174,18 @@ SIGNATURES = (
 )
 
 
-def log_steps(text: str) -> list[tuple[bool, list[str]]]:
-    """The log's steps as (failed, output lines), without timestamps, colors or echoed scripts.
+def log_sections(text: str) -> list[tuple[str, bool, list[str]]]:
+    """The log's steps as (command, failed, output lines), without timestamps, colors or echoed scripts.
 
     A step starts with `##[group]Run <command>`, and GitHub prints its script
     (colored), or an action's `with:` inputs, inside that group, so a signature
     spelled in a script (an `echo "::error::..."` branch never taken) must not
     count. A group a step prints itself may also be titled "Run ..."; its first
     line is output, not script, and it stays. A step failed when it printed an
-    `##[error]` line.
+    `##[error]` line. The command is what follows `Run ` (`actions/download-artifact@<sha>`
+    for an action), "" before the first step.
     """
-    steps: list[tuple[bool, list[str]]] = [(False, [])]
+    steps: list[tuple[str, bool, list[str]]] = [("", False, [])]
     raw_lines = text.splitlines()
     in_header = False
     for index, raw in enumerate(raw_lines):
@@ -166,35 +194,47 @@ def log_steps(text: str) -> list[tuple[bool, list[str]]]:
             following = raw_lines[index + 1] if index + 1 < len(raw_lines) else ""
             following_text = TIMESTAMP.sub("", following)
             if "\x1b[36;1m" in following or following_text.startswith("with:"):
-                steps.append((False, []))
+                steps.append((line.removeprefix("##[group]Run ").strip(), False, []))
                 in_header = True
                 continue
         if in_header:
             if line.startswith("##[endgroup]"):
                 in_header = False
             continue
-        failed, lines = steps[-1]
+        command, failed, lines = steps[-1]
         if line.startswith("##[error]"):
-            steps[-1] = (True, lines)
+            steps[-1] = (command, True, lines)
         lines.append(line.removeprefix("##[error]"))
     return steps
 
 
+def log_steps(text: str) -> list[tuple[bool, list[str]]]:
+    """log_sections without the commands: (failed, output lines) per step."""
+    return [(failed, lines) for _, failed, lines in log_sections(text)]
+
+
+# A machine signature that yields to code (Signature.yields_to_code), as found[] keys it.
+WEAK_MACHINE = "machine-yields-to-code"
+
+
 def classify_text(text: str, annotations: Iterable[str] = ()) -> dict:
     """Verdict, signature and evidence for one job's log and its failure annotations."""
-    sections = [*log_steps(text), (True, [a for note in annotations for a in str(note).splitlines()])]
+    sections = [*log_sections(text), ("", True, [a for note in annotations for a in str(note).splitlines()])]
     found: dict[str, tuple[Signature, str]] = {}
-    for failed, lines in sections:
+    for command, failed, lines in sections:
         for line in lines:
             for signature in SIGNATURES:
                 if signature.verdict == MACHINE and not failed:
                     continue
-                if signature.verdict not in found and signature.pattern.search(line):
-                    found[signature.verdict] = (signature, line.strip())
-    for verdict in (DERIVED, MACHINE, CODE):
+                if signature.step is not None and not signature.step.search(command):
+                    continue
+                key = WEAK_MACHINE if signature.yields_to_code else signature.verdict
+                if key not in found and signature.pattern.search(line):
+                    found[key] = (signature, line.strip())
+    for verdict in (DERIVED, MACHINE, CODE, WEAK_MACHINE):
         if verdict in found:
             signature, line = found[verdict]
-            return {"verdict": verdict, "signature": signature.name, "why": signature.why,
+            return {"verdict": signature.verdict, "signature": signature.name, "why": signature.why,
                     "evidence": line[:MAX_EVIDENCE_CHARS]}
     return {"verdict": UNKNOWN, "signature": None, "why": "no known signature in the log", "evidence": ""}
 
@@ -362,6 +402,7 @@ def dedupe(found: Iterable[dict]) -> list[dict]:
 # ---------------------------------------------------------------- whose failure
 
 YOURS, ON_MAIN, NEW = "yours", "also red on main", "new in this PR"
+FLAKY = "seen on other PRs"
 
 
 def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tuple[str, str]:
@@ -469,11 +510,13 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
             "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
 
 
-def run_pull(gh: GitHub, run: Mapping) -> tuple[int | None, dict]:
-    """The run's pull request and its state. pr_number() finds an open one; a pull request merged
-    before its CI finished (#17074, #17232, #17233 on 2026-10-05) is closed by the time the run
-    completes, and its run lists no pull request, so a merged one at this head is looked up too."""
-    pr = pr_number(gh, run)
+def run_pull(gh: GitHub, run: Mapping, pr: int | None = ...) -> tuple[int | None, dict]:  # type: ignore[assignment]
+    """The run's pull request and its state. pr_number() finds an open one (pass `pr` when it was
+    already looked up); a pull request merged before its CI finished (#17074, #17232, #17233 on
+    2026-10-05) is closed by the time the run completes, and its run lists no pull request, so a
+    merged one at this head is looked up too."""
+    if pr is ...:
+        pr = pr_number(gh, run)
     if pr:
         return pr, gh.pull(pr)
     owner = str((run.get("head_repository") or {}).get("full_name") or "").split("/")[0]
@@ -545,16 +588,60 @@ def login(item: Mapping) -> str:
     return str((item.get("user") or {}).get("login") or "")
 
 
-# The label main's main_full_suite.py (on main only; this branch does not
-# carry that workflow) puts on its open red-suite issue.
-MAIN_FULL_SUITE_ISSUE_LABEL = "main-full-suite-failure"
+MAIN_RED, MAIN_GREEN, MAIN_UNKNOWN = "red", "green", "unknown"
+
+
+class main_full_suite:  # noqa: N801 - stands in for main's scripts/ci/main_full_suite.py
+    """The names main_red() reads from main's main_full_suite.py.
+
+    That module and its workflow live on main only (this branch deleted them
+    with the legacy app), but main_red() still reads main's full-suite state
+    through the API. Keep these values equal to main's module.
+    """
+
+    ISSUE_LABEL = "main-full-suite-failure"
+    CI_WORKFLOW_FILE = "ci.yml"
+    CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+    DISPATCH_EVENT = "workflow_dispatch"
+    TESTED_CONCLUSIONS = frozenset({"success", "failure"})
+
+    @classmethod
+    def latest_tested_run(cls, runs, branch: str = "main"):
+        """The newest completed full-suite run on the branch that went green or red."""
+        tested = [
+            run for run in runs
+            if run.get("event") == cls.DISPATCH_EVENT
+            and run.get("head_branch") == branch
+            and run.get("path") == cls.CI_WORKFLOW_PATH
+            and run.get("status") == "completed"
+            and run.get("conclusion") in cls.TESTED_CONCLUSIONS
+        ]
+        tested.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+        return tested[0] if tested else None
+
+
+def main_state(main: Mapping) -> str:
+    """What main_red() found; {} (it failed) is unknown."""
+    return str(main.get("state") or (MAIN_RED if main.get("issue") else MAIN_UNKNOWN))
 
 
 def main_red(gh: GitHub) -> dict:
-    """{issue, url, keys} for main's latest red full-suite run, or {} while main's full suite is green."""
-    issues = list(gh.get(f"repos/{gh.repo}/issues?labels={MAIN_FULL_SUITE_ISSUE_LABEL}&state=open&per_page=1") or [])  # type: ignore[arg-type]
+    """{state, issue, url, keys} for main's full suite: red with the open issue's failure keys, red
+    without an issue, green, or unknown.
+
+    Green needs main's latest completed full-suite run to have passed. No open issue is not enough:
+    a token without the `issues` permission finds none, and the issue lags the run (#17258 was told
+    main was green while #17286 was open and main's latest run was red)."""
+    issues = list(gh.get(f"repos/{gh.repo}/issues?labels={main_full_suite.ISSUE_LABEL}&state=open&per_page=1") or [])  # type: ignore[arg-type]
     if not issues:
-        return {}
+        body = gh.get(f"repos/{gh.repo}/actions/workflows/{main_full_suite.CI_WORKFLOW_FILE}/runs?branch=main"
+                      f"&event={main_full_suite.DISPATCH_EVENT}&status=completed&per_page=20") or {}
+        latest = main_full_suite.latest_tested_run(body.get("workflow_runs") or [])  # type: ignore[union-attr]
+        if latest is None:
+            return {"state": MAIN_UNKNOWN, "keys": []}
+        if latest.get("conclusion") == "success":
+            return {"state": MAIN_GREEN, "keys": []}
+        return {"state": MAIN_RED, "url": latest.get("html_url"), "keys": []}
     issue = issues[0]
     # Anyone can comment a marker on the issue ("this also fails on main" would excuse their own
     # failure); only what main_full_suite.py posted, as the workflow's bot, counts.
@@ -566,7 +653,142 @@ def main_red(gh: GitHub) -> dict:
             f"repos/{gh.repo}/issues/{issue['number']}/comments?per_page=100&page={last}") or []  # type: ignore[union-attr]
             if login(c) == BOT]
     data = parse_main_failures(bodies)
-    return {"issue": int(issue["number"]), "url": issue.get("html_url"), "keys": list(data.get("keys") or [])}
+    return {"state": MAIN_RED, "issue": int(issue["number"]), "url": issue.get("html_url"),
+            "keys": list(data.get("keys") or [])}
+
+
+# ---------------------------------------------------------------- seen on other pull requests
+
+# A failure main does not show may still be no PR's: a flaky test or crash fails on unrelated PRs
+# (TerminalNotificationDirectInteractionTests crashed on #15409, #16048 and #17258, issue #17483, and
+# passed on main's full suite). This bot keeps a rolling record of the test failures and crashes it
+# attributed to no PR's files and to no red main, by pull request and day, in a hidden marker in the
+# body of a closed issue its main-full-suite reports opened, so editing it notifies no one. One GET
+# reads it (only when a failure is "new in this PR") and at most one PATCH a run updates it. Only the
+# bot's own body counts, and only a same-repository PR's run writes to it: a fork's log could
+# otherwise plant failures to excuse another PR's. Concurrent runs may drop each other's update; the
+# record is evidence, not a ledger.
+SEEN_ISSUE = 17286
+SEEN_PREFIX = "<!-- cmux-pr-failures-seen "
+SEEN_RE = re.compile(re.escape(SEEN_PREFIX) + r"(\{.*?\}) -->", re.DOTALL)
+SEEN_DAYS = 14
+MAX_SEEN_PRS = 5
+MAX_SEEN_CHARS = 40000
+
+
+def seen_keys(item: Mapping, job_failures: Iterable[Mapping]) -> list[str]:
+    """What identifies a failure across pull requests: a test by its key; a crash with the test that
+    crashed (its message alone, "Bad pointer dereference", names no test). Other kinds: none."""
+    if item.get("kind") == "test":
+        return [failure_key(item)]
+    if item.get("kind") == "crash":
+        return [f"{failure_key(item)} in {failure_key(t)}" for t in job_failures if t.get("kind") == "test"]
+    return []
+
+
+def parse_seen(body: str) -> dict[str, dict[str, str]]:
+    """{key: {pr: last day seen}} from the marker, or {}."""
+    found = SEEN_RE.search(str(body or ""))
+    if not found:
+        return {}
+    try:
+        data = json.loads(found.group(1))
+    except json.JSONDecodeError:
+        return {}
+    seen = data.get("seen") if isinstance(data, dict) else None
+    if not isinstance(seen, dict):
+        return {}
+    return {str(k): {str(p): str(d) for p, d in v.items()} for k, v in seen.items() if isinstance(v, dict)}
+
+
+def seen_marker(record: Mapping[str, Mapping[str, str]]) -> str:
+    # `>` escaped inside the JSON strings, so log text cannot close the comment.
+    data = json.dumps({"v": 1, "seen": record}, separators=(",", ":"), sort_keys=True)
+    return SEEN_PREFIX + data.replace(">", "\\u003e") + " -->"
+
+
+def prune_seen(record: Mapping[str, Mapping[str, str]], now: str) -> dict[str, dict[str, str]]:
+    """Sightings of the last SEEN_DAYS days, the first MAX_SEEN_PRS per failure (the PR that started
+    it must outlive the ones that hit it later), the most recently seen failures first while the
+    marker fits MAX_SEEN_CHARS."""
+    from datetime import date, timedelta
+
+    cutoff = (date.fromisoformat(now[:10]) - timedelta(days=SEEN_DAYS)).isoformat()
+    kept: dict[str, dict[str, str]] = {}
+    for key, prs in record.items():
+        recent = sorted((d, p) for p, d in prs.items() if d >= cutoff)[:MAX_SEEN_PRS]
+        if recent:
+            kept[key] = {p: d for d, p in recent}
+    out: dict[str, dict[str, str]] = {}
+    size = len(seen_marker({}))
+    for key in sorted(kept, key=lambda k: max(kept[k].values()), reverse=True):
+        entry = len(json.dumps({key: kept[key]}, separators=(",", ":")).replace(">", "\\u003e")) + 1
+        if size + entry > MAX_SEEN_CHARS:
+            break
+        out[key], size = kept[key], size + entry
+    return out
+
+
+def seen_elsewhere(record: Mapping[str, Mapping[str, str]], keys: Iterable[str], pr: int, now: str) -> set[str]:
+    """The other pull requests that hit any of these keys in the last SEEN_DAYS days, before this one
+    first did. One that hit it later is usually stacked on this PR or a copy of its change, so it
+    would hide this PR's own regression."""
+    pruned = prune_seen({k: record[k] for k in keys if k in record}, now)
+    return {p for prs in pruned.values() for p, d in prs.items()
+            if p != str(pr) and d < prs.get(str(pr), now)}
+
+
+def now_utc() -> str:
+    """A sighting's time: to the second, so two PRs that fail on the same day keep their order."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def mark_seen_elsewhere(gh: GitHub, pr: int, report: dict, now: str) -> tuple[dict, str] | None:
+    """Turn each "new in this PR" failure another PR also hit into FLAKY. Returns the record and the
+    issue body it came from, or None when nothing was read."""
+    pending = [(job, item) for job in report["jobs"] if job["verdict"] != MACHINE
+               for item in job.get("failures") or [] if item.get("owner") == NEW]
+    if not any(seen_keys(item, job.get("failures") or []) for job, item in pending):
+        return None
+    try:
+        issue = gh.get(f"repos/{gh.repo}/issues/{SEEN_ISSUE}") or {}
+    except RuntimeError as error:
+        print(f"::warning::issue {SEEN_ISSUE} (failures seen on other PRs) unreadable: {error}", file=sys.stderr)
+        return None
+    if login(issue) != BOT:  # type: ignore[arg-type]
+        return None
+    body = str(issue.get("body") or "")  # type: ignore[union-attr]
+    record = parse_seen(body)
+    for job, item in pending:
+        others = seen_elsewhere(record, seen_keys(item, job.get("failures") or []), pr, now)
+        if others:
+            item["owner"] = FLAKY
+            item["owner_why"] = f"failed on {len(others)} other PR{'s' if len(others) > 1 else ''} " \
+                                f"in the last {SEEN_DAYS} days"
+    return record, body
+
+
+def record_seen(record: Mapping[str, Mapping[str, str]], report: Mapping, pr: int, now: str) -> dict | None:
+    """The record with this run's not-yours, not-on-main failures added, or None when unchanged."""
+    updated = {k: dict(v) for k, v in record.items()}
+    for job in report["jobs"]:
+        if job["verdict"] == MACHINE:
+            continue
+        for item in job.get("failures") or []:
+            if item.get("owner") in (NEW, FLAKY):
+                for key in seen_keys(item, job.get("failures") or []):
+                    updated.setdefault(key, {}).setdefault(str(pr), now)  # the first sighting
+    updated = prune_seen(updated, now)
+    return None if updated == record else updated
+
+
+def seen_body(body: str, record: Mapping[str, Mapping[str, str]]) -> str:
+    marker = seen_marker(record)
+    if SEEN_RE.search(body):
+        return SEEN_RE.sub(lambda _: marker, body, count=1)
+    return body.rstrip("\n") + "\n\n" + marker
 
 
 # ---------------------------------------------------------------- the comment
@@ -648,25 +870,38 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     yours = [f for f in failures if f.get("owner") == YOURS]
     new = [f for f in failures if f.get("owner") == NEW]
     on_main = [f for f in failures if f.get("owner") == ON_MAIN]
+    flaky = [f for f in failures if f.get("owner") == FLAKY]
     main = report.get("main_red") or {}
     issue = f" (#{main['issue']})" if main.get("issue") else ""
     unexplained = [j for j in jobs if j["verdict"] != MACHINE and not j.get("failures")]
+    # Counted by PR, never linked: a #number here would cross-reference those PRs.
+    seen_too = f" Seen on other PRs too (likely flaky): {listed(flaky, False)}." if flaky else ""
     if yours:
         line = f"**Yours to fix:** {listed(yours)}."
         if new:
             line += f" Also failing here, not on main: {listed(new, False)}."
         if on_main:
             line += f" Not yours: {len(on_main)} more also fail on main{issue}."
+        line += seen_too
     elif new:
-        where_main = "main's latest full suite" if main else "main, whose full suite is green"
+        # Green only when main's latest full-suite run passed (main_red).
+        where_main = {MAIN_RED: " but not on main's latest full suite" if main.get("issue") or main.get("keys")
+                      else "; main's latest full suite is red too, and its failures could not be read",
+                      MAIN_GREEN: " but not on main, whose full suite is green"}.get(
+                          main_state(main), "; main's full-suite result could not be read")
         # A compile error in a file the PR does not change may still be its own (a removed
         # declaration) or main's (#17232 merged #17368's break); the line says which files.
         untouched = " (not a file this PR changes)" if all(f.get("kind") == "compile" for f in new) else ""
-        line = f"**Probably yours:** {listed(new)}{untouched} fails here but not on {where_main}."
+        line = f"**Probably yours:** {listed(new)}{untouched} fails here{where_main}."
         if on_main:
             line += f" {len(on_main)} more also fail on main{issue}."
+        line += seen_too
     elif on_main and not unexplained:
         line = f"**Not yours:** {listed(on_main)} also fails on main{issue}; merge main once it is fixed there."
+        line += seen_too
+    elif flaky and not unexplained:
+        line = f"**Seen on other PRs too (likely flaky):** {listed(flaky, False)} also failed on other PRs " \
+               "before this one; check whether it is this PR's before re-running."
     elif unexplained:
         job = unexplained[0]
         who = "Probably yours" if job["verdict"] == CODE else "Unclear"
@@ -739,7 +974,7 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     out += ["", "Written by `scripts/ci/classify_failures.py` (ci-failure-attribution.yml); signatures are its "
                 "`SIGNATURES` table. A machine verdict is the runner's fault, not this PR's; **yours** means the "
                 "failing file is one this PR changes, **also red on main** that main's latest full suite fails "
-                "the same way."]
+                "the same way, **seen on other PRs** that it failed on another pull request's run lately."]
     return cap("\n".join(out) + "\n")
 
 
@@ -780,8 +1015,9 @@ def mark_pending(writer: Writer, repo: str, pr: int, existing: list[dict], head:
 # ---------------------------------------------------------------- acting
 
 
-def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
-    """Whether to re-run the failed jobs, and the line that says so."""
+def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> tuple[bool, str]:
+    """Whether to re-run the failed jobs, and the line that says so. `latest` is the run as it is
+    now, or a function that reads it: only a run whose every failure is the machine's needs it."""
     jobs = report["jobs"]
     if not jobs:
         return False, "Not re-run automatically: only gate jobs failed."
@@ -791,6 +1027,8 @@ def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
     if report.get("conclusion") != "failure":
         return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
+    if callable(latest):
+        latest = latest()
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
         return False, "Every failure is a machine failure; the run has been re-run already."
     # Attempt 1, whose re-run (attempt 2) goes back to the minis; attempt 2, which an online but broken mini
@@ -821,14 +1059,44 @@ def own_failures(gh: GitHub, pr: int, report: dict, files: list[str] | None) -> 
     return files
 
 
+def reports_only_where_commented(report: Mapping) -> bool:
+    """A run that writes nothing on a pull request without this bot's comment: green with the macOS
+    jobs run, or cancelled before a job failed. act() reads the pull request only when it has one."""
+    if report.get("conclusion") == "success":
+        return not report.get("macos_blocked")
+    return report.get("conclusion") == "cancelled" and not report["jobs"]
+
+
+def write_summary(body: str) -> None:
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(body.replace(MARKER + "\n", ""))
+
+
 def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     """Summary, comment and re-run for the run's pull request, when the run is still its latest word."""
-    pr, pull = run_pull(gh, run)
+    existing: list[dict] | None = None
+    if reports_only_where_commented(report):
+        # Most runs are green. Without this bot's comment on the pull request there is nothing to
+        # update or mark pending, so the comments are read first and the pull request only when one
+        # is there (every workflow shares GITHUB_TOKEN's API budget; it ran out on 2026-10-06).
+        pr = pr_number(gh, run)
+        if pr:
+            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+            if not any(MARKER in str(c.get("body") or "") for c in existing):
+                if report.get("conclusion") == "success":
+                    write_summary(render_comment(report, ""))
+                return {"pr": pr, "rerun": False, "line": "skipped: nothing reported on this pull request"}
+        pr, pull = run_pull(gh, run, pr)
+    else:
+        pr, pull = run_pull(gh, run)
     merged = bool(pull.get("merged_at"))
     if not pr or (pull.get("state") != "open" and not merged):
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     # Only this workflow's own comment: anyone can post one carrying the marker.
-    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    if existing is None:
+        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     head = str((pull.get("head") or {}).get("sha") or "")
     if head != report.get("head_sha"):
@@ -841,11 +1109,26 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
     report["merged"] = merged
     files = own_failures(gh, pr, report, None)
+    now = now_utc()
+    try:
+        seen = mark_seen_elsewhere(gh, pr, report, now)
+    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"::warning::issue {SEEN_ISSUE} (failures seen on other PRs) unreadable: {error}", file=sys.stderr)
+        seen = None
+    same_repo = str((run.get("head_repository") or {}).get("full_name") or "").lower() == gh.repo.lower()
+    if seen is not None and same_repo:
+        try:
+            record, issue_body = seen
+            updated = record_seen(record, report, pr, now)
+            if updated is not None:
+                writer.call("PATCH", f"repos/{gh.repo}/issues/{SEEN_ISSUE}", {"body": seen_body(issue_body, updated)})
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
     if report.get("macos_blocked"):
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
     rerun, line = False, ""
     if report.get("conclusion") != "success":
-        rerun, line = rerun_decision(report, gh.run(int(report["run_id"])))
+        rerun, line = rerun_decision(report, lambda: gh.run(int(report["run_id"])))
         if merged and rerun:
             rerun, line = False, "Not re-run: this PR has merged."
     if rerun:
@@ -855,10 +1138,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
     body = render_comment(report, line, rerun)
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(body.replace(MARKER + "\n", ""))
+    write_summary(body)
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
     # never ran says that even where nothing was reported, since it looks green. A machine-only
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
@@ -872,11 +1152,17 @@ def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
     """A CI run started for a new head: an existing comment about an older head says pending.
     Metadata only: the PR, its head and the bot's comments; no log, nothing of the PR runs."""
     pr = pr_number(gh, run)
-    pull = gh.pull(pr) if pr else {}
-    head = str((pull.get("head") or {}).get("sha") or "")
-    if not pr or pull.get("state") != "open" or head != run.get("head_sha"):
+    if not pr:
         return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
+    # The comments first: without this bot's comment there is nothing to mark, and the pull
+    # request is not read.
     existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    if not any(MARKER in str(c.get("body") or "") for c in existing):
+        return {"pr": pr, "rerun": False, "line": "nothing to mark"}
+    pull = gh.pull(pr)
+    head = str((pull.get("head") or {}).get("sha") or "")
+    if pull.get("state") != "open" or head != run.get("head_sha"):
+        return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
     changed = mark_pending(writer, gh.repo, pr, existing, head, str(run.get("html_url") or "") or None)
     return {"pr": pr, "rerun": False, "line": f"marked pending on {head[:10]}" if changed else "nothing to mark"}
 

@@ -127,7 +127,7 @@ Rule for the UI: an egress that cannot meet every row for an engine is **not off
 
 ### 7.3 No bypass of FETCH-PRIVATE-RANGES
 
-- Today the host checks a URL's literal host and, after a fetch, the response's `remoteIPAddress` (FACT: gate/fetch.rs `rebinding_refusal`). Under a proxy, Chromium reports the proxy's address as the remote address (GUESS, TEST). With our design that is 127.0.0.1, a private range: every proxied fetch from a remote session would be refused, and the real destination address is never seen.
+- Today the host checks a URL's literal host and, after a fetch, the response's `remoteIPAddress` (FACT: gate/fetch.rs `rebinding_refusal`). Under a proxy, Chromium reports the proxy's address as the remote address (FACT, Chromium 143, tests/chromium/proxy_ranges.rs; the page behind it loads and is readable before the after-the-fact stop). Landed 2026-10-07 in the gate (gate/proxy.rs): remote sessions set no proxy; a proxy's own address meets the range rule; a proxied session's URL names that this machine resolves into a refused range are refused before dispatch. With our design that is 127.0.0.1, a private range: every proxied fetch from a remote session would be refused, and the real destination address is never seen.
 - Rule: for a store with an egress, the host keeps the literal-host check and skips the after-the-fact address check. The range rule moves to the hop that resolves names:
   - cmux VPN exits: the exit enforces it after its own resolution (built into the exit image).
   - Residential: vendors do not offer it (GUESS). The local listener refuses, before dial, names that are private by definition (`localhost`, `*.localhost`, `*.internal`, `*.local`, metadata names). A public name that resolves to a private address at the vendor reaches the vendor's network, not ours: accepted risk, written in the add-on terms.
@@ -189,6 +189,23 @@ Order: .2 (direct + BYO HTTP/SOCKS5 proves the no-leak core), then .3 and .6 in 
 - Exit tests (Cloud lane): exit refuses private/metadata/port 25 after resolution; resolver answers only on the tunnel; key revocation drops the tunnel.
 - Metering test: a known byte volume through each kind; listener count vs vendor stats within the drift bound.
 - Gate for each engine x source to appear in the UI: its leak-suite run on the current engine build passed.
+
+## 13a. Decisions (2026-10-07)
+
+Recorded by the coordinator (Lawrence's answers where noted); they replace the open options in section 13.
+
+| # | Decision |
+| --- | --- |
+| E1 | A tab with its own egress gets its own ephemeral store. |
+| E2 | A workspace egress is a derived store per profile x workspace. |
+| E3 | Chromium only until our WebKit leak probe passes. |
+| E4 | Headless: strict process-wide WebRTC and prediction settings. |
+| E5 | Bring-your-own proxy secrets stay on this Mac only at first. |
+| E6 | cmux exits are IPv4 only at first; IPv6 is blocked inside an egress store. |
+| E7 | Residential (later): one sticky exit per store; never rotated for agents. |
+| E8 | Exit logs: metadata only (no URLs, no bodies), 30 days, for abuse handling. |
+| E12 | Chromium's own process-level traffic (updates, safe browsing) goes direct and is disclosed in the egress badge. |
+| Scope | Lawrence: no residential vendor now. Ship bring-your-own proxy and cmux VPN exits only; residential (section 9, child cx-d0d.52.5) is deferred. Pricing is decided later; build metering behind a flag. |
 
 ## 13. Open decisions (options; recommendation first)
 

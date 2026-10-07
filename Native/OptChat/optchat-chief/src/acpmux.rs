@@ -28,6 +28,9 @@ pub struct SessionSpec {
     pub preset: Option<String>,
     /// acpmux tags set on the session right after it is created.
     pub tags: BTreeMap<String, String>,
+    /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
+    /// allowlist: CMUX_WORKSPACE_ID); empty for none.
+    pub env: BTreeMap<String, String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -587,6 +590,9 @@ pub fn new_session(
     }
     if let Some(preset) = preset {
         meta["preset"] = json!(preset);
+    }
+    if !spec.env.is_empty() {
+        meta["env"] = json!(spec.env);
     }
     let result = client
         .request(

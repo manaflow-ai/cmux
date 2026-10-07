@@ -248,7 +248,10 @@ test("snapshot: one huge text or value is cut at the snapshot's size budget with
 
 // The walk is a deferred work stack: a node's children are scheduled before
 // any is read. One element with very many children must not schedule them
-// all; the walk charges each child where it schedules it.
+// all; the walk charges each child where it schedules it. 200,000 children:
+// more than the snapshot's 1,000-node budget, and within the 250,000
+// elements that frame.observe's sensitive-field scan reads (a page with
+// more is refused whole).
 test("snapshot: one element with more children than the node budget schedules no more than the budget", async () => {
   await withRepl(async (run) => {
     const r = await run(`
@@ -256,7 +259,7 @@ test("snapshot: one element with more children than the node budget schedules no
         const host = document.createElement("div");
         const p = document.createElement("span");
         p.textContent = "x";
-        for (let i = 0; i < 300000; i++) host.appendChild(p.cloneNode(true));
+        for (let i = 0; i < 200000; i++) host.appendChild(p.cloneNode(true));
         document.body.replaceChildren(host);
       });
       const raw = await page._mainFrame._agent("snapshot", { maxNodes: 1000 });
@@ -307,4 +310,84 @@ test("frames: frames read together never pass the snapshot's node and size budge
   assert.ok(spent("maxNodes", { main: 10, A: 1 }) <= 100, `nodes read: ${JSON.stringify(asked)}`);
   assert.ok(spent("maxSize", { main: 10, A: 1 }) <= 1000, `characters read: ${JSON.stringify(asked)}`);
   assert.deepEqual(asked.map((x) => x.name).sort(), ["A", "B", "C", "main"]);
+});
+
+// Budget items 7 and 9 (classic 7f37c374e9f5, 61b3f78a30d2): the label
+// index and a slot's assigned nodes are read within the read's budget,
+// never listed whole. The dev driver's agent world is the page world, so a
+// list method the page wraps records the largest list a read asks for.
+test("locators: past the page-read budget, labels are not read by a whole-document scan", async () => {
+  await withRepl(async (run) => {
+    const count = await run(`
+      await page.evaluate(() => {
+        document.body.innerHTML = '<input id="a">' + '<label for="b">x</label>'.repeat(250001) + '<label for="a">Beyond the budget</label><input id="b">';
+      });
+      console.log("@@" + JSON.stringify(await page.getByRole("textbox", { name: "Beyond the budget" }).count()));
+    `);
+    assert.equal(count, 0, "a label past the budget was found by a whole-document scan");
+  });
+});
+
+test("label index: <label>s are read one at a time within the budget, never listed whole (document and shadow root)", async () => {
+  await withRepl(async (run) => {
+    const listed = await run(`
+      await page.evaluate(() => {
+        document.body.innerHTML = '<input id="a"><div id="host"></div><div id="hidden" style="display:none"></div>';
+        document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);
+        document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input id="b"><div style="display:none">' + '<label for="b">S</label>'.repeat(5000) + '</div>';
+        window.__labels = 0;
+        for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+          const native = proto.querySelectorAll;
+          proto.querySelectorAll = function (selector) {
+            const list = native.call(this, selector);
+            if (String(selector).trim().toLowerCase() === "label") window.__labels = Math.max(window.__labels, list.length);
+            return list;
+          };
+        }
+      });
+      await snapshot({ maxChars: Infinity, _maxNodes: 1000 });
+      console.log("@@" + JSON.stringify(await page.evaluate(() => window.__labels)));
+    `);
+    assert.ok(listed <= 1000, `the label index listed ${listed} <label>s at once with a budget of 1,000 nodes`);
+    // Below the budget, labels still name their controls in both trees.
+    const named = await run(`
+      await page.evaluate(() => {
+        document.getElementById("hidden").innerHTML = '<label for="a">Doc label</label>';
+        document.getElementById("host").shadowRoot.innerHTML = '<input id="b"><label for="b">Shadow label</label>';
+      });
+      const s = await snapshot({ maxChars: Infinity });
+      console.log("@@" + JSON.stringify({ doc: s.tree.includes('textbox "Doc label"'), shadow: s.tree.includes('textbox "Shadow label"') }));
+    `);
+    assert.deepEqual(named, { doc: true, shadow: true }, "a label below the budget no longer names its control");
+  });
+});
+
+test("snapshot: a slot's assigned nodes are read one at a time within the walk's budget, never listed whole", async () => {
+  await withRepl(async (run) => {
+    const listed = await run(`
+      await page.evaluate(() => {
+        window.__assigned = 0;
+        for (const name of ["assignedNodes", "assignedElements"]) {
+          const native = HTMLSlotElement.prototype[name];
+          HTMLSlotElement.prototype[name] = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+        }
+        document.body.innerHTML = '<div id="host"></div>';
+        const host = document.getElementById("host");
+        host.innerHTML = '<button>b</button>'.repeat(5000);
+        host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+      });
+      await snapshot({ maxChars: Infinity, _maxNodes: 1000 });
+      console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));
+    `);
+    assert.ok(listed <= 1000, `the snapshot listed ${listed} assigned nodes at once with a budget of 1,000 nodes`);
+    const named = await run(`
+      await page.evaluate(() => {
+        document.body.innerHTML = '<div id="h"><button slot="b">Bee one</button><button>Default one</button><button slot="b">Bee two</button><button slot="zz">Unplaced</button></div>';
+        document.getElementById("h").attachShadow({ mode: "open" }).innerHTML = '<div role="group" aria-label="A"><slot name="a"><button>Fallback a</button></slot></div><div role="group" aria-label="B"><slot name="b"></slot></div><div role="group" aria-label="D"><slot></slot></div>';
+      });
+      const s = await snapshot({ maxChars: Infinity });
+      console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (group|button)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));
+    `);
+    assert.deepEqual(named, ['- group "A"', '- button "Fallback a"', '- group "B"', '- button "Bee one"', '- button "Bee two"', '- group "D"', '- button "Default one"']);
+  });
 });

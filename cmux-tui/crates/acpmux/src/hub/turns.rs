@@ -164,9 +164,11 @@ impl Hub {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let harness = session.meta().harness;
-        if !live && self.config.read().await.profile(&harness).is_none() {
-            return Err(RpcError::invalid_params(format!("unknown harness {harness:?}")));
+        let m = session.meta();
+        if !live {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin)
+                .map_err(RpcError::invalid_params)?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
@@ -732,6 +734,7 @@ impl Hub {
         session: &Arc<Session>,
         name: Option<String>,
         cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let is_claude = self
@@ -808,6 +811,9 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            // Never inherited: the fork request sets its own or runs without one.
+            session_env,
+            harness_roots: vec![],
         };
         let new = self.make_session(meta);
         if is_claude {
