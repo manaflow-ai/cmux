@@ -24,6 +24,8 @@ final class AppContainer {
     let diagnostics: DiagnosticLogSink
     /// Sentry under the shared telemetry consent.
     let crashReporter: CrashReporter
+    /// Delivers links and notification taps, deferred until signed in.
+    let router: ShellRouter
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).
@@ -67,6 +69,7 @@ final class AppContainer {
             }
         }
         diagnostics.info("app", "launch")
+        router = ShellRouter(parser: ShellRouteParser(bundleScheme: Self.bundleURLScheme()), log: diagnostics)
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
         #if DEBUG
@@ -96,7 +99,7 @@ final class AppContainer {
         #endif
         push = PushRegistration(ops: ops, topic: Bundle.main.bundleIdentifier ?? "", environment: environment)
         feedResponder = FeedNotificationResponder(ops: ops)
-        notificationDelegate = NotificationDelegate(responder: feedResponder)
+        notificationDelegate = NotificationDelegate(responder: feedResponder, router: router)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):
         // bind the last user now; minting needs only its record and the key.
@@ -127,6 +130,12 @@ final class AppContainer {
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
         updateRequired = requirement
+    }
+
+    /// The exact-bundle URL scheme registered in Info.plist (`cmux-ios-<bundle id>`).
+    private static func bundleURLScheme() -> String? {
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        return types.lazy.compactMap { ($0["CFBundleURLSchemes"] as? [String])?.first }.first
     }
 
     /// `Application Support/cmux-next`; nil keeps the log in memory.

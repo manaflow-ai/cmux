@@ -10,10 +10,10 @@ import UIKit
 /// the feature tabs) as the auth state changes.
 @MainActor
 final class RootViewController: UIViewController {
-    private let container: AppContainer
+    let container: AppContainer
     private var current: UIViewController?
     private weak var home: HomeViewController?
-    private weak var shell: ShellRootController?
+    private(set) weak var shell: ShellRootController?
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
 
@@ -33,11 +33,12 @@ final class RootViewController: UIViewController {
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         container.flags.onChange = { [weak self] in self?.applyFlags() }
         container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
-        container.feedResponder.openItem = { [weak self] _ in
-            // The Feed tab owns item navigation once lane C6 lands; for now
-            // a feed push opens the tab.
-            self?.shell?.select(.feed)
+        container.feedResponder.openItem = { [weak container] item in
+            // The Feed tab owns item navigation once lane C6 lands; the
+            // router opens the tab (deferred until signed in).
+            container?.router.open(.feed(item: item))
         }
+        container.router.install { [weak self] route in self?.handle(route) }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
             // DEV preview (simulator screenshots): the update-required banner
@@ -71,8 +72,10 @@ final class RootViewController: UIViewController {
         shownState = state
         switch state {
         case .restoring:
+            container.router.setAccountReady(false)
             install(LaunchPlaceholderViewController())
         case .signedOut:
+            container.router.setAccountReady(false)
             shellAccount = nil
             container.signedOut()
             install(SignInScreen.make(coordinator: container.auth.coordinator))
@@ -80,6 +83,7 @@ final class RootViewController: UIViewController {
             showHome(account: account)
             container.signedIn(account: account)
             DebugLaunchTasks.signedIn(container: container)
+            container.router.setAccountReady(true)
         }
     }
 
