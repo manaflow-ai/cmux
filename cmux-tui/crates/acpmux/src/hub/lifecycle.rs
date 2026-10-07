@@ -106,7 +106,8 @@ impl Hub {
             || defaults.env.values().any(|v| v.contains("${model}"));
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+        let env = [&defaults.env, &profile.env];
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
             Adoption::Found(recorded) => recorded,
         };
@@ -348,6 +349,7 @@ impl Hub {
             }
         }
 
+        self.record_launch_roots(session, profile).await;
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

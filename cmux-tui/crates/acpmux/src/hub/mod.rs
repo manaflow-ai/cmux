@@ -11,6 +11,7 @@ mod adoption;
 mod handoff;
 mod harness_view;
 mod idle;
+mod launch_roots;
 mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
@@ -410,6 +411,11 @@ impl Hub {
     /// The gate's paths, while the gate is on.
     pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
         self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Where adopt looks for harness sessions by default.
+    pub fn harness_homes(&self) -> crate::adopt::HarnessHomes {
+        self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
