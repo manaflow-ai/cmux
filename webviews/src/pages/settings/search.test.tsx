@@ -105,3 +105,20 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   await run(() => page!.provider.sendCommand("find"));
   expect(document.activeElement).toBe(search(page));
 });
+
+test("a focused route reveals its row once values arrive and focuses its visible control", async () => {
+  const revealed: string[] = [];
+  const original = window.HTMLElement.prototype.scrollIntoView;
+  window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    revealed.push(this.getAttribute("data-row-key") ?? this.tagName);
+  };
+  try {
+    page = await renderPage({ path: "/settings/general?focus=app.quitBehavior" });
+    expect(revealed).toEqual(["app.quitBehavior"]);
+    const active = document.activeElement as HTMLElement;
+    expect(active.closest('[data-row-key="app.quitBehavior"]')).not.toBeNull();
+    expect(active.getAttribute("aria-hidden")).toBeNull();
+  } finally {
+    window.HTMLElement.prototype.scrollIntoView = original;
+  }
+});

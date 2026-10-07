@@ -40,7 +40,8 @@ export function SettingRow({
       inert={filtered}
       aria-hidden={filtered ? true : undefined}
       tabIndex={-1}
-      ref={focused ? revealRow : undefined}
+      // Revealed once the owner's values arrive: before that every control is disabled.
+      ref={focused && state.readable ? revealRow : undefined}
     >
       {diagnostics && <RowNotice settingKey={row.key} messages={diagnostics} disabled={disabled} />}
       <div className="row-main">
