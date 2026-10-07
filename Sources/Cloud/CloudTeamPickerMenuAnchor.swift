@@ -138,6 +138,13 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             trackingMenu?.cancelTracking()
+            // Leaving the window sends no exit event. Cleared on a later turn,
+            // since a removal can land inside a SwiftUI update.
+            if isPointerInside {
+                RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                    MainActor.assumeIsolated { self?.setPointerInside(false) }
+                }
+            }
         } else {
             presentIfRequested()
         }
