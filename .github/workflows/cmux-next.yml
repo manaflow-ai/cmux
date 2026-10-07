@@ -366,6 +366,7 @@ jobs:
           # the base tree, else its own pull_request_target runs.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -427,6 +428,7 @@ jobs:
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -1109,6 +1111,9 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
+          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
+          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
@@ -1555,6 +1560,9 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
+          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
+          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
