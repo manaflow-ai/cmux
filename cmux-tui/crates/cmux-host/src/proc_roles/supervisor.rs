@@ -206,8 +206,9 @@ impl Loop {
                         }
                     }
                     stop.killed = true;
-                } else if all_down || now >= stop.next_deadline() {
-                    let stop = stopping.take().expect("stopping");
+                } else if (all_down || now >= stop.next_deadline())
+                    && let Some(stop) = stopping.take()
+                {
                     let left = self.entries.values().filter(|e| !e.proc.is_down());
                     let _ = stop.done.send(left.map(|e| e.spec.name.clone()).collect());
                 }
@@ -223,7 +224,7 @@ impl Loop {
             set.roles.into_iter().map(|spec| (spec.name.clone(), spec)).collect();
         let names: Vec<String> = self.entries.keys().cloned().collect();
         for name in names {
-            let entry = self.entries.get_mut(&name).expect("entry");
+            let Some(entry) = self.entries.get_mut(&name) else { continue };
             entry.next = match wanted.remove(&name) {
                 Some(spec) if spec == entry.spec => Next::Keep,
                 Some(spec) => Next::Replace(spec),
@@ -263,7 +264,7 @@ impl Loop {
             .map(|(name, _)| name.clone())
             .collect();
         for name in down {
-            let entry = self.entries.remove(&name).expect("entry");
+            let Some(entry) = self.entries.remove(&name) else { continue };
             if let Next::Replace(spec) = entry.next {
                 self.insert_and_start(spec, now, tx);
             }
@@ -284,8 +285,10 @@ impl Loop {
             .map(|(name, _)| name.clone())
             .collect();
         for name in due {
-            self.entries.get_mut(&name).expect("entry").wake = None;
-            self.input(&name, Input::Due, now, tx);
+            if let Some(entry) = self.entries.get_mut(&name) {
+                entry.wake = None;
+                self.input(&name, Input::Due, now, tx);
+            }
         }
     }
 
