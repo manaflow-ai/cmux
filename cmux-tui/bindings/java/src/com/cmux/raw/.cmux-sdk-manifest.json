@@ -1417,8 +1417,8 @@
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "ec56d8127ab0299e95c441fc3dce83434b67f850c064231ad1bddc0bbe5209a2",
-      "size": 8653
+      "sha256": "df11cd414197d3b6b1ecb64cdb9a475343a940d9cf9de4f189f0590eef615f97",
+      "size": 9273
     },
     {
       "path": "NewPaneRequest.java",
@@ -1597,7 +1597,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b136d0aad215657652cff7aacec8bd55bc50e9589009a5972b315dd8950b43ee",
+      "sha256": "ed2f6eb2f32741b86bcd072d48ee50d161bd22bb71a36b7b271b8a8c6b3500e9",
       "size": 5749
     },
     {
@@ -2772,7 +2772,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "df95b9a19f96ded20b7035b1e5330c88ef2fed3a398a60c67fc31d355fa511fa",
+  "ir_sha256": "9496d58d88de892658e496b46730c12074b0354928aae971cf4da945b712e4b5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

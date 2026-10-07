@@ -98,10 +98,14 @@ concurrency:
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
   # finish so a 42-minute macOS build is not discarded by the next push.
+  # Main NIGHTLY and nightly-next install as the same app, so their publishing
+  # runs must share one group. This keeps the run-derived Sparkle build number
+  # ordered across both feeds; the nightly-next floor check otherwise rejects
+  # an older run that finishes after a newer main publication.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ (github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -1632,14 +1636,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
-        run: |
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
-            exit 0
-          fi
-          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
-          "$SENTRY_CLI" debug-files upload --include-sources \
-            build-universal/Build/Products/Release/
+        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
+        run: ./scripts/upload-sentry-dsyms.sh build-universal/Build/Products/Release/
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
@@ -1695,6 +1693,10 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           # Never ship a stale build: more than 24 h behind the tip fails.
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
+          # This run executes the tip's nightly.yml against the resolved
+          # commit, so the resolved commit must carry the same file: run
+          # 37568319518 called a dSYM script its older build commit lacked.
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
@@ -2034,6 +2036,21 @@ jobs:
           set -euo pipefail
           ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
           ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
+
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless the channel release carries gettext-0.24.tar.gz and
+      # COPYING.LIB (the prune step keeps those names, they carry no build number).
+      - name: Verify shipped libintl has its source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
 
       - name: Verify nightly binary architectures
         run: |
@@ -2482,6 +2499,15 @@ jobs:
           - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
           - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
           EOF
+          # Older builds on this rolling release bundle GNU libintl in the ghostty
+          # CLI helper; keep the LGPL source notice while the source is attached.
+          if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+              -q '.assets[].name' | grep -qx 'gettext-0.24.tar.gz'; then
+            cat >> nightly-downloads.md <<'EOF'
+
+          Nightly builds whose ghostty CLI helper contains GNU libintl from gettext 0.24 (LGPL-2.1-or-later) have the complete corresponding source and license text attached to this release (`gettext-0.24.tar.gz`, `COPYING.LIB`).
+          EOF
+          fi
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
@@ -3095,9 +3121,13 @@ jobs:
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
 
+  # A cancelled job (a timeout reports as cancelled) counts as a failure. On
+  # nightly-next the signed release notes are part of the publication: a
+  # published build whose notes jobs did not both succeed is reported too
+  # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
-    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -3112,6 +3142,7 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -3122,7 +3153,16 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
-            const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
+            const failed = Object.entries(results)
+              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .map(([k, v]) => `${k} (${v.result})`);
+            // nightly-next: notes jobs that were skipped after a publication.
+            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success') {
+              for (const job of ['sign-release-notes', 'publish-release-notes']) {
+                const result = results[job]?.result;
+                if (result === 'skipped') failed.push(`${job} (skipped)`);
+              }
+            }
             const tagStale = process.env.TAG_STATUS === 'stale';
             const publicationLine = tagStale
               ? `${appName} published, tag marker stale for ${process.env.HEAD_SHA} (${refName}). Assets, release metadata, and appcasts are available; only the channel completion marker failed to advance.`
@@ -3143,8 +3183,10 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    # always(): a skipped notes job must not skip this job silently; the
+    # conditions below decide. nightly-next closes only with its notes published.
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

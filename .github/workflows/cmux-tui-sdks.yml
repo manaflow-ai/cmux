@@ -678,5 +678,5 @@ jobs:
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
         run: |
-          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live -- --nocapture
-          cargo test -p cmux-daemon-client --locked --test mirror_live -- --nocapture
+          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live -- --nocapture
