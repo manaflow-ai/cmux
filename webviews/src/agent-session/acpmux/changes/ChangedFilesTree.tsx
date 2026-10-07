@@ -45,6 +45,10 @@ export function ChangedFilesTree({
   const [measureStats] = useState(() =>
     createTextMeasure('system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'),
   );
+  const statsSpriteSheet = useMemo(
+    () => diffStatSpriteSheet(files.map((file) => ({ added: file.additions, deleted: file.deletions })), measureStats),
+    [files, measureStats],
+  );
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
     const file = filesRef.current.get(item.path);
     if (!file || item.kind !== "file") return null;
@@ -87,12 +91,15 @@ export function ChangedFilesTree({
     icons: {
       set: "complete",
       colored: true,
-      spriteSheet: diffStatSpriteSheet(files.map((file) => ({ added: file.additions, deleted: file.deletions })), measureStats),
+      spriteSheet: statsSpriteSheet,
     },
     itemHeight: 28,
     renderRowDecoration,
     unsafeCSS: treeUnsafeCSS,
   });
+  useEffect(() => {
+    model.setIcons({ set: "complete", colored: true, spriteSheet: statsSpriteSheet });
+  }, [model, statsSpriteSheet]);
   // A transcript update rebuilds the files; the tree resets only when the paths differ.
   const shown = useRef(displayPaths);
   useEffect(() => {
