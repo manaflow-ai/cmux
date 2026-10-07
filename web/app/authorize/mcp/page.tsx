@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { directDevBackendOrigin } from "../../lib/direct-dev-backend-origin";
-import { mcpIssuerFor } from "../../../services/mcp/oauthRoutes";
+import { mcpIssuerFor, mcpPublicOrigin } from "../../../services/mcp/oauthRoutes";
 import { authorizationRedirect, MCP_AUTHORIZE_PATH } from "../../../services/mcp/oauth";
 import {
   AUTHORIZATION_PARAM_NAMES,
@@ -17,13 +17,11 @@ type McpAuthorizePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+/** The same origin `mcpPublicOrigin` derives for a route handler. */
 async function pageOrigin(): Promise<string> {
-  const direct = directDevBackendOrigin(process.env)?.origin;
-  if (direct) return direct;
   const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "cmux.com";
-  const proto = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
+  const fallback = directDevBackendOrigin(process.env)?.origin ?? "https://cmux.com";
+  return mcpPublicOrigin(new Request(fallback, { headers: requestHeaders }));
 }
 
 function searchParamsFrom(raw: Record<string, string | string[] | undefined>): URLSearchParams {

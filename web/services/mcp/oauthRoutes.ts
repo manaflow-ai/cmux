@@ -11,8 +11,24 @@ import {
 } from "./oauth";
 import { mcpOauthDbStore } from "./oauthStore";
 
-/** The origin the browser sees: the request's host, or the direct dev-backend URL. */
+const HOST_PATTERN = /^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/;
+
+/**
+ * The origin the client used. Vercel and Tailscale Serve both forward the real
+ * host, so it comes from `x-forwarded-host`/`host` before the request URL, which
+ * a development server reports as its bind address. That keeps one stack correct
+ * when it is reached through more than one hostname (its tailnet URL and a
+ * public tunnel): each client gets identifiers for the host it called.
+ */
 export function mcpPublicOrigin(request: Request, env: Record<string, string | undefined> = process.env): string {
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host"))?.split(",")[0]?.trim();
+  if (host && HOST_PATTERN.test(host)) {
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    const proto = forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : new URL(request.url).protocol.replace(":", "");
+    return `${proto}://${host}`;
+  }
   return directDevBackendOrigin(env)?.origin ?? new URL(request.url).origin;
 }
 

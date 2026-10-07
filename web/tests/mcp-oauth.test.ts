@@ -367,3 +367,15 @@ describe("MCP App and extensions", () => {
     expect(result.structuredContent).toMatchObject({ view: "cloud", machines: [{ id: "vm-a" }] });
   });
 });
+
+describe("MCP OAuth origin", () => {
+  test("the origin is the host the client called, not the server's bind address", async () => {
+    const { mcpPublicOrigin } = await import("../services/mcp/oauthRoutes");
+    const viaTunnel = new Request("http://0.0.0.0:3000/api/mcp", { headers: { host: "abc.trycloudflare.com", "x-forwarded-proto": "https" } });
+    expect(mcpPublicOrigin(viaTunnel, {})).toBe("https://abc.trycloudflare.com");
+    const vercel = new Request("https://cmux.com/api/mcp", { headers: { "x-forwarded-host": "cmux.com", "x-forwarded-proto": "https" } });
+    expect(mcpPublicOrigin(vercel, {})).toBe("https://cmux.com");
+    const junk = new Request("https://cmux.com/api/mcp", { headers: { host: "evil.example/path" } });
+    expect(mcpPublicOrigin(junk, {})).toBe("https://cmux.com");
+  });
+});
