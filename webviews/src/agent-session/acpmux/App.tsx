@@ -95,7 +95,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
-import { FolderChoice } from "./FolderChoice";
+import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -2004,7 +2004,7 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
-      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
