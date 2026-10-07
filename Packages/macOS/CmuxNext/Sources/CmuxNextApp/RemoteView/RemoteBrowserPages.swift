@@ -78,7 +78,8 @@ enum RemoteBrowserPages {
     /// runs the shared open path in that pane or the focused one; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
     /// does (`BrowserTab.load`); `menu_choose` (`id` or `index`, `tab`?)
-    /// answers the open native menu; `menu_cancel` dismisses it.
+    /// answers the open native menu; `menu_cancel` dismisses it; `click`
+    /// (`x`, `y`, `button`, `modifiers`) clicks the page.
     @MainActor
     static func debug(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let live = sessions.compactMapValues(\.value)
@@ -116,6 +117,33 @@ enum RemoteBrowserPages {
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
             target.tab?.load(url)
             return ["navigated": true]
+        case "click":
+            // A click at `x`,`y` (page CSS pixels from the top left) with
+            // `button` (`left`, `right`) and `modifiers` (`cmd`, `shift`,
+            // `option`, `ctrl`), through the page view's own pointer path.
+            guard let tab = target?.tab else { return ["error": "no session"] }
+            let view = tab.pane.view
+            guard let window = view.window else { return ["error": "the tab is not in a window"] }
+            let point = view.convert(NSPoint(x: params["x"]?.doubleValue ?? 10, y: params["y"]?.doubleValue ?? 10), to: nil)
+            var flags: NSEvent.ModifierFlags = []
+            for name in params["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
+                switch name {
+                case "cmd", "command": flags.insert(.command)
+                case "shift": flags.insert(.shift)
+                case "option", "alt": flags.insert(.option)
+                case "ctrl", "control": flags.insert(.control)
+                default: break
+                }
+            }
+            let right = params["button"]?.stringValue == "right"
+            let types: [NSEvent.EventType] = right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp]
+            for type in types {
+                guard let event = NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                tab.handlePointer(event)
+            }
+            return ["clicked": true]
         case "menu_choose":
             guard let target else { return ["error": "no session"] }
             if let id = params["id"]?.intValue { return ["chosen": .bool(target.nativeUI.choose(.command(Int64(id))))] }
