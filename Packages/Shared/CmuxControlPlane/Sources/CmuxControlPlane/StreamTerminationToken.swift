@@ -8,7 +8,7 @@ final class StreamTerminationToken: Sendable {
     private let action: OSAllocatedUnfairLock<(@Sendable () -> Void)?>
 
     init(_ action: @escaping @Sendable () -> Void) {
-        self.action = OSAllocatedUnfairLock(initialState: action)
+        self.action = OSAllocatedUnfairLock(initialState: action) // carve-out: as declared above
     }
 
     func fire() {

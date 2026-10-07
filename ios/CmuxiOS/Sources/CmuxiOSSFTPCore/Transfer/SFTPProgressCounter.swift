@@ -1,22 +1,17 @@
-import Foundation
+import os
 
 /// The last byte count a transfer reported, written from the SFTP client's
 /// progress callback and read when the transfer pauses or ends.
-final class SFTPProgressCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var bytes: Int64
+final class SFTPProgressCounter: Sendable {
+    // carve-out: the progress callback is synchronous and runs on the SFTP
+    // client's thread; one load or store, never held across a suspension.
+    private let bytes: OSAllocatedUnfairLock<Int64>
 
-    init(_ bytes: Int64) { self.bytes = bytes }
-
-    var value: Int64 {
-        lock.lock()
-        defer { lock.unlock() }
-        return bytes
+    init(_ bytes: Int64) {
+        self.bytes = OSAllocatedUnfairLock(initialState: bytes) // carve-out: as declared above
     }
 
-    func set(_ value: Int64) {
-        lock.lock()
-        bytes = value
-        lock.unlock()
-    }
+    var value: Int64 { bytes.withLock { $0 } }
+
+    func set(_ value: Int64) { bytes.withLock { $0 = value } }
 }

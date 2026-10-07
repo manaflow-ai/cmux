@@ -48,18 +48,3 @@ public struct FileTerminalComposePersistence: TerminalComposePersisting {
         try? FileManager.default.removeItem(at: url)
     }
 }
-
-/// Keeps the state in memory only (tests, previews).
-public final class MemoryTerminalComposePersistence: TerminalComposePersisting, @unchecked Sendable {
-    private let lock = NSLock()
-    private var data: Data?
-
-    public init(data: Data? = nil) {
-        self.data = data
-    }
-
-    public func load() -> Data? { lock.withLock { data } }
-    public func save(_ data: Data) { lock.withLock { self.data = data } }
-    public func remove() { lock.withLock { data = nil } }
-    public var stored: Data? { load() }
-}
