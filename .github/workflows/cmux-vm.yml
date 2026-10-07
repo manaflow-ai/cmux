@@ -38,6 +38,8 @@ name: cmux VM
 
 on:
   pull_request:
+    # labeled/unlabeled: re-run when cmux-vm-breaking-change-ok is added or removed.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml
@@ -104,6 +106,17 @@ jobs:
       - name: openapi.json matches the HttpApi definition
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run openapi:check
+      # Breaking changes to the published contract against the PR's base.
+      # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
+      - name: openapi.json has no breaking change against the base branch
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
+        run: bash scripts/openapi-breaking.sh "$BASE_REF"
+      - name: Upstream coverage (every upstream operation wrapped, planned or denied)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run coverage:upstream
       - name: Integration tests in workerd (fake upstream)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:workers

@@ -108,6 +108,8 @@ mod client_hello;
 mod fs_wire;
 mod line_connection;
 mod origin_gate;
+mod orphan_shutdown;
+pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -5157,6 +5159,8 @@ pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Called after any client connects or leaves (orphan_shutdown.rs).
+    client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -5176,6 +5180,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
+            client_presence_observer: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -5228,6 +5233,8 @@ impl ClientRegistry {
                 origin: Default::default(),
             },
         );
+        drop(state);
+        self.notify_client_presence();
         client
     }
 
@@ -6251,6 +6258,7 @@ impl ClientRegistry {
         if detached {
             self.notify_detach();
         }
+        self.notify_client_presence();
         Some(record)
     }
 
@@ -15763,6 +15771,9 @@ mod loopback_forward_tests;
 #[path = "server/image_paste_tests.rs"]
 mod image_paste_tests;
 
+#[cfg(test)]
+#[path = "server/orphan_shutdown_tests.rs"]
+mod orphan_shutdown_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;

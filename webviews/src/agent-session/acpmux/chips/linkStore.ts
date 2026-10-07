@@ -110,3 +110,16 @@ export function resetLinkStore(): void {
   policyAsked = false;
   changed();
 }
+
+/** Gallery host fixtures can prime the same cache the native inspect call would fill. */
+export function seedLinkStore(seed: {
+  paths?: Record<string, PathInfo>;
+  sites?: Record<string, SiteInfo>;
+  policy?: Partial<ReplyPolicy>;
+}): void {
+  for (const [path, info] of Object.entries(seed.paths ?? {})) paths.set(path, info);
+  for (const [url, info] of Object.entries(seed.sites ?? {})) sites.set(url, info);
+  if (seed.policy) policy = { ...policy, ...seed.policy };
+  policyAsked = true;
+  changed();
+}
