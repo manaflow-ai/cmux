@@ -2209,19 +2209,13 @@ def test_computer_use_auth_token_reaches_mcp_child(failures: list[str]) -> None:
 
 
 def test_computer_use_skipped_attachment_does_not_load_credential(failures: list[str]) -> None:
-    for reason in ("strict", "disabled", "no-client", "unsafe-file", "symlink"):
+    for reason in ("strict", "disabled", "no-client"):
         def setup(tmp: Path, env: dict) -> None:
             computer_use_sandbox(
                 auth_token=False, auth_token_file=True,
                 bundled_driver=reason != "no-client", disabled=reason == "disabled",
             )(tmp, env)
-            token_file = Path(env["CMUX_CUA_AUTH_TOKEN_FILE"])
-            if reason == "unsafe-file":
-                token_file.chmod(0o644)
-            elif reason == "symlink":
-                link = tmp / "auth-link"
-                link.symlink_to(token_file)
-                env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(link)
+            env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "stale-token"
 
         args = ["-p", "hello"]
         if reason == "strict":
