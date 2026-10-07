@@ -321,6 +321,9 @@ pub struct Hub {
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
+    /// Profile hot reload (`harness_watch.rs`) and its change feed.
+    pub(super) harness_watcher: StdMutex<Option<Arc<harness_watch::HarnessWatcher>>>,
+    pub(super) harness_changes: broadcast::Sender<Value>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -394,6 +397,8 @@ impl Hub {
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
+            harness_watcher: StdMutex::new(None),
+            harness_changes: broadcast::channel(64).0,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

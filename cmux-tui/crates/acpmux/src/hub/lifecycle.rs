@@ -10,15 +10,12 @@ impl Hub {
 
     /// Refresh the configured catalog while keeping all session processes alive.
     pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
-        let path =
-            self.config.read().await.path.clone().ok_or_else(|| {
-                RpcError::invalid_params("this daemon has no config file to reload")
-            })?;
+        let (path, sources) = self.config_sources().await?;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
         let mut next = tokio::task::spawn_blocking(move || {
             std::fs::metadata(&path)?;
-            crate::config::Config::load_from(&path)
+            crate::config::Config::load_from_with(&path, &sources)
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
