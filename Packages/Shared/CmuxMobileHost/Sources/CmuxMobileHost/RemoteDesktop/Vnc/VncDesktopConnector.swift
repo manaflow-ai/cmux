@@ -44,6 +44,8 @@ public struct VncDesktopConnector: RemoteDesktopSources {
         let clock = clock
         let timeout = bannerTimeout
         do {
+            // concurrency-allow: the deadline branch closes the transport, which fails the pending
+            // banner read, so the group never waits on a loser that ignores cancellation.
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask { try await client.negotiateVersion() }
                 group.addTask {
