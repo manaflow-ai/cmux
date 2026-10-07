@@ -2,6 +2,8 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSPlatform
+import CmuxiOSPlatformUI
 import CmuxiOSShell
 import CmuxiOSTerminal
 import UIKit
@@ -16,6 +18,7 @@ final class RootViewController: UIViewController {
     private(set) weak var shell: ShellRootController?
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
+    private var toastWindow: ToastWindow?
 
     init(container: AppContainer) {
         self.container = container
@@ -39,6 +42,11 @@ final class RootViewController: UIViewController {
             container?.router.open(.feed(item: item))
         }
         container.router.install { [weak self] route in self?.handle(route) }
+        container.router.onUnrecognized = { [weak container] _ in
+            container?.toasts.show(Toast(.warning, String(
+                localized: "platform.link.unrecognized",
+                defaultValue: "This link needs a newer version of cmux.", bundle: .module)))
+        }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
             // DEV preview (simulator screenshots): the update-required banner
@@ -60,6 +68,9 @@ final class RootViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if toastWindow == nil, let scene = view.window?.windowScene {
+            toastWindow = ToastWindow(scene: scene, center: container.toasts)
+        }
         // The shake gesture (DEV menu) reaches this controller from any first
         // responder below it; take first responder only while no Home screen
         // does, so Home's key commands (Cmd-F, Cmd-N, Esc) stay in the chain.

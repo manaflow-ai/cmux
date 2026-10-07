@@ -38,4 +38,7 @@ enum PlatformText {
         String(localized: "platform.diagnostics.logFooter",
                defaultValue: "Secrets, emails and file paths are removed before anything is saved.", bundle: .module)
     }
+    static var toastDismissHint: String {
+        String(localized: "platform.toast.dismissHint", defaultValue: "Double-tap to dismiss.", bundle: .module)
+    }
 }

@@ -26,6 +26,8 @@ final class AppContainer {
     let crashReporter: CrashReporter
     /// Delivers links and notification taps, deferred until signed in.
     let router: ShellRouter
+    /// The one toast owner; feature screens get it from here.
+    let toasts = ToastCenter()
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).

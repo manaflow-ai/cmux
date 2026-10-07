@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxHomeUI
 import CmuxiOSDesign
+import CmuxiOSPlatform
 import CmuxiOSShell
 import SwiftUI
 import CmuxiOSTerminal
@@ -43,6 +44,13 @@ enum DevMenu {
         // DEBUG-only: the text confirmation settings against the mock owner.
         sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
             presenter?.present(DevTextConfirm.make(), animated: true)
+        })
+        // DEBUG-only: one toast of each style through the toast center (C16).
+        sheet.addAction(UIAlertAction(title: "Toasts (samples)", style: .default) { _ in
+            container.toasts.show(Toast(.info, "Copied"))
+            container.toasts.show(Toast(.success, "Task started", title: "Compose"))
+            container.toasts.show(Toast(.warning, "Mac is asleep"))
+            container.toasts.show(Toast(.failure, "Send failed", action: ToastAction(label: "Retry") {}))
         })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
