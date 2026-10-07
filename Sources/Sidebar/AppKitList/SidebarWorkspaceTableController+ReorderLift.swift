@@ -37,11 +37,19 @@ extension SidebarWorkspaceTableController {
         let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let table = containerView.tableView
         let point = table.convert(windowPoint, from: nil)
+        // Away from the list, the drag carries its own picture of the row
+        // (another window, a pane); back over it, the lift is the picture.
+        syncReorderDragGhost(shown: Self.reorderDragShowsGhost(
+            tablePointX: point.x,
+            tableWidth: table.bounds.width,
+            windowFrame: window.frame,
+            screenPoint: NSEvent.mouseLocation
+        ))
         // Outside the sidebar horizontally (a cross-window or into-terminal
         // excursion): freeze the shift state rather than keep reacting to a
         // pointer that is no longer about this list. The session ends only
         // at endedAt.
-        guard point.x >= -48, point.x <= table.bounds.width + 48 else { return }
+        guard Self.reorderPointIsOverList(tablePointX: point.x, tableWidth: table.bounds.width) else { return }
         updateReorderLift(windowPoint: windowPoint, workspaceId: workspaceId)
     }
 
@@ -73,6 +81,9 @@ extension SidebarWorkspaceTableController {
         /// The applied translation target per row index, so a row only
         /// animates when its target actually flips.
         var appliedTargets: [CGFloat]
+        /// The pointer the last update placed the block for (window space),
+        /// so a rebuild after a structural update re-places it exactly.
+        var lastWindowPoint: NSPoint
 
         func height(of unit: Range<Int>) -> CGFloat {
             frames[unit].reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, unit.count - 1))
@@ -128,8 +139,11 @@ extension SidebarWorkspaceTableController {
     /// matter what the transaction says. Starting from the presentation
     /// layer's live value means a retarget mid-glide continues from where
     /// the row visually is instead of jumping.
-    func glideRowShift(layer: CALayer, to target: CGFloat) {
-        let currentY = (layer.presentation() ?? layer)
+    /// `from` overrides the presentation read when the row's frame just
+    /// changed under it (a lift rebuild), where the presentation layer still
+    /// holds an offset from the old frame.
+    func glideRowShift(layer: CALayer, to target: CGFloat, from start: CGFloat? = nil) {
+        let currentY = start ?? (layer.presentation() ?? layer)
             .value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
         let spring = CASpringAnimation(keyPath: "transform.translation.y")
         spring.fromValue = currentY
@@ -146,7 +160,9 @@ extension SidebarWorkspaceTableController {
     }
 
     /// Drives the freeform drag visuals for the pointer at `windowPoint`.
-    func updateReorderLift(windowPoint: NSPoint, workspaceId: UUID) {
+    /// `carry` is set once, right after a structural update rebuilt the rows
+    /// under a live drag (see `ReorderLiftCarryOver`).
+    func updateReorderLift(windowPoint: NSPoint, workspaceId: UUID, carry: ReorderLiftCarryOver? = nil) {
         guard let containerView else { return }
         let table = containerView.tableView
         let point = table.convert(windowPoint, from: nil)
@@ -179,15 +195,19 @@ extension SidebarWorkspaceTableController {
                 otherUnits: reorderUnits(excluding: sourceRange, wholeGroups: isGroupDrag),
                 frames: frames,
                 rowSpacing: frames.count > 1 ? max(0, frames[1].minY - frames[0].maxY) : 0,
-                pointerOffsetY: reorderDragStartWorkspaceId == workspaceId
+                pointerOffsetY: carry?.pointerOffsetY ?? (reorderDragStartWorkspaceId == workspaceId
                     ? (reorderDragStartPointerOffsetY ?? point.y - frames[sourceRange.lowerBound].minY)
-                    : point.y - frames[sourceRange.lowerBound].minY,
-                appliedTargets: Array(repeating: 0, count: rows.count)
+                    : point.y - frames[sourceRange.lowerBound].minY),
+                appliedTargets: Array(repeating: 0, count: rows.count),
+                lastWindowPoint: windowPoint
             )
             table.reorderPinnedRowsRect = sourceRange.reduce(CGRect.null) { $0.union(frames[$1]) }
-            installReorderLiftSnapshots(table: table, sourceRange: sourceRange)
+            if carry.map({ reattachReorderLiftSnapshots($0, table: table, sourceRange: sourceRange) }) != true {
+                installReorderLiftSnapshots(table: table, sourceRange: sourceRange)
+            }
         }
         guard var session = reorderLiftSession else { return }
+        session.lastWindowPoint = windowPoint
 
         // Keep the same pointer-to-block offset captured at pickup. Centering
         // a multi-row block under the pointer makes a group jump by roughly
@@ -238,7 +258,13 @@ extension SidebarWorkspaceTableController {
                 return
             }
             let target = targets[row]
-            if session.appliedTargets[row] != target {
+            if let carry {
+                // First pass after a rebuild: every row continues from where
+                // it stood on screen before the update, never from zero.
+                session.appliedTargets[row] = target
+                layer.zPosition = 0
+                continueRebuiltRowShift(layer: layer, row: row, target: target, frameTop: session.frames[row].minY, carry: carry)
+            } else if session.appliedTargets[row] != target {
                 session.appliedTargets[row] = target
                 layer.zPosition = 0
                 glideRowShift(layer: layer, to: target)

@@ -267,17 +267,8 @@ extension SidebarWorkspaceTableController {
         size: NSSize,
         count: Int
     ) -> NSImage? {
-        let rowRect = tableView.rect(ofRow: row)
-        guard rowRect.width > 0,
-              rowRect.height > 0,
-              size.width > 0,
-              size.height > 0,
-              let representation = tableView.bitmapImageRepForCachingDisplay(in: rowRect) else {
-            return nil
-        }
-        tableView.cacheDisplay(in: rowRect, to: representation)
-        let rowImage = NSImage(size: rowRect.size)
-        rowImage.addRepresentation(representation)
+        guard size.width > 0, size.height > 0,
+              let rowImage = reorderRowImage(tableView: tableView, row: row) else { return nil }
         let badgeColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: tableView.effectiveAppearance)
 
         return NSImage(size: size, flipped: false) { bounds in

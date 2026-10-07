@@ -851,11 +851,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             reorderDropCommitFallbackTask?.cancel()
             reorderDropCommitFallbackTask = nil
         }
+        // Under a live drag the lift is carried through the update and
+        // rebuilt against the new rows below, so nothing bounces.
+        let reorderLiftCarry = hasStructuralChanges
+            ? detachReorderLiftForRebuild(previousRows: previousRows, isDropHandOff: handsOffReorderTransforms)
+            : nil
         if hasStructuralChanges {
             // Every branch below moves or reuses rows. A drop commit hands the
             // lift over here (the real frames take over in the same runloop
-            // turn); under a live drag the frozen frames are stale, so the
-            // next poll tick re-lifts from fresh ones.
+            // turn); a live drag's lift is rebuilt after the update.
             endReorderLift(animated: false)
             if forceTableReload {
                 let table = containerView.tableView
@@ -914,7 +918,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                         editIndexes = indexes
                         otherHeightChanges = heightChanges.subtracting(indexes)
                     }
+                    // Not under a live drag: the lift places every row itself,
+                    // and frames still animating would drag the block along.
                     let animates = otherHeightChanges.isEmpty && editIndexes.count <= 3
+                        && reorderLiftCarry == nil
                     NSAnimationContext.runAnimationGroup { context in
                         context.duration = animates ? 0.22 : 0
                         context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.0, 0.4, 1.0)
@@ -972,6 +979,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         if let reorderSettleOrigin {
             settleReorderedBlock(ids: reorderSettleOrigin.ids, fromVisualTop: reorderSettleOrigin.visualTop)
+        }
+        if let reorderLiftCarry {
+            rebuildReorderLift(from: reorderLiftCarry)
         }
 
         if hasStructuralChanges || !contentChanges.isEmpty {
@@ -1468,6 +1478,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
         clearPendingWorkspaceDragWriters(preserving: sourceWriter)
+        reorderDragGhost = nil
         session.enumerateDraggingItems(
             options: [],
             for: tableView,
@@ -1508,6 +1519,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     flipped: false
                 ) { _ in true }
                 draggingItem.setDraggingFrame(draggingItem.draggingFrame, contents: clearImage)
+                // The lift stays in the list, so a drag taken to another
+                // window or a pane gets the row's picture there instead.
+                prepareReorderDragGhost(session: session, tableView: tableView, row: row)
             }
         }
         // The real row settles via its own transforms; a ghost flying home
@@ -1541,6 +1555,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         operation: NSDragOperation
     ) {
         stopReorderPoll()
+        reorderDragGhost = nil
         // Covers every way a session can end without a local drop (Escape,
         // release outside, a cross-window drop): if the transforms were not
         // handed to a commit apply, glide the rows home.
@@ -1917,6 +1932,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     var reorderLiftIndent: (
         fill: CALayer?, content: CALayer, fillFrame: CGRect, wasGrouped: Bool, isGrouped: Bool
     )?
+
+    /// The native drag image a single-row drag shows once it leaves the list
+    /// (see SidebarWorkspaceTableController+ReorderDragGhost.swift).
+    var reorderDragGhost: ReorderDragGhost?
 
 
     /// Optimistic press highlight: paints the clicked workspace cell as

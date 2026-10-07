@@ -3386,6 +3386,7 @@
 		C9A57607C9A57607C9A57607 /* SidebarWorkspaceReorderDropOverlayTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57608C9A57608C9A57608 /* SidebarWorkspaceReorderDropOverlayTarget.swift */; };
 		C9A57609C9A57609C9A57609 /* SidebarWorkspaceReorderDropOverlayTargetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5760AC9A5760AC9A5760A /* SidebarWorkspaceReorderDropOverlayTargetBridge.swift */; };
 		C9A5760FC9A5760FC9A5760F /* SidebarWorkspaceReorderDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57610C9A57610C9A57610 /* SidebarWorkspaceReorderDropView.swift */; };
+		9E8246E065586E79E5F3A4A7 /* SidebarWorkspaceReorderLiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C30979AEC1CA92678696D9 /* SidebarWorkspaceReorderLiftTests.swift */; };
 		C9A5760BC9A5760BC9A5760B /* SidebarWorkspaceReorderPendingDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5760CC9A5760CC9A5760C /* SidebarWorkspaceReorderPendingDrop.swift */; };
 		6707F0076707F0076707F007 /* SidebarWorkspaceRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0086707F0086707F008 /* SidebarWorkspaceRowActions.swift */; };
 		FFD019E8E6AF6AE67B58D00C /* SidebarWorkspaceRowCellView+ReorderLift.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FCB3A859A840D9593BD8BF /* SidebarWorkspaceRowCellView+ReorderLift.swift */; };
@@ -3425,8 +3426,10 @@
 		B804A0020000000000000002 /* SidebarWorkspaceTableCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0020000000000000002 /* SidebarWorkspaceTableCellView.swift */; };
 		B804A00B000000000000000B /* SidebarWorkspaceTableClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B00B000000000000000B /* SidebarWorkspaceTableClipView.swift */; };
 		B804A0030000000000000003 /* SidebarWorkspaceTableContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0030000000000000003 /* SidebarWorkspaceTableContainerView.swift */; };
+		16E6608F4FECE7B4F9FCE09A /* SidebarWorkspaceTableController+ReorderDragGhost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 944B5844794AC86FE82F96AE /* SidebarWorkspaceTableController+ReorderDragGhost.swift */; };
 		4F8E29036B2C8FEC8D54E33D /* SidebarWorkspaceTableController+ReorderDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80734AD866B727FCEA3F6F3 /* SidebarWorkspaceTableController+ReorderDrop.swift */; };
 		1B6F8636FAA4AF557CAFCE67 /* SidebarWorkspaceTableController+ReorderLift.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B85730BDFE4C5F97476FDCE /* SidebarWorkspaceTableController+ReorderLift.swift */; };
+		A037444F03F4563C6C657936 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE45ECEA152871DE70F4D89 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift */; };
 		B804A0040000000000000004 /* SidebarWorkspaceTableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0040000000000000004 /* SidebarWorkspaceTableController.swift */; };
 		B804A0110000000000000011 /* SidebarWorkspaceTableDropTargetGeometryGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0110000000000000011 /* SidebarWorkspaceTableDropTargetGeometryGate.swift */; };
 		B804A00C000000000000000C /* SidebarWorkspaceTableEmptyDropIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B00C000000000000000C /* SidebarWorkspaceTableEmptyDropIndicatorView.swift */; };
@@ -7815,6 +7818,7 @@
 		C9A57608C9A57608C9A57608 /* SidebarWorkspaceReorderDropOverlayTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderDropOverlayTarget.swift; sourceTree = "<group>"; };
 		C9A5760AC9A5760AC9A5760A /* SidebarWorkspaceReorderDropOverlayTargetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderDropOverlayTargetBridge.swift; sourceTree = "<group>"; };
 		C9A57610C9A57610C9A57610 /* SidebarWorkspaceReorderDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderDropView.swift; sourceTree = "<group>"; };
+		32C30979AEC1CA92678696D9 /* SidebarWorkspaceReorderLiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceReorderLiftTests.swift"; sourceTree = "<group>"; };
 		C9A5760CC9A5760CC9A5760C /* SidebarWorkspaceReorderPendingDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderPendingDrop.swift; sourceTree = "<group>"; };
 		6707F0086707F0086707F008 /* SidebarWorkspaceRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowActions.swift; sourceTree = "<group>"; };
 		84FCB3A859A840D9593BD8BF /* SidebarWorkspaceRowCellView+ReorderLift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/Cells/SidebarWorkspaceRowCellView+ReorderLift.swift"; sourceTree = "<group>"; };
@@ -7854,8 +7858,10 @@
 		B804B0020000000000000002 /* SidebarWorkspaceTableCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableCellView.swift; sourceTree = "<group>"; };
 		B804B00B000000000000000B /* SidebarWorkspaceTableClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableClipView.swift; sourceTree = "<group>"; };
 		B804B0030000000000000003 /* SidebarWorkspaceTableContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableContainerView.swift; sourceTree = "<group>"; };
+		944B5844794AC86FE82F96AE /* SidebarWorkspaceTableController+ReorderDragGhost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/SidebarWorkspaceTableController+ReorderDragGhost.swift"; sourceTree = "<group>"; };
 		E80734AD866B727FCEA3F6F3 /* SidebarWorkspaceTableController+ReorderDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/SidebarWorkspaceTableController+ReorderDrop.swift"; sourceTree = "<group>"; };
 		8B85730BDFE4C5F97476FDCE /* SidebarWorkspaceTableController+ReorderLift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/SidebarWorkspaceTableController+ReorderLift.swift"; sourceTree = "<group>"; };
+		8DE45ECEA152871DE70F4D89 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/SidebarWorkspaceTableController+ReorderLiftRebuild.swift"; sourceTree = "<group>"; };
 		B804B0040000000000000004 /* SidebarWorkspaceTableController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableController.swift; sourceTree = "<group>"; };
 		B804B0110000000000000011 /* SidebarWorkspaceTableDropTargetGeometryGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableDropTargetGeometryGate.swift; sourceTree = "<group>"; };
 		B804B00C000000000000000C /* SidebarWorkspaceTableEmptyDropIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableEmptyDropIndicatorView.swift; sourceTree = "<group>"; };
@@ -12002,6 +12008,8 @@
 				8B85730BDFE4C5F97476FDCE /* SidebarWorkspaceTableController+ReorderLift.swift */,
 				1525C188F2BD8ED27D43C51C /* SidebarGlassSelection.swift */,
 				FAA6C974800D8AF0C3A15AA2 /* SidebarPeekPanelWindow.swift */,
+				8DE45ECEA152871DE70F4D89 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift */,
+				944B5844794AC86FE82F96AE /* SidebarWorkspaceTableController+ReorderDragGhost.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13524,6 +13532,7 @@
 				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
 				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
 				6124B3A20E384A384BF58063 /* SidebarPeekPanelWindowTests.swift */,
+				32C30979AEC1CA92678696D9 /* SidebarWorkspaceReorderLiftTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16197,8 +16206,10 @@
 				B804A0020000000000000002 /* SidebarWorkspaceTableCellView.swift in Sources */,
 				B804A00B000000000000000B /* SidebarWorkspaceTableClipView.swift in Sources */,
 				B804A0030000000000000003 /* SidebarWorkspaceTableContainerView.swift in Sources */,
+				16E6608F4FECE7B4F9FCE09A /* SidebarWorkspaceTableController+ReorderDragGhost.swift in Sources */,
 				4F8E29036B2C8FEC8D54E33D /* SidebarWorkspaceTableController+ReorderDrop.swift in Sources */,
 				1B6F8636FAA4AF557CAFCE67 /* SidebarWorkspaceTableController+ReorderLift.swift in Sources */,
+				A037444F03F4563C6C657936 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift in Sources */,
 				B804A0040000000000000004 /* SidebarWorkspaceTableController.swift in Sources */,
 				B804A0110000000000000011 /* SidebarWorkspaceTableDropTargetGeometryGate.swift in Sources */,
 				B804A00C000000000000000C /* SidebarWorkspaceTableEmptyDropIndicatorView.swift in Sources */,
@@ -18367,6 +18378,7 @@
 				C9A57303C9A57303C9A57303 /* SidebarWorkspaceGroupHeaderMetricsTests.swift in Sources */,
 				6707F0236707F0236707F023 /* SidebarWorkspaceNotificationIndexTests.swift in Sources */,
 				C9A57305C9A57305C9A57305 /* SidebarWorkspaceReorderDropOverlayHitTestingTests.swift in Sources */,
+				9E8246E065586E79E5F3A4A7 /* SidebarWorkspaceReorderLiftTests.swift in Sources */,
 				B8624C9A000000000000009A /* SidebarWorkspaceRowHeightCacheRegressionTests.swift in Sources */,
 				B8624C990000000000000099 /* SidebarWorkspaceRowHeightInvariantTests.swift in Sources */,
 				B8624C0294950000000000A1 /* SidebarWorkspaceRowInlineRenameTests.swift in Sources */,
