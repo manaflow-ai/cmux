@@ -239,6 +239,7 @@ def run_wrapper(
     generated_hook_settings: str | None = None,
     help_output: str | None = None,
     help_behavior: str = "success",
+    capture_cua_auth: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -271,6 +272,13 @@ printf '%s\\n' "${CLAUDECODE-__UNSET__}" > "$FAKE_REAL_CLAUDECODE_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_REAL_NODE_OPTIONS_LOG"
 printf '%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}" > "$FAKE_REAL_LAUNCH_ARGV_B64_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
+if [[ "${FAKE_CAPTURE_CUA_AUTH:-0}" == "1" ]]; then
+  if [[ -n "${CMUX_CUA_SOCKET_AUTH_TOKEN:-}" ]]; then
+    printf 'cmux-cua-parent-auth=present\\n' >&2
+  else
+    printf 'cmux-cua-parent-auth=absent\\n' >&2
+  fi
+fi
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
@@ -295,6 +303,20 @@ exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
             """#!/usr/bin/env node
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
+
+if (process.env.FAKE_CAPTURE_CUA_AUTH === "1") {
+  const configArg = process.argv.find(arg => arg.startsWith("--mcp-config="));
+  if (configArg) {
+    const server = JSON.parse(configArg.slice("--mcp-config=".length)).mcpServers["cmux-cua"];
+    const mcp = spawnSync(server.command, server.args, {
+      env: { ...process.env, ...server.env }, encoding: "utf8", timeout: 5000,
+    });
+    if (mcp.error) throw mcp.error;
+    process.stderr.write(mcp.stdout ?? "");
+    process.stderr.write(mcp.stderr ?? "");
+    if (mcp.status !== 0) process.exit(mcp.status ?? 1);
+  }
+}
 
 fs.writeFileSync(
   process.env.FAKE_REAL_RUNTIME_NODE_OPTIONS_LOG,
@@ -376,6 +398,7 @@ exit 0
         env["FAKE_REAL_HELP_CALLS_LOG"] = str(tmp / "help-calls.log")
         env["FAKE_REAL_HELP_PIDS_LOG"] = str(tmp / "help-pids.log")
         env["FAKE_REAL_HELP_BEHAVIOR"] = help_behavior
+        env["FAKE_CAPTURE_CUA_AUTH"] = "1" if capture_cua_auth else "0"
         env["FAKE_REAL_HELP_OUTPUT"] = (
             "Usage: claude [options] [command] [prompt]\n\n"
             "Commands:\n"
@@ -1865,6 +1888,10 @@ def computer_use_sandbox(
         env.pop("CMUX_CUA_EXTERNAL_CLIENT", None)
         env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
         env.pop("CMUX_CUA_SOCKET_AUTH_TOKEN", None)
+        env.pop("CMUX_CUA_CLIENT_PATH", None)
+        env.pop("CMUX_CUA_RUNTIME_SCOPE", None)
+        env.pop("CMUX_CUA_SOCKET_PATH", None)
+        env.pop("CMUX_CUA_STATE_DIR", None)
         if auth_token_file:
             token_file = tmp / "auth-token"
             token_file.write_text("cmux-test-auth-token\n", encoding="utf-8")
@@ -2146,6 +2173,68 @@ def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) 
         "cmux-cua",
         bundled_client=True,
     )
+
+
+def test_computer_use_auth_token_reaches_mcp_child(failures: list[str]) -> None:
+    """Launch the configured MCP child with Claude's inherited environment."""
+    for source in ("file", "environment", "file-over-stale-environment"):
+        def setup(tmp: Path, env: dict) -> None:
+            computer_use_sandbox(auth_token_file=source != "environment")(tmp, env)
+            if source == "file-over-stale-environment":
+                env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "stale-token"
+            make_executable(
+                tmp / "cmux.app/Contents/Resources/bin/cmux-cua",
+                "#!/bin/bash\n"
+                '[[ "$1" == mcp && "$2" == --socket ]] || exit 2\n'
+                'if [[ "${CMUX_CUA_SOCKET_AUTH_TOKEN:-}" == cmux-test-auth-token ]]; then\n'
+                "  echo cmux-cua-child-auth=matched\n"
+                "else\n"
+                "  echo cmux-cua-child-auth=missing-or-stale\n"
+                "fi\n",
+            )
+
+        code, argv, _, stderr, *_, launch_argv = run_wrapper(
+            socket_state="live", argv=["-p", "hello"], setup_sandbox=setup,
+            capture_cua_auth=True,
+        )
+        context = f"computer use auth inheritance ({source})"
+        expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
+        expect(extract_injected_mcp_config(argv) is not None,
+               f"{context}: expected MCP attachment", failures)
+        expect("cmux-cua-child-auth=matched" in stderr,
+               f"{context}: MCP child did not inherit current daemon credential: {stderr!r}", failures)
+        for value in ("cmux-test-auth-token", "stale-token"):
+            expect(value not in " ".join(argv + decode_nul_argv(launch_argv)) + stderr,
+                   f"{context}: credential disclosed in argv, restore metadata or diagnostics", failures)
+
+
+def test_computer_use_skipped_attachment_does_not_load_credential(failures: list[str]) -> None:
+    for reason in ("strict", "disabled", "no-client", "unsafe-file", "symlink"):
+        def setup(tmp: Path, env: dict) -> None:
+            computer_use_sandbox(
+                auth_token=False, auth_token_file=True,
+                bundled_driver=reason != "no-client", disabled=reason == "disabled",
+            )(tmp, env)
+            token_file = Path(env["CMUX_CUA_AUTH_TOKEN_FILE"])
+            if reason == "unsafe-file":
+                token_file.chmod(0o644)
+            elif reason == "symlink":
+                link = tmp / "auth-link"
+                link.symlink_to(token_file)
+                env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(link)
+
+        args = ["-p", "hello"]
+        if reason == "strict":
+            args.insert(0, "--strict-mcp-config")
+        code, argv, _, stderr, *_ = run_wrapper(
+            socket_state="live", argv=args, setup_sandbox=setup, capture_cua_auth=True,
+        )
+        context = f"computer use skipped credential ({reason})"
+        expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
+        expect(extract_injected_mcp_config(argv) is None,
+               f"{context}: unexpected MCP attachment", failures)
+        expect("cmux-cua-parent-auth=absent" in stderr,
+               f"{context}: private credential loaded without an attachment", failures)
 
 
 def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) -> None:
@@ -3595,6 +3684,8 @@ def main() -> int:
     test_computer_use_wrapper_is_a_pure_proxy(failures)
     test_computer_use_skips_without_daemon_credential(failures)
     test_computer_use_reads_private_daemon_credential_file(failures)
+    test_computer_use_auth_token_reaches_mcp_child(failures)
+    test_computer_use_skipped_attachment_does_not_load_credential(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_rejects_external_client_override(failures)
