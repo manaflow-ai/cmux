@@ -49,7 +49,8 @@ mod raw_support;
 mod resource;
 mod socket_hash;
 mod socket_paths;
-#[cfg(all(test, unix))]
+// Used by the hashed-socket tests only.
+#[cfg(all(test, unix, feature = "socket-path-hash"))]
 mod test_roots;
 mod topology;
 
