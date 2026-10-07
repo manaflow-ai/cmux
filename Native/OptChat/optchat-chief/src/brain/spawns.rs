@@ -301,6 +301,7 @@ impl Brain {
                     text,
                     source,
                     images: Vec::new(),
+                    conversation: None,
                 }
             }
             None => {
