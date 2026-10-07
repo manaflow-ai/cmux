@@ -312,8 +312,13 @@ final class SidebarPeekPanelWindowController {
         // table controller commits drafts and drops observers) instead of
         // leaving that to deallocation. Next turn: a draft commit publishes,
         // and detach can run inside a SwiftUI update (dismantle).
+        // The panel rides along so the deferred edit end above still finds
+        // it, and runs before the list is dismantled.
         if let hostingView {
-            DispatchQueue.main.async { hostingView.rootView = AnyView(EmptyView()) }
+            DispatchQueue.main.async { [panel] in
+                hostingView.rootView = AnyView(EmptyView())
+                _ = panel
+            }
         }
         panel = nil
         hostingView = nil

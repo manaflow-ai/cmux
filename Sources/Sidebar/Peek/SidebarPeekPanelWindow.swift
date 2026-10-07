@@ -39,6 +39,10 @@ final class SidebarPeekPanelWindow: NSPanel {
         }
     }
 
+    /// Waits for cmux to become active again after an edit lost key to
+    /// another app; see `endEditIfKeyMovedElsewhereInApp`.
+    private var reactivationObserver: NSObjectProtocol?
+
     override var canBecomeKey: Bool { hostsKeyboardEditor }
     override var canBecomeMain: Bool { false }
 
@@ -64,7 +68,11 @@ final class SidebarPeekPanelWindow: NSPanel {
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let wantsKeyboard = Self.takesKeyboardInput(responder)
-        if wantsKeyboard, !hostsKeyboardEditor, allowsKeyboardEditors {
+        // Refused outright while hidden: an editor armed here would hold
+        // first responder without the keyboard, and a later click on it
+        // would never come back through this method to take key.
+        if wantsKeyboard, !allowsKeyboardEditors { return false }
+        if wantsKeyboard, !hostsKeyboardEditor {
             // Key first, then the responder: the field editor attaches to a
             // key window, and the selection it makes on attach is what the
             // user's first keystroke replaces.
@@ -106,7 +114,23 @@ final class SidebarPeekPanelWindow: NSPanel {
     /// to another app keeps the edit, like a docked row, and AppKit gives
     /// the panel key back on return.
     private func endEditIfKeyMovedElsewhereInApp() {
-        guard hostsKeyboardEditor, !isKeyWindow, NSApp.isActive else { return }
+        guard hostsKeyboardEditor, !isKeyWindow else { return }
+        guard NSApp.isActive else {
+            // Coming back by clicking the terminal never makes the panel
+            // key again, so look again once cmux is active.
+            guard reactivationObserver == nil else { return }
+            reactivationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let observer = self.reactivationObserver else { return }
+                    NotificationCenter.default.removeObserver(observer)
+                    self.reactivationObserver = nil
+                    DispatchQueue.main.async { [weak self] in self?.endEditIfKeyMovedElsewhereInApp() }
+                }
+            }
+            return
+        }
         if let keyWindow = NSApp.keyWindow, keyWindow.parent === self { return }
         hostsKeyboardEditor = false
         _ = super.makeFirstResponder(nil)

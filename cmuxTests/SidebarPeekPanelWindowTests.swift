@@ -109,6 +109,9 @@ struct SidebarPeekPanelWindowTests {
         panel.contentView?.addSubview(field)
         #expect(!panel.hostsKeyboardEditor)
         #expect(!panel.canBecomeKey)
+        // Not armed either: a click once the card shows must start the edit
+        // through the normal path.
+        #expect(!SidebarPeekPanelWindow.takesKeyboardInput(panel.firstResponder))
     }
 
     @Test
