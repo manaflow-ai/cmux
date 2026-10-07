@@ -276,7 +276,10 @@ extension NewTabPage {
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        let inputToken = services.keyRouter.beginNewTabInput(for: pane)
+        guard let inputToken = services.keyRouter.beginNewTabInput(for: pane) else {
+            openingPanes.remove(openingKey)
+            return
+        }
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
         page.inputToken = inputToken
@@ -296,6 +299,7 @@ extension NewTabPage {
             services.keyRouter.cancelNewTabInput(in: pane.view.window)
             return
         }
+        openingPanes.remove(openingKey)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(pane) {
@@ -314,6 +318,8 @@ extension NewTabPage {
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
         let services = pane.services
+        services.keyRouter.cancelNewTabInput(in: pane.view.window)
+        openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
         let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in

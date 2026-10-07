@@ -4,6 +4,10 @@ extension KeyRouter {
     /// Starts capturing at the action, while the previous tab may still be first responder.
     func beginNewTabInput(for pane: PaneController) -> String? {
         guard let window = pane.view.window else { return nil }
+        // One opening owns a window's pre-first-responder queue. Serialize a
+        // second Cmd-T in another pane until the first opening settles rather
+        // than allowing the queues to overwrite each other.
+        guard newTabInput[window.windowNumber] == nil else { return nil }
         let buffer = NewTabInputBuffer(focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey,
                   pane.services.agentTabs.isNewTabPage(key),
