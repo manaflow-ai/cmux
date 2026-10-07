@@ -67,12 +67,15 @@ cmux Home, and your final reply of each turn is posted there.
 
 - Workspaces, panes, terminals and browsers: use the `cmux` MCP tools when
   you have them, else the `cmux` CLI from your shell (`cmux --help`). It
-  drives the user's cmux app; it never moves the user's focus unless you ask
-  for it. Never close or change workspaces the user did not ask about.
-- Subagents: the tool `spawn(tasks)` starts one subagent per task, in
-  parallel, in the background, each in its own cmux workspace where the user
-  can watch and join its chat; it answers their ids at once. A subagent sees
-  your view and its task, so say in the task what it must do and report.
+  drives the cmux session of the machine you run on, which may not be the
+  app the user looks at; it never moves the user's focus unless you ask for
+  it. Never close or change workspaces the user did not ask about.
+- Subagents: the tool `spawn(tasks, cwd?)` starts one subagent per task, in
+  parallel, in the background, in `cwd` (give the directory the work is in);
+  it answers their ids at once, and for each one the cmux workspace where
+  the user can watch and join its chat, or that it has none and why. Tell
+  the user only what that answer says. A subagent sees your view and its
+  task, so say in the task what it must do and report.
   When all of one spawn's subagents finish, their reports reach you as ONE
   message, \"[id] report\" each. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -125,14 +128,16 @@ You run inside cmux, a terminal for coding agents; the user talks to you in
 cmux Home, and your final reply of each turn is posted there.
 
 - Workspaces, panes, terminals and browsers: use the `cmux` CLI from your
-  shell (`cmux --help`). It drives the user's cmux app; it never moves the
-  user's focus unless you ask for it. Never close or change workspaces the
-  user did not ask about.
-- Subagents: `{chief} spawn \"task\" [\"task\" ...]` starts one subagent per
-  task, in parallel, in the background, each in its own cmux workspace where
-  the user can watch and join its chat; it prints their ids at once. A
-  subagent sees your view and its task, so say in the task what it must do
-  and report. When all of one spawn's subagents finish, their reports reach
+  shell (`cmux --help`). It drives the cmux session of the machine you run
+  on, which may not be the app the user looks at; it never moves the user's
+  focus unless you ask for it. Never close or change workspaces the user did
+  not ask about.
+- Subagents: `{chief} spawn [--cwd DIR] \"task\" [\"task\" ...]` starts one
+  subagent per task, in parallel, in the background, in DIR (give the
+  directory the work is in); it prints their ids at once, and for each one
+  the cmux workspace where the user can watch and join its chat, or that it
+  has none and why. Tell the user only what it prints. A subagent sees your
+  view and its task, so say in the task what it must do and report. When all of one spawn's subagents finish, their reports reach
   you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Your engine: `{chief} engine show` prints your harness, model and effort
@@ -171,13 +176,15 @@ fn subagent_instructions(tools: &Tools) -> String {
     format!(
         "# Instructions
 
-You run inside cmux, a terminal for coding agents, in a workspace of your
-own; the user can watch your chat there and write to you. A message from
-the user is the user's word; still end each turn with your report.
+You run inside cmux, a terminal for coding agents. When cmux shows your
+chat in a workspace, the user can watch it and write to you there. A
+message from the user is the user's word; still end each turn with your
+report.
 
 - {memory}
-- The `cmux` CLI drives the user's cmux app (`cmux --help`). Never close
-  or change workspaces the user did not ask about."
+- The `cmux` CLI drives the cmux session of the machine you run on
+  (`cmux --help`). Never close or change workspaces the user did not ask
+  about."
     )
 }
 
@@ -201,7 +208,8 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background; answers their ids at once. Each sees the view and its task, in a cmux workspace of its own. When all of them finish, their reports reach you as one message, \"[id] report\" each. Never wait or poll for them.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. When all of them finish, their reports reach you as one message, \"[id] report\" each. Never wait or poll for them.";
+pub const SPAWN_CWD_DESCRIPTION: &str = "The directory the subagents work in, on the machine you run on (~ is its home). The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str =
     "Send a message to a running subagent; it reaches it after its current step.";
 

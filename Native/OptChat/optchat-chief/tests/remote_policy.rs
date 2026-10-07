@@ -411,7 +411,7 @@ fn a_subagent_spawned_during_a_remote_turn_asks_too() {
     ));
     let worker = {
         let spawner = spawner.clone();
-        std::thread::spawn(move || spawner.spawn(vec!["clean the cache".into()]))
+        std::thread::spawn(move || spawner.spawn(vec!["clean the cache".into()], None))
     };
     while !worker.is_finished() {
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
