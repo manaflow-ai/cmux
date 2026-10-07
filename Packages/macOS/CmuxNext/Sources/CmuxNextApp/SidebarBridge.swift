@@ -270,7 +270,7 @@ final class SidebarBridge {
                                                 machine: sshMachine(session, machines: machines), selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
-        for session in machines.servers.prefix(0) {
+        for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: serverMachine(session, machines: machines), selectedTab: selectedTab)
         }

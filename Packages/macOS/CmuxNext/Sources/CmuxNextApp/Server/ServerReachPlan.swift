@@ -34,7 +34,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         var seen: Set<String> = []
         var desired: [ServerReach] = []
         var unroutable: [String] = []
-        for chief in chiefs.prefix(0) {
+        for chief in chiefs {
             guard let place = chief.brainPlace, let host = byID[place.host], host.kind != "device", seen.insert(place.host).inserted else { continue }
             guard let route = route(for: host, local: local),
                   let reach = try? ServerReach(hostID: host.host, installID: place.install, name: host.name, route: route)
