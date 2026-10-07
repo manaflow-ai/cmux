@@ -1,8 +1,8 @@
 //! RECOVERABLE-BY-DEFAULT for personal workspace groups: Ungroup and Delete
 //! Group (`workspace_group.delete`) keep every workspace and record the
 //! group in closed history, so Reopen Closed (Cmd-Shift-T, History) forms
-//! the group again with its id, name, color, collapse, place and members,
-//! also after the daemon restarts. Driven through `cmux.protocol/2`.
+//! the group again with its id, name, color, icon, pin, collapse, place and
+//! members, also after the daemon restarts. Driven through `cmux.protocol/2`.
 
 use serde_json::json;
 
@@ -103,5 +103,35 @@ fn reopening_a_group_record_twice_does_not_duplicate_the_group() {
     assert_eq!(group_of(&mux, &a), json!(work));
     // The record left the history with the reopen.
     assert!(read(&mux, "closed.list", json!({})).as_array().unwrap().is_empty());
+    mux.shutdown();
+}
+
+#[test]
+fn reopen_after_a_restart_restores_the_group_icon_and_pin() {
+    let session = Session::new("group-delete-icon-pin");
+    let mux = session.open();
+    let a = empty_workspace(&mux, "a");
+    let work = group(&mux, "Work");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "icon": "star.fill", "pinned": true}),
+        "work-icon-pin",
+    );
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    mutate(&mux, "workspace_group.delete", json!({"workspace_group": work}), "delete-work");
+    assert!(groups(&mux).iter().all(|group| group["id"] != work.as_str()), "the group is gone");
+    mux.shutdown();
+    drop(mux);
+
+    let mux = session.open();
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    let restored = groups(&mux)
+        .into_iter()
+        .find(|group| group["id"] == work.as_str())
+        .expect("reopen forms the group again with its id");
+    assert_eq!(restored["icon"], "star.fill", "the icon comes back: {restored}");
+    assert_eq!(restored["pinned"], true, "the pin comes back: {restored}");
+    assert_eq!(group_of(&mux, &a), json!(work));
     mux.shutdown();
 }

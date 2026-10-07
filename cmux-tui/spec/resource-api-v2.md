@@ -176,7 +176,7 @@ workspaces.
 workspace open and stores the group as one closed-history item with no member
 (`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
 naming it. `closed.reopen` of that item (also after a restart) forms the group
-again with its id, name, color, collapse, room and place, and puts back each
+again with its id, name, color, icon, pin, collapse, room and place, and puts back each
 member whose personal row still exists and that is still ungrouped; a group
 that exists again is left as it is. Its result names the session's active
 workspace.
