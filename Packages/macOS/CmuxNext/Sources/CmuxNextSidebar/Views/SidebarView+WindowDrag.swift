@@ -77,20 +77,13 @@ extension SidebarListView {
 }
 
 extension NSView {
-    /// The view's layer tree rendered at its backing scale.
+    /// The view as AppKit draws it, at its backing scale: the lifted row's
+    /// card, content and stack (the drag ghost's row shape). `cacheDisplay`
+    /// draws the view tree itself; `CALayer.render(in:)` gave an empty image
+    /// for the lifted row (nxshape-v1, every pixel alpha 0).
     func snapshotImage() -> CGImage? {
-        guard let layer, bounds.width > 0, bounds.height > 0 else { return nil }
-        let scale = window?.backingScaleFactor ?? 2
-        let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.scaleBy(x: scale, y: scale)
-        if layer.contentsAreFlipped() {
-            context.translateBy(x: 0, y: bounds.height)
-            context.scaleBy(x: 1, y: -1)
-        }
-        layer.render(in: context)
-        return context.makeImage()
+        guard bounds.width > 0, bounds.height > 0, let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: rep)
+        return rep.cgImage
     }
 }

@@ -39,6 +39,7 @@ enum DebugTabDrag {
             "ghost_settled": .bool(drag.motion.isSettled),
             "ghost_visible": .bool(drag.ghost.panel.isVisible),
             "ghost_panel_frame": rect(drag.ghost.panel.frame),
+            "ghost_image": drag.ghost.tabImage.map(image) ?? .null,
             "grab_point_on_screen": point(grabbed),
             "grab_error": .number(Double(hypot(grabbed.x - drag.point.x, grabbed.y - drag.point.y))),
             "window": session.window(at: drag.point).map { .string($0.state.id) } ?? .null,
@@ -90,6 +91,21 @@ enum DebugTabDrag {
             }
         }
         return .array(list)
+    }
+
+    /// [width, height, pixels with alpha above one half]: an empty image is an invisible drag.
+    private static func image(_ image: CGImage) -> JSONValue {
+        let width = image.width, height = image.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn: Bool = data.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        let opaque = drawn ? stride(from: 3, to: data.count, by: 4).count { data[$0] > 127 } : -1
+        return .array([.number(Double(width)), .number(Double(height)), .number(Double(opaque))])
     }
 
     private static func point(_ p: CGPoint) -> JSONValue { .array([.number(Double(p.x)), .number(Double(p.y))]) }

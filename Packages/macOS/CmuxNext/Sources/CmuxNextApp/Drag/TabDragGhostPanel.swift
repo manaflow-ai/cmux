@@ -21,6 +21,8 @@ final class TabDragGhostPanel {
     private let cardSize: CGSize
     private let panelSize: CGSize
     private let tabSize: CGSize
+    /// The dragged item's own image (tab or sidebar row), for debug.tab_drag.
+    let tabImage: CGImage?
     /// Where the pointer holds the tab (y up, in a `tabSize` tab); the
     /// ghost scales about that point.
     private let grabOffset: CGPoint
@@ -31,6 +33,7 @@ final class TabDragGhostPanel {
 
     init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat) {
         self.tabSize = tabSize
+        self.tabImage = tabImage
         self.grabOffset = grabOffset
         let pad = DragTunables.ghostPanelPad.value
         let inset = DragTunables.ghostCardInset.value
