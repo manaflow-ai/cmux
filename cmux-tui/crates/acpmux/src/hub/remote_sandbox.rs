@@ -39,6 +39,13 @@ use super::*;
 /// The checked-in Seatbelt profile.
 pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 
+/// The identity of what a remote chain runs under: the profile and the env
+/// policy (bump `ENV_POLICY` when the child env rules change).
+pub(super) fn profile_id() -> String {
+    const ENV_POLICY: &str = "env-v1: credential by env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1";
+    crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
+}
+
 /// The system `sandbox-exec`.
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
@@ -71,6 +78,53 @@ const ASK_TOOLS: &[&str] = &[
     "Skill",
     "SlashCommand",
 ];
+
+/// Env names that give Claude Code its credential without the keychain.
+const CREDENTIAL_ENV: &[&str] =
+    &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+
+/// The credential a remote chain's Claude Code gets by env, when it has
+/// none there yet (profile or login env): the OAuth access token from the
+/// keychain item Claude Code keeps ("Claude Code-credentials"), read by
+/// acpmux outside the sandbox. None: it already has one, or none is found
+/// (Claude then reports that it is not logged in).
+///
+/// The read is bounded (a keychain dialog never holds the spawn), and a
+/// token that expires within 10 minutes is refused with the fix: the
+/// sandboxed Claude cannot refresh it.
+async fn claude_credential(
+    profile: &HarnessProfile,
+) -> Result<Option<(&'static str, String)>, String> {
+    if CREDENTIAL_ENV
+        .iter()
+        .any(|k| profile.env.contains_key(*k) || crate::chats::login_var(k).is_some())
+    {
+        return Ok(None);
+    }
+    if !cfg!(target_os = "macos") {
+        return Ok(None);
+    }
+    let read = tokio::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let Ok(Ok(out)) = tokio::time::timeout(std::time::Duration::from_secs(5), read).await else {
+        return Ok(None);
+    };
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let Ok(item) = serde_json::from_slice::<Value>(&out.stdout) else { return Ok(None) };
+    let Some(token) = item.pointer("/claudeAiOauth/accessToken").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let expires = item.pointer("/claudeAiOauth/expiresAt").and_then(Value::as_u64);
+    if expires.is_some_and(|ms| ms < now_ms() + 10 * 60 * 1000) {
+        return Err("Claude's login on this Mac expires within 10 minutes (or has expired), and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
+    }
+    Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
+}
 
 /// Claude Code flags a profile's own argv may not carry for a remote chain:
 /// its settings, MCP servers, tools, folders and permission mode are
@@ -414,6 +468,18 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
 }
 
 impl Hub {
+    /// Whether `session` is a remote chain's Claude Code session (remote
+    /// origin, a claude-stdio profile): one that runs in the sandbox. A
+    /// profile that cannot be read now counts as one (fail closed).
+    pub(super) fn remote_claude(&self, session: &Session) -> bool {
+        let m = session.meta();
+        m.remote_origin
+            && self.config.try_read().map_or(true, |cfg| {
+                super::resolve::session_profile(&cfg, &m.harness, &m.cwd, true)
+                    .map_or(true, |p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+            })
+    }
+
     /// The `sandbox-exec` remote chains spawn under (`SANDBOX_EXEC`). An
     /// embedder (tests) may point it elsewhere: the canary proves whatever
     /// it runs, so a stand-in that does not sandbox is refused.
@@ -425,18 +491,34 @@ impl Hub {
     /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
     /// runs inside the Seatbelt sandbox, canary-checked at this spawn; any
     /// other session's plan is unchanged.
-    pub(super) async fn remote_chain_plan(
+    ///
+    /// The profile it returns carries the remote chain's env: Claude's own
+    /// credential (the keychain is closed to the sandbox) and
+    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, so Claude's Bash and other
+    /// children never inherit that credential. Env, never argv: argv is
+    /// visible to every process of the user.
+    pub(super) async fn remote_chain_plan<'p>(
         &self,
         session: &Session,
-        profile: &HarnessProfile,
+        profile: &'p HarnessProfile,
         plan: crate::claude_stdio::SpawnPlan,
-    ) -> Result<crate::claude_stdio::SpawnPlan, RpcError> {
+    ) -> Result<(crate::claude_stdio::SpawnPlan, std::borrow::Cow<'p, HarnessProfile>), RpcError>
+    {
         if !session.meta().remote_origin {
-            return Ok(plan);
+            return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
-        Ok(crate::claude_stdio::SpawnPlan { program, args })
+        let mut profile = profile.clone();
+        profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+        let credential = claude_credential(&profile).await.map_err(|why| {
+            RpcError::new(-32000, format!("remote chain refused: {why}"))
+                .with_data(json!({"reason": "remote.credential_expiring"}))
+        })?;
+        if let Some((key, value)) = credential {
+            profile.env.insert(key.into(), value);
+        }
+        Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 
     /// A remote chain's Claude spawn plan inside the sandbox, after the
@@ -465,7 +547,16 @@ impl Hub {
         .await;
         match result {
             Ok(plan) => {
-                self.append(session, "mux", "remote_sandbox", json!({"canary": "passed"}));
+                // The profile identity: an adopted host counts as sandboxed
+                // only under this very profile and env policy (`hosts.rs`).
+                self.append(
+                    session,
+                    "mux",
+                    "remote_sandbox",
+                    json!({"canary": "passed", "profile": profile_id()}),
+                );
+                // A fresh, sandboxed agent: the adopted mark ends with it.
+                session.floor.unsandboxed.store(false, Ordering::SeqCst);
                 Ok(plan)
             }
             Err(why) => {
@@ -637,6 +728,13 @@ mod tests {
         assert!(!bound().sandbox_args()[1].contains("31415"));
     }
 
+    #[tokio::test]
+    async fn a_profile_with_its_own_credential_never_reads_the_keychain() {
+        let mut p = profile(&["claude"]);
+        p.env.insert("ANTHROPIC_API_KEY".into(), "k".into());
+        assert_eq!(claude_credential(&p).await, Ok(None));
+    }
+
     #[test]
     fn claude_names_its_scratch_folder_like_this() {
         assert_eq!(
@@ -657,6 +755,7 @@ mod tests {
             "(deny file-link)",
             "(deny file-mount)",
             "(deny user-preference-write)",
+            "(global-name \"com.apple.SecurityServer\")",
             "(global-name \"com.apple.lsd.modifydb\")",
             "(deny file-write* (regex #\"/HEAD$\"))",
             ";; @API_PORT@",

@@ -35,7 +35,7 @@ final class ServerMachineSession {
             let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID) }
             self.link = link
             daemon = link?.daemon ?? DaemonService(machineID: reach.machineID)
-        case .unix:
+        case .unix, .overlay:
             link = nil
             daemon = DaemonService(machineID: reach.machineID)
         }
@@ -60,6 +60,19 @@ final class ServerMachineSession {
             let localIdentity = localIdentity
             daemon.start(remote: { path }, admit: { identity in
                 // The brain's daemon is its own session, never this Mac's home daemon (fails closed).
+                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+            })
+        case .overlay(let linkSocket):
+            guard localIdentity() != nil else { return }
+            guard !started else {
+                daemon.retryWake.fire()
+                return
+            }
+            started = true
+            let localIdentity = localIdentity
+            // Each connection asks the link for the server's owner session;
+            // the server refuses anyone but its owner.
+            daemon.start(remote: { linkSocket }, preamble: reach.dialPreamble, admit: { identity in
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             })
         }
