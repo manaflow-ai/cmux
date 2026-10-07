@@ -22,13 +22,6 @@ public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
     public var toggled: DockMode { self == .docked ? .overlay : .docked }
 }
 
-/// What a docked column is for (daemon `dock.role`, `dock-column-role-v1`).
-public nonisolated enum DockRole: String, Hashable, Sendable {
-    /// The agent chat column: new terminals and browsers open beside it,
-    /// never in it (lawrence-call-1006 D).
-    case agentChat
-}
-
 /// A column pinned to one edge of the viewport. Daemon `columns[].dock`
 /// (`dock-columns-v1`); at most one per edge per screen.
 public nonisolated struct DockColumn: Hashable, Sendable {
