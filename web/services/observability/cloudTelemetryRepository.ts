@@ -1,18 +1,27 @@
 import { createHash, randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import type { CloudTelemetryBatch, CloudTelemetryClient, CloudTelemetrySpan } from "./cloudTelemetryContract";
+import { CLOUD_TELEMETRY_MAX_AGE_MS, type CloudTelemetryBatch, type CloudTelemetryClient, type CloudTelemetrySpan } from "./cloudTelemetryContract";
 import { CloudTelemetryConflictError, CloudTelemetryLimitError } from "./cloudTelemetryIngest";
 
 export type StoredCloudDiagnostic = {
   readonly userId: string;
   readonly eventId: string;
-  readonly payload: { readonly client: CloudTelemetryClient; readonly span: CloudTelemetrySpan; readonly source?: "client" | "server"; readonly serverErrorCode?: string; readonly backend?: { tag?: string; revision?: string; sourceSha256?: string } };
+  readonly payload: {
+    readonly client: CloudTelemetryClient; readonly span: CloudTelemetrySpan; readonly source?: "client" | "server"; readonly serverErrorCode?: string;
+    readonly backend?: { tag?: string; revision?: string; sourceSha256?: string };
+    /** Submitted spans this stored span represents after ingest sampling. Absent means 1. */
+    readonly sampleWeight?: number;
+  };
   readonly attempts: number;
 };
 
 /** Account quota and deduplication are transactional across all server instances. */
-export async function acceptCloudTelemetry(userId: string, batch: CloudTelemetryBatch, serverErrorCode?: string): Promise<number> {
+export async function acceptCloudTelemetry(
+  userId: string, batch: CloudTelemetryBatch,
+  options: { readonly serverErrorCode?: string; readonly sampleWeights?: ReadonlyMap<string, number> } = {},
+): Promise<number> {
+  const { serverErrorCode, sampleWeights } = options;
   const rows = batch.spans.map((span) => {
     const payload = { client: batch.client, span, source: serverErrorCode ? "server" : "client", ...(serverErrorCode ? { serverErrorCode } : {}) };
     const encoded = canonicalJSON(payload);
@@ -23,7 +32,10 @@ export async function acceptCloudTelemetry(userId: string, batch: CloudTelemetry
       revision: process.env.CMUX_DEV_BUILD_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
       sourceSha256: process.env.CMUX_DEV_BUILD_SOURCE_SHA256 ?? "unknown",
     };
-    return { id: span.eventId, payload: canonicalJSON({ ...payload, backend }), hash: createHash("sha256").update(encoded).digest("hex") };
+    // The sample weight is ingest policy, not submitted evidence, so it stays outside the hash.
+    const sampleWeight = sampleWeights?.get(span.eventId);
+    const stored = { ...payload, backend, ...(sampleWeight && sampleWeight !== 1 ? { sampleWeight } : {}) };
+    return { id: span.eventId, payload: canonicalJSON(stored), hash: createHash("sha256").update(encoded).digest("hex") };
   });
   return cloudDb().transaction(async (tx) => {
     await tx.execute(sql`set local statement_timeout = '3000ms'`);
@@ -79,30 +91,72 @@ export async function claimCloudDiagnostics(limit = 100, onlyOwner?: string): Pr
   };
 }
 
-export async function finishCloudDiagnostics(leaseId: string, delivered: boolean): Promise<void> {
-  if (delivered) {
-    await cloudDb().execute(sql`update cloud_diagnostic_events set delivered_at = now(), lease_id = null where lease_id = ${leaseId}::uuid`);
-  } else {
-    await cloudDb().execute(sql`
-      update cloud_diagnostic_events set lease_id = null,
-      next_attempt_at = now() + least(3600, 30 * power(2, least(attempts, 7))) * interval '1 second'
-      where lease_id = ${leaseId}::uuid
-    `);
-  }
+export type CloudDiagnosticsLease = {
+  readonly leaseId: string;
+  readonly rows: readonly Pick<StoredCloudDiagnostic, "userId" | "eventId">[];
+};
+
+export async function finishCloudDiagnostics(lease: CloudDiagnosticsLease, delivered: boolean): Promise<void> {
+  if (lease.rows.length === 0) return;
+  await cloudDb().execute(cloudDiagnosticsFinishStatement(lease, delivered));
 }
 
-/** Bounded retention. Return lost records so a full queue cannot disappear silently. */
-export async function expireCloudDiagnostics(): Promise<{ expiredUndelivered: number; pending: number }> {
-  const expired = await cloudDb().execute(sql`
+/**
+ * The acknowledgement for one claimed lease; exported so tests can inspect its plan.
+ * `lease_id` has no index, and the delivered history holds millions of rows, so
+ * the claimed primary keys select the rows. The lease check still stops a stale
+ * worker from acknowledging rows that another drain has reclaimed.
+ */
+export function cloudDiagnosticsFinishStatement(lease: CloudDiagnosticsLease, delivered: boolean): SQL {
+  const assignment = delivered
+    ? sql`delivered_at = now(), lease_id = null`
+    : sql`lease_id = null,
+      next_attempt_at = now() + least(3600, 30 * power(2, least(attempts, 7))) * interval '1 second'`;
+  const keys = sql.join(lease.rows.map((row) => sql`(${row.userId}, ${row.eventId}::uuid)`), sql`, `);
+  return sql`
+    update cloud_diagnostic_events set ${assignment}
+    where (user_id, event_id) in (${keys}) and lease_id = ${lease.leaseId}::uuid
+  `;
+}
+
+/**
+ * A delivered row only deduplicates client retries. Ingest rejects a span that started
+ * more than `CLOUD_TELEMETRY_MAX_AGE_MS` ago, and a span can start at most 5 minutes
+ * after its first receipt (clock skew), so one extra hour bounds every retry window.
+ */
+export const CLOUD_DIAGNOSTICS_DELIVERED_RETENTION_SECONDS = CLOUD_TELEMETRY_MAX_AGE_MS / 1000 + 3600;
+/** Undelivered rows wait this long for the export destination before they are lost. */
+export const CLOUD_DIAGNOSTICS_UNDELIVERED_RETENTION_SECONDS = 7 * 24 * 3600;
+const CLOUD_DIAGNOSTICS_EXPIRY_BATCH = 1000;
+
+/**
+ * Bounded retention. Return lost records so a full queue cannot disappear silently.
+ * `onlyOwner` scopes the event deletes for tests that share a database; production runs globally.
+ */
+export async function expireCloudDiagnostics(onlyOwner?: string): Promise<{ expiredDelivered: number; expiredUndelivered: number; pending: number }> {
+  const owner = onlyOwner ? sql`and user_id = ${onlyOwner}` : sql``;
+  // Two bounded deletes per run, each walking the received_at index from its oldest row.
+  // Each serves only its own window, so a delivered backlog cannot starve undelivered expiry.
+  const delivered = await cloudDb().execute(sql`
     delete from cloud_diagnostic_events where (user_id, event_id) in (
       select user_id, event_id from cloud_diagnostic_events
-      where received_at < now() - interval '7 days' order by received_at limit 1000
-    ) returning delivered_at
+      where received_at < now() - ${CLOUD_DIAGNOSTICS_DELIVERED_RETENTION_SECONDS} * interval '1 second'
+        and delivered_at is not null ${owner}
+      order by received_at limit ${CLOUD_DIAGNOSTICS_EXPIRY_BATCH}
+    ) returning event_id
+  `);
+  const undelivered = await cloudDb().execute(sql`
+    delete from cloud_diagnostic_events where (user_id, event_id) in (
+      select user_id, event_id from cloud_diagnostic_events
+      where received_at < now() - ${CLOUD_DIAGNOSTICS_UNDELIVERED_RETENTION_SECONDS} * interval '1 second'
+        and delivered_at is null ${owner}
+      order by received_at limit ${CLOUD_DIAGNOSTICS_EXPIRY_BATCH}
+    ) returning event_id
   `);
   await cloudDb().execute(sql`delete from cloud_diagnostic_budgets where minute < ${Math.floor(Date.now() / 60_000) - 60}`);
   await cloudDb().execute(sql`delete from cloud_operation_steps where expires_at < now()`);
   const pending = await cloudDb().execute(sql`select count(*)::int as count from cloud_diagnostic_events where delivered_at is null`);
-  return { expiredUndelivered: expired.filter((row) => row.delivered_at === null).length, pending: Number(pending[0]?.count ?? 0) };
+  return { expiredDelivered: delivered.length, expiredUndelivered: undelivered.length, pending: Number(pending[0]?.count ?? 0) };
 }
 
 function canonicalJSON(value: unknown): string {

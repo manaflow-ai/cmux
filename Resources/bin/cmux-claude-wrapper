@@ -1215,6 +1215,81 @@ cmux_claude_wrapper_create_settings_values_file() {
     printf '%s' "$settings_path"
 }
 
+# Claude Code persists the path-valued --settings argument when a session is
+# moved to the background. A file in $TMPDIR can disappear while that daemon
+# is still alive, so the artifact Claude may respawn must live under the user's
+# durable cmux directory. The merge inputs remain temporary and are removed
+# immediately after launch construction.
+cmux_claude_wrapper_durable_settings_dir() {
+    [[ -n "${HOME:-}" && "$HOME" == /* ]] || return 1
+    local cmux_dir="${HOME%/}/.cmuxterm"
+    local settings_dir="$cmux_dir/claude-settings"
+    # Do not follow a pre-existing link into a location cmux does not own.
+    [[ ! -L "$cmux_dir" && ! -L "$settings_dir" ]] || return 1
+    umask 077
+    mkdir -p "$settings_dir" || return 1
+    [[ -d "$cmux_dir" && -d "$settings_dir" ]] || return 1
+    chmod 0700 "$cmux_dir" "$settings_dir" || return 1
+    printf '%s' "$settings_dir"
+}
+
+cmux_claude_wrapper_sha256_file() {
+    local source="$1"
+    local digest hasher
+    if [[ -x /usr/bin/shasum ]]; then
+        digest="$(/usr/bin/shasum -a 256 "$source" 2>/dev/null)" || return 1
+    elif hasher="$(command -v sha256sum 2>/dev/null)" && [[ -x "$hasher" ]]; then
+        digest="$("$hasher" "$source" 2>/dev/null)" || return 1
+    else
+        return 1
+    fi
+    digest="${digest%%[[:space:]]*}"
+    [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]] || return 1
+    printf '%s' "$digest"
+}
+
+cmux_claude_wrapper_promote_settings_file() {
+    local source="$1"
+    local settings_dir digest target temporary
+    [[ -f "$source" ]] || return 1
+    settings_dir="$(cmux_claude_wrapper_durable_settings_dir)" || return 1
+    digest="$(cmux_claude_wrapper_sha256_file "$source")" || return 1
+    target="$settings_dir/${digest:0:32}.json"
+
+    if [[ -f "$target" && ! -L "$target" ]] && cmp -s "$source" "$target"; then
+        chmod 0600 "$target" || return 1
+        touch "$target" || return 1
+        printf '%s' "$target"
+        return 0
+    fi
+
+    temporary="$(mktemp "$settings_dir/.settings.XXXXXX")" || return 1
+    if ! (umask 077; cat "$source" >"$temporary") || ! chmod 0600 "$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    if ! mv -f -- "$temporary" "$target"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    printf '%s' "$target"
+}
+
+cmux_claude_wrapper_create_durable_settings_file() {
+    local contents="$1"
+    local settings_dir temporary durable_path
+    settings_dir="$(cmux_claude_wrapper_durable_settings_dir)" || return 1
+    temporary="$(mktemp "$settings_dir/.settings.XXXXXX")" || return 1
+    if ! (umask 077; printf '%s' "$contents" >"$temporary") || ! chmod 0600 "$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    durable_path="$(cmux_claude_wrapper_promote_settings_file "$temporary")"
+    rm -f -- "$temporary"
+    [[ -n "$durable_path" ]] || return 1
+    printf '%s' "$durable_path"
+}
+
 # cmux computer use: attach the bundled cmux-cua MCP server so any Claude
 # session cmux launches can drive the local Mac through cmux's TCC identity.
 # Prints the --mcp-config JSON, or returns nonzero to skip injection so
@@ -2130,7 +2205,7 @@ unset cmux_claude_hook_settings_value
 # symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
 # --settings is dropped, silently breaking cmux notifications/status). Either
 # way one side is lost. Deep-merge the user's settings into ours, write the
-# combined document to a private temporary file, and pass one path-valued
+# combined document to a private settings file, and pass one path-valued
 # --settings flag. Hook arrays from a genuine user document are retained, while
 # cmux's marked block is replaced on re-entry. This is precedence-agnostic -- it
 # does not rely on the CLI's multi-flag behavior. Requires `node`; if node is
@@ -2188,7 +2263,14 @@ CMUX_SETTINGS_MERGE_SUCCEEDED=false
 
 # The settings artifact is file-backed so re-entry carries a bounded identity
 # instead of copying an ever-growing JSON value through argv and the environment.
-if CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_settings_file "$HOOKS_JSON")"; then
+if (( ${#CMUX_USER_SETTINGS[@]} > 0 )); then
+    if CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_settings_file "$HOOKS_JSON")"; then
+        CMUX_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH"
+    else
+        printf 'cmux: warning: unable to create hook settings file; hooks were not injected\n' >&2
+    fi
+elif CMUX_SETTINGS_BASE_PATH="$(cmux_claude_wrapper_create_durable_settings_file "$HOOKS_JSON")"; then
+    # There is no merge input, so this is already the final persisted artifact.
     CMUX_SETTINGS_PATH="$CMUX_SETTINGS_BASE_PATH"
 else
     printf 'cmux: warning: unable to create hook settings file; hooks were not injected\n' >&2
@@ -2275,9 +2357,15 @@ fs.writeFileSync(process.env.CMUX_MERGED_SETTINGS_PATH,JSON.stringify(acc),{enco
 '
         cmux_merge_status=$?
         if [[ $cmux_merge_status -eq 0 && -s "$CMUX_MERGED_SETTINGS_PATH" ]]; then
-            CMUX_SETTINGS_PATH="$CMUX_MERGED_SETTINGS_PATH"
-            CMUX_SETTINGS_MERGE_SUCCEEDED=true
-            set -- "${CMUX_FILTERED_ARGS[@]}"
+            if durable_settings_path="$(cmux_claude_wrapper_promote_settings_file "$CMUX_MERGED_SETTINGS_PATH")"; then
+                CMUX_SETTINGS_PATH="$durable_settings_path"
+                CMUX_SETTINGS_MERGE_SUCCEEDED=true
+                set -- "${CMUX_FILTERED_ARGS[@]}"
+            fi
+            unset durable_settings_path
+            if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true ]]; then
+                rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
+            fi
         else
             rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
         fi
@@ -2288,7 +2376,7 @@ if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && ${#CMUX_USER_SETTINGS[@]} -gt 
     printf 'cmux: warning: settings merge failed; cmux hooks are disabled for this launch and your settings were preserved unchanged; install Node or correct the settings file before retrying\n' >&2
     CMUX_SETTINGS_PATH=""
 fi
-if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" != true && -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
+if [[ -n "$CMUX_MERGED_SETTINGS_PATH" ]]; then
     rm -f -- "$CMUX_MERGED_SETTINGS_PATH"
 fi
 if [[ -n "$CMUX_SETTINGS_INPUTS_PATH" ]]; then

@@ -48,6 +48,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/account",
+      "schedule": "29 * * * *"
+    },
+    {
       "path": "/api/cron/push-token-revocations",
       "schedule": "37 * * * *"
     },

@@ -230,6 +230,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_claude_teams_integration_disabled.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_claude_teams_main_vertical.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1503,6 +1508,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_api_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1610,9 +1619,21 @@ path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_notification_authorization_launch.py"
 lane = "macos-shell"
+
+[[test]]
+path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
+lane = "linux-guard"
