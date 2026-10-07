@@ -93,6 +93,23 @@ impl Region {
     }
 }
 
+/// An insertion index: any JSON integer (the app sends `Int.max` to append;
+/// a JavaScript client may send it as a float), saturated to `i64` and
+/// clamped by the reducer.
+fn index<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    let value = serde_json::Number::deserialize(deserializer)?;
+    if let Some(index) = value.as_i64() {
+        return Ok(index);
+    }
+    if value.as_u64().is_some() {
+        return Ok(i64::MAX);
+    }
+    match value.as_f64() {
+        Some(float) if float.is_finite() && float.fract() == 0.0 => Ok(float as i64),
+        _ => Err(serde::de::Error::custom("index must be an integer")),
+    }
+}
+
 /// A value that may be null: its default.
 fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(
     deserializer: D,
@@ -320,17 +337,36 @@ pub struct SectionPatch {
 #[serde(tag = "kind")]
 pub enum Op {
     #[serde(rename = "section.add")]
-    SectionAdd { section: Section, index: i64 },
+    SectionAdd {
+        section: Section,
+        #[serde(deserialize_with = "index")]
+        index: i64,
+    },
     #[serde(rename = "section.update")]
     SectionUpdate { id: String, patch: SectionPatch },
     #[serde(rename = "section.move")]
-    SectionMove { id: String, region: Region, index: i64 },
+    SectionMove {
+        id: String,
+        region: Region,
+        #[serde(deserialize_with = "index")]
+        index: i64,
+    },
     #[serde(rename = "section.remove")]
     SectionRemove { id: String },
     #[serde(rename = "item.add")]
-    ItemAdd { item: Item, section: String, index: i64 },
+    ItemAdd {
+        item: Item,
+        section: String,
+        #[serde(deserialize_with = "index")]
+        index: i64,
+    },
     #[serde(rename = "item.move")]
-    ItemMove { id: String, section: String, index: i64 },
+    ItemMove {
+        id: String,
+        section: String,
+        #[serde(deserialize_with = "index")]
+        index: i64,
+    },
     #[serde(rename = "item.remove")]
     ItemRemove { id: String },
     /// Remove every item with this ref ("Remove from Sidebar").

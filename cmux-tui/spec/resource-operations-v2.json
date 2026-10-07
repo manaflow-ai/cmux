@@ -7661,8 +7661,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 64
+            "min_length": 1
           },
           "description": "built_in, app, workspace, tab, room, saved_group, url; unknown kinds are kept."
         },
@@ -7671,8 +7670,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 4096
+            "min_length": 1
           }
         }
       },
@@ -7796,9 +7794,9 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "int32"
+            "name": "float64"
           },
-          "description": "Among the region's sections; clamped."
+          "description": "Among the region's sections; clamped. Any integer; the app sends Int.max to append, so this is not int32."
         }
       },
       "extra": false
@@ -7820,8 +7818,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "patch": {
@@ -7851,8 +7848,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "region": {
@@ -7870,9 +7866,9 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "int32"
+            "name": "float64"
           },
-          "description": "Excludes the section itself; clamped."
+          "description": "Excludes the section itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
         }
       },
       "extra": false
@@ -7894,8 +7890,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         }
       },
@@ -7926,17 +7921,16 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "index": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "int32"
+            "name": "float64"
           },
-          "description": "Clamped; the same ref twice in one section is a no-op."
+          "description": "Clamped; the same ref twice in one section is a no-op. Any integer; the app sends Int.max to append, so this is not int32."
         }
       },
       "extra": false
@@ -7958,8 +7952,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "section": {
@@ -7967,17 +7960,16 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "index": {
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "int32"
+            "name": "float64"
           },
-          "description": "Excludes the item itself; clamped."
+          "description": "Excludes the item itself; clamped. Any integer; the app sends Int.max to append, so this is not int32."
         }
       },
       "extra": false
@@ -7999,8 +7991,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         }
       },
@@ -8046,8 +8037,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 1,
-            "max_length": 200
+            "min_length": 1
           }
         },
         "shows_label": {
