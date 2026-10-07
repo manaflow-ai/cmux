@@ -13,6 +13,29 @@ import WebKit
 @Suite(.serialized)
 struct BrowserViewportRuntimeTests {
     @Test
+    func replacementNavigationBarrierPrecedesSynchronousPolicyInterruption() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let delegate = try #require(panel.navigationDelegate)
+        // Obtain real WebKit navigation identities, but drive the configured
+        // callbacks explicitly so the policy-interruption ordering is deterministic.
+        webView.navigationDelegate = nil
+        let original = try #require(webView.loadHTMLString("<p>original</p>", baseURL: nil))
+        let replacement = try #require(webView.loadHTMLString("<p>replacement</p>", baseURL: nil))
+        let coordinator = panel.automationNavigationCoordinator
+        let ticket = coordinator.begin(instanceID: panel.webViewInstanceID)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(original))
+
+        delegate.willReplaceNavigationForUserAgentPolicy?(webView, original)
+        _ = delegate.didInterruptProvisionalNavigationByPolicy?(webView, original)
+        delegate.didReplaceNavigationForUserAgentPolicy?(webView, original, replacement)
+        delegate.didCommit?(webView, replacement)
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test
     func frameworkLayoutCallbackCanEnterViewportHostThroughMainThreadDispatch() async {
         let host = BrowserViewportHostView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240)
