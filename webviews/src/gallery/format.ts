@@ -45,6 +45,10 @@ export type SettingsPageVariant = VariantBase & {
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
+  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
+  look?: "quiet" | "dense";
+  /** Publish every bundled theme and its colors (the app does); default the mock's six. */
+  allThemes?: boolean;
 };
 export type PasswordsPageVariant = VariantBase & {
   data: MockData;
@@ -62,6 +66,8 @@ export type ChipHostFixture = {
   sites?: Record<string, { icon?: string; title?: string }>;
   policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
   images?: Record<string, string | null>;
+  /** `media.load` answers: the URL the player plays for each path. */
+  media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
 };
 
@@ -131,6 +137,8 @@ export type MarkdownPageVariant = VariantBase & {
   /** Null: the page opens in its empty state (no file). */
   text: string | null;
   readOnly?: boolean;
+  /** Gallery-only GitHub `origin` repository used for bare issue references. */
+  githubRepository?: string;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */

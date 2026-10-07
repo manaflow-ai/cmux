@@ -67,6 +67,28 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
     }
 }
 
+/// A message of side conversation `conversation`.
+pub fn side_message(conversation: &str, seq: u64, author: &str, text: &str) -> Message {
+    Message {
+        id: format!("{conversation}_msg_{seq}"),
+        conversation: conversation.into(),
+        ..message(seq, author, text)
+    }
+}
+
+/// A side conversation: a DM between `person` and the Chief (every message
+/// of the person wakes it).
+pub fn side_summary(conversation: &str, person: &str) -> Summary {
+    let mut participants = participants("Bob");
+    participants[0].id = person.into();
+    Summary {
+        id: conversation.into(),
+        title: format!("dm {conversation}"),
+        participants,
+        ..summary()
+    }
+}
+
 pub fn summary() -> Summary {
     Summary {
         id: CONV.into(),
@@ -102,6 +124,40 @@ pub struct Owner {
     /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
     pub attachments: BTreeMap<(String, String), String>,
     pub attachment_reads: Vec<(String, String, u64)>,
+    /// The other conversations (side conversations the chief is in), one
+    /// store each. The fields above are the main conversation's store.
+    pub stores: BTreeMap<String, Store>,
+    /// The conversation of every snapshot and history read, in order.
+    pub reads: Vec<String>,
+    /// Every `cloud-mux-ack` the brain sent: (conversation, seq).
+    pub acks: Vec<(String, u64)>,
+}
+
+/// One side conversation as the fake owner keeps it.
+#[derive(Clone)]
+pub struct Store {
+    pub summary: Summary,
+    pub messages: Vec<Message>,
+    /// Every op the brain sent to this conversation: (idempotency key, op).
+    pub ops: Vec<(String, Op)>,
+    /// Rejections for the next `message.send` ops here (None: accept).
+    pub rejects: VecDeque<Option<String>>,
+}
+
+impl Store {
+    /// The texts the brain posted here: (key, text).
+    pub fn sends(&self) -> Vec<(String, String)> {
+        self.ops
+            .iter()
+            .filter_map(|(key, op)| match op {
+                Op::MessageSend { parts, .. } => match &parts[0] {
+                    Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 impl Owner {
@@ -116,6 +172,16 @@ impl Owner {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Whether `conversation` is the main conversation (the fields of `Owner`).
+    pub fn is_main(&self, conversation: &str) -> bool {
+        self.summary.as_ref().is_some_and(|s| s.id == conversation)
+    }
+
+    /// The reads of `conversation` so far.
+    pub fn reads_of(&self, conversation: &str) -> usize {
+        self.reads.iter().filter(|c| *c == conversation).count()
     }
 
     pub fn cursors(&self) -> Vec<u64> {
@@ -151,8 +217,28 @@ impl ConversationPort for FakeDaemon {
             .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
     }
 
-    fn snapshot(&mut self, _: &str, tail: u32) -> Result<(Summary, Vec<Message>), OpError> {
-        let owner = self.0.lock().unwrap();
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            let messages = store
+                .messages
+                .iter()
+                .rev()
+                .take(tail as usize)
+                .rev()
+                .cloned()
+                .collect();
+            return Ok((store.summary.clone(), messages));
+        }
         let messages = owner
             .messages
             .iter()
@@ -164,10 +250,24 @@ impl ConversationPort for FakeDaemon {
         Ok((owner.summary.clone().unwrap(), messages))
     }
 
-    fn history(&mut self, _: &str, before_seq: u64, limit: u32) -> Result<Vec<Message>, OpError> {
-        let owner = self.0.lock().unwrap();
-        let older: Vec<Message> = owner
-            .messages
+    fn history(
+        &mut self,
+        conversation: &str,
+        before_seq: u64,
+        limit: u32,
+    ) -> Result<Vec<Message>, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        let messages = if owner.is_main(conversation) {
+            &owner.messages
+        } else {
+            &owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?
+                .messages
+        };
+        let older: Vec<Message> = messages
             .iter()
             .filter(|m| m.seq < before_seq)
             .cloned()
@@ -176,8 +276,26 @@ impl ConversationPort for FakeDaemon {
         Ok(older.into_iter().skip(skip).collect())
     }
 
-    fn op(&mut self, _: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
+    fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
         let mut owner = self.0.lock().unwrap();
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get_mut(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            store.ops.push((key.to_owned(), op.clone()));
+            if let Op::MessageSend { parts, .. } = op {
+                if let Some(Some(reason)) = store.rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
+                let seq = store.messages.len() as u64 + 1;
+                let mut m = side_message(conversation, seq, "agent_mux", "");
+                m.parts = parts.clone();
+                store.messages.push(m.clone());
+                return Ok(Some(Change::Message { message: m }));
+            }
+            return Ok(None);
+        }
         owner.ops.push((key.to_owned(), op.clone()));
         match op {
             Op::ReadCursorSet { seq } => {
@@ -223,6 +341,15 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .acks
+            .push((conversation.to_owned(), seq));
         Ok(())
     }
 }
@@ -732,6 +859,50 @@ impl Harness {
             change: Change::Message { message: m.clone() },
         }));
         m
+    }
+
+    /// Adds side conversation `conversation` (a DM with `person`) to the owner.
+    pub fn add_side(&self, conversation: &str, person: &str) {
+        self.owner.lock().unwrap().stores.insert(
+            conversation.into(),
+            Store {
+                summary: side_summary(conversation, person),
+                messages: Vec::new(),
+                ops: Vec::new(),
+                rejects: VecDeque::new(),
+            },
+        );
+    }
+
+    /// A new message in side conversation `conversation`. Nothing tells the
+    /// brain: the brain is not subscribed to side conversations, only the
+    /// wake queue (`wake`) tells it.
+    pub fn post_side(&self, conversation: &str, author: &str, text: &str) -> Message {
+        let mut owner = self.owner.lock().unwrap();
+        let store = owner.stores.get_mut(conversation).expect("add_side first");
+        let seq = store.messages.len() as u64 + 1;
+        let m = side_message(conversation, seq, author, text);
+        store.messages.push(m.clone());
+        store.summary.last_seq = seq;
+        m
+    }
+
+    /// The daemon relays wakes of the chief's queue (`cloud-mux-wake`).
+    pub fn wake(&mut self, wakes: &[(&str, u64)]) {
+        let wakes = wakes
+            .iter()
+            .map(|(conversation, seq)| optchat_chief::daemon::MuxWake {
+                conversation: (*conversation).into(),
+                seq: *seq,
+                reason: "dm".into(),
+            })
+            .collect();
+        self.brain.step(Input::from(DaemonEvent::MuxWake(wakes)));
+    }
+
+    /// The texts the brain posted in side conversation `conversation`.
+    pub fn side_sends(&self, conversation: &str) -> Vec<(String, String)> {
+        self.owner.lock().unwrap().stores[conversation].sends()
     }
 
     /// Steps the brain until it is idle (no turn, nothing queued).

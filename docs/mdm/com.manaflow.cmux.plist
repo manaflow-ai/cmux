@@ -888,6 +888,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>followTerminal</string>
+			<key>pfm_description</key>
+			<string>Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.</string>
+			<key>pfm_name</key>
+			<string>appearance.appTheme</string>
+			<key>pfm_title</key>
+			<string>App Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
 			<string>A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.</string>
