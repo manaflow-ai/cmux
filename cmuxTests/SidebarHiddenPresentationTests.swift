@@ -233,7 +233,7 @@ struct SidebarHiddenPresentationTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let cloudMarkerKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
         UserDefaults.standard.set(true, forKey: cloudMarkerKey)
         defer {
