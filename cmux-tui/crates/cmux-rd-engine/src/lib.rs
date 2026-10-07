@@ -12,15 +12,17 @@
 
 mod loss;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
-    ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN, Feedback,
-    FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC, REF_NONE, flags,
+    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
+    Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
+    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, flags,
 };
 
 pub use loss::LossMeter;
@@ -112,6 +114,8 @@ pub struct Output {
     pub encode: Option<EncodeRequest>,
     /// The last frame was too large to send: halve the encoder's bitrate.
     pub halve_bitrate: bool,
+    /// Complete upstream media frames (stream, frame) from the viewer (rd change C4).
+    pub upstream: Vec<(u16, CompleteFrame)>,
 }
 
 /// Why a stream cannot be added.
@@ -121,6 +125,8 @@ pub enum StreamError {
     Exists(u16),
     /// The session already has the most streams a viewer accepts.
     TooMany,
+    /// A tile stream names a surface stream that does not exist.
+    NoSurface(u16),
 }
 
 /// Counters for the stats control message.
@@ -131,6 +137,103 @@ pub struct EngineStats {
     /// Smoothed loss fraction, 0 to 1.
     pub loss: f64,
     pub target_bps: u64,
+}
+
+/// Most upstream media streams per peer.
+pub const MAX_UPSTREAMS: usize = 4;
+/// Upstream feedback interval while upstream media flows.
+const UPSTREAM_FEEDBACK_US: u64 = 50_000;
+/// How long an upstream frame may wait for missing shards.
+const UPSTREAM_DEADLINE_US: u64 = 200_000;
+/// How long before an upstream frame's gaps are NACKed.
+const UPSTREAM_NACK_AFTER_US: u64 = 5_000;
+
+/// One upstream media stream (rd change C4): the host's receiver.
+#[derive(Debug)]
+struct Upstream {
+    reassembler: Reassembler,
+    arrivals: VecDeque<Arrival>,
+    released_since_feedback: bool,
+    last_feedback_us: Option<u64>,
+}
+
+impl Upstream {
+    fn new() -> Self {
+        Self {
+            reassembler: Reassembler::new(UPSTREAM_DEADLINE_US),
+            arrivals: VecDeque::new(),
+            released_since_feedback: false,
+            last_feedback_us: None,
+        }
+    }
+
+    fn push(&mut self, header: &DatagramHeader, payload: &[u8], now_us: u64) -> Vec<CompleteFrame> {
+        if self.arrivals.len() >= 8 * MAX_ARRIVALS {
+            self.arrivals.pop_front();
+        }
+        self.arrivals
+            .push_back(Arrival { transport_seq: header.transport_seq, arrival_us: now_us as u32 });
+        let released = self.reassembler.push(header, payload, now_us);
+        self.released_since_feedback |= !released.is_empty();
+        released
+    }
+
+    fn due(&self, now_us: u64) -> bool {
+        let interval_passed = self
+            .last_feedback_us
+            .is_none_or(|last| now_us.saturating_sub(last) >= UPSTREAM_FEEDBACK_US);
+        self.released_since_feedback
+            || (interval_passed && (!self.arrivals.is_empty() || self.reassembler.need_recovery()))
+    }
+
+    fn feedback(&mut self, stream: u16, now_us: u64) -> Option<Vec<u8>> {
+        if !self.due(now_us) {
+            return None;
+        }
+        self.released_since_feedback = false;
+        self.last_feedback_us = Some(now_us);
+        let take = self.arrivals.len().min(MAX_ARRIVALS);
+        let nacks = self
+            .reassembler
+            .missing(now_us, UPSTREAM_NACK_AFTER_US)
+            .into_iter()
+            .take(MAX_NACK_FRAMES)
+            .map(|(frame, indexes)| Nack {
+                frame,
+                indexes: indexes.into_iter().take(MAX_NACK_INDEXES).collect(),
+            })
+            .collect();
+        let fb = Feedback {
+            acked_frame: self.reassembler.last_released(),
+            decode_us: 0,
+            need_recovery: self.reassembler.need_recovery(),
+            arrivals: self.arrivals.drain(..take).collect(),
+            nacks,
+        };
+        let mut d = Vec::with_capacity(HEADER_LEN + 256);
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Feedback,
+            stream,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        }
+        .encode_into(&mut d);
+        d.extend_from_slice(&fb.encode());
+        Some(d)
+    }
+
+    fn next_deadline_us(&self) -> Option<u64> {
+        if self.released_since_feedback {
+            return Some(0);
+        }
+        let feedback = (!self.arrivals.is_empty() || self.reassembler.need_recovery())
+            .then(|| self.last_feedback_us.map_or(0, |l| l.saturating_add(UPSTREAM_FEEDBACK_US)));
+        [feedback, self.reassembler.next_expiry_us()].into_iter().flatten().min()
+    }
 }
 
 /// One display stream: its own frame gate, NACK history and keyframe state.
@@ -145,6 +248,8 @@ struct StreamState {
     last_forced_idr_us: Option<u64>,
     /// The first damage covers the whole stream.
     started: bool,
+    /// A tile stream's surface stream (rd change C3).
+    tile_of: Option<u16>,
 }
 
 impl StreamState {
@@ -158,6 +263,7 @@ impl StreamState {
             force_idr: true,
             last_forced_idr_us: None,
             started: false,
+            tile_of: None,
         }
     }
 
@@ -182,6 +288,7 @@ pub struct MediaEngine {
     frames: u64,
     keyframes: u64,
     clock: Option<ClockEstimate>,
+    upstreams: BTreeMap<u16, Upstream>,
 }
 
 impl MediaEngine {
@@ -201,6 +308,7 @@ impl MediaEngine {
             frames: 0,
             keyframes: 0,
             clock: None,
+            upstreams: BTreeMap::new(),
             cfg,
         }
     }
@@ -216,6 +324,55 @@ impl MediaEngine {
         }
         self.streams.insert(stream, StreamState::new(width, height, self.cfg.max_fps));
         Ok(())
+    }
+
+    /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
+    /// the source encodes tile top-offs of static regions into its requests'
+    /// access units; every frame carries `flags::TILE` and the surface
+    /// stream's latest frame as `ref_frame` (the frame the tiles apply on
+    /// top of). Send only when welcome lists the `tile` cap.
+    pub fn add_tile_stream(
+        &mut self,
+        stream: u16,
+        of: u16,
+        width: u32,
+        height: u32,
+    ) -> Result<(), StreamError> {
+        if !self.streams.contains_key(&of) {
+            return Err(StreamError::NoSurface(of));
+        }
+        self.add_stream(stream, width, height)?;
+        if let Some(state) = self.streams.get_mut(&stream) {
+            state.tile_of = Some(of);
+        }
+        Ok(())
+    }
+
+    /// Accepts upstream media (microphone, camera, screen share; rd change
+    /// C4) from the viewer on `stream`. Upstream frames are released in
+    /// `Output::upstream` even without control (the service's permission
+    /// for mic and camera is the service's check, not rd's input gate).
+    pub fn add_upstream(&mut self, stream: u16) -> Result<(), StreamError> {
+        if self.upstreams.contains_key(&stream) {
+            return Err(StreamError::Exists(stream));
+        }
+        if self.upstreams.len() >= MAX_UPSTREAMS {
+            return Err(StreamError::TooMany);
+        }
+        self.upstreams.insert(stream, Upstream::new());
+        Ok(())
+    }
+
+    /// Stops accepting upstream media on `stream`.
+    pub fn remove_upstream(&mut self, stream: u16) {
+        self.upstreams.remove(&stream);
+    }
+
+    /// The next feedback datagram for an upstream stream (acknowledgement,
+    /// NACKs, arrivals for the viewer's congestion controller), or `None`
+    /// when none is due. Call again until it returns `None`.
+    pub fn upstream_feedback(&mut self, now_us: u64) -> Option<Vec<u8>> {
+        self.upstreams.iter_mut().find_map(|(&stream, u)| u.feedback(stream, now_us))
     }
 
     /// Removes a display stream and its frame state.
@@ -286,6 +443,7 @@ impl MediaEngine {
             .values()
             .filter_map(|s| s.gate.next_deadline_us())
             .chain(self.applier.next_deadline_us())
+            .chain(self.upstreams.values().filter_map(Upstream::next_deadline_us))
             .min()
     }
 
@@ -298,20 +456,38 @@ impl MediaEngine {
         now_us: u64,
     ) -> Result<Output, PacketizeError> {
         let loss = self.loss;
+        let surface_frame = self
+            .streams
+            .get(&req.stream)
+            .and_then(|s| s.tile_of)
+            .and_then(|of| self.streams.get(&of))
+            .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
             state.gate.clear_in_flight();
             return Ok(Output::default());
         };
+        let tile = state.tile_of.is_some();
         let body = FrameBody {
             t_capture_us: enc.t_capture_us,
-            ref_frame: if enc.idr { REF_NONE } else { state.last_frame },
+            ref_frame: match surface_frame {
+                Some(video_frame) => video_frame,
+                None if enc.idr => REF_NONE,
+                None => state.last_frame,
+            },
             access_unit: enc.access_unit,
         };
         let data_shards =
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
-        let parity = parity_for(data_shards, loss, enc.idr);
-        let flags = if enc.idr { flags::KEYFRAME } else { 0 };
+        // Tile frames are standalone, so they get keyframe-grade protection.
+        let parity = parity_for(data_shards, loss, enc.idr || tile);
+        let flags = if tile {
+            flags::TILE
+        } else if enc.idr {
+            flags::KEYFRAME
+        } else {
+            0
+        };
         self.packetizer.set_stream(req.stream);
         let packets = match self.packetizer.packetize(req.frame, flags, &body, parity) {
             Ok(p) => p,
@@ -336,7 +512,7 @@ impl MediaEngine {
         state.force_idr = false;
         state.last_frame = req.frame;
         self.frames += 1;
-        self.keyframes += u64::from(enc.idr);
+        self.keyframes += u64::from(enc.idr && !tile);
         Ok(Output { datagrams: packets.datagrams, ..Output::default() })
     }
 
@@ -362,6 +538,13 @@ impl MediaEngine {
             DatagramKind::Feedback => {
                 let Ok(fb) = Feedback::decode(payload) else { return out };
                 self.on_feedback(header.stream, &fb, now_us, &mut out);
+            }
+            DatagramKind::UpMedia => {
+                if let Some(u) = self.upstreams.get_mut(&header.stream) {
+                    let stream = header.stream;
+                    out.upstream =
+                        u.push(&header, payload, now_us).into_iter().map(|f| (stream, f)).collect();
+                }
             }
             DatagramKind::ClockPing => {
                 let Ok(ping) = ClockPing::decode(payload) else { return out };
@@ -415,6 +598,11 @@ impl MediaEngine {
     /// Advances time for input: a missing event is skipped after its timeout.
     pub fn tick(&mut self, may_inject: bool, now_us: u64) -> Output {
         let mut out = Output::default();
+        for (&stream, u) in &mut self.upstreams {
+            let released = u.reassembler.tick(now_us);
+            u.released_since_feedback |= !released.is_empty();
+            out.upstream.extend(released.into_iter().map(|f| (stream, f)));
+        }
         let events = self.applier.tick(now_us);
         if may_inject {
             out.inject = events;

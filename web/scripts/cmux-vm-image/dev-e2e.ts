@@ -115,6 +115,23 @@ async function waitMachine(api: Api, machine: string, want: (m: any) => boolean,
   throw new Error(`timed out after ${budgetMs} ms; last status ${last?.status} host ${last?.host}`);
 }
 
+export type DevChannel = { snapshot: string; snapshot_id: string };
+
+/** images/cmux-vm/channels/dev.json: the image the development Worker is meant to boot. */
+export function readDevChannel(file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../images/cmux-vm/channels/dev.json")): DevChannel {
+  const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<DevChannel>;
+  if (typeof raw.snapshot !== "string" || typeof raw.snapshot_id !== "string") throw new Error(`${file}: needs snapshot and snapshot_id`);
+  return { snapshot: raw.snapshot, snapshot_id: raw.snapshot_id };
+}
+
+/** null when the provider VM record says it booted the channel's snapshot; else the mismatch. */
+export function bootedSnapshotProblem(vm: { snapshotId?: string | null; sourceSnapshotSlugAtCreate?: string | null }, channel: DevChannel): string | null {
+  if (!vm.snapshotId) return "the provider VM record has no snapshotId";
+  if (vm.snapshotId !== channel.snapshot_id) return `booted ${vm.snapshotId} (${vm.sourceSnapshotSlugAtCreate ?? "no slug"}), channels/dev.json names ${channel.snapshot_id} (${channel.snapshot})`;
+  if (vm.sourceSnapshotSlugAtCreate && vm.sourceSnapshotSlugAtCreate !== channel.snapshot) return `snapshot id matches, but its slug at create ${vm.sourceSnapshotSlugAtCreate} differs from ${channel.snapshot}`;
+  return null;
+}
+
 /** The backend names the provider VM by slug, so the slug addresses it directly (read and exec only). */
 async function vmFor(fs: Freestyle, machine: string): Promise<Vm> {
   const name = providerName(machine);
@@ -162,6 +179,13 @@ export async function main(argv = process.argv): Promise<number> {
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version}` };
     });
     const vm = await R.step("provider VM", async () => ({ value: await vmFor(fs, created.id), detail: providerName(created.id) }));
+    await R.step("booted the dev channel's snapshot", async () => {
+      const channel = readDevChannel();
+      const data = (await fs.vms.get(providerName(created.id))) as { snapshotId?: string | null; sourceSnapshotSlugAtCreate?: string | null };
+      const problem = bootedSnapshotProblem(data, channel);
+      if (problem) throw new Error(problem);
+      return { value: null, detail: `${data.snapshotId} (${data.sourceSnapshotSlugAtCreate ?? channel.snapshot}) = channels/dev.json` };
+    });
     await R.step("VM agent evidence (bind, keys, machine-id)", async () => {
       const r = await run(vm, `${AGENT_LOG} | grep -E 'bind:|machine-id|heartbeat' | head -5; jq -r 'keys|join(",")' /var/lib/cmux/bound.json; stat -c %a /var/lib/cmux/bound.json /var/lib/cmux/install/key.json; test "$(cat /var/lib/cmux/machine-id.instance)" = "$(curl -sf -m 2 -H "X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-id)" && echo machine-id-per-clone`);
       if (r.code !== 0 || !/bind: bound/.test(r.stdout)) throw new Error(r.stdout.trim().slice(-300) || r.stderr.slice(-300));
