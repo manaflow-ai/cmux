@@ -186,7 +186,7 @@ jobs:
 
   regen:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -328,9 +328,10 @@ jobs:
 
   build:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'build' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    # A mini: its tailnet tag lets it submit to the build fleet. The job only
-    # submits and waits; the build runs on a fleet worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+    # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
+    # build fleet. The job only submits and waits; the build runs on a fleet
+    # worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 150
     permissions:
       contents: read

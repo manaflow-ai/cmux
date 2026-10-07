@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextSettings
 import WebKit
@@ -15,11 +16,23 @@ import WebKit
 /// `appStore`, `onboarding`, ...);
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
-/// `width`, `height` (pixels), `kind`, `window_number` and `method`
-/// (`composited` or `appkit`). `webviews: false` skips painting WebKit
-/// pages over the window (the window server's image alone: a Chromium
-/// page's own child window is not in it, but native UI over it is, such as
-/// the prompt bar).
+/// `width`, `height` (pixels), `kind`, `window_number`, `method`
+/// (`composited` or `appkit`) and `child_windows` (how many visible child
+/// windows the window has). Child windows are composited by the window
+/// server over the window: a Chromium page draws into its own child window,
+/// and overlay panels sit above content. The async verb also paints each
+/// engine's own image of every shown page (`webviews`, `chromium_pages`,
+/// with `_composited` and `_failed` counts), since the window server
+/// leaves out page content other processes draw unless the app has the
+/// Screen Recording grant. `webviews: false` skips the page images (the
+/// window server's image alone).
+///
+/// The refusal HUD (`RefusalHUD`) is a Liquid Glass pill that fades in and
+/// hides after 1.8 s, so its pixels are not a reliable assertion: a capture
+/// may land before the fade or after the hide. Every reply therefore carries
+/// `refusal_hud`: the message the HUD shows now (null when hidden) and
+/// `refusal_hud_count`, the messages shown so far. Check those instead of
+/// looking for the pill in the PNG.
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -31,15 +44,24 @@ enum DebugWindowSnapshot {
             return .object([
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
+                "child_windows": JSONValue(method == .composited ? window.visibleChildWindows.count : 0),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
     }
 
-    /// Captures the window and paints each visible WebKit page over the window
-    /// image. The window server and AppKit snapshots omit WebKit's remote
-    /// content because it is rendered by the WebContent process.
+    /// Captures the window and paints each visible page over the window
+    /// image, in screen order: the window (with its page child windows), the
+    /// WebKit pages, the Chromium pages, then the overlay panels above
+    /// content. The window server and AppKit snapshots omit WebKit's remote
+    /// content (the WebContent process draws it) and, without the Screen
+    /// Recording grant, Chromium's (its GPU process draws into the page's
+    /// child window), so each engine's own page image is painted instead:
+    /// `WKWebView.takeSnapshot` and Chromium's `Page.captureScreenshot`
+    /// (`BrowserTab.snapshot`), which need no grant and work for a
+    /// background, non-key window.
     @MainActor
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if params["webviews"]?.boolValue == false { return capture(params, services: services) }
@@ -52,9 +74,13 @@ enum DebugWindowSnapshot {
             // AppKit drawing supplies the chrome and backdrop without stale
             // remote WebKit layers. Hide the live views while drawing the
             // native base so the page snapshots below fill each rectangle
-            // exactly once.
+            // exactly once. The overlay panels go on top at the end, so the
+            // composited base has only the page windows.
             let base = webViews.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: webViews)
-            var images: [(WKWebView, CGImage)] = []
+            var layers: [Layer] = []
+            if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
+                layers.append(.window(pageWindows))
+            }
             var failed = 0
             for webView in webViews {
                 do {
@@ -64,12 +90,24 @@ enum DebugWindowSnapshot {
                         failed += 1
                         continue
                     }
-                    images.append((webView, cgImage))
+                    layers.append(.page(cgImage, webView.convert(webView.bounds, to: nil)))
                 } catch {
                     failed += 1
                 }
             }
-            let output = composite(base: base.image, window: window, webViews: images) ?? base.image
+            let pages = chromiumPages(in: window, services: services)
+            var pagesFailed = 0
+            for (page, rect) in pages {
+                do {
+                    layers.append(.page(try await page.snapshot(), rect))
+                } catch {
+                    pagesFailed += 1
+                }
+            }
+            if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                layers.append(.window(panels))
+            }
+            let output = composite(base: base.image, window: window, layers: layers) ?? base.image
             let rep = NSBitmapImageRep(cgImage: output)
             guard let data = rep.representation(using: .png, properties: [:]) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -78,16 +116,49 @@ enum DebugWindowSnapshot {
             return .object([
                 "path": .string(path), "width": JSONValue(rep.pixelsWide), "height": JSONValue(rep.pixelsHigh),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
-                "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(images.count),
-                "webviews_failed": JSONValue(failed),
+                "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
+                "webviews_failed": JSONValue(failed), "child_windows": JSONValue(window.visibleChildWindows.count),
+                "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
+                "chromium_pages_failed": JSONValue(pagesFailed),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
     }
 
+    /// The refusal HUD's message while it shows, else null.
+    static func hudMessage(_ services: AppServices) -> JSONValue {
+        services.refusalHUD.message.map(JSONValue.string) ?? .null
+    }
+
+    /// What `composite` paints over the base image, bottom first.
+    private enum Layer {
+        /// A page image filling a rectangle in window coordinates.
+        case page(CGImage, NSRect)
+        /// A window server image of child windows, the size of the window.
+        case window(CGImage)
+    }
+
+    /// The Chromium pages shown in `window`'s panes, with the page area in
+    /// window coordinates (beside a docked DevTools, which is not painted).
+    @MainActor
+    static func chromiumPages(in window: NSWindow, services: AppServices) -> [(CEFTab, NSRect)] {
+        guard let controller = services.windows.controllers.first(where: { $0.window === window }) else { return [] }
+        var result: [(CEFTab, NSRect)] = []
+        for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+            guard case .browser(let entry)? = pane.currentContent, let page = entry.tab as? CEFTab,
+                  page.contentView.window === window, !page.contentView.isHiddenOrHasHiddenAncestor else { continue }
+            let rect = page.devToolsDiagnosticFrames.map { window.convertFromScreen($0.page) }
+                ?? page.contentView.convert(page.contentView.bounds, to: nil)
+            guard rect.width > 0, rect.height > 0 else { continue }
+            result.append((page, rect))
+        }
+        return result
+    }
+
     private static func baseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        if let image = window.compositedSnapshot() {
+        if let image = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
             return (image, .composited)
         }
         if let rep = window.renderSnapshot(), let image = rep.cgImage {
@@ -141,25 +212,30 @@ enum DebugWindowSnapshot {
         return result
     }
 
-    private static func composite(base: CGImage, window: NSWindow, webViews: [(WKWebView, CGImage)]) -> CGImage? {
-        guard let frameView = window.contentView?.superview ?? window.contentView,
-              frameView.bounds.width > 0, frameView.bounds.height > 0 else { return nil }
+    private static func composite(base: CGImage, window: NSWindow, layers: [Layer]) -> CGImage? {
+        let size = window.frame.size
+        guard !layers.isEmpty, size.width > 0, size.height > 0 else { return nil }
         let width = base.width
         let height = base.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        // sRGB, the space the written PNG is tagged with.
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: space,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let scaleX = CGFloat(width) / frameView.bounds.width
-        let scaleY = CGFloat(height) / frameView.bounds.height
-        context.draw(base, in: CGRect(x: 0, y: 0, width: width, height: height))
-        for (webView, image) in webViews {
-            let viewRect = webView.convert(webView.bounds, to: frameView)
-            let bottom = frameView.isFlipped ? frameView.bounds.height - viewRect.maxY : viewRect.minY
-            let rect = CGRect(x: viewRect.minX * scaleX, y: bottom * scaleY,
-                              width: viewRect.width * scaleX, height: viewRect.height * scaleY)
-            guard rect.width > 0, rect.height > 0 else { continue }
-            context.interpolationQuality = .high
-            context.draw(image, in: rect)
+        let scaleX = CGFloat(width) / size.width
+        let scaleY = CGFloat(height) / size.height
+        let whole = CGRect(x: 0, y: 0, width: width, height: height)
+        context.draw(base, in: whole)
+        context.interpolationQuality = .high
+        for layer in layers {
+            switch layer {
+            case .page(let image, let rect):
+                // Window coordinates and the bitmap both have a bottom-left origin.
+                let pixels = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                if pixels.width > 0, pixels.height > 0 { context.draw(image, in: pixels) }
+            case .window(let image):
+                context.draw(image, in: whole)
+            }
         }
         return context.makeImage()
     }

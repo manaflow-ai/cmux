@@ -143,6 +143,9 @@ enum TabLifecycle {
         guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
         let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
         guard current != engine else { return }
+        if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
+            return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
+        }
         if engine == .cef, let reason = ctx.services.cache.browserTabs?.cefUnavailableReason() {
             return ctx.refuse(reason)
         }
@@ -156,18 +159,13 @@ enum TabLifecycle {
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        var url: URL?
-        if let text = invocation["url"]?.stringValue {
-            let chromium = invocation["engine"]?.stringValue == BrowserEngineTag.cef.rawValue
-            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else {
-                return ctx.refuse(MiscHandlerStrings.invalidURL(text))
-            }
-            // Agents never open Chromium's own pages (plans/cmux-next/passwords.md, section 2).
-            if invocation.origin != .user, AgentURLPolicy.refuses(resolved) {
-                return ctx.refuse(MiscHandlerStrings.agentChromiumPage)
-            }
-            url = resolved
+        let plan: BrowserOpenPlan
+        switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
+                                    origin: invocation.origin) {
+        case .refuse(let message): return ctx.refuse(message)
+        case .open(let opened): plan = opened
         }
+        let url = plan.url
         let rawProfile = invocation["profile"]?.stringValue
         guard let profileRequest = AgentBrowserProfile.request(rawProfile) else {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(rawProfile ?? ""))
@@ -176,10 +174,10 @@ enum TabLifecycle {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(id))
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
-        let engine = invocation["engine"]?.stringValue
+        let engine = plan.engine
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
         if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
-            noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
+            noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
@@ -216,8 +214,9 @@ enum TabLifecycle {
         }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620).
-            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine, then: then)
-                : controller.newBrowserTab(url: url, engine: engine, then: then)
+            if url == nil { controller.newBrowserTabFromSelectedTab(engine: engine, then: then) }
+            else { controller.newBrowserTab(url: url, engine: engine, then: then) }
+            return
         }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
@@ -246,7 +245,8 @@ enum TabLifecycle {
     private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
                                       then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         if let controller = ctx.services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
+            controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
+            return
         }
         guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))

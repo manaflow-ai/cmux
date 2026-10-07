@@ -110,7 +110,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -150,6 +150,9 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        "agents.chats.roots": .privacy,
+        "agents.chats.discovery": .privacy,
+        "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,

@@ -42,6 +42,7 @@ extension SidebarRegionView {
 
     /// A press moved (window points). True once a drag runs.
     func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
+        guard allowsDrag else { return false }
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)

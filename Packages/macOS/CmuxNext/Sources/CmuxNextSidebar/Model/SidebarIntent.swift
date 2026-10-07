@@ -21,7 +21,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Create a group holding the given workspaces. The UI mints the id.
     /// The group forms where `anchor` is (a row dropped onto another forms
     /// it at the target row), else at the first workspace in tree order.
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil)
+    /// `collapsed` restores a group folded (undo of Ungroup).
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
     case renameGroup(GroupID, String)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.
