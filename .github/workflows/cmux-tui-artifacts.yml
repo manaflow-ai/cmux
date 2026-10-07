@@ -78,18 +78,18 @@ on:
         type: string
 
 concurrency:
-  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*),
-  # per PR, and per commit for a manual dispatch. cancel-in-progress stays
-  # false: a group then holds one running run and one pending run, and a newer
-  # push replaces only the pending one. A started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload, and a queued run for an older
-  # branch head is superseded: only the newest head's tree matters, and the
-  # macOS runners are scarce (2026-10-06: 30 runs queued behind ~3 macos-15
-  # slots when every commit had its own group). A superseded commit needs no
-  # tree (pin-cmux-tui.sh says so); publish one on purpose with a dispatch or a
-  # cmux-tui-pin-* push. Main stays serialized because each main run also
-  # updates latest/.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  # One group per feat-cmux-next push, per pushed branch otherwise (main, each
+  # cmux-tui-pin-*), per PR, and per commit for a manual dispatch.
+  # cancel-in-progress stays false, so a started run is never cancelled and no
+  # publish of immutable objects stops mid-upload. A shared group keeps one
+  # pending run that a newer run replaces, and that starved feat-cmux-next
+  # (2026-10-07 01:31-02:11: 13 of 14 base runs replaced before their
+  # preflight, so base trees went unpublished and every PR's same-tree wait
+  # timed out at 45 min). So every feat-cmux-next push runs: tree-preflight
+  # skips a complete tree, and tree-owner-wait and the per-run job groups keep
+  # one builder per tree key, so the macOS work is per tree, not per push.
+  # Main stays serialized because each main run also updates latest/.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
