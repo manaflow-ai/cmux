@@ -41,7 +41,9 @@ import Testing
         let receipt = try await store.remove(MockFixtures.studio, key: IntentKey())
         guard case .refused = receipt else { Issue.record("expected refusal"); return }
         let added = try await store.add(
-            HostDraft(name: "lan", kind: .direct(endpoint: HostEndpoint(address: "192.168.1.5"))), key: IntentKey())
+            HostDraft(name: "lan", kind: .direct(endpoint: HostEndpoint(address: "192.168.1.5"),
+                                                 hostKey: DirectHostKey(rawValue: String(repeating: "A", count: 43) + "=")!)),
+            key: IntentKey())
         guard case .committed = added else { Issue.record("expected commit"); return }
         #expect(await store.hub.current.value.count == 4)
     }

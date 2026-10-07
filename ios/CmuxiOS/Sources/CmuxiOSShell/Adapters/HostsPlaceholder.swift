@@ -21,7 +21,7 @@ enum HostsPlaceholder {
                 ssh.append(PlaceholderRow(id: host.id.rawValue, title: host.name,
                                           subtitle: describe(endpoint) + " · " + reach,
                                           symbolName: "terminal", status: status))
-            case .direct(let endpoint):
+            case .direct(let endpoint, _):
                 direct.append(PlaceholderRow(id: host.id.rawValue, title: host.name,
                                              subtitle: describe(endpoint) + " · " + reach,
                                              symbolName: "network", status: status))
