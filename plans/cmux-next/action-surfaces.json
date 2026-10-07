@@ -74,7 +74,14 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "opt",
+          "shift",
+          "cmd"
+        ]
+      },
       "id" : "newIncognitoWindow",
       "mcp" : "offered",
       "palette" : "offered",
