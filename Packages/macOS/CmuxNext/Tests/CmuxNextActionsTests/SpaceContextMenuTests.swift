@@ -93,6 +93,23 @@ import Testing
         #expect(submenu.items.contains { $0.submenu != nil && $0.title == "Set Space Theme" })
     }
 
+    /// Change Space Icon… runs `space.setIcon` itself with no icon, so its
+    /// handler opens the shared icon picker; the palette's text prompt (the
+    /// argument collector) never runs.
+    @Test func changeSpaceIconReachesTheHandlerWithNoIcon() throws {
+        var handled: [ActionInvocation] = [], collected: [ActionID] = []
+        let owner = registry { _, _ in }
+        defer { withExtendedLifetime(owner) {} }
+        owner.argumentCollector = { id, _ in collected.append(id) }
+        owner.bind("space.setIcon", invoke: { handled.append($0) })
+        let menu = owner.makeContextMenu(for: .profile, target: Self.space)
+        click(try #require(menu.items.first { $0.title == "Change Space Icon…" }))
+        #expect(collected.isEmpty, "no text prompt: \(collected)")
+        #expect(handled.count == 1)
+        #expect(handled.first?.target == Self.space)
+        #expect(handled.first?["icon"] == nil)
+    }
+
     /// No profiles known (no browser): the submenu is left out, not empty.
     @Test func noBrowserProfilesLeavesTheRowOut() {
         let registry = registry { _, _ in }
