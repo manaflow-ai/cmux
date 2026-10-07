@@ -11219,6 +11219,154 @@
     },
     {
       "accepts" : [
+        "confirm",
+        "text",
+        "open"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneConfirm",
+            "text" : "Ask First"
+          },
+          "value" : "confirm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneText",
+            "text" : "Show as Text"
+          },
+          "value" : "text"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneOpen",
+            "text" : "Open"
+          },
+          "value" : "open"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "confirm",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.outsideRoots.help",
+        "text" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.links.outsideRoots",
+      "keywords" : [
+        "agent",
+        "chat",
+        "link",
+        "path",
+        "file",
+        "outside",
+        "project"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "links",
+        "outsideRoots"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.outsideRoots",
+        "text" : "Files Outside the Project"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "click",
+        "never",
+        "always"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentPaneClick",
+            "text" : "Load on Click"
+          },
+          "value" : "click"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "click",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.remoteImages.help",
+        "text" : "A web image loads from its site, which then sees that you read the reply."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.images.remote",
+      "keywords" : [
+        "agent",
+        "chat",
+        "image",
+        "remote",
+        "web",
+        "privacy",
+        "tracking"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "images",
+        "remote"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.remoteImages",
+        "text" : "Web Images in Replies"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -11993,7 +12141,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ab525d7049c62d35e3ecb86ea9cbe18ef8f12b8bfa096ea09a164c1e0c1c6a79",
+  "schema_hash" : "da58b3318b258175e0b5e9ea0225d18643b00a39f5d73e4a8ad6c40dc830722c",
   "sections" : [
     {
       "id" : "general",

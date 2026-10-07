@@ -1,6 +1,28 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
   "properties" : {
+    "agentPane.images.remote" : {
+      "default" : "click",
+      "description" : "A web image loads from its site, which then sees that you read the reply.",
+      "enum" : [
+        "click",
+        "never",
+        "always"
+      ],
+      "title" : "Web Images in Replies",
+      "type" : "string"
+    },
+    "agentPane.links.outsideRoots" : {
+      "default" : "confirm",
+      "description" : "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
+      "enum" : [
+        "confirm",
+        "text",
+        "open"
+      ],
+      "title" : "Files Outside the Project",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {

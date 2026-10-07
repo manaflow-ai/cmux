@@ -155,6 +155,9 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // A reply's file link outside the project, and a reply's web image (D4, D5).
+        "agentPane.links.outsideRoots": .privacy,
+        "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
