@@ -124,6 +124,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// Local only: my Undo Send was refused, so others may still see the
+    /// original ("You unsent a message. (!) Not Unsent").
+    public var unsendFailed: Bool
 
     public init(
         id: String,
@@ -139,7 +142,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         unsentAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        unsendFailed: Bool = false
     ) {
         self.id = id
         self.seq = seq
@@ -155,6 +159,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.unsendFailed = unsendFailed
     }
 
     /// Identity that survives the pending to acknowledged transition, so the

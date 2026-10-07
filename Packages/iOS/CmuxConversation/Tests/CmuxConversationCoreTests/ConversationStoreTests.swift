@@ -551,17 +551,34 @@ extension ConversationStoreWindowTests {
         #expect(store.message(id: "m7")?.text.isEmpty == true)
     }
 
-    @Test func refusedUndoSendRestoresTheMessage() async throws {
+    @Test func refusedUndoSendKeepsTheNoticeMarkedNotUnsentAndCanBeRetried() async throws {
         let backend = ScriptedBackend(total: 6)
         let store = try await loadedStore(backend)
         var mine = backend.makeMessage(seq: 7, sender: "me")
         mine.sentAt = Date()
         store.apply(.message(mine, eventSeq: 1))
+        #expect(store.lastSentByMe?.id == "m7")
         backend.failNextUnsend = true
         store.unsend(messageID: "m7")
         #expect(store.message(id: "m7")?.isUnsent == true)
-        try await waitUntil { store.message(id: "m7")?.isUnsent == false }
-        #expect(store.message(id: "m7")?.text == "message 7")
+        #expect(store.lastSentByMe?.id != "m7")
+        // Messages keeps "You unsent a message" and appends "(!) Not Unsent".
+        try await waitUntil { store.message(id: "m7")?.unsendFailed == true }
+        let failed = try #require(store.message(id: "m7"))
+        #expect(failed.isUnsent && failed.text.isEmpty)
+        // The server's copy (still the original) must not bring the text back.
+        store.apply(.message(mine, eventSeq: 2))
+        #expect(store.message(id: "m7")?.unsendFailed == true)
+        #expect(store.message(id: "m7")?.text.isEmpty == true)
+        #expect(store.canRetryUnsend(failed))
+        #expect(!store.canRetryUnsend(failed, now: mine.sentAt.addingTimeInterval(ConversationStore.undoSendWindow + 1)))
+
+        store.retryUnsend(messageID: "m7")
+        #expect(store.message(id: "m7")?.unsendFailed == false)
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(store.message(id: "m7")?.unsendFailed == false)
+        #expect(store.message(id: "m7")?.isUnsent == true)
+        #expect(!store.canRetryUnsend(try #require(store.message(id: "m7"))))
     }
 
     @Test func deletingSelectedMessagesRemovesThemForGood() async throws {
