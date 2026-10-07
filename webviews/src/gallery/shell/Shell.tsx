@@ -16,6 +16,7 @@ import { themeTokens } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
+import { GalleryVariantPick } from "./GalleryVariantPick";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 
 const VIEW_LABELS: Record<View, string> = {
@@ -273,6 +274,11 @@ function shellColors(search: ShellSearch): Record<string, string> {
   if (!theme) return {};
   const tokens = themeTokens(theme);
   return {
+    "--cmux-text": css(tokens.textPrimary),
+    "--cmux-text-secondary": css(tokens.textSecondary),
+    "--cmux-background": css(tokens.chromeBackground),
+    "--cmux-separator": css(tokens.separator),
+    "--cmux-hover": css(tokens.hoverFill),
     "--g-bg": css({ ...tokens.windowBackground, alpha: 1 }),
     "--g-panel": css(tokens.chromeBackground),
     "--g-text": css(tokens.textPrimary),
@@ -374,17 +380,27 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </details>
       </header>
       <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
-        {stages.map((stage) => (
-          <Stage
-            key={stage.key}
+        {entry.pick && search.view === "variants" ? (
+          <GalleryVariantPick
             entry={entry}
-            state={stage.variant}
-            env={stage.env}
-            label={stage.label}
-            available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
-            thumbnail={search.view !== "variant"}
+            locale={env.locale}
+            preview={(name) => (
+              <Stage entry={entry} state={name} env={env} available={{ width: 420, height: room.height }} thumbnail />
+            )}
           />
-        ))}
+        ) : (
+          stages.map((stage) => (
+            <Stage
+              key={stage.key}
+              entry={entry}
+              state={stage.variant}
+              env={stage.env}
+              label={stage.label}
+              available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
+              thumbnail={search.view !== "variant"}
+            />
+          ))
+        )}
       </div>
     </>
   );

@@ -141,6 +141,26 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountMarkdownPage(entry.variants[variantName]!, context);
     case "diff-page":
       return (await import("./pages")).mountDiffPage(entry.variants[variantName]!, context);
+    case "apps-page":
+      return (await import("./pages")).mountAppsPage(entry.variants[variantName]!, context);
+    case "cloud-page":
+      return (await import("./pages")).mountCloudPage(entry.variants[variantName]!, context);
+    case "coderouter-page":
+      return (await import("./pages")).mountCodeRouterPage(entry.variants[variantName]!, context);
+    case "changelog-page":
+      return (await import("./pages")).mountChangelogPage(entry.variants[variantName]!, context);
+    case "icon-picker-page":
+      return (await import("./pages")).mountIconPickerPage(entry.variants[variantName]!, context);
+    case "editor-page":
+      return (await import("./pages")).mountEditorPage(entry.variants[variantName]!, context);
+    case "history-page":
+      return (await import("./pages")).mountHistoryPage(entry.variants[variantName]!, context);
+    case "keybindings-page":
+      return (await import("./pages")).mountKeybindingsPage(entry.variants[variantName]!, context);
+    case "settings-page":
+      return (await import("./pages")).mountSettingsPage(entry.variants[variantName]!, context);
+    case "passwords-page":
+      return (await import("./pages")).mountPasswordsPage(entry.variants[variantName]!, context);
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":
