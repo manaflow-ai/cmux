@@ -77,6 +77,15 @@ const CHIP_PREVIEW_MIX = [
   "The local preview card is at http://localhost:5173/preview.html?tab=gallery.",
 ].join("\n");
 
+const TASKS_REPLY = [
+  "- [x] Checked task",
+  "- [ ] Unchecked task",
+  "- [x] Nested checklist",
+  "  - [ ] Nested unchecked item",
+  "  - [x] Nested checked item",
+  "- [ ] This long task title wraps across several lines in a narrow agent pane so the checkbox stays aligned with the first line.",
+].join("\n");
+
 const CHIP_HOST = {
   paths: {
     "/Users/you/src/atlas-web/src/net/retry.ts": { place: "root" as const, folder: false },
@@ -137,6 +146,10 @@ export default agentPaneEntry({
         assistant(MARKDOWN_MIX, 29),
         summary(29, { status: "completed", durationMs: 41_000 }),
       ]),
+    },
+    tasks: {
+      note: "Checked, unchecked, nested and wrapping task-list items.",
+      snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
       note: "A turn that started and has no output yet.",

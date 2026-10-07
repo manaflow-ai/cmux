@@ -16,6 +16,18 @@ import type { TenantLimits } from "./limits/service.ts";
 import type { TenantPolicy } from "./policy.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
+import { snapshotsHandlers } from "./handlers/snapshots.ts";
+import { terminalsHandlers } from "./handlers/terminals.ts";
+import { apiKeysHandlers } from "./handlers/api-keys.ts";
+import type { TeamAdmin } from "./auth/team-admin.ts";
+import type { ApiKeyAdminStore } from "./db/api-keys.ts";
+import type { SnapshotStore } from "./db/snapshots.ts";
+import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
+import type { UpstreamTerminals } from "./upstream/terminals.ts";
+import { meshHandlers } from "./handlers/mesh.ts";
+import type { MeshStore } from "./db/mesh.ts";
+import type { MeshConfig } from "./mesh/config.ts";
+import type { UpstreamMesh } from "./upstream/mesh.ts";
 
 export type Services =
   | OwnershipStore
@@ -26,7 +38,15 @@ export type Services =
   | TeamMembership
   | TenantLimits
   | TenantPolicy
-  | Entitlements;
+  | Entitlements
+  | S3aServices
+  | MeshServices;
+
+/** Mesh experiment (cx-0op). */
+type MeshServices = MeshStore | UpstreamMesh | MeshConfig;
+
+/** Snapshots and terminals (slice S3a). */
+type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin;
 
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
@@ -65,6 +85,10 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(vmsHandlers)),
     Layer.provide(authenticated(execHandlers)),
     Layer.provide(authenticated(filesHandlers)),
+    Layer.provide(authenticated(snapshotsHandlers)),
+    Layer.provide(authenticated(terminalsHandlers)),
+    Layer.provide(authenticated(apiKeysHandlers)),
+    Layer.provide(authenticated(meshHandlers)),
     Layer.provide(services),
   );
   const perRequest = options.perRequest;
