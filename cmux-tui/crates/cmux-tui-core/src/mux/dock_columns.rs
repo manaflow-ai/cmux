@@ -361,7 +361,7 @@ pub(crate) fn ensure_permanent_columns_kept(
     if !lost {
         return Ok(());
     }
-    Err(crate::resource::ResourceError::operation_failed(
+    Err(ResourceError::operation_failed(
         operation,
         format!("{PERMANENT_COLUMN_CODE}: {}", ColumnDockError::PermanentColumn),
         serde_json::json!({"reason_code": PERMANENT_COLUMN_CODE}),
