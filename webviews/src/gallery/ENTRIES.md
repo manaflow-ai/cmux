@@ -18,6 +18,10 @@ gallery shows an error card for it alone and every other entry keeps working.
   one component, the path alone for every export of a file, and `page:<PageDescriptor id>` for a page.
 - `variants`: named states, lower kebab case. Each variant is plain data of the real structures. A
   variant is never a copy of the component.
+- `experimental: true`: surfaces behind a flag or not shipped yet appear in the Experimental
+  section at the bottom of the sidebar and carry an Experimental badge in their header. Set this
+  on thread minimap, thread widget and code widget entries when those surfaces are registered;
+  keep each entry's normal `area` so it returns there when the surface ships.
 - Optional: `height` (the component-mode stage height), `widths` (pane widths for component mode),
   and a variant's `note` (one line in the stage header).
 
