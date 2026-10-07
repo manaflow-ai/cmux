@@ -67,7 +67,7 @@ public final class GhosttyRuntime {
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
-        Self.configureProcessEnvironment()
+        Self.prepareProcessEnvironment()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
@@ -307,10 +307,13 @@ public final class GhosttyRuntime {
     /// resources bundled in this app, then an inherited value, then
     /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
     /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    private static func configureProcessEnvironment() {
-        if let resources = resourcesDirectory() {
-            setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
-        }
+    /// The app calls it in `main` before any thread starts; the call before
+    /// `ghostty_init` then writes nothing. libghostty keeps a slice of
+    /// `environ` from `ghostty_init`, so no write may follow it.
+    public nonisolated static func prepareProcessEnvironment() {
+        guard let resources = resourcesDirectory() else { return }
+        if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
+        setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
     }
 
     /// The Ghostty resources directory (themes, shell integration; terminfo
