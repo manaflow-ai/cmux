@@ -1,6 +1,6 @@
 // Gallery-only host answers for the real reply chips, images and preview-card menu.
 import type { ChipHostFixture } from "../format";
-import { resetLinkStore } from "../../agent-session/acpmux/chips/linkStore";
+import { resetLinkStore, seedLinkStore } from "../../agent-session/acpmux/chips/linkStore";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 
 /** Install one public-safe fixture for the agent pane's host-backed reply affordances. */
@@ -30,4 +30,5 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
     if (method === "browser.list") return { browsers: fixture.browsers ?? [] };
     return null;
   });
+  seedLinkStore({ paths: fixture.paths, sites: fixture.sites, policy: fixture.policy });
 }
