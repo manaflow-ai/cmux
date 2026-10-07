@@ -38,6 +38,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public private(set) var preferredHeight: CGFloat = Metrics.sidebarRowHeight
     private let search = NSSearchField()
     private let grouping = NSPopUpButton()
+    /// The project filter (`SidebarChatsView+ProjectFilter`) and the project it shows, nil for all.
+    let filterButton = SidebarIconButton(symbol: "line.3.horizontal.decrease", label: SidebarChatsView.filterTitle)
+    var selectedProject: String?
     private let table = NSTableView()
     private let scroll = NSScrollView()
     private var items: [Item] = []
@@ -70,7 +73,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         search.action = #selector(searchChanged)
         onSearchChanged = { [weak self] in
             guard let self else { return }
-            self.update(self.rows, enabled: self.lastEnabled, ready: self.lastReady)
+            self.refilter()
         }
         search.setAccessibilityLabel(Self.searchPlaceholder)
         grouping.controlSize = .small
@@ -96,7 +99,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        filterButton.onPress = { [weak self] in self?.showProjectMenu() }
         addSubview(search)
+        addSubview(filterButton)
         addSubview(grouping)
         addSubview(scroll)
         update([], enabled: true, ready: true)
@@ -107,13 +112,14 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         self.rows = rows
         lastEnabled = enabled
         lastReady = ready
+        let filtered = applyProjectFilter(rows)
         if !enabled {
             items = [.message(Self.offMessage)]
         } else if !ready {
             items = []
         } else {
             let query = search.stringValue
-            let visible = rows.filter { row in
+            let visible = filtered.filter { row in
                 query.isEmpty || [row.title, row.harness, row.id].contains { $0.localizedStandardRange(of: query) != nil }
             }
             if visible.isEmpty { items = [.message(Self.emptyMessage)] }
@@ -130,6 +136,14 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let shown = min(max(items.count, 1), Self.maxVisibleRows)
         preferredHeight = Metrics.sidebarRowHeight * CGFloat(1 + shown)
         needsLayout = true
+    }
+
+    /// Applies the search, grouping or project filter again to the same rows.
+    func refilter() { update(rows, enabled: lastEnabled, ready: lastReady) }
+
+    /// The chats the list shows, in order.
+    var shownChatIDs: [String] {
+        items.compactMap { if case .chat(let row) = $0 { row.id } else { nil } }
     }
 
     /// The most chat rows the section shows before it scrolls inside, so the
@@ -183,7 +197,10 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let controlHeight: CGFloat = 20
         let y = (top - controlHeight) / 2
         let groupWidth: CGFloat = 76
-        search.frame = NSRect(x: Metrics.space3, y: y, width: max(0, bounds.width - Metrics.space3 - groupWidth - Metrics.space2), height: controlHeight)
+        let filterWidth = filterButton.isHidden ? 0 : controlHeight + Metrics.space1
+        let searchWidth = max(0, bounds.width - Metrics.space3 - groupWidth - Metrics.space2 - filterWidth)
+        search.frame = NSRect(x: Metrics.space3, y: y, width: searchWidth, height: controlHeight)
+        filterButton.frame = NSRect(x: search.frame.maxX + Metrics.space1, y: y, width: controlHeight, height: controlHeight)
         grouping.frame = NSRect(x: max(0, bounds.width - groupWidth - Metrics.space1), y: y, width: groupWidth, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
     }

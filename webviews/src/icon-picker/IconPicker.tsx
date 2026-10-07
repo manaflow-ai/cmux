@@ -29,7 +29,16 @@ export interface IconPickerProps {
   error?: string;
 }
 
-export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, symbolImageURL, error }: IconPickerProps) {
+export function IconPicker({
+  store,
+  strings,
+  onPick,
+  onCancel,
+  onClear,
+  assets,
+  symbolImageURL,
+  error,
+}: IconPickerProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [viewport] = useState(() => {
     const view = new GridViewport(CELL_SIZE);
