@@ -75,6 +75,7 @@ enum SidebarFooterControl: CaseIterable, Equatable {
     case account
     case mobileConnect
     case help
+    case sessionHistory
     case shortcutDiscovery
     case upgrade
     case extensions
@@ -312,6 +313,55 @@ struct SidebarMobileConnectButton: View {
             .accessibilityLabel(title)
             .accessibilityIdentifier("SidebarMobileConnectButton")
         }
+    }
+}
+
+/// Clock button that opens Vault's recency-first session list in the right
+/// sidebar, so a closed agent session is one click away. Clicking it while
+/// Vault is already showing hides the right sidebar again.
+struct SidebarSessionHistoryButton: View {
+    @ObservedObject var fileExplorerState: FileExplorerState
+    @State private var anchorView: NSView?
+
+    private let title = String(localized: "sidebar.sessionHistory.button", defaultValue: "Session History")
+
+    private var isShowingVault: Bool {
+        fileExplorerState.isVisible && fileExplorerState.mode == .sessions
+    }
+
+    var body: some View {
+        Button {
+            let window = anchorView?.window
+            if isShowingVault {
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: window)
+            } else {
+                _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                    mode: .sessions,
+                    focusFirstItem: false,
+                    preferredWindow: window
+                )
+            }
+        } label: {
+            CmuxSystemSymbolImage(
+                systemName: "clock",
+                pointSize: SidebarFooterButtonMetrics.mobileIconSize,
+                weight: .medium,
+                tint: isShowingVault ? .primary : .secondary
+            )
+            .frame(
+                width: SidebarFooterButtonMetrics.buttonSize,
+                height: SidebarFooterButtonMetrics.buttonSize
+            )
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(
+            width: SidebarFooterButtonMetrics.buttonSize,
+            height: SidebarFooterButtonMetrics.buttonSize
+        )
+        .safeHelp(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarSessionHistoryButton")
+        .background(TitlebarControlAnchorView { anchorView = $0 })
     }
 }
 
