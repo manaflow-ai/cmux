@@ -219,6 +219,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         (self.rust / "at_budget.rs").write_text("// x\n" * 1000)
         self.git("init", "-q", "-b", "base")
         self.commit("base")
+        self.git("tag", "fixture-base")
 
     def git(self, *args: str) -> None:
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
@@ -244,7 +245,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         (self.rust / "small.rs").write_text("fn f() {}\n")
         (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
         self.commit("unrelated")
-        for result in self.both("--base", "base"):
+        for result in self.both("--base", "fixture-base"):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("over budget on the base", result.stdout)
 
@@ -261,7 +262,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         (self.rust / "long.rs").write_text("// x\n" * 1002)
         (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 402)
         self.commit("grow")
-        swift, rust = self.both("--base", "base")
+        swift, rust = self.both("--base", "fixture-base")
         self.assertEqual(rust.returncode, 1, rust.stdout)
         self.assertIn("long.rs has 1002 lines", rust.stdout)
         self.assertEqual(swift.returncode, 1, swift.stdout)
@@ -270,15 +271,15 @@ class GodfilePullRequestScope(unittest.TestCase):
     def test_growing_an_over_budget_type_in_another_file_fails(self):
         (self.package / "Sources/Fixture/HugeMore.swift").write_text("extension Huge {\n    func more() {}\n}\n")
         self.commit("grow the type")
-        swift, _ = self.both("--base", "base")
+        swift, _ = self.both("--base", "fixture-base")
         self.assertEqual(swift.returncode, 1, swift.stdout)
-        self.assertIn("type Fixture/Huge spans 1004 lines", swift.stdout)
+        self.assertIn("type Fixture/Huge spans 1002 lines", swift.stdout)
 
     def test_pushing_a_file_past_its_budget_or_adding_one_fails(self):
         (self.rust / "at_budget.rs").write_text("// x\n" * 1001)
         (self.rust / "new.rs").write_text("fn f() {}\n" * 61)
         self.commit("past budget")
-        _, rust = self.both("--base", "base")
+        _, rust = self.both("--base", "fixture-base")
         self.assertEqual(rust.returncode, 1, rust.stdout)
         self.assertIn("at_budget.rs has 1001 lines", rust.stdout)
         self.assertIn("new.rs has 61 lines, 61 fns", rust.stdout)
@@ -288,7 +289,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         (self.rust / "long.rs").write_text("// x\n" * 1000)
         (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 300)
         self.commit("shrink")
-        for result in self.both("--base", "base"):
+        for result in self.both("--base", "fixture-base"):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_an_unknown_base_runs_the_full_check(self):
