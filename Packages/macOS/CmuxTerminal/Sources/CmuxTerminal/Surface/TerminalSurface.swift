@@ -251,8 +251,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
-    /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
-    /// remain denied by the runtime policy regardless of this flag.
+    /// Provider-granted permission for remote clipboard writer shims. Clipboard
+    /// reads remain denied by the runtime policy regardless of this flag.
     private let remoteClipboardWritePermission: TerminalRemoteClipboardWritePermission
 
     public var allowsRemoteClipboardWrites: Bool {
