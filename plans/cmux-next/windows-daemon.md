@@ -1,6 +1,6 @@
 # Windows daemon mode for the GPUI app (bead cx-stg)
 
-Status: design, no code yet. Owner: GPUI lane. Base: feat-cmux-next
+Status: design reviewed (GO with changes, 2026-10-07); experiments done; no code yet. Owner: GPUI lane. Base: feat-cmux-next
 e98b689d646 (2026-10-07). Order (coordinator): this note, then the SDK
 transport, then the daemon's Windows process data, then the Windows tree
 artifact (with hq-ed). CORE/bindings pushes go through the CORE queue;
@@ -36,7 +36,16 @@ folder come from the daemon. Today GPUI builds `daemon_off.rs` on Windows
   the tree publication forbids the Windows binaries today
   (`cmux-tui-artifacts.yml --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe`).
 
-## 1. SDK and daemon client: one transport
+## 1. One local-socket transport: crate `cmux-local-socket`
+
+Decision (coordinator, 2026-10-07): a shared crate, used by the daemon
+(cmux-tui-core) and cmux-sdk, so the same-user checks exist once (two
+copies would drift: a security bug). Its version moves in lockstep with
+cmux-sdk and it is published by the same release workflow and trusted
+publisher (no new token or account). If crates.io trusted publishing needs
+a web-UI step for the new name, that is reported to the coordinator and
+cmux-sdk keeps a path dependency until then. The new crate and Cargo.lock
+need CORE + LOCK.
 
 Unix-only code in the clients (feat-cmux-next e98b689d646):
 
@@ -49,51 +58,89 @@ Unix-only code in the clients (feat-cmux-next e98b689d646):
 | `bindings/rust/src/socket_hash.rs`, `resource/client.rs` | `UnixListener` in tests |
 | `bindings/rust-daemon-client/src/launcher.rs` | `kill` (SIGKILL), `user_temp_dir` (macOS confstr), `is_executable` (mode bits) |
 
-Design:
+Crate API (Unix and Windows behind cfg):
 
-- One `LocalStream` trait in cmux-sdk (`bindings/rust/src/transport.rs`):
-  Read + Write + Send + Sync, `try_clone`, `set_read_timeout`,
-  `set_write_timeout`, `shutdown`, `set_nonblocking`. The client, codec,
-  byte attachment and resource streams hold `transport::Stream` (a concrete
-  enum or `Box<dyn LocalStream>`; an enum keeps the hot write path free of
-  dynamic dispatch). Unix: `std::os::unix::net::UnixStream`, the existing
-  connect code moved behind `transport::connect` unchanged. Windows:
-  `uds_windows::UnixStream` (the crate the daemon already uses; std has no
-  stable AF_UNIX on Windows). No second client: everything above the
-  transport is the same code on every platform.
-- Connect with deadline and poll checks on Windows: `uds_windows` connect
-  blocks. Implement the same contract (`connect_with_poll_checks`: deadline,
-  poll interval, the caller's check between polls) with a non-blocking
-  socket (`set_nonblocking`, `connect` returning `WSAEWOULDBLOCK`, then
-  `WSAPoll` on the raw socket); fall back to a connect thread with a
-  deadline only if `WSAPoll` cannot see AF_UNIX completion (verify first).
-  Close-on-exec: the socket must not be inherited by processes the client
-  starts. Check whether `uds_windows` creates it with
-  `WSA_FLAG_NO_HANDLE_INHERIT` (not verified yet); else clear
-  `HANDLE_FLAG_INHERIT` after creation. A test asserts it.
-- Same-user check: Windows AF_UNIX gives no peer credentials. The socket
-  lives in the user's `%TEMP%`, whose ACL admits only that user, SYSTEM and
-  Administrators; the client additionally checks the socket file's owner
-  SID equals its own token user before the first write (GetNamedSecurityInfoW
-  on the socket path; not verified yet on AF_UNIX socket files, which are
-  reparse points), as the Unix client refuses a listener of another user. Same check on the daemon side is out of scope (unchanged).
-- Shared code with the daemon: the daemon's `platform/transport.rs` and the
-  SDK's `transport.rs` implement the same trait shape. Decision for the
-  coordinator: move both into one small crate (`cmux-local-socket`) that the
-  daemon and cmux-sdk depend on (one source of truth; cmux-sdk is published,
-  so that crate must be published too), or keep the trait in cmux-sdk only
-  and leave the daemon's copy (no new published crate; two copies of about
-  60 lines).
-- Launcher (`rust-daemon-client`): `kill` -> `TerminateProcess` on a handle
-  from the spawned `Child`; `user_temp_dir` -> `std::env::temp_dir()` (what
-  the daemon uses), and the `TMPDIR` pinning is skipped; `is_executable` ->
-  `is_file()` plus `.exe` lookup in `resolve_binary`. Socket path from
-  `server ensure`'s JSON as today.
-- Tests: the SDK's unit tests that use `UnixStream::pair()` get a
-  `transport::pair()` (Windows: a listener on a temp path, accept + connect).
-  Conformance and the socket tests run in a new `test-windows` job in
-  `cmux-tui-sdks.yml` (hosted Windows runner, `x86_64-pc-windows-gnu`, like
-  `cmux-tui.yml`), against a daemon built in the same job.
+- `Stream`: Read + Write + Send + Sync, `try_clone`, `set_read_timeout`,
+  `set_write_timeout`, `shutdown`, `set_nonblocking`, `peer_pid`. Unix:
+  `std::os::unix::net::UnixStream`; Windows: `uds_windows::UnixStream` (std
+  has no stable AF_UNIX on Windows). One concrete type per platform (no
+  dynamic dispatch on the write path).
+- `connect(path, deadline, poll_interval, check)`: the client contract that
+  `codec.rs connect_unix_with_poll_checks` has today (the Unix code moves
+  here unchanged). Windows: non-blocking connect (`WSAEWOULDBLOCK`) and
+  `WSAPoll`; a connect thread with a deadline only if `WSAPoll` does not
+  report AF_UNIX completion (to verify in the first red test).
+- `connect_same_user(path, ...)`: before connecting, the socket file's
+  owner SID must equal the caller's token user (Windows); Unix keeps its
+  current listener check. Refusal is an error, never a fallback.
+- `listen(path)`: creates the socket directory with an owner-only DACL
+  (protected, no inheritance: the token user full control; nothing else)
+  and the token user as owner, refuses an existing directory whose DACL or
+  owner is wider, binds, then sets the socket file's owner to the token
+  user (see experiment 2).
+- `Listener::accept()` checks the peer: Windows `WSAIoctl
+  SIO_AF_UNIX_GETPEERPID`, then `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`
+  and the process token's `TokenUser` SID must equal ours; otherwise the
+  connection is closed and refused (the rule Unix applies with
+  `getpeereid`/`SO_PEERCRED`, `peer_may_connect`: owner, or root/SYSTEM is not
+  admitted on Windows unless the coordinator decides so).
+- Sockets are not inherited by child processes (experiment 1).
+
+Users of the crate:
+
+- cmux-sdk: `codec.rs`, `client.rs`, the byte attachment and the resource
+  streams hold `cmux_local_socket::Stream`; nothing above the transport
+  changes (no second client). The `UnixStream::pair()` tests use
+  `cmux_local_socket::pair()`.
+- cmux-tui-core: `platform/transport.rs` becomes a thin wrapper of the crate
+  (its `Stream` trait object stays for the server's existing users).
+- cmux-daemon-client launcher: `kill` -> `TerminateProcess`; `user_temp_dir`
+  -> `std::env::temp_dir()` (the daemon's base) and no `TMPDIR` pinning;
+  `is_executable` -> `is_file()` and `.exe` in `resolve_binary`.
+
+Experiments (Windows VM `cmux2-gpui-windows`, Server 2022, admin SSH, a
+console program, no windows; 2026-10-07; source: manaflow-ai/cmux-gpui branch
+windows-daemon-design, `scripts/windows/uds-experiment/`):
+
+1. Inheritance: listener, connected and accepted `uds_windows` sockets have
+   `HANDLE_FLAG_INHERIT` clear; a child started with handle inheritance
+   (`std::process::Command`) gets `WSAENOTSOCK` (10038) for each. So
+   `uds_windows` sockets are not inherited; a crate test keeps it so.
+2. Socket file owner: `GetNamedSecurityInfoW(SE_FILE_OBJECT, OWNER)` reads
+   the owner of an AF_UNIX socket file (std sees it as a plain file). For an
+   elevated process (High integrity) the owner is BUILTIN\Administrators
+   (`S-1-5-32-544`, the token's default owner `TokenOwner`), not the token
+   user, so "owner == token user" would refuse an elevated daemon's socket.
+   `SetNamedSecurityInfoW(OWNER = token user)` on the socket file works
+   (returns 0, the owner reads back as the user), and connects still work
+   after it. Hence `listen` sets the owner of the directory and the socket
+   file to the token user explicitly, and the client compares with its own
+   token user. Not measured yet: a non-elevated (Medium) process, whose
+   default owner is normally the user itself (to check in the gpuitest
+   session).
+3. Peer pid: `WSAIoctl(SIO_AF_UNIX_GETPEERPID)` (0x58000100) works on
+   `uds_windows` sockets, on the accepted and the connecting side, and
+   returns the peer's process id.
+
+Tests (crate, hosted `test-windows` in `cmux-tui-sdks.yml` and
+`cmux-tui.yml`; red first):
+
+- Not inherited (experiment 1 as a test); peer pid; deadline and poll checks.
+- The peer SID check as a pure function (`peer_allowed(peer_sid, our_sid)`)
+  with fake SIDs: other user refused, same user admitted, SYSTEM and
+  Administrators refused.
+- A directory with a wider ACL (Everyone read, or an inherited ACE) and a
+  directory owned by another SID: `listen` refuses both; a socket file whose
+  owner is not the token user: `connect_same_user` refuses.
+- A real peer of another user: no second account (coordinator: creating one
+  is a host-access change). Options, in order: the pure-function test above
+  (always); on the hosted Windows runner (an ephemeral admin VM) a peer
+  started as LocalService or SYSTEM through a short-lived scheduled task or
+  service, which are other SIDs without a new account; a restricted or
+  low-integrity token does not change the user SID, so it cannot stand in
+  for another user. If the coordinator wants it on the Windows VM too, a
+  SYSTEM scheduled task is the same method there (a decision: it is not an
+  account, but it runs code as SYSTEM).
 
 ## 2. Daemon: Windows process tree, usage, foreground and cwd
 
@@ -106,16 +153,17 @@ Windows (windows-sys, already a cmux-tui-core dependency):
 - Usage: `GetProcessTimes` (kernel + user, 100 ns units) and
   `K32GetProcessMemoryInfo` (`PrivateWorkingSetSize`, else `PrivateUsage`),
   with `PROCESS_QUERY_LIMITED_INFORMATION`.
-- Foreground: ConPTY has no foreground process group. Rule: the newest live
-  descendant of the terminal's shell by creation time, skipping
-  `conhost.exe` / `OpenConsole.exe`; the shell itself when it has none.
+- Foreground: ConPTY has no foreground process group. Heuristic (coordinator
+  decision, documented as one): the newest live descendant of the
+  terminal's shell by creation time, skipping `conhost.exe` /
+  `OpenConsole.exe`; the shell itself when it has none.
   (cmux-next's macOS/Linux use `tcgetpgrp`; the GPUI Ghostty fork reports
   the shell's pid on Windows.) Name: `QueryFullProcessImageNameW`.
 - Cwd: the process's PEB: `NtQueryInformationProcess(ProcessBasicInformation)`,
   then `ReadProcessMemory` of `ProcessParameters` (PEB + 0x20) and
   `CurrentDirectory.DosPath` (+0x38 length, +0x40 buffer; 64-bit layout).
-  WOW64 (32-bit) processes: `ProcessWow64Information` and the 32-bit layout
-  (PEB32 + 0x10, +0x24 / +0x28), or report no cwd (first version: no cwd).
+  WOW64 (32-bit) processes: no cwd in v1 (coordinator decision); detected
+  with `IsWow64Process2` and reported as unknown, documented.
 - Access rule (coordinator): read another process's PEB only for processes
   the daemon started, same user, same session; refuse all others. Checks, on
   one handle opened once (no pid reuse between check and read):
@@ -141,6 +189,9 @@ Windows (windows-sys, already a cmux-tui-core dependency):
   id). Each refusal returns no cwd and no usage.
 
 ## 3. Windows tree artifact (with hq-ed)
+
+Windows binaries publish only when signed, or when the coordinator decides
+unsigned is OK: raised with the coordinator before any publish.
 
 - Publish `cmux-tui-x86_64-pc-windows-gnu.exe` (+ `cmux-app-host` if built)
   and `.sha256` in every new tree, the same publish path as Linux; remove the
@@ -188,11 +239,19 @@ Windows (windows-sys, already a cmux-tui-core dependency):
   3. A window capture by HWND (PrintWindow) of a daemon terminal.
 - Gates: `scripts/check.sh --target windows`, GPUI unit tests on the VM.
 
-## Decisions for the coordinator
+## Decisions
 
-1. One shared transport crate for daemon and SDK (`cmux-local-socket`,
-   published), or the trait in cmux-sdk only with the daemon's copy kept.
-2. WOW64 cwd: implement the 32-bit PEB layout now, or no cwd for 32-bit
-   processes in the first version.
-3. Windows foreground rule: newest live descendant of the shell (this note),
-   or the shell only (what the GPUI Ghostty fork reports).
+Taken (coordinator, 2026-10-07): shared crate `cmux-local-socket`; no cwd
+for 32-bit processes in v1; foreground = newest live descendant (a
+heuristic); Job Object per terminal with `IsProcessInJob` on one handle;
+`test-windows` jobs; no new Windows account.
+
+Open:
+
+1. A real other-user peer test: on the hosted Windows runner only (a
+   LocalService/SYSTEM peer through a scheduled task), or also on the
+   Windows VM (the same method, code running as SYSTEM there).
+2. Elevated clients: admit an Administrators-owned socket for an elevated
+   client, or always require the token user as owner (this note: always the
+   token user; `listen` sets it).
+3. Signed or unsigned Windows binaries for the tree publication.
