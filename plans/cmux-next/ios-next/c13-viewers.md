@@ -1,6 +1,6 @@
 # C13 `viewers`: changes, files and documents on the phone
 
-Status: lane C13 of [PLAN.md](PLAN.md), 2026-10-06, branch `feat-cmux-next-ios-c13-viewers` off
+Status: landed on branch (2026-10-07), lane C13 of [PLAN.md](PLAN.md), branch `feat-cmux-next-ios-c13-viewers` off
 `feat-cmux-next-ios` (C4 merged). Covers [a1-shell.md](a1-shell.md) 1.20 items 3 (changes/diff
 viewer), 4 (artifact and file viewer) and 7 (Markdown surfaces). Wire: [a0-rpc.md](a0-rpc.md). Host
 seams and policy: [b5-mac-host.md](b5-mac-host.md), [c4-files.md](c4-files.md) section 3. Entry:
@@ -68,7 +68,12 @@ Default deny, Mac side only, admitted devices only (B5), read only (no git op is
    `operation.failed` with `details.extra.code = not_a_repository` maps to `git.not_a_repo`; anything
    else to `git.failed` (retryable).
 
-`MobileGit(configuration:roots:reader:).registering(into:)` adds both read handlers next to C4's.
+`MobileGit(sharing: mobileFiles, reader:).registering(into:)` (or `MobileGit(files:roots:reader:)`) adds both
+read handlers next to C4's; the host offers cap `MobileGit.cap` (`git.read`) in its `caps`.
+
+Path limit: the replies ride the `rpc` channel, so they need a path whose link frame cap is 256 KiB
+(direct, WebRTC, WireGuard). The DO relay (16 KiB frames) carries control-sized frames only; a large
+file list or patch there fails like other stream families (`needsDirectConnection` in the UI).
 
 ## 4. Phone modules
 
@@ -90,10 +95,11 @@ Default deny, Mac side only, admitted devices only (B5), read only (no git op is
   - `ViewerFileKind.classify(name:mime:prefix:)` -> text, markdown, image, pdf, other (NUL in the
     first 8000 bytes is binary). `LineIndex` (line starts in UTF-16, line of an offset).
   - Seam `ViewerContentSource`: `roots(host)`, `list(host, path, after)`, `status(host, path)`,
-    `diff(host, request)`, `fetch(host, path) -> URL`. Real `LinkViewerContentSource` over C4's
-    `FileHostConnector` (`MobileLinkClient.read`) and `FileTransfer` downloads into
-    `Caches/cmux-viewers/<host>/<sha of path>/<name>`; `MockViewerContentSource` serves a canned
-    repository and files; `UnavailableViewerContentSource` until a carrier fills the connector.
+    `diff(host, params)`, `fetch(host, path, size) -> URL`. Real `LinkViewerContentSource` over C4's
+    `FileHostConnector` (the app passes D1's `LinkClientProvider`, the same per-Mac
+    `MobileLinkClient` terminals and files use) and `FileTransfer` downloads into
+    `Caches/cmux-viewers/<sha of host+path>/<name>`; `MockViewerContentSource` serves a canned
+    repository and files for mock workspaces; `UnavailableViewerContentSource` without an API origin.
   - Models (`@MainActor @Observable`): `ChangesModel` (status, scope, file list, tree, per-file
     patch cache with one in-flight read per file, cancellation on scope change), `FileBrowserModel`
     (one folder, paged by `next`).
@@ -133,7 +139,15 @@ Default deny, Mac side only, admitted devices only (B5), read only (no git op is
   lists, nested lists, tables, quotes), syntax tokens (strings, comments across lines, keywords),
   file kind classification, models over the mock source.
 
-## 6. Not in this lane
+## 6. Verification (2026-10-07)
+
+`swift test` in CmuxMobileWire (21) and CmuxMobileHost (109, 8 new git cases) green; the 23
+CmuxiOSViewersCore tests green on macOS through a scratch package (the iOS package declares no macOS
+platform); TS `mobile-wire.test.ts` + `mobile-wire-git.test.ts` (46) and `tsc` green; `CmuxiOSApp`
+compiles for `arm64-apple-ios17.0-simulator` with SwiftPM. Not verified: UI on a simulator or device
+(no tagged build: no fleet manifest, disk), the Mac app adapter for `MobileGitReader`.
+
+## 7. Not in this lane
 
 A git change stream (needs a daemon event; until then Refresh), staging or committing from the phone,
 review comments, editing files, the in-app browser for HTML artifacts (C14), the agent chat artifact
