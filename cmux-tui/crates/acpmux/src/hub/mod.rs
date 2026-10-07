@@ -19,6 +19,7 @@ mod lifecycle;
 pub(crate) mod model_availability;
 mod paging;
 mod pool;
+mod queue;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
@@ -671,6 +672,7 @@ impl Hub {
                 | "turn_error"
                 | "queued"
                 | "dequeued"
+                | "queue_removed"
                 | "created"
                 | "tags"
                 | "rules"

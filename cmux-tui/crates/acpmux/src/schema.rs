@@ -26,6 +26,7 @@ mod tests {
             method::MUX_WATCH,
             method::MUX_RENAME,
             method::MUX_KILL,
+            method::MUX_QUEUE_REMOVE,
             method::MUX_INFO,
             method::MUX_EVENTS,
             method::MUX_PERMISSION_RESPOND,
