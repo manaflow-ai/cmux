@@ -71,7 +71,7 @@ describe("team header", () => {
 
     expect((await h.request(`/v1/vms/${own.vmId}`, asB)).status).toBe(200);
     expect((await h.request(`/v1/vms/${other.vmId}`, asB)).status).toBe(404);
-    expect(h.upstreamRequests.map((request) => new URL(request.url).pathname)).toEqual([`/v5/vms/${own.upstreamId}`]);
+    expect(h.upstreamRequests.map((call) => call.path)).toEqual([`/v5/vms/${own.upstreamId}`]);
   });
 
   it("must name a team the session user belongs to", async () => {

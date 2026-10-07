@@ -12,8 +12,8 @@ import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidReq
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
 const RetentionSeconds = Schema.Int.pipe(Schema.between(60, MAX_RETENTION_SECONDS));
 
-export const LabelKey = Schema.String.pipe(Schema.pattern(/^[a-z0-9][a-z0-9._\/-]{0,62}$/));
-export const LabelValue = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:\/-]{0,63}$/));
+export const LabelKey = Schema.String.pipe(Schema.pattern(/^[a-z0-9][a-z0-9._/-]{0,62}$/));
+export const LabelValue = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:/-]{0,63}$/));
 export const MAX_LABELS = 16;
 
 /** Caller-chosen key/value labels, at most 16. Keys: lowercase letters, digits, `._/-`; values: no `,` or `=`. */

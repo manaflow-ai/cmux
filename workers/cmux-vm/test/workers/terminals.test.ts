@@ -23,8 +23,12 @@ afterEach(async () => {
 
 type Frame = { readonly text: string } | { readonly bytes: ReadonlyArray<number> };
 
-const frameOf = (data: string | ArrayBuffer): Frame =>
-  typeof data === "string" ? { text: data } : { bytes: Array.from(new Uint8Array(data)) };
+const frameOf = (data: unknown): Frame =>
+  typeof data === "string"
+    ? { text: data }
+    : data instanceof ArrayBuffer
+      ? { bytes: Array.from(new Uint8Array(data)) }
+      : { text: `unexpected frame type ${Object.prototype.toString.call(data)}` };
 
 /** Resolves with every frame the socket received, in order, once it closes. */
 const collectUntilClose = (socket: WebSocket) =>
@@ -37,6 +41,7 @@ const collectUntilClose = (socket: WebSocket) =>
 const clientSocket = (response: Response): WebSocket => {
   const socket = response.webSocket;
   if (socket === null) throw new Error(`expected a WebSocket, got HTTP ${response.status}`);
+  socket.binaryType = "arraybuffer";
   socket.accept();
   return socket;
 };

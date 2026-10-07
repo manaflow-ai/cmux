@@ -104,6 +104,11 @@ export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): Web
   const pair = new WebSocketPair();
   const client = pair[0];
   const server = pair[1];
+  // Binary frames must arrive as ArrayBuffer: a Blob (the default binaryType)
+  // would be stringified by send() and could only be read back asynchronously,
+  // which would break frame order.
+  server.binaryType = "arraybuffer";
+  upstream.binaryType = "arraybuffer";
   server.accept();
   upstream.accept();
 
@@ -116,7 +121,7 @@ export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): Web
     if (typeof event.data === "string") {
       const frame = serverTextFrame(event.data, context);
       if (frame !== null) sendQuietly(server, frame, fail);
-    } else {
+    } else if (event.data instanceof ArrayBuffer) {
       sendQuietly(server, event.data, fail);
     }
   });
@@ -124,7 +129,7 @@ export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): Web
     if (typeof event.data === "string") {
       const frame = clientTextFrame(event.data);
       if (frame !== null) sendQuietly(upstream, frame, fail);
-    } else {
+    } else if (event.data instanceof ArrayBuffer) {
       sendQuietly(upstream, event.data, fail);
     }
   });

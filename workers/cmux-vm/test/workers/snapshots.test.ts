@@ -3,6 +3,7 @@
  * upstream client, with in-memory stores and a fake provider.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ALL_SCOPES, allScopesExcept, SNAPSHOT_ENDPOINTS } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -341,5 +342,43 @@ describe("read, list and delete", () => {
     expect((await h.request("/v1/snapshots", bearer(writer))).status).toBe(403);
     expect((await h.request(`/v1/snapshots/${snapshotId}`, bearer(family))).status).toBe(200);
     expect((await h.request(`/v1/snapshots/${snapshotId}`, bearer(family), { method: "DELETE" })).status).toBe(204);
+  });
+});
+
+describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
+  it("answers 404 to another tenant's key, even with every scope, and calls nothing upstream", async () => {
+    const { snapshotId, upstreamId } = h.s3a.addSnapshot(TENANT_A);
+    const keyB = await h.addKey(TENANT_B, ALL_SCOPES);
+
+    const response = await h.request(`/v1/snapshots/${snapshotId}`, bearer(keyB), { method: endpoint.method });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ _tag: "NotFound", message: "Snapshot not found" });
+    expect(h.upstreamRequests).toHaveLength(0);
+    expect(h.upstream.snapshots.has(upstreamId)).toBe(true);
+  });
+
+  it("answers 404 to a signed-in member of another team", async () => {
+    const { snapshotId } = h.s3a.addSnapshot(TENANT_A);
+    h.addMember(TENANT_B, "user_bob");
+    const token = await h.sessionToken("user_bob");
+
+    const response = await h.request(`/v1/snapshots/${snapshotId}`, { ...bearer(token), "x-cmux-team-id": TENANT_B }, { method: endpoint.method });
+
+    expect(response.status).toBe(404);
+    expect(h.upstreamRequests).toHaveLength(0);
+  });
+
+  it(`refuses a key without ${endpoint.scope} with 403 before looking at the snapshot`, async () => {
+    const { snapshotId } = h.s3a.addSnapshot(TENANT_A);
+    const key = await h.addKey(TENANT_A, allScopesExcept(endpoint.scope));
+
+    const own = await h.request(`/v1/snapshots/${snapshotId}`, bearer(key), { method: endpoint.method });
+    const missing = await h.request("/v1/snapshots/snap_00000000000000000000000000", bearer(key), { method: endpoint.method });
+
+    expect(own.status).toBe(403);
+    expect(await own.json()).toMatchObject({ missingScope: endpoint.scope });
+    expect(missing.status).toBe(403);
+    expect(h.upstreamRequests).toHaveLength(0);
   });
 });

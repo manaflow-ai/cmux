@@ -46,7 +46,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
           new Request(new URL(path, base), {
             method,
             headers,
-            body: body === undefined ? null : JSON.stringify(body),
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
             redirect: "manual",
             signal: AbortSignal.timeout(timeoutMs),
           }),

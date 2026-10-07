@@ -161,6 +161,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   const acceptTerminal = (url: URL): Response => {
     const pair = new WebSocketPair();
     const providerEnd = pair[1];
+    providerEnd.binaryType = "arraybuffer";
     providerEnd.accept();
     state.terminalScript?.(providerEnd, url);
     return new Response(null, { status: 101, webSocket: pair[0] });

@@ -54,12 +54,44 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/files/entries?path=%2Ftmp`,
     scope: "vm:files",
   },
+  // Snapshots and terminals (slice S3a).
+  {
+    name: "createSnapshot",
+    method: "POST",
+    template: "/v1/vms/{vmId}/snapshots",
+    path: (id) => `/v1/vms/${id}/snapshots`,
+    scope: "snapshot:write",
+    json: {},
+  },
+  { name: "openTerminal", method: "GET", template: "/v1/vms/{vmId}/terminal", path: (id) => `/v1/vms/${id}/terminal`, scope: "vm:terminal" },
+  { name: "listTerminals", method: "GET", template: "/v1/vms/{vmId}/terminals", path: (id) => `/v1/vms/${id}/terminals`, scope: "vm:terminal" },
+  {
+    name: "attachTerminal",
+    method: "GET",
+    template: "/v1/vms/{vmId}/terminals/{terminal}",
+    path: (id) => `/v1/vms/${id}/terminals/1`,
+    scope: "vm:terminal",
+  },
+  {
+    name: "closeTerminal",
+    method: "DELETE",
+    template: "/v1/vms/{vmId}/terminals/{terminal}",
+    path: (id) => `/v1/vms/${id}/terminals/1`,
+    scope: "vm:terminal",
+  },
 ];
+
+/** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
+export const SNAPSHOT_ENDPOINTS = [
+  { name: "getSnapshot", method: "GET", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:read" },
+  { name: "deleteSnapshot", method: "DELETE", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write" },
+] as const;
 
 /** Endpoints that act on the tenant rather than one VM. */
 export const TENANT_ENDPOINTS = [
   { name: "createVm", method: "POST", template: "/v1/vms", scope: "vm:write" },
   { name: "listVms", method: "GET", template: "/v1/vms", scope: "vm:read" },
+  { name: "listSnapshots", method: "GET", template: "/v1/snapshots", scope: "snapshot:read" },
 ] as const;
 
 export const ALL_SCOPES: ReadonlyArray<Scope> = [
@@ -69,12 +101,16 @@ export const ALL_SCOPES: ReadonlyArray<Scope> = [
   "vm:files",
   "vm:terminal",
   "snapshot:*",
+  "snapshot:read",
+  "snapshot:write",
   "domain:*",
   "deploy:*",
   "git:*",
   "admin",
 ];
 
-export const allScopesExcept = (scope: Scope): ReadonlyArray<Scope> => ALL_SCOPES.filter((candidate) => candidate !== scope);
+/** Every scope that does not grant `scope`: the scope itself and its family scope (`snapshot:*`) are left out. */
+export const allScopesExcept = (scope: Scope): ReadonlyArray<Scope> =>
+  ALL_SCOPES.filter((candidate) => candidate !== scope && !(candidate.endsWith(":*") && scope.startsWith(candidate.slice(0, -1))));
 
 export const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
