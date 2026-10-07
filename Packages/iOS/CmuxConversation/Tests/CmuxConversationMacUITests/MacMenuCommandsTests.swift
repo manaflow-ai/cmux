@@ -206,7 +206,7 @@ extension MacKeyboardSelectionTests {
         sidebar.perform(.toggleUnread, on: other)
         #expect(Set(sidebar.visibleIDs) == [selected, other.id])
         lab.key("cmd+ctrl+u")
-        #expect(sidebar.filter == nil)
+        #expect(sidebar.filter == .all)
         #expect(Set(sidebar.visibleIDs) == [selected, other.id])
 
         // Drafts: a conversation with unsent text.
@@ -222,7 +222,7 @@ extension MacKeyboardSelectionTests {
         #expect(sidebar.filter == .sendLater)
         #expect(sidebar.visibleIDs == [selected])
         lab.split.filterSendLater(nil)
-        #expect(sidebar.filter == nil)
+        #expect(sidebar.filter == .all)
     }
 
     @Test func findNextAndPreviousCycleTranscriptMatches() async throws {
