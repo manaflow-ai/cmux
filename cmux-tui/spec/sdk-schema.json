@@ -5644,8 +5644,11 @@
     "ipad",
     "tui",
     "browser",
+    "linux",
+    "windows",
     "unknown"
-   ]
+   ],
+   "fallback": "unknown"
   },
   "SizeMode": {
    "kind": "enum",
@@ -5753,7 +5756,7 @@
      "nullable": true,
      "default": null,
      "constraints": [
-      "mac, iphone, ipad, tui, browser; anything else is unknown."
+      "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
      ]
     },
     "device_name": {
@@ -8070,7 +8073,7 @@
       "since": 12,
       "capability": "shared-sizing-v1",
       "constraints": [
-       "mac, iphone, ipad, tui, browser; anything else is unknown; defaults to kind."
+       "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown; defaults to kind."
       ]
      },
      "device_name": {

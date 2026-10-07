@@ -354,7 +354,9 @@ forwarded input to that sub-view), relay sub-views (`resize-attached-view`
 with `view` and `identity`), and `detach-client` with a participant id and
 `by`. `user_id` is
 asserted by the client; the daemon does not verify it. The cmux-tui frontend
-opts in with `device_kind: "tui"` and its hostname as `device_name`. See
+opts in with `device_kind: "tui"` and its hostname as `device_name`. The GPUI
+desktop app sends `linux` or `windows` on those systems; only clients that send
+`open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility

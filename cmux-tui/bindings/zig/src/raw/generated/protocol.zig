@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a12acc481313eced97f8c489168cac258fd1b9c8b5b4fde33476bcaeaaf0e11b";
+pub const ir_sha256 = "1f04590bd9fd11a15904188a13621ce1a75b0530087df0bcb710303b76428800";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1612,6 +1612,8 @@ pub const SizeDeviceKind = enum {
     ipad,
     tui,
     browser,
+    linux,
+    windows,
     unknown,
 
     pub fn fromWire(value: []const u8) !@This() {
@@ -1620,8 +1622,10 @@ pub const SizeDeviceKind = enum {
         if (std.mem.eql(u8, value, "ipad")) return .ipad;
         if (std.mem.eql(u8, value, "tui")) return .tui;
         if (std.mem.eql(u8, value, "browser")) return .browser;
+        if (std.mem.eql(u8, value, "linux")) return .linux;
+        if (std.mem.eql(u8, value, "windows")) return .windows;
         if (std.mem.eql(u8, value, "unknown")) return .unknown;
-        return error.UnknownEnumValue;
+        return .unknown;
     }
 
     pub fn toWire(self: @This()) []const u8 {
@@ -1631,6 +1635,8 @@ pub const SizeDeviceKind = enum {
             .ipad => "ipad",
             .tui => "tui",
             .browser => "browser",
+            .linux => "linux",
+            .windows => "windows",
             .unknown => "unknown",
         };
     }

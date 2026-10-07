@@ -53,7 +53,7 @@ replay every case. A behavior change starts with a new fixture.
 A participant is one attached view: `id` (host-scoped, unique while attached),
 `user_id` (verified Stack user id, set by the host or relay, never by the leaf),
 `display_name`, `device_kind` (`mac`, `iphone`, `ipad`, `tui`, `browser`,
-`unknown`), `device_name`, `device_id`, `via` (relay participant id, if any),
+`linux`, `windows`, `unknown`), `device_name`, `device_id`, `via` (relay participant id, if any),
 `viewport` (`cols`, `rows`, absent until reported) and `counts_override`
 (`true`, `false` or absent).
 
@@ -371,6 +371,11 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
 
 - `set-client-info` gains optional `user_id`, `display_name`, `device_kind`,
   `device_name`, `device_id`. Relay identities take the same fields.
+- `device_kind` `linux` and `windows` name the GPUI desktop app on Linux and
+  Windows. They reach only connections that send `open-device-kinds-v1` (they
+  read a kind they do not know as `unknown`); other connections get `unknown`.
+  The Swift reducer reads them as `unknown`, and a phone does not defer to
+  them (only to a Mac or TUI of the same user).
 - `attach-surface` responses gain `participant` (the host id of this view).
 - A relay sub-view (a phone behind a Mac) has no byte stream:
   `resize-attached-view {surface, view: "mobile:<client_id>", identity:

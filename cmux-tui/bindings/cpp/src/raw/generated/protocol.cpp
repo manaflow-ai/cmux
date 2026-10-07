@@ -8060,6 +8060,8 @@ Result<Json> Codec<SizeDeviceKind>::encode(const SizeDeviceKind& value) {
         case SizeDeviceKind::ipad: return Json(std::string("ipad"));
         case SizeDeviceKind::tui: return Json(std::string("tui"));
         case SizeDeviceKind::browser: return Json(std::string("browser"));
+        case SizeDeviceKind::linux_: return Json(std::string("linux"));
+        case SizeDeviceKind::windows: return Json(std::string("windows"));
         case SizeDeviceKind::unknown: return Json(std::string("unknown"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
@@ -8071,7 +8073,10 @@ Result<SizeDeviceKind> Codec<SizeDeviceKind>::decode(const Json& value) {
     if (value == Json(std::string("ipad"))) return SizeDeviceKind::ipad;
     if (value == Json(std::string("tui"))) return SizeDeviceKind::tui;
     if (value == Json(std::string("browser"))) return SizeDeviceKind::browser;
+    if (value == Json(std::string("linux"))) return SizeDeviceKind::linux_;
+    if (value == Json(std::string("windows"))) return SizeDeviceKind::windows;
     if (value == Json(std::string("unknown"))) return SizeDeviceKind::unknown;
+    if (value.is_string()) return SizeDeviceKind::unknown;
     return make_error(ErrorCode::decode, "unknown SizeDeviceKind value");
 }
 

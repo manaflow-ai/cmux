@@ -641,7 +641,7 @@ Params:
 | `capabilities` | `array<string>` | default unchanged | Additive client features understood by the server |
 | `user_id` | `string` | default unchanged | Shared sizing identity; asserted by the client and not verified |
 | `display_name` | `string` | default unchanged | Shared sizing identity; defaults to `name` |
-| `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`; anything else is `unknown`; defaults to `kind` |
+| `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
 
@@ -650,6 +650,15 @@ or the request origin. Identity fields are clamped like `name`. A connection tha
 `shared-sizing-v1` in `capabilities` receives `size-state` events on its
 subscribe and attach streams and `participant`/`size_state` in terminal
 `attach-surface` responses.
+
+`linux` and `windows` are the GPUI desktop app on Linux and Windows. A
+connection that also sends `open-device-kinds-v1` (advertised in `identify`)
+decodes every `device_kind` and reads a kind it does not know as `unknown`; it
+receives `linux`, `windows` and any later kind as they are in every size state
+(`size-state`, `attach-surface`, `get-size-state`, `set-size-policy`,
+`reattach-view`). Other connections receive those kinds as `unknown`, because
+SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
+the real kind for every connection.
 
 Result: `object{}`.
 

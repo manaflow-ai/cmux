@@ -233,6 +233,12 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
+/// A client that lists this in `set-client-info` decodes every
+/// `device_kind` of a size state and reads a kind it does not know as
+/// `unknown`. It receives `linux` and `windows` (and later kinds) as they
+/// are; other clients receive them as `unknown`. The daemon advertises it in
+/// `identify`.
+pub const OPEN_DEVICE_KINDS_CAPABILITY: &str = "open-device-kinds-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -951,14 +957,24 @@ fn own_view_detach_target(
     .then_some((client, placement))
 }
 
+/// `state` as `client` may read it (`open-device-kinds-v1`).
+fn size_state_for_client(mux: &Mux, client: u64, state: &TerminalSizingState) -> Value {
+    let open = mux.control_clients.supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
+    json!(state.for_client(open))
+}
+
+/// A `size-state` event. Without a client it has only the kinds every
+/// `shared-sizing-v1` client decodes.
 fn size_state_event_json(
     surface: SurfaceId,
     runtime: SurfaceId,
     state: &TerminalSizingState,
-    client: Option<u64>,
+    client: Option<(u64, bool)>,
 ) -> Value {
-    let mut event = json!({"event": "size-state", "surface": surface, "state": state});
-    if let Some(client) = client {
+    let open = client.is_some_and(|(_, open)| open);
+    let mut event =
+        json!({"event": "size-state", "surface": surface, "state": state.for_client(open)});
+    if let Some((client, _)) = client {
         let id = crate::mux::view_participant_id(runtime, surface, client);
         if state.participant(&id).is_some() {
             event["self_participant"] = json!(id);
@@ -5434,6 +5450,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -5508,7 +5525,12 @@ impl ClientRegistry {
                     if !record.capabilities.contains(SHARED_SIZING_CAPABILITY) {
                         return None;
                     }
-                    Some((*client, record.writer.clone(), Self::event_streams(record, surface)))
+                    let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
+                    Some((
+                        (*client, open),
+                        record.writer.clone(),
+                        Self::event_streams(record, surface),
+                    ))
                 })
                 .collect::<Vec<_>>()
         };
@@ -12473,7 +12495,7 @@ fn attach_response(mux: &Mux, surface: SurfaceId, client: u64, lease: Option<Str
         && let Some(state) = mux.terminal_size_state(surface)
     {
         response["participant"] = json!(participant);
-        response["size_state"] = json!(state);
+        response["size_state"] = size_state_for_client(mux, client, &state);
     }
     response
 }
@@ -12939,7 +12961,7 @@ fn handle_command_with_cancellation(
                 let state = mux
                     .set_terminal_size_policy(surface, policy)
                     .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-                Ok(json!({"state": state}))
+                Ok(json!({"state": size_state_for_client(mux, client, &state)}))
             }
             (None, Some(workspace)) => {
                 mux.set_workspace_size_policy(workspace, policy)?;
@@ -13001,7 +13023,10 @@ fn handle_command_with_cancellation(
             let state = mux
                 .terminal_size_state(surface)
                 .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-            Ok(json!({"participant": participant, "state": state}))
+            Ok(json!({
+                "participant": participant,
+                "state": size_state_for_client(mux, client, &state),
+            }))
         }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
@@ -13011,7 +13036,10 @@ fn handle_command_with_cancellation(
             let self_participant = mux
                 .terminal_view_participant_id(surface, client)
                 .filter(|id| state.participant(id).is_some());
-            Ok(json!({"state": state, "self_participant": self_participant}))
+            Ok(json!({
+                "state": size_state_for_client(mux, client, &state),
+                "self_participant": self_participant,
+            }))
         }
         Command::ReloadConfig => {
             mux.request_config_reload()?;
@@ -15024,7 +15052,10 @@ fn handle_command_with_cancellation(
                             {
                                 continue;
                             }
-                            size_state_event_json(*surface, *runtime, state, Some(client))
+                            let open = event_mux
+                                .control_clients
+                                .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
+                            size_state_event_json(*surface, *runtime, state, Some((client, open)))
                         }
                         _ => subscribed_event_json(&event),
                     };

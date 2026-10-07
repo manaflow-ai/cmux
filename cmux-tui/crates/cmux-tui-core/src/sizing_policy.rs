@@ -40,6 +40,10 @@ pub enum TerminalDeviceKind {
     Ipad,
     Tui,
     Browser,
+    /// The GPUI desktop app on Linux.
+    Linux,
+    /// The GPUI desktop app on Windows.
+    Windows,
     #[default]
     Unknown,
 }
@@ -57,7 +61,19 @@ impl TerminalDeviceKind {
             Self::Ipad => "ipad",
             Self::Tui => "tui",
             Self::Browser => "browser",
+            Self::Linux => "linux",
+            Self::Windows => "windows",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// The kind as a client without `open-device-kinds-v1` reads it. Such a
+    /// client decodes only the kinds of the first `shared-sizing-v1`
+    /// release, so later kinds read as [`Self::Unknown`].
+    pub fn for_closed_clients(self) -> Self {
+        match self {
+            Self::Linux | Self::Windows => Self::Unknown,
+            kind => kind,
         }
     }
 
@@ -69,6 +85,8 @@ impl TerminalDeviceKind {
             "ipad" => Self::Ipad,
             "tui" => Self::Tui,
             "browser" => Self::Browser,
+            "linux" => Self::Linux,
+            "windows" => Self::Windows,
             _ => Self::Unknown,
         }
     }
@@ -232,6 +250,23 @@ impl TerminalSizingState {
 
     pub fn participant(&self, id: &str) -> Option<&TerminalSizingParticipantState> {
         self.participants.iter().find(|row| row.participant.id == id)
+    }
+
+    /// This state for one client: unchanged for a client that sent
+    /// `open-device-kinds-v1`, else with every device kind that client
+    /// cannot decode replaced by `unknown`. Priority keys keep the real kind.
+    pub fn for_client(&self, open_device_kinds: bool) -> std::borrow::Cow<'_, Self> {
+        let closed = |row: &TerminalSizingParticipantState| {
+            row.participant.device_kind.for_closed_clients() != row.participant.device_kind
+        };
+        if open_device_kinds || !self.participants.iter().any(closed) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut state = self.clone();
+        for row in &mut state.participants {
+            row.participant.device_kind = row.participant.device_kind.for_closed_clients();
+        }
+        std::borrow::Cow::Owned(state)
     }
 }
 
