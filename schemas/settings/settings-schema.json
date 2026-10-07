@@ -7869,157 +7869,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showProjects",
-      "keywords" : [
-        "sidebar",
-        "projects",
-        "workspaces",
-        "section",
-        "hide",
-        "show"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showProjects"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.showProjects",
-        "text" : "Show Projects"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showRecents",
-      "keywords" : [
-        "sidebar",
-        "recents",
-        "chats",
-        "section",
-        "hide",
-        "show"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showRecents"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.showRecents",
-        "text" : "Show Recents"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "none",
-        "folder"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.groupByNone",
-            "text" : "None"
-          },
-          "value" : "none"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.groupByFolder",
-            "text" : "Folder"
-          },
-          "value" : "folder"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "none",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.groupBy",
-      "keywords" : [
-        "sidebar",
-        "projects",
-        "group",
-        "folder",
-        "directory",
-        "cwd"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "groupBy"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.groupBy",
-        "text" : "Group Projects By"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -14532,6 +14381,191 @@
     },
     {
       "accepts" : [
+        "always",
+        "collapsed",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesCollapsed",
+            "text" : "Collapsed"
+          },
+          "value" : "collapsed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.editedFiles.show.help",
+        "text" : "The card that lists a turn's edited files, with Undo and View changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.show",
+      "keywords" : [
+        "edited",
+        "files",
+        "undo",
+        "changes",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "show"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.show",
+        "text" : "Edited Files Card"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.maxRows",
+      "keywords" : [
+        "edited",
+        "files",
+        "rows",
+        "agent"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.maxRows",
+        "text" : "Edited Files Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "turn",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesTurn",
+            "text" : "Each Turn"
+          },
+          "value" : "turn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesSession",
+            "text" : "The Whole Chat"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "turn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.scope",
+      "keywords" : [
+        "edited",
+        "files",
+        "session",
+        "turn",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.scope",
+        "text" : "Edited Files Card Covers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15306,7 +15340,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "dcc1bf4d98f16f6fc880892a4eb7d6c021c9c1d2a1d4b4f98d7a91bc79eb256b",
+  "schema_hash" : "cd1b12f3e9fbf002aee49c0a33857c6a74f0dd82e833d93f85629845d8c282c6",
   "sections" : [
     {
       "id" : "general",
