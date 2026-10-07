@@ -211,6 +211,14 @@ int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream
 int32_t cmux_rd_session_feedback(CmuxRdSession *session, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 uint64_t cmux_rd_session_next_deadline_us(const CmuxRdSession *session);
 int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, CmuxRdStats *out);
+/* Starts session clock probes (rd change C8). Call only when welcome lists
+   the "clock" cap: an older host refuses the probe kinds. Pings then leave
+   through cmux_rd_session_feedback; pongs are consumed, not queued. */
+int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
+/* The offset of the host's clock from this viewer's (host = viewer +
+   *offset_us) and the round trip of the best sample: 1 when an estimate
+   exists, 0 before the first answer. */
+int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
 
 #ifdef __cplusplus
 }

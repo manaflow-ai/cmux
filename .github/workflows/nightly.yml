@@ -3014,9 +3014,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          fetch-depth: 0
-          fetch-tags: true
           persist-credentials: false
+      # Only the published span: a full fetch of every branch and tag did not
+      # finish inside this job's timeout (run 37526646874).
+      - name: Fetch the commits since the published nightly-next
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next
       - name: Build and sign the release notes
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
