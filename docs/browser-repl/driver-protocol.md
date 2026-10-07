@@ -193,7 +193,12 @@ drops a marked key that arrives outside that same event's own delivery (another 
 resend is also how a Command shortcut's Edit menu command (select all, copy,
 cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
 once WebKit has sent the key back (no page handled it; a page that cancels
-the keydown gets no command as well), on the web view itself. In the REPL
+the keydown gets no command as well), on the web view itself. Telling the
+two apart needs WebKit's `_doAfterProcessingAllPendingKeyEvents:`; on a
+WebKit without it (macOS 26) such a shortcut is refused before its key-down
+leaves: `input.key` fails with `unsupported` (`blocked` first for a tab whose
+page the authority refuses) and `cmux browser press` with `unsupported`; no
+key reaches the page and no command runs. In the REPL
 bold, italic and underline run `execCommand` in the main frame through the
 frame gate, which checks the tab again and judges the document the command
 runs in, in the same script turn: a main frame that navigated meanwhile to
@@ -1129,8 +1134,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   Script the agent runs in its own world (`frame.evaluate` with `world:
   "agent"`, and the runtime's reads and element actions there, such as
   `focus` and `dispatchEvent`) runs without a user gesture (WebKit's
-  `_callAsyncJavaScript` with `withUserGesture: NO`; a WebKit without it
-  fails such calls with `unsupported`), and so does every script the
+  `_callAsyncJavaScript` with `withUserGesture: NO`, or on a WebKit
+  without it, such as macOS 26's, the method that one and the public
+  `callAsyncJavaScript` both call, `_evaluateJavaScript:asAsyncFunction:`
+  with `forceUserGesture: NO`; a WebKit with neither fails such calls with
+  `unsupported`), and so does every script the
   driver runs for itself, in its own worlds or the agent's (the frame
   gate's checks and the scripts it gates, the clipboard shortcuts, capture
   masks, secret and focus checks, `tab.info`, frame names and boxes, waits,

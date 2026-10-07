@@ -2675,14 +2675,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 // live page right before the key goes out.
                 let outcome: BrowserAutomationKeyDownOutcome?
                 do {
-                    outcome = try await webView.deliverAutomationKeyDown(watchingOutcome: type == "down" && stroke.editingCommand != nil) {
+                    let delivery = try await webView.deliverAutomationKeyDown(watchingOutcome: type == "down" && stroke.editingCommand != nil) {
                         try self.frameGate.checkTab(in: webView)
                         let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
                         guard result == .delivered else {
                             throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
                         }
                         return result
-                    }.outcome
+                    }
+                    // This WebKit cannot tell whether the page handled the
+                    // shortcut, so its key was not sent and nothing ran.
+                    if delivery.result == .shortcutOutcomeUnavailable {
+                        try self.frameGate.checkTab(in: webView)
+                        throw Self.error(
+                            "unsupported",
+                            "This WebKit cannot report whether the page handled \"\(keyName)\" with \(modifiers.joined(separator: "+")), so the shortcut was not sent and its Edit command did not run"
+                        )
+                    }
+                    outcome = delivery.outcome
                 } catch {
                     // A modifier's key-up that cannot reach the page (the
                     // tab now shows a blocked page) still ends the hold: the

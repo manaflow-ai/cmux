@@ -89,9 +89,11 @@ extension BrowserReplPasteboardTests {
         }
 
         /// Yields until WebKit's lookup of the drag pasteboard no longer
-        /// gets `pasteboard` (the window's bound task ran), at most 1000 turns.
+        /// gets `pasteboard` (the window's bound task ran), for at most 30 s
+        /// of real time: a turn count would shrink on a busy runner.
         private static func untilLookup(isNot pasteboard: NSPasteboard) async {
-            for _ in 0..<1000 {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while ContinuousClock.now < deadline {
                 guard BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: drag, fromWebKit: true) === pasteboard else { return }
                 await Task.yield()
             }

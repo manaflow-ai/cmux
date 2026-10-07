@@ -70747,6 +70747,65 @@
         }
       }
     },
+    "cli.browser.error.shortcutOutcomeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version of macOS cannot report whether the page handled this Edit shortcut, so the key was not sent and the command did not run."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンのmacOSでは、ページがこの編集ショートカットを処理したかどうかを報告できないため、キーは送信されず、コマンドも実行されませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 macOS 无法报告页面是否处理了此编辑快捷键，因此未发送该按键，也未执行命令。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese macOS-Version kann nicht melden, ob die Seite diesen Bearbeiten-Kurzbefehl verarbeitet hat. Die Taste wurde daher nicht gesendet und der Befehl nicht ausgeführt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de macOS ne peut pas indiquer si la page a traité ce raccourci d’édition : la touche n’a donc pas été envoyée et la commande n’a pas été exécutée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الإصدار من macOS الإبلاغ عمّا إذا كانت الصفحة قد عالجت اختصار التحرير هذا، لذلك لم يُرسَل المفتاح ولم يُنفَّذ الأمر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de macOS no puede indicar si la página gestionó este atajo de edición, así que no se envió la tecla ni se ejecutó el comando."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 macOS 無法回報頁面是否處理了此編輯快速鍵，因此未傳送該按鍵，也未執行指令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 macOS는 페이지가 이 편집 단축키를 처리했는지 알려 줄 수 없으므로 키를 보내지 않았고 명령도 실행하지 않았습니다."
+          }
+        }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {

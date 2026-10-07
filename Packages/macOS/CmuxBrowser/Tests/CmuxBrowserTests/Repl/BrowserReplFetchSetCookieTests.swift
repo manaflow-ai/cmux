@@ -16,17 +16,17 @@ struct BrowserReplFetchSetCookieTests {
     final class SetCookieProtocol: URLProtocol {
         static let lines: [String: String] = [
             "own": "own=1; Path=/",
-            "parent": "parent=2; Domain=cookie-scope.co.uk; Path=/",
-            "self": "self=3; Domain=shop.cookie-scope.co.uk; Path=/",
+            "parent": "parent=2; Domain=cookie-scope.suffix.test; Path=/",
+            "self": "self=3; Domain=shop.cookie-scope.suffix.test; Path=/",
             "other": "planted=4; Domain=bank.example; Path=/",
-            "child": "child=5; Domain=deeper.shop.cookie-scope.co.uk; Path=/",
-            "suffix": "wide=6; Domain=co.uk; Path=/",
+            "child": "child=5; Domain=deeper.shop.cookie-scope.suffix.test; Path=/",
+            "suffix": "wide=6; Domain=suffix.test; Path=/",
             "secure": "sec=7; Secure; Path=/",
             "plain": "plain=8; Path=/",
         ]
 
         override class func canInit(with request: URLRequest) -> Bool {
-            request.url?.host?.hasSuffix("cookie-scope.co.uk") == true
+            request.url?.host?.hasSuffix("cookie-scope.suffix.test") == true
         }
 
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -69,9 +69,16 @@ struct BrowserReplFetchSetCookieTests {
         func detach() {}
     }
 
+    /// The system Public Suffix List with `suffix.test` added as a public
+    /// suffix (like `co.uk`), so the scope rules run against a reserved
+    /// test name the stub serves, never a real registrable domain.
+    static let publicSuffixes = BrowserReplPublicSuffixList { domain in
+        domain == "suffix.test" || BrowserReplPublicSuffixList.system.isPublicSuffix(domain)
+    }
+
     private func fetch(_ url: String) async -> Set<String> {
         let driver = RecordingDriver()
-        let fetcher = BrowserReplFetcher(driver: driver, protocolClasses: [SetCookieProtocol.self])
+        let fetcher = BrowserReplFetcher(driver: driver, protocolClasses: [SetCookieProtocol.self], publicSuffixes: Self.publicSuffixes)
         defer { fetcher.invalidate() }
         let request: [String: Any] = ["url": url, "method": "GET"]
         let result = await fetcher.fetch(requestJSON: JSONSerialization.browserReplString(request) ?? "{}")
@@ -82,13 +89,14 @@ struct BrowserReplFetchSetCookieTests {
     @Test("Only cookies the response's host may set are stored")
     func storesOnlyCookiesTheHostMaySet() async throws {
         try #require(BrowserReplPublicSuffixList.system.isPublicSuffix("co.uk"), "needs the system Public Suffix List")
-        let stored = await fetch("https://shop.cookie-scope.co.uk/x?own,parent,self,other,child,suffix,secure")
+        #expect(Self.publicSuffixes.isPublicSuffix("suffix.test"))
+        let stored = await fetch("https://shop.cookie-scope.suffix.test/x?own,parent,self,other,child,suffix,secure")
         #expect(stored == ["own", "parent", "self", "sec"], "\(stored.sorted())")
     }
 
     @Test("A Secure cookie from a plain-http response is not stored")
     func secureOnlyFromSecureResponse() async {
-        let stored = await fetch("http://shop.cookie-scope.co.uk/x?secure,plain")
+        let stored = await fetch("http://shop.cookie-scope.suffix.test/x?secure,plain")
         #expect(stored == ["plain"], "\(stored.sorted())")
     }
 

@@ -312,7 +312,12 @@ struct BrowserReplResourceLedgerTests {
         // 4 MiB every 50 ms after the cell ends, 256 MiB at most.
         let started = await first.evaluate(code: """
         globalThis.keep = [];
-        (async () => { for (let i = 0; i < 64; i++) { await sleep(50); keep.push('t'.repeat(4 << 20) + i); } })();
+        (async () => {
+          for (let i = 0; i < 64; i++) {
+            await sleep(50);
+            keep.push('t'.repeat(4 << 20) + i);
+          }
+        })();
         console.log('started');
         """)
         #expect(started.error == nil, "\(started.error ?? "")")

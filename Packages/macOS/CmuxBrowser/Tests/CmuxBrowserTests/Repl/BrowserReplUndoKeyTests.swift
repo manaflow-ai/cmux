@@ -13,7 +13,11 @@ import WebKit
 /// path, so the page never saw the key and the undo reached the tab's last
 /// edit wherever the focus was, a blocked frame included.
 @MainActor
-@Suite("Browser REPL undo and redo keys", .serialized)
+@Suite(
+    "Browser REPL undo and redo keys",
+    .serialized,
+    .enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome))
+)
 struct BrowserReplUndoKeyTests {
     /// A web view that, like the app's, undoes a Command-Z chord itself.
     final class UndoChordWebView: CmuxUndoableWebView {

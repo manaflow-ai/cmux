@@ -244,6 +244,15 @@ extension TerminalController {
                 "surface_id": .string(context.surfaceId.uuidString),
                 "surface_ref": .string(surfaceRef)
             ]))
+        case .shortcutOutcomeUnavailable:
+            return .err(
+                code: "unsupported",
+                message: String(
+                    localized: "cli.browser.error.shortcutOutcomeUnavailable",
+                    defaultValue: "This version of macOS cannot report whether the page handled this Edit shortcut, so the key was not sent and the command did not run."
+                ),
+                data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+            )
         case .unsupported, .eventCreationFailed:
             // This method is called only after the package reports a native
             // descriptor. Reaching either case means the AppKit adapter could

@@ -17,6 +17,17 @@ import WebKit
 @MainActor
 @Suite("Browser REPL unhandled key resend", .serialized)
 struct BrowserReplKeyResendTests {
+    /// Whether this WebKit reports if a page handled a key
+    /// (`_doAfterProcessingAllPendingKeyEvents:`; macOS 26's WebKit lacks
+    /// it). Without it Edit shortcuts are refused before their key leaves
+    /// (BrowserReplOlderWebKitTests), so the tests of what such a shortcut
+    /// does run only where WebKit can report it.
+    nonisolated static var webKitReportsKeyOutcome: Bool {
+        WKWebView.instancesRespond(to: NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:"))
+    }
+
+    nonisolated static let needsKeyOutcome = "needs WebKit's _doAfterProcessingAllPendingKeyEvents:, which this WebKit lacks (macOS 26); BrowserReplOlderWebKitTests covers the refusal there"
+
     /// Records the key events WebKit's responder methods receive.
     private final class RecordingWebView: WKWebView {
         var keyDowns: [NSEvent] = []
@@ -136,7 +147,8 @@ struct BrowserReplKeyResendTests {
     // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu by sending a key
     // no page handled back to the app, which drops an automated key's resend;
     // so for such a key the web view runs the editing command itself.
-    @Test func cmuxBrowserPressRunsAnEditingShortcutNoPageHandled() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func cmuxBrowserPressRunsAnEditingShortcutNoPageHandled() async throws {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
         try await press(["Meta", "a"], in: webView)
         try await settle(webView, keys: 2)
@@ -151,7 +163,8 @@ struct BrowserReplKeyResendTests {
     /// modifiers held (`Meta+KeyA` is Select All), and an uppercase letter
     /// does not add Shift: `Meta+A` is Select All with `shiftKey` false, as
     /// `Meta+a` is. Only a Shift in the combo makes it `Shift+Meta+A`.
-    @Test func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
         let webView = try await load("""
             <input id=i value=abc><script>\(Self.countKeys)
             window.shifts = []; addEventListener('keydown', e => { if (e.metaKey && e.code === 'KeyA') window.shifts.push(e.shiftKey); });</script>
@@ -184,7 +197,8 @@ struct BrowserReplKeyResendTests {
     // A page that handles the shortcut (it cancels the keydown) does not get
     // the editing command as well, as in a browser: run twice, a Copy or
     // Paste would reach the pasteboard behind the page's back.
-    @Test func cmuxBrowserPressDoesNotRunAnEditingShortcutThePageHandled() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func cmuxBrowserPressDoesNotRunAnEditingShortcutThePageHandled() async throws {
         let webView = try await load(
             "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
         )
@@ -201,7 +215,8 @@ struct BrowserReplKeyResendTests {
     // copy:, cut:, paste:) nor any session's virtual clipboard. A person's
     // Command-C in that tab is not a `cmux browser press` and keeps the
     // web view's own action.
-    @Test func cmuxBrowserPressRunsNoClipboardCommandInASessionTab() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func cmuxBrowserPressRunsNoClipboardCommandInASessionTab() async throws {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
         BrowserReplPageClipboard(shim: try BrowserReplPasteboardTests.PageScripts.shim()).install(on: webView) { _, _ in true }
         try await Self.withAppDroppingResends {
@@ -287,7 +302,8 @@ struct BrowserReplKeyResendTests {
                             }
                         }
                     }
-                    if let webView { _ = webView.perform(NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:"), with: release) } else { release() }
+                    let pending = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+                    if let webView, webView.responds(to: pending) { _ = webView.perform(pending, with: release) } else { release() }
                     return
                 }
                 answers.removeFirst()
@@ -327,7 +343,8 @@ struct BrowserReplKeyResendTests {
     /// queue. The end of that earlier key must not be taken for Meta+A's
     /// own outcome (the press must wait for that queue, as the REPL does),
     /// or Meta+A counts as handled and Select All is silently skipped.
-    @Test func cmuxBrowserPressRunsSelectAllWhileAnEarlierKeyIsQueuedInAWindowsEditableField() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func cmuxBrowserPressRunsSelectAllWhileAnEarlierKeyIsQueuedInAWindowsEditableField() async throws {
         let (window, webView) = try await loadInWindow("""
             <input id=i value=abc><script>\(Self.countKeys)
             addEventListener('keydown', e => { if (e.key === 'Meta') { const t = performance.now(); while (performance.now() - t < 300) {} } });</script>
@@ -358,7 +375,7 @@ struct BrowserReplKeyResendTests {
     /// the key's outcome must say no page handled it. Seen live (final gate,
     /// cmux-lawrence-2): the outcome said "handled" before WebKit had even
     /// queued the key, so Select All, Copy and Cut never ran.
-    @Test(arguments: ["a", "c", "x"])
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)), arguments: ["a", "c", "x"])
     func aReplShortcutNoPageHandledIsUnhandledInAWindowsEditableField(_ letter: String) async throws {
         let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
         defer { window.close() }
@@ -375,7 +392,8 @@ struct BrowserReplKeyResendTests {
     }
 
     /// A page that cancels the key handled it, in a window too.
-    @Test func aReplShortcutThePageCancelledIsHandledInAWindowsEditableField() async throws {
+    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
+    func aReplShortcutThePageCancelledIsHandledInAWindowsEditableField() async throws {
         let (window, webView) = try await loadInWindow(
             "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
         )

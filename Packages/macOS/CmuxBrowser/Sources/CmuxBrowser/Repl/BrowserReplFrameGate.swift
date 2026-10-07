@@ -147,12 +147,19 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
 
 extension WKWebView {
     private static let callWithGestureSelector = NSSelectorFromString("_callAsyncJavaScript:arguments:inFrame:inContentWorld:withUserGesture:completionHandler:")
+    /// The method WebKit's public `callAsyncJavaScript` and
+    /// `_callAsyncJavaScript:…withUserGesture:` both call, with the gesture
+    /// as a flag. WebKits before the latter (macOS 26) have only this one.
+    private static let evaluateAsAsyncFunctionSelector = NSSelectorFromString("_evaluateJavaScript:asAsyncFunction:withSourceURL:withArguments:forceUserGesture:inFrame:inWorld:completionHandler:")
 
     /// `callAsyncJavaScript`, with or without a user gesture. WebKit's public
     /// call always gives the script one (a page may then write the system
     /// clipboard); without one this uses WebKit's own variant that takes the
-    /// choice, and throws `unsupported` when that is missing rather than
-    /// give the gesture anyway.
+    /// choice (`_callAsyncJavaScript:…withUserGesture:`, or on a WebKit
+    /// without it the method both calls,
+    /// `_evaluateJavaScript:asAsyncFunction:…forceUserGesture:…`), and
+    /// throws `unsupported` when both are missing rather than give the
+    /// gesture anyway.
     ///
     /// - Parameter onlyIf: The authority for the script, checked in the
     ///   same main-actor turn in which WebKit gets the script, after the
@@ -173,11 +180,14 @@ extension WKWebView {
         if userGesture, onlyIf == nil {
             return try await callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: contentWorld)
         }
-        guard userGesture || responds(to: Self.callWithGestureSelector) else {
+        let hasGestureChoice = responds(to: Self.callWithGestureSelector)
+        guard userGesture || hasGestureChoice || responds(to: Self.evaluateAsAsyncFunctionSelector) else {
             throw BrowserReplDriverError(code: "unsupported", message: "This WebKit cannot run the agent's script without a user gesture")
         }
         typealias Completion = @convention(block) (Any?, (any Error)?) -> Void
         typealias Function = @convention(c) (AnyObject, Selector, NSString, NSDictionary, WKFrameInfo?, WKContentWorld, Bool, Completion) -> Void
+        // (source, asAsyncFunction, sourceURL, arguments, forceUserGesture, frame, world, completion)
+        typealias AsyncFunction = @convention(c) (AnyObject, Selector, NSString, Bool, NSURL?, NSDictionary, Bool, WKFrameInfo?, WKContentWorld, Completion) -> Void
         let box = BrowserReplScriptResultBox()
         let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserReplScriptResult, any Error>) in
             box.continuation = continuation
@@ -200,8 +210,13 @@ extension WKWebView {
                     if let error { box.finish(.failure(error)) } else { box.finish(.success(BrowserReplScriptResult(value: value))) }
                 }
             }
-            let function = unsafeBitCast(method(for: Self.callWithGestureSelector), to: Function.self)
-            function(self, Self.callWithGestureSelector, body as NSString, arguments as NSDictionary, frame, contentWorld, false, completion)
+            if hasGestureChoice {
+                let function = unsafeBitCast(method(for: Self.callWithGestureSelector), to: Function.self)
+                function(self, Self.callWithGestureSelector, body as NSString, arguments as NSDictionary, frame, contentWorld, false, completion)
+            } else {
+                let function = unsafeBitCast(method(for: Self.evaluateAsAsyncFunctionSelector), to: AsyncFunction.self)
+                function(self, Self.evaluateAsAsyncFunctionSelector, body as NSString, true, nil, arguments as NSDictionary, false, frame, contentWorld, completion)
+            }
         }
         return result.value is NSNull ? nil : result.value
     }

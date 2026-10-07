@@ -117,6 +117,13 @@ public enum BrowserKeyboardReplayResult: Sendable, Equatable {
 
     /// A native event could not be created or a modifier transition could not be delivered.
     case eventCreationFailed
+
+    /// An Edit menu shortcut (Select All, Copy, Cut, Paste, Undo, Redo, or a
+    /// formatting shortcut) on a WebKit that cannot report whether a page
+    /// handled its key (no `_doAfterProcessingAllPendingKeyEvents:`, as on
+    /// macOS 26): nothing was delivered and no command ran
+    /// (``WKWebView/canReportAutomationKeyDownOutcome``).
+    case shortcutOutcomeUnavailable
 }
 
 @MainActor
@@ -198,6 +205,12 @@ extension WKWebView {
     /// watching the delivered key-down in the same main-actor turn
     /// (``observeAutomationKeyDownOutcome(_:)``).
     ///
+    /// With `watchingOutcome` on a WebKit that cannot report the outcome
+    /// (``canReportAutomationKeyDownOutcome``), `deliver` does not run and
+    /// the result is ``BrowserKeyboardReplayResult/shortcutOutcomeUnavailable``:
+    /// guessing "unhandled" would run the command behind a page that took
+    /// the key, guessing "handled" would drop it without a word.
+    ///
     /// - Returns: `deliver`'s result, and the outcome to await when
     ///   `watchingOutcome` and a key-down was delivered.
     public func deliverAutomationKeyDown(
@@ -205,6 +218,7 @@ extension WKWebView {
         _ deliver: () throws -> BrowserKeyboardReplayResult
     ) async rethrows -> (result: BrowserKeyboardReplayResult, outcome: BrowserAutomationKeyDownOutcome?) {
         guard watchingOutcome else { return (try deliver(), nil) }
+        guard canReportAutomationKeyDownOutcome else { return (.shortcutOutcomeUnavailable, nil) }
         await waitForQueuedAutomationKeyEvents()
         let owner = browserNativeInputDeliveryOwner
         let previous = owner.lastDeliveredKeyDown
@@ -213,6 +227,16 @@ extension WKWebView {
             return (result, nil)
         }
         return (result, observeAutomationKeyDownOutcome(down))
+    }
+
+    private static let pendingKeyEventsSelector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+
+    /// Whether this WebKit can report if a page handled an automated
+    /// key-down (``observeAutomationKeyDownOutcome(_:)``): it needs
+    /// `_doAfterProcessingAllPendingKeyEvents:`, which macOS 26's WebKit
+    /// lacks.
+    public var canReportAutomationKeyDownOutcome: Bool {
+        responds(to: Self.pendingKeyEventsSelector)
     }
 
     /// Edit menu commands `cmux browser press` runs on the web view itself.
@@ -257,9 +281,11 @@ extension WKWebView {
     /// the key; its run then ends the key's processing.
     public func observeAutomationKeyDownOutcome(_ event: NSEvent) -> BrowserAutomationKeyDownOutcome {
         let outcome = BrowserAutomationKeyDownOutcome(event: event)
-        let selector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
-        guard responds(to: selector) else {
-            // Unknown: treated as handled, so nothing runs twice.
+        let selector = Self.pendingKeyEventsSelector
+        guard canReportAutomationKeyDownOutcome else {
+            // Unknown: treated as handled, so nothing runs twice. The
+            // shortcut paths never get here (deliverAutomationKeyDown
+            // refuses them first).
             outcome.resolve(unhandled: false)
             return outcome
         }
@@ -277,8 +303,8 @@ extension WKWebView {
     /// empty, which an earlier key still in the queue (the previous
     /// shortcut's key-up) would fake.
     public func waitForQueuedAutomationKeyEvents(within timeout: Duration = .seconds(5)) async {
-        let selector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
-        guard responds(to: selector) else { return }
+        let selector = Self.pendingKeyEventsSelector
+        guard canReportAutomationKeyDownOutcome else { return }
         let drained = BrowserReplLatch()
         let block: @convention(block) () -> Void = {
             MainActor.assumeIsolated { drained.signal() }
