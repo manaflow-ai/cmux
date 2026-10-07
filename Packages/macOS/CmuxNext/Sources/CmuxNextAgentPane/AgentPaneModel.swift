@@ -226,6 +226,7 @@ public final class AgentPaneModel {
                    workspaceAgentHome?() != nil {
                     handshake.chooseFolder = true
                 }
+                handshake.githubRepository = handshake.cwd.flatMap(AgentPaneGitHubRepository.read(at:))
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true

@@ -120,6 +120,7 @@ type RowProps = {
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   onOpenDiff?: OpenDiff;
+  githubRepository?: string;
 };
 
 declare global {
@@ -219,7 +220,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row }: RowProps) {
+  function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
     if (row.kind === "user")
       return (
@@ -244,9 +245,18 @@ const MessageRow = memo(
           )}
         </div>
       );
-    return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
+    return (
+      <RevealedMarkdown
+        text={row.text ?? ""}
+        streaming={row.streaming === true}
+        githubRepository={githubRepository}
+      />
+    );
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.githubRepository === next.githubRepository,
 );
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
@@ -505,6 +515,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  githubRepository,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -513,6 +524,7 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  githubRepository?: string;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -775,6 +787,7 @@ export function VirtualTranscript({
                   onToggleActivity={onToggleActivity}
                   onOpenDiff={onOpenDiff}
                   expanded={isExpanded}
+                  githubRepository={githubRepository}
                 />
               </RowFrame>
             );
@@ -854,6 +867,7 @@ function AcpmuxPane() {
   const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -1449,6 +1463,7 @@ function AcpmuxPane() {
           revealTurn?: unknown;
           chooseFolder?: boolean;
           machineName?: unknown;
+          githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -1463,6 +1478,9 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        setGithubRepository(
+          typeof host.githubRepository === "string" && host.githubRepository ? host.githubRepository : undefined,
+        );
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -1970,6 +1988,7 @@ function AcpmuxPane() {
               canLoadOlder={snapshot.canLoadOlder}
               expanded={expanded}
               registry={registry}
+              githubRepository={githubRepository}
               // The Quick Composer has no room for the changes view; its file rows stay plain.
               onOpenDiff={quick ? undefined : openDiff}
               onToggleActivity={(id) =>

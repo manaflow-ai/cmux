@@ -131,6 +131,8 @@ export type MarkdownPageVariant = VariantBase & {
   /** Null: the page opens in its empty state (no file). */
   text: string | null;
   readOnly?: boolean;
+  /** Gallery-only GitHub `origin` repository used for bare issue references. */
+  githubRepository?: string;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */
