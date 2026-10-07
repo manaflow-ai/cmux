@@ -179,7 +179,6 @@ pub(super) struct StreamState {
     pub(super) trailing_overflow: bool,
 }
 
-
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
@@ -247,7 +246,6 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
 }
-
 
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
