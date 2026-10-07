@@ -26,7 +26,7 @@
     "Timestamp": { "type": "integer", "minimum": 0, "description": "Unix milliseconds" },
     "ChannelId": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
     "ChannelClass": { "enum": ["interactive", "bulk", "datagram"] },
-    "ChannelKind": { "enum": ["rpc", "terminal", "browser", "rd", "files.upload", "files.download"] },
+    "ChannelKind": { "enum": ["rpc", "terminal", "browser", "rd", "files.upload", "files.download", "tcp.forward", "simulator"] },
     "Viewport": {
       "type": "object",
       "required": ["cols", "rows"],

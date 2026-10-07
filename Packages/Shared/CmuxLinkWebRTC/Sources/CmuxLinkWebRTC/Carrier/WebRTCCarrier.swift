@@ -71,7 +71,7 @@ public final class WebRTCCarrier: LinkCarrier {
         do {
             webrtcPeer = try WebRTCPeer(
                 factory: WebRTCFactory.shared(for: configuration.network), ice: ice,
-                lowWater: configuration.lowWaterBytes, frameSink: sink
+                limits: PeerSendLimits(configuration), frameSink: sink
             )
         } catch {
             await router.unregister(session)

@@ -18,6 +18,15 @@ final class BrowserCanvasView: UIView, UIScrollViewDelegate, UIGestureRecognizer
         didSet { if cursor != oldValue { pointer?.invalidate() } }
     }
     private var pointer: UIPointerInteraction?
+    private let drag = UIPanGestureRecognizer()
+    /// Device streams (simulators, c14-web.md 6): one-finger drags are touch
+    /// drags (pointer down, moves, up) instead of wheel scrolling.
+    var directTouch = false {
+        didSet {
+            mechanics.isScrollEnabled = !directTouch
+            drag.isEnabled = directTouch
+        }
+    }
 
     private(set) var lens = BrowserViewportTransform(viewSize: .zero, pageSize: CGSize(width: 1, height: 1))
     private let mechanics = UIScrollView()
@@ -52,6 +61,10 @@ final class BrowserCanvasView: UIView, UIScrollViewDelegate, UIGestureRecognizer
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
         pinch.delegate = self
         mechanics.addGestureRecognizer(pinch)
+        drag.addTarget(self, action: #selector(dragged(_:)))
+        drag.maximumNumberOfTouches = 1
+        drag.isEnabled = false
+        mechanics.addGestureRecognizer(drag)
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
         mechanics.addGestureRecognizer(hover)
         let pointer = UIPointerInteraction(delegate: self)
@@ -139,6 +152,18 @@ final class BrowserCanvasView: UIView, UIScrollViewDelegate, UIGestureRecognizer
         guard recognizer.state == .began, let point = lens.pagePoint(fromView: recognizer.location(in: self)) else { return }
         onInput?(.pointer(BrowserPointerEvent(kind: .down, x: point.x, y: point.y, button: 2)))
         onInput?(.pointer(BrowserPointerEvent(kind: .up, x: point.x, y: point.y, button: 2)))
+    }
+
+    @objc private func dragged(_ recognizer: UIPanGestureRecognizer) {
+        guard let point = lens.pagePoint(fromView: recognizer.location(in: self)) else { return }
+        let kind: BrowserPointerEvent.Kind
+        switch recognizer.state {
+        case .began: kind = .down
+        case .changed: kind = .move
+        case .ended, .cancelled, .failed: kind = .up
+        default: return
+        }
+        onInput?(.pointer(BrowserPointerEvent(kind: kind, x: point.x, y: point.y, clickCount: kind == .move ? 0 : 1)))
     }
 
     @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {

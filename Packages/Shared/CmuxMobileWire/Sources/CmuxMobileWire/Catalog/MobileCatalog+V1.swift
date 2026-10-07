@@ -48,7 +48,7 @@ extension MobileCatalog {
             MobileMessage("browser.rd", .record, .stream, .both, owner: "mac-browser-host"),
         ]),
         MobileFamily("rd", .stream, owner: "mac-rd-host", messages: [
-            MobileMessage("rd", .channel, .stream, .c2s, owner: "mac-rd-host", channelClass: .interactive, errors: ["rd.display_not_found"]),
+            MobileMessage("rd", .channel, .stream, .c2s, owner: "mac-rd-host", channelClass: .interactive, errors: ["rd.display_not_found", "rd.window_not_found", "rd.permission_denied", "rd.vnc_not_allowed", "rd.vnc_unreachable", "rd.vnc_auth_unsupported", "rd.unavailable", "rd.consent_denied", "rd.stopped_by_host"]),
             MobileMessage("rd.frame", .record, .stream, .both, owner: "mac-rd-host"),
         ]),
         MobileFamily("files", .stream, owner: "mac-host", messages: [
@@ -59,6 +59,20 @@ extension MobileCatalog {
             MobileMessage("files.upload.done", .message, .stream, .s2c, owner: "mac-host", errors: ["files.digest_mismatch"]),
             MobileMessage("files.list", .read, .stream, .c2s, owner: "mac-host", errors: ["files.not_found", "files.forbidden"]),
             MobileMessage("files.roots", .read, .stream, .c2s, owner: "mac-host"),
+        ]),
+        MobileFamily("tunnel", .stream, owner: "mac-host", messages: [
+            MobileMessage("tcp.forward", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["tunnel.port_not_allowed", "tunnel.connect_refused", "tunnel.limit"]),
+            MobileMessage("tcp.data", .record, .stream, .both, owner: "mac-host"),
+            MobileMessage("tunnel.ports", .read, .stream, .c2s, owner: "mac-host"),
+        ]),
+        MobileFamily("simulator", .stream, owner: "mac-simulator-host", messages: [
+            MobileMessage("simulator", .channel, .stream, .c2s, owner: "mac-simulator-host", channelClass: .interactive, errors: ["simulator.not_found", "simulator.unavailable"]),
+            MobileMessage("simulator.rd", .record, .stream, .both, owner: "mac-simulator-host"),
+            MobileMessage("simulator.list", .read, .stream, .c2s, owner: "mac-simulator-host"),
+        ]),
+        MobileFamily("git", .stream, owner: "mac-host", messages: [
+            MobileMessage("git.status", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
+            MobileMessage("git.diff", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
         ]),
         MobileFamily("feed", .control, owner: "FeedDO", stream: "feed:<user>", messages: [
             MobileMessage("feed.list", .read, .control, .c2s, owner: "FeedDO", existing: true),

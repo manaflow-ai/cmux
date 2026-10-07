@@ -22,7 +22,23 @@ public final class WorkspacesFeature {
     private(set) var preferences: WorkspaceViewPreferences
     /// The list re-renders when the machines sheet changes preferences.
     var onPreferencesChange: (() -> Void)?
+    /// Lane C13: Changes and Files rows in the workspace detail; nil hides them.
+    public var viewers: (any WorkspaceViewerOpening)?
     private weak var navigation: UINavigationController?
+    /// Lane C3: "Remote Desktop" in a workspace's menu opens the Mac's
+    /// screen. Set by the composition root with its localized title.
+    public var remoteDesktop: RemoteDesktopHook?
+
+    /// How the workspace detail offers remote desktop for its Mac.
+    public struct RemoteDesktopHook {
+        public var title: String
+        public var open: @MainActor (HostID, String, UIViewController) -> Void
+
+        public init(title: String, open: @escaping @MainActor (HostID, String, UIViewController) -> Void) {
+            self.title = title
+            self.open = open
+        }
+    }
 
     public init(source: any WorkspaceSource, terminalSources: any WorkspaceTerminalSourceFactory,
                 surfaces: SurfaceScreenFactories = SurfaceScreenFactories(),
@@ -105,6 +121,12 @@ public final class WorkspacesFeature {
     func openBrowser(_ tab: BrowserTabInfo, hostID: HostID, from presenter: UIViewController) {
         guard let screen = surfaces.browser?(tab, hostID) else { return }
         screen.navigationItem.largeTitleDisplayMode = .never
+        presenter.navigationController?.pushViewController(screen, animated: true)
+    }
+
+    func openViewer(_ target: WorkspaceViewerTarget, changes: Bool, from presenter: UIViewController) {
+        guard let viewers else { return }
+        let screen = changes ? viewers.changesScreen(for: target) : viewers.filesScreen(for: target)
         presenter.navigationController?.pushViewController(screen, animated: true)
     }
 

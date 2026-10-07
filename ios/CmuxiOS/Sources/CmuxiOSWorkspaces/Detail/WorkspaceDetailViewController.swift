@@ -17,6 +17,10 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<String, String>!
     private var surfaces: [String: WorkspaceSurface] = [:]
+    /// C13: the Changes and Files rows, first, when a viewer is wired.
+    private static let viewerSection = "viewers"
+    private static let changesItem = "viewer.changes"
+    private static let filesItem = "viewer.files"
     private var subscription: Task<Void, Never>?
     private lazy var coalescer = FrameCoalescer<SourceSnapshot<[HostWorkspaces]>> { [weak self] in self?.receive($0) }
 
@@ -44,6 +48,7 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         view.addSubview(collectionView)
         dataSource = makeDataSource()
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), menu: nil)
+        navigationItem.rightBarButtonItem?.accessibilityLabel = WorkspacesText.workspaceActions
         render()
     }
 
@@ -81,6 +86,10 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         let panes = workspace?.panes ?? []
         surfaces = Dictionary(panes.flatMap(\.surfaces).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
+        if feature.viewers != nil, workspace != nil {
+            snapshot.appendSections([Self.viewerSection])
+            snapshot.appendItems([Self.changesItem, Self.filesItem], toSection: Self.viewerSection)
+        }
         for pane in panes {
             snapshot.appendSections([pane.id])
             snapshot.appendItems(pane.surfaces.map(\.id), toSection: pane.id)
@@ -101,7 +110,7 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
             content.text = WorkspacesText.closedTitle
             content.secondaryText = WorkspacesText.closedBody
             contentUnavailableConfiguration = content
-        } else if workspace?.panes.isEmpty == true {
+        } else if workspace?.panes.isEmpty == true, feature.viewers == nil {
             var content = UIContentUnavailableConfiguration.empty()
             content.text = WorkspacesText.noSurfaces
             contentUnavailableConfiguration = content
@@ -114,13 +123,25 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
 
     private func makeDataSource() -> UICollectionViewDiffableDataSource<String, String> {
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
-            guard let self, let surface = self.surfaces[id] else { return }
+            guard let self else { return }
+            if id == Self.changesItem || id == Self.filesItem {
+                self.configureViewer(cell, changes: id == Self.changesItem)
+                return
+            }
+            guard let surface = self.surfaces[id] else { return }
             self.configure(cell, surface: surface)
         }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
-            elementKind: UICollectionView.elementKindSectionHeader) { cell, _, path in
+            elementKind: UICollectionView.elementKindSectionHeader) { [weak self] cell, _, path in
             var content = UIListContentConfiguration.groupedHeader()
-            content.text = WorkspacesText.pane(path.section + 1)
+            let hasViewers = self?.dataSource.snapshot().sectionIdentifiers.first == Self.viewerSection
+            if hasViewers, path.section == 0 {
+                content.text = nil
+                cell.contentConfiguration = content
+                cell.accessibilityTraits = []
+                return
+            }
+            content.text = WorkspacesText.pane(path.section + (hasViewers ? 0 : 1))
             cell.contentConfiguration = content
             cell.accessibilityTraits = .header
         }
@@ -168,6 +189,21 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         cell.accessibilityTraits = opens(surface) ? .button : .staticText
     }
 
+    private func configureViewer(_ cell: UICollectionViewListCell, changes: Bool) {
+        var content = UIListContentConfiguration.cell()
+        content.text = changes ? WorkspacesText.changes : WorkspacesText.files
+        content.textProperties.font = ShellTypography.rowTitle
+        content.textProperties.adjustsFontForContentSizeCategory = true
+        content.image = UIImage(systemName: changes ? "plus.forwardslash.minus" : "folder")
+        content.imageProperties.tintColor = ShellPalette.secondaryText
+        cell.contentConfiguration = content
+        cell.accessories = [.disclosureIndicator()]
+        cell.accessibilityIdentifier = changes ? "workspaces.changes" : "workspaces.files"
+        cell.isAccessibilityElement = true
+        cell.accessibilityLabel = content.text
+        cell.accessibilityTraits = .button
+    }
+
     private func opensTerminal(_ surface: WorkspaceSurface) -> Bool {
         surface.terminalID != nil && (surface.kind == .terminal || surface.kind == .agent)
     }
@@ -180,11 +216,19 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
     // MARK: Actions
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
-        dataSource.itemIdentifier(for: indexPath).flatMap { surfaces[$0] }.map(opens) ?? false
+        let id = dataSource.itemIdentifier(for: indexPath)
+        if id == Self.changesItem || id == Self.filesItem { return true }
+        return id.flatMap { surfaces[$0] }.map(opens) ?? false
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
+        if let id = dataSource.itemIdentifier(for: indexPath), id == Self.changesItem || id == Self.filesItem, let workspace {
+            let target = WorkspaceViewerTarget(hostID: hostID, hostName: host?.hostName ?? hostID.rawValue,
+                                               workspaceID: workspace.id, title: workspace.title)
+            feature.openViewer(target, changes: id == Self.changesItem, from: self)
+            return
+        }
         if let id = dataSource.itemIdentifier(for: indexPath), let surface = surfaces[id], surface.kind == .browser,
            opens(surface) {
             let tab = BrowserTabInfo(id: surface.id, workspaceID: workspace?.id, title: surface.title, url: surface.url)
@@ -205,7 +249,18 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
             workspaceID: workspace.id, title: workspace.title, machineName: host.hostName,
             unreadCount: workspace.unreadCount, isReachable: host.isReachable, capabilities: host.capabilities)
         let actions = feature.actions
-        return UIMenu(children: [
+        var desktop: [UIMenuElement] = []
+        if let hook = feature.remoteDesktop {
+            let hostID = hostID
+            desktop.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: hook.title, image: UIImage(systemName: "display"),
+                         attributes: host.isReachable ? [] : .disabled) { [weak self] _ in
+                    guard let self else { return }
+                    hook.open(hostID, host.hostName, self)
+                },
+            ]))
+        }
+        return UIMenu(children: desktop + [
             UIAction(title: WorkspacesText.markRead, image: UIImage(systemName: "envelope.open"),
                      attributes: actions.canMarkRead(target) ? [] : .disabled) { [weak self] _ in
                 if let self { actions.markRead(target, from: self) }

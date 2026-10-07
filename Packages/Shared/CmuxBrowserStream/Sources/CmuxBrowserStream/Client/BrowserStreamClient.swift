@@ -3,7 +3,7 @@ public import CmuxMobileLink
 import CmuxMobileWire
 public import Foundation
 
-/// The phone side of one `browser` channel (c2-browser-stream.md section 2),
+/// The phone side of one `browser` or `simulator` channel (c2-browser-stream.md section 2, c14-web.md 6),
 /// opened on the phone's one `MobileLinkClient` per Mac (the same session
 /// terminals and files use): opens the channel and its datagram lane,
 /// reassembles video from both, sends rb input in sequence order,
@@ -56,8 +56,8 @@ public actor BrowserStreamClient {
     @discardableResult
     public func open() async throws -> BrowserChannelOpened {
         guard channel == nil, !closed else { throw BrowserStreamClientError.notOpen }
-        let request = MobileChannelRequest(kind: .browser, channelClass: .interactive, window: 1 << 20, params: params.params,
-                                           stream: "browser/\(params.tab)", priority: .input)
+        let request = MobileChannelRequest(kind: params.target.kind, channelClass: .interactive, window: 1 << 20,
+                                           params: params.params, stream: params.target.stream, priority: .input)
         let accepted: MobileOpenedChannel
         do {
             accepted = try await client.open(request)

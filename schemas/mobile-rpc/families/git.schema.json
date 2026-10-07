@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/git.schema.json",
+  "title": "cmux.mobile/1 git family (stream; owner the Mac)",
+  "description": "Read-only repository facts from the Mac's session host (git.status, git.diff), scoped by the files policy (ios-next/c13-viewers.md sections 2 and 3). Field names follow the session host's GitStatusResult and GitDiffResult.",
+  "$defs": {
+    "Path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "Scope": { "enum": ["uncommitted", "unstaged", "staged", "committed", "branch"] },
+    "git.status": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "path": { "$ref": "#/$defs/Path" } }
+    },
+    "git.status:result": {
+      "type": "object", "additionalProperties": false, "required": ["root", "detached", "ahead", "behind"],
+      "properties": {
+        "root": { "$ref": "#/$defs/Path" },
+        "branch": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "detached": { "type": "boolean" },
+        "head": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "upstream": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "base": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "git.diff": {
+      "type": "object", "additionalProperties": false, "required": ["path", "scope"],
+      "properties": {
+        "path": { "$ref": "#/$defs/Path" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "paths": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/Path" } },
+        "include_patch": { "type": "boolean" },
+        "max_patch_bytes": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "max_files": { "type": "integer", "minimum": 1, "maximum": 5000 }
+      }
+    },
+    "git.diff:result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope", "root", "files", "additions", "deletions", "total_files", "files_omitted"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/Scope" },
+        "root": { "$ref": "#/$defs/Path" },
+        "head": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "base": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "status", "additions", "deletions"],
+            "properties": {
+              "path": { "$ref": "#/$defs/Path" },
+              "previous_path": { "$ref": "#/$defs/Path" },
+              "status": { "enum": ["added", "modified", "deleted", "renamed", "untracked"] },
+              "additions": { "type": "integer", "minimum": 0 },
+              "deletions": { "type": "integer", "minimum": 0 },
+              "binary": { "type": "boolean" },
+              "patch": { "type": "string" },
+              "patch_truncated": { "type": "boolean" }
+            }
+          }
+        },
+        "additions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 },
+        "total_files": { "type": "integer", "minimum": 0 },
+        "files_omitted": { "type": "integer", "minimum": 0 },
+        "untracked_skipped": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

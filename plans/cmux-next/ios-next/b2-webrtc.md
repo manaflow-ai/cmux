@@ -121,9 +121,25 @@ reliable lane (a3-link.md section 4), so an `open` never overtakes its data.
 `ctl` (reliable, ordered) carries the carrier's own JSON messages: `fin {counts}` / `fin.ack` for
 graceful close and `track {id, kind, label}` for media descriptors. It never carries link frames.
 
-Back-pressure: `send` suspends while a channel's `bufferedAmount` is above 1 MiB and resumes from the
-`didChangeBufferedAmount` callback once it falls under 256 KiB (no polling). Unreliable lanes do not
-wait: above the high-water mark the frame is dropped (media semantics, a3-link.md section 4).
+Large frames and pacing (d2-bakeoff.md F1): libwebrtc bursts big SCTP messages into the peer's UDP
+socket; past its buffer (786 KiB by default on macOS, less in practice because each datagram costs a
+2 KiB mbuf) packets drop and dcSCTP's recovery stalls the whole association, so every lane waited
+seconds behind bulk. The carrier now:
+- splits every lane frame into data channel messages of at most `maxMessageBytes` (8 KiB). Each lane
+  message starts with one byte: `0x00` last piece (or whole frame), `0x01` more follow (reliable lanes,
+  SCTP keeps order), `0x02` an indexed piece on unordered and partial lanes (`u32 frame id | u16 index |
+  u16 count`, delivered only when complete, at most 8 incomplete frames kept per channel). `ctl` and
+  `wg` carry no header. One record per frame still holds above the carrier;
+- queues pieces per lane and moves them into libwebrtc from one scheduler task, always from the
+  highest-priority lane with a piece whose channel is open and has `bufferedAmount` at or below
+  `highWaterBytes` (128 KiB). The task sleeps on wake events (a send queued, a channel opened,
+  `didChangeBufferedAmount`), never on a timer. A keystroke waits behind at most one 8 KiB piece;
+- keeps at most `inFlightWindowBytes` (256 KiB) of reliable lane bytes sent but not credited: the
+  receiver sends `credit {received}` (cumulative) on `ctl` every window/8 bytes. Input and control lanes
+  and unreliable lanes bypass the window. 256 KiB is 40 Mbit/s at 50 ms RTT; D2's device runs decide
+  whether a larger window is safe on phones.
+- `send` suspends while its lane holds `laneBudgetBytes` (1 MiB) of queued pieces (reliable) or drops
+  the frame (unordered, partial); graceful close waits until the reliable queues are flushed before `fin`.
 
 Graceful close: `close()` sends `fin` with the number of messages it sent on each reliable lane. The
 peer emits `.closed(.remote)` only after it received that many on each lane, answers `fin.ack`, and

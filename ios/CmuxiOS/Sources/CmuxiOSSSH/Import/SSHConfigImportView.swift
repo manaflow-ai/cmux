@@ -32,6 +32,8 @@ struct SSHConfigImportView: View {
                             HStack {
                                 Image(systemName: model.selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(model.selected.contains(item.id) ? .primary : .tertiary)
+                                    // The isSelected trait below carries the state.
+                                    .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(item.entry.alias).foregroundStyle(.primary)
                                     Text(Self.detail(item)).font(.caption).foregroundStyle(.secondary)

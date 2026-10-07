@@ -11,10 +11,24 @@ public struct WebRTCConfiguration: Sendable {
     public var disconnectedGrace: Duration
     /// How long a graceful close waits for the peer's `fin.ack`.
     public var closeTimeout: Duration
-    /// `send` suspends above this many buffered bytes per data channel.
+    /// A data channel takes another message only while its buffered bytes
+    /// are at or below this (lanes and the datagram channel).
     public var highWaterBytes: UInt64
-    /// ...and resumes below this.
+    /// Datagram `send` resumes once the buffer falls to this.
     public var lowWaterBytes: UInt64
+    /// Largest data channel message; lane frames are split into pieces of
+    /// this size (d2-bakeoff.md F1). 8 KiB keeps SCTP bursts below what a
+    /// receiving UDP socket absorbs.
+    public var maxMessageBytes: Int
+    /// Bytes one lane may queue in the carrier: `send` suspends past it on
+    /// reliable lanes and drops on unordered and partial lanes.
+    public var laneBudgetBytes: Int
+    /// Reliable lane bytes in flight (sent, not yet credited by the peer).
+    /// SCTP on its own lets the window grow to the peer's 5 MiB receive
+    /// window and bursts past a UDP socket buffer (786 KiB by default on
+    /// macOS); dcSCTP's recovery from that burst loss stalls every lane
+    /// (d2-bakeoff.md F1). 512 KiB is 80 Mbit/s at 50 ms RTT.
+    public var inFlightWindowBytes: Int
     public var network: WebRTCNetworkMode
     public var clock: LinkClock
 
@@ -23,8 +37,11 @@ public struct WebRTCConfiguration: Sendable {
         iceRestartTimeout: Duration = .seconds(10),
         disconnectedGrace: Duration = .seconds(2),
         closeTimeout: Duration = .seconds(2),
-        highWaterBytes: UInt64 = 1 << 20,
-        lowWaterBytes: UInt64 = 256 << 10,
+        highWaterBytes: UInt64 = 128 << 10,
+        lowWaterBytes: UInt64 = 32 << 10,
+        maxMessageBytes: Int = 8 << 10,
+        laneBudgetBytes: Int = 1 << 20,
+        inFlightWindowBytes: Int = 256 << 10,
         network: WebRTCNetworkMode = .standard,
         clock: LinkClock = .continuous
     ) {
@@ -34,6 +51,9 @@ public struct WebRTCConfiguration: Sendable {
         self.closeTimeout = closeTimeout
         self.highWaterBytes = highWaterBytes
         self.lowWaterBytes = lowWaterBytes
+        self.maxMessageBytes = maxMessageBytes
+        self.laneBudgetBytes = laneBudgetBytes
+        self.inFlightWindowBytes = inFlightWindowBytes
         self.network = network
         self.clock = clock
     }

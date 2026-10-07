@@ -10,6 +10,7 @@ public struct FeatureSources: Sendable {
     public var devices: any DeviceRegistry
     public var files: any FileTransfer
     public var browser: any BrowserStreamSource
+    public var cloud: any CloudMachineSource
     /// The mode each seam actually resolved to (a requested `.real` without a
     /// registered implementation resolves to `.mock`).
     public var resolved: [FeatureSeam: FeatureSourceMode]
@@ -17,7 +18,8 @@ public struct FeatureSources: Sendable {
     public init(
         feed: any FeedSource, workspaces: any WorkspaceSource, composer: any TaskComposerSink,
         hosts: any HostsStore, devices: any DeviceRegistry, files: any FileTransfer,
-        browser: any BrowserStreamSource, resolved: [FeatureSeam: FeatureSourceMode]
+        browser: any BrowserStreamSource, cloud: any CloudMachineSource = MockCloudMachineSource(),
+        resolved: [FeatureSeam: FeatureSourceMode]
     ) {
         self.feed = feed
         self.workspaces = workspaces
@@ -26,6 +28,7 @@ public struct FeatureSources: Sendable {
         self.devices = devices
         self.files = files
         self.browser = browser
+        self.cloud = cloud
         self.resolved = resolved
     }
 

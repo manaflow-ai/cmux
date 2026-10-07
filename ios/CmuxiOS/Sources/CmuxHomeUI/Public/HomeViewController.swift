@@ -52,6 +52,7 @@ public final class HomeViewController: UIViewController {
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = HomePalette.background
+        view.accessibilityIdentifier = "home.screen"
         navigationItem.largeTitleDisplayMode = .always
         navigationItem.backButtonDisplayMode = .minimal
 

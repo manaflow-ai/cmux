@@ -79,7 +79,7 @@ export const mobileCatalog = {
       { name: "browser.rd", kind: "record", plane: "stream", dir: "both", owner: "mac-browser-host" },
     ] },
     { name: "rd", plane: "stream", owner: "mac-rd-host", messages: [
-      { name: "rd", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-rd-host", class: "interactive", errors: ["rd.display_not_found"] },
+      { name: "rd", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-rd-host", class: "interactive", errors: ["rd.display_not_found", "rd.window_not_found", "rd.permission_denied", "rd.vnc_not_allowed", "rd.vnc_unreachable", "rd.vnc_auth_unsupported", "rd.unavailable", "rd.consent_denied", "rd.stopped_by_host"] },
       { name: "rd.frame", kind: "record", plane: "stream", dir: "both", owner: "mac-rd-host" },
     ] },
     { name: "files", plane: "stream", owner: "mac-host", messages: [
@@ -90,6 +90,20 @@ export const mobileCatalog = {
       { name: "files.upload.done", kind: "message", plane: "stream", dir: "s2c", owner: "mac-host", errors: ["files.digest_mismatch"] },
       { name: "files.list", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["files.not_found", "files.forbidden"] },
       { name: "files.roots", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host" },
+    ] },
+    { name: "tunnel", plane: "stream", owner: "mac-host", messages: [
+      { name: "tcp.forward", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-host", class: "bulk", errors: ["tunnel.port_not_allowed", "tunnel.connect_refused", "tunnel.limit"] },
+      { name: "tcp.data", kind: "record", plane: "stream", dir: "both", owner: "mac-host" },
+      { name: "tunnel.ports", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host" },
+    ] },
+    { name: "simulator", plane: "stream", owner: "mac-simulator-host", messages: [
+      { name: "simulator", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-simulator-host", class: "interactive", errors: ["simulator.not_found", "simulator.unavailable"] },
+      { name: "simulator.rd", kind: "record", plane: "stream", dir: "both", owner: "mac-simulator-host" },
+      { name: "simulator.list", kind: "read", plane: "stream", dir: "c2s", owner: "mac-simulator-host" },
+    ] },
+    { name: "git", plane: "stream", owner: "mac-host", messages: [
+      { name: "git.status", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"] },
+      { name: "git.diff", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"] },
     ] },
     { name: "feed", plane: "control", owner: "FeedDO", stream: "feed:<user>", messages: [
       { name: "feed.list", kind: "read", plane: "control", dir: "c2s", owner: "FeedDO", existing: true },

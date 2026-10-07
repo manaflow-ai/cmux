@@ -16,6 +16,7 @@ let package = Package(
         .package(path: "../CmuxLink"),
         .package(path: "../CmuxMobileLink"),
         .package(path: "../CmuxMobileWire"),
+        .package(path: "../CmuxRemoteDesktop"),
         .package(path: "../CmuxTerminalStream"),
     ],
     targets: [
@@ -27,6 +28,7 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ]
         ),
@@ -39,6 +41,7 @@ let package = Package(
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ]
         ),

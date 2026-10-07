@@ -33,6 +33,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxLink"),
         .package(path: "../../Packages/Shared/CmuxBrowserStream"),
         .package(path: "../../Packages/Shared/CmuxMobileLink"),
+        .package(path: "../../Packages/Shared/CmuxRemoteDesktop"),
         .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxPairing"),
         .package(path: "../../Packages/Shared/CmuxMobileConnect"),
@@ -65,6 +66,8 @@ let package = Package(
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSFiles",
+                "CmuxiOSViewers",
+                "CmuxiOSViewersCore",
                 "CmuxiOSFilesCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
@@ -82,11 +85,17 @@ let package = Package(
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                "CmuxiOSWeb",
+                "CmuxiOSWebCore",
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSSearch",
                 "CmuxiOSSearchCore",
+                "CmuxiOSCloud",
+                "CmuxiOSCloudCore",
                 "CmuxiOSTerminalLink",
+                "CmuxiOSRemoteDesktop",
+                "CmuxiOSRemoteDesktopCore",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
@@ -274,6 +283,37 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C13 (plans/cmux-next/ios-next/c13-viewers.md): diff parsing
+        // and layout, the changed-file tree, syntax highlighting, Markdown
+        // blocks, file kinds, the `ViewerContentSource` seam (real over C4's
+        // `FileHostConnector`, mock, unavailable) and the screen models. No
+        // UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSViewersCore",
+            dependencies: [
+                "CmuxiOSFeatureKit", "CmuxiOSFilesCore",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSViewersCoreTests",
+            dependencies: [
+                "CmuxiOSViewersCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The changes and diff screens, the text/Markdown/image/PDF viewers
+        // (the `FileViewerHook` that replaces C4's QuickLook default) and
+        // the workspace file browser.
+        .target(
+            name: "CmuxiOSViewers",
+            dependencies: ["CmuxiOSViewersCore", "CmuxiOSFiles", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // First-run onboarding (plans/cmux-next/ios-next/c10-onboarding.md):
         // the platform-neutral flow, persistence and pairing projection...
         .target(
@@ -398,6 +438,39 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C14 (plans/cmux-next/ios-next/c14-web.md): the in-app
+        // browser's tunnels. `tcp.forward` over the per-Mac MobileLinkClient,
+        // SSH direct-tcpip through a C9 opener, and the token-gated loopback
+        // proxy WKWebView loads. No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSWebCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSWebCoreTests",
+            dependencies: [
+                "CmuxiOSWebCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Dev Servers list and the WKWebView tunnel browser.
+        .target(
+            name: "CmuxiOSWeb",
+            dependencies: ["CmuxiOSWebCore", "CmuxiOSFeatureKit", "CmuxiOSDesign", "CmuxiOSBrowser", "CmuxiOSBrowserCore"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSFeedModel",
             dependencies: ["CmuxiOSFeatureKit"],
@@ -474,6 +547,36 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C12 (plans/cmux-next/ios-next/c12-cloud.md): the team's Cloud
+        // machines over CloudDO (/v1/read, /v1/ops, /v1/wire/cloud). No UIKit,
+        // so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSCloudCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSCloudCoreTests",
+            dependencies: [
+                "CmuxiOSCloudCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSCloud",
+            dependencies: [
+                "CmuxiOSCloudCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Lane C1 (plans/cmux-next/ios-next/c1-terminal-rpc.md): workspace
         // terminals over the Mac's cmux.mobile/1 session.
         .target(
@@ -523,6 +626,43 @@ let package = Package(
         .target(
             name: "CmuxiOSComposer",
             dependencies: ["CmuxiOSComposerCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C3 (plans/cmux-next/ios-next/c3-rd.md): remote desktop. The
+        // core (viewport, trackpad, gestures, modifier latch, the link
+        // connector) has no UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSRemoteDesktopCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSBrowserCore",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSRemoteDesktopCoreTests",
+            dependencies: [
+                "CmuxiOSRemoteDesktopCore",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The remote desktop screen: H.264 decode and display, gestures,
+        // toolbar, keyboard and the entry sheet.
+        .target(
+            name: "CmuxiOSRemoteDesktop",
+            dependencies: [
+                "CmuxiOSRemoteDesktopCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

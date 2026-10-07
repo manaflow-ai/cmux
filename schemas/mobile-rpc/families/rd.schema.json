@@ -2,18 +2,57 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "families/rd.schema.json",
   "title": "cmux.mobile/1 rd family (stream; owner the Mac rd host)",
-  "description": "The channel carries one cmux.rd/1 session (cmux-tui/crates/cmux-rd-proto) with service desktop; record payload = u8 rd stream type + payload.",
+  "description": "The channel carries one cmux.rd/1 session (cmux-tui/crates/cmux-rd-proto) with service desktop; record payload = u8 rd stream type + payload. Control messages are desktop/1 (schemas/remote-desktop/desktop.json). See plans/cmux-next/ios-next/c3-rd.md.",
   "$defs": {
+    "Rect": {
+      "type": "object", "required": ["x", "y", "width", "height"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "width": { "type": "integer", "minimum": 0 }, "height": { "type": "integer", "minimum": 0 } }
+    },
+    "View": {
+      "allOf": [ { "$ref": "#/$defs/Rect" } ],
+      "type": "object", "required": ["seq", "pixel_width", "pixel_height"],
+      "properties": { "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295 }, "pixel_width": { "type": "integer", "minimum": 0 }, "pixel_height": { "type": "integer", "minimum": 0 } }
+    },
+    "Target": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "display" }, "display": { "type": "integer", "minimum": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "window"], "properties": { "kind": { "const": "window" }, "window": { "type": "integer", "minimum": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "host"], "properties": {
+          "kind": { "const": "vnc" },
+          "host": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^\\[?[A-Za-z0-9._:%-]+\\]?$" },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "name": { "type": "string", "maxLength": 64 } } }
+      ]
+    },
+    "TargetInfo": {
+      "type": "object", "required": ["kind", "width", "height", "scale", "name"],
+      "properties": { "kind": { "enum": ["display", "window", "vnc"] }, "width": { "type": "integer", "minimum": 0 }, "height": { "type": "integer", "minimum": 0 }, "scale": { "type": "number" }, "name": { "type": "string" } }
+    },
     "rd": {
       "type": "object", "additionalProperties": false, "required": ["service"],
-      "properties": { "service": { "const": "desktop" }, "display": { "type": "integer", "minimum": 0 } }
+      "properties": {
+        "service": { "const": "desktop" },
+        "display": { "type": "integer", "minimum": 0, "description": "Shorthand for target {kind: display, display}." },
+        "target": { "$ref": "#/$defs/Target" },
+        "mode": { "enum": ["view", "control"] },
+        "screen": { "type": "object", "required": ["pixel_width", "pixel_height", "scale"], "properties": { "pixel_width": { "type": "integer", "minimum": 16, "maximum": 8192 }, "pixel_height": { "type": "integer", "minimum": 16, "maximum": 8192 }, "scale": { "type": "number", "minimum": 0.5, "maximum": 4 } } },
+        "codecs": { "type": "array", "items": { "enum": ["h264", "hevc"] } },
+        "datagram_lane": { "type": "boolean" }
+      }
     },
     "rd:opened": {
-      "type": "object", "additionalProperties": false, "required": ["media"],
+      "type": "object", "required": ["media"],
       "properties": {
         "media": { "enum": ["rd_datagrams", "webrtc_track"] },
         "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId" },
-        "media_track": { "type": "string", "maxLength": 128 }
+        "media_track": { "type": "string", "maxLength": 128 },
+        "encoder": { "enum": ["h264", "hevc"] },
+        "target": { "$ref": "#/$defs/TargetInfo" },
+        "view": { "$ref": "#/$defs/View" },
+        "displays": { "type": "array", "items": { "type": "object", "required": ["id", "name", "width", "height", "scale", "main"] } },
+        "mode": { "enum": ["view", "control"] },
+        "cursor": { "enum": ["local", "in_video"] },
+        "caps": { "type": "array", "items": { "type": "string" } }
       }
     }
   }

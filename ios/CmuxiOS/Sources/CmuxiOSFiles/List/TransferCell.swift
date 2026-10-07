@@ -49,7 +49,11 @@ final class TransferCell: UITableViewCell {
         statusLabel.text = TransferStatusText(item: item).text
         bar.isHidden = item.progress.state == .finished || item.progress.state == .cancelled
         bar.progress = Float(item.progress.fraction ?? 0)
-        accessibilityLabel = [nameLabel.text, statusLabel.text].compactMap { $0 }.joined(separator: ", ")
-        accessibilityValue = item.progress.fraction.map { "\(Int($0 * 100))%" }
+        // The arrow glyph is the only visual cue for the direction; say it.
+        let direction = item.request.isUpload
+            ? String(localized: "files.cell.upload", defaultValue: "Upload", bundle: .module)
+            : String(localized: "files.cell.download", defaultValue: "Download", bundle: .module)
+        accessibilityLabel = [direction, nameLabel.text, statusLabel.text].compactMap { $0 }.joined(separator: ", ")
+        accessibilityValue = item.progress.fraction.map { $0.formatted(.percent.precision(.fractionLength(0))) }
     }
 }

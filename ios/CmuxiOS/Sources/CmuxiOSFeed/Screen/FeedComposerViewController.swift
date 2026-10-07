@@ -29,6 +29,7 @@ final class FeedComposerViewController: UIViewController, UITextViewDelegate {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: FeedText.composerCancel, style: .plain, target: self, action: #selector(cancel))
+        sendItem.accessibilityIdentifier = "feed.composer.send"
         navigationItem.rightBarButtonItem = sendItem
         promptLabel.text = prompt
         promptLabel.isHidden = prompt?.isEmpty ?? true

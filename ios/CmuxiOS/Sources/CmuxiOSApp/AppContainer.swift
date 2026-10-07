@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSBrowserCore
 import CmuxiOSComposerCore
 import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
@@ -22,6 +23,8 @@ import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import CmuxiOSTerminalLink
+import CmuxiOSViewers
+import CmuxiOSViewersCore
 import CmuxiOSWorkspaces
 import CmuxiOSWorkspacesCore
 import Foundation
@@ -93,6 +96,11 @@ final class AppContainer {
     /// DEV switches of the link layer (V2 carrier, echo prediction).
     let linkDev = LinkDevOptions()
     var linkDirectory: any MobileLinkDirectory { accountLinks }
+    /// C14: the same per-Mac clients for the tunnel browser and simulator
+    /// streams; nil without pairing (as for the browser stream).
+    var webClients: (any MobileLinkClientProvider)? {
+        pairing == nil ? nil : LinkClientProvider(directory: accountLinks)
+    }
     /// Workspace terminals of real Macs over each Mac's `cmux.mobile/1`
     /// session. Mock workspaces keep A2's mock host (ShellComposition).
     private(set) lazy var linkTerminalSources = LinkWorkspaceTerminalSourceFactory(
@@ -107,6 +115,8 @@ final class AppContainer {
     /// Lane C4: pickers, uploads and the transfer list over the account's
     /// files seam; one per seam set so its background handling lives as long.
     private var files: FilesFeature?
+    /// Lane C13: changes, file browser and viewers over the account's seams.
+    private var viewers: ViewersFeature?
     /// C1/D1 fill this with the terminal channel's paste; nil skips the paste.
     var terminalPathPasterFactory: (@Sendable () -> any TerminalPathPaster)?
     /// C8 fills this with the composer's attachment intake; nil keeps uploads in the inbox.
@@ -157,14 +167,16 @@ final class AppContainer {
         }
         diagnostics.info("app", "launch")
         router = ShellRouter(parser: ShellRouteParser(bundleScheme: Self.bundleURLScheme()), log: diagnostics)
-        auth = StackAuthGate(composition: composition)
+        let gate = StackAuthGate(composition: composition)
+        auth = gate
         devOptions = DevOptions(environment: environment)
         #if DEBUG
         let isDebug = true
         #else
         let isDebug = false
         #endif
-        flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        let flagStore = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        flags = flagStore
         // Lane C9: SSH and direct host records live on this device until B1
         // syncs them; one owner instance per process, shared by every shell.
         let sshDirectory = Self.sshDirectory()
@@ -203,9 +215,15 @@ final class AppContainer {
         if madePairing != nil {
             factories.browser = BrowserComposition.realSource(clients: links, directory: tabs)
         }
+        // C12: the team's Cloud machines over CloudDO.
+        let coordinator = gate.coordinator
+        let withCloud = CloudComposition.adding(to: factories, base: base, identity: madeIdentity,
+                                                sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
-            to: Self.addingFeed(to: factories, base: base, identity: madeIdentity, pairing: madePairing),
-            base: base, identity: madeIdentity, sockets: madePairing?.hostSockets), connector: madePairing == nil ? nil : links)
+            to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity, pairing: madePairing),
+            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces),
+            sockets: madePairing?.hostSockets),
+            connector: madePairing == nil ? nil : links)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -293,8 +311,12 @@ final class AppContainer {
 
     /// C5: workspaces of the account's paired Macs over the control plane;
     /// C8: the composer over the same Macs' `task:` streams.
+    /// `cloudHosts` (flag `cloudWorkspaces`, read at launch) adds the team's
+    /// bound Cloud machines as hosts (C12); off until the VM serves the host
+    /// socket, so no socket opens that HostDO would refuse.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
-                                         identity: InstallIdentity?, sockets: HostSocketPool?) -> RealFeatureFactories {
+                                         identity: InstallIdentity?, cloudHosts: Bool,
+                                         sockets: HostSocketPool?) -> RealFeatureFactories {
         var factories = factories
         // A lease on each paired Mac's one `/v1/wire/host/<host>` socket
         // (D1b, shared with presence, tasks and signaling), as this install
@@ -311,8 +333,12 @@ final class AppContainer {
         } else {
             channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
         }
-        factories.workspaces = { devices in
-            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
+        factories.workspaces = { devices, cloud in
+            let macs = DeviceRegistryHostDirectory(registry: devices)
+            let directory: any WorkspaceHostDirectory = cloudHosts
+                ? CompositeHostDirectory([macs, CloudMachineHostDirectory(source: cloud)])
+                : macs
+            return ControlPlaneWorkspaceSource(directory: directory, channels: channels)
         }
         // C8: the composer's `task:<host>` streams ride the same host sockets
         // (one more subscription per Mac while a composer is open).
@@ -346,6 +372,27 @@ final class AppContainer {
         let made = FilesFeature(transfer: sources.files, paster: terminalPathPasterFactory?(),
                                 attachments: fileAttachmentSinkFactory?())
         files = made
+        return made
+    }
+
+    /// The account's viewers (c13-viewers.md): real Macs read over the
+    /// account's link clients (D1), the same ones files use; without an API
+    /// origin they say "No connection to this Mac". Mock workspaces read the
+    /// canned repository. Downloads finished in the transfer list open in
+    /// its router instead of QuickLook.
+    func viewersFeature(for sources: FeatureSources, real: Bool) -> ViewersFeature {
+        if let viewers { return viewers }
+        let source: any ViewerContentSource
+        if !real {
+            source = MockViewerContentSource()
+        } else if pairing != nil {
+            source = LinkViewerContentSource(connector: LinkClientProvider(directory: accountLinks), transfer: sources.files)
+        } else {
+            source = UnavailableViewerContentSource()
+        }
+        let made = ViewersFeature(source: source)
+        filesFeature(for: sources).viewer = made.router
+        viewers = made
         return made
     }
 
@@ -462,6 +509,7 @@ final class AppContainer {
         features = made
         browserTabs.set(made.workspaces)
         files = nil
+        viewers = nil
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
     }
@@ -471,6 +519,7 @@ final class AppContainer {
         features = nil
         featuresAccount = nil
         files = nil
+        viewers = nil
     }
 
     func setMockOffline(_ offline: Bool) async {

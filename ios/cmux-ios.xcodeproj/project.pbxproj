@@ -23,6 +23,17 @@
 /* End PBXBuildFile section */
 		E7B0A0000000000000000020 /* KeyboardUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */; };
 		E7B0A0000000000000000021 /* KeyboardAuditUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */; };
+		E7B0A00000000000000000E0 /* NextUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D0 /* NextUITestSupport.swift */; };
+		E7B0A00000000000000000EA /* NextCloudUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000DA /* NextCloudUITests.swift */; };
+		E7B0A00000000000000000E1 /* NextOnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D1 /* NextOnboardingUITests.swift */; };
+		E7B0A00000000000000000E2 /* NextShellTabsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D2 /* NextShellTabsUITests.swift */; };
+		E7B0A00000000000000000E3 /* NextFeedUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D3 /* NextFeedUITests.swift */; };
+		E7B0A00000000000000000E4 /* NextWorkspacesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D4 /* NextWorkspacesUITests.swift */; };
+		E7B0A00000000000000000E5 /* NextComposerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D5 /* NextComposerUITests.swift */; };
+		E7B0A00000000000000000E6 /* NextHostsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D6 /* NextHostsUITests.swift */; };
+		E7B0A00000000000000000E7 /* NextSettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D7 /* NextSettingsUITests.swift */; };
+		E7B0A00000000000000000E8 /* NextSearchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D8 /* NextSearchUITests.swift */; };
+		E7B0A00000000000000000E9 /* NextDiagnosticsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A00000000000000000D9 /* NextDiagnosticsUITests.swift */; };
 		D4E2A0010000000000000001 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E2A0020000000000000001 /* NotificationService.swift */; };
 		D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D4E2A0030000000000000001 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 
@@ -55,6 +66,17 @@
 /* End PBXFileReference section */
 		E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUITestSupport.swift; sourceTree = "<group>"; };
 		E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAuditUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D0 /* NextUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextUITestSupport.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000DA /* NextCloudUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextCloudUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D1 /* NextOnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextOnboardingUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D2 /* NextShellTabsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextShellTabsUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D3 /* NextFeedUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextFeedUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D4 /* NextWorkspacesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWorkspacesUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D5 /* NextComposerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextComposerUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D6 /* NextHostsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextHostsUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D7 /* NextSettingsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextSettingsUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D8 /* NextSearchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextSearchUITests.swift; sourceTree = "<group>"; };
+		E7B0A00000000000000000D9 /* NextDiagnosticsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextDiagnosticsUITests.swift; sourceTree = "<group>"; };
 		E7B0A0000000000000000001 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4E2A0020000000000000001 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		C7A000000000000000000001 /* AgentActivityWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityWidgetBundle.swift; sourceTree = "<group>"; };
@@ -144,7 +166,7 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-		E7B0A0000000000000000002 /* cmuxUITests */ = {isa = PBXGroup; children = (E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */, E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */); path = cmuxUITests; sourceTree = "<group>"; };
+		E7B0A0000000000000000002 /* cmuxUITests */ = {isa = PBXGroup; children = (E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */, E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */, E7B0A00000000000000000D0 /* NextUITestSupport.swift */, E7B0A00000000000000000D1 /* NextOnboardingUITests.swift */, E7B0A00000000000000000D2 /* NextShellTabsUITests.swift */, E7B0A00000000000000000D3 /* NextFeedUITests.swift */, E7B0A00000000000000000D4 /* NextWorkspacesUITests.swift */, E7B0A00000000000000000D5 /* NextComposerUITests.swift */, E7B0A00000000000000000D6 /* NextHostsUITests.swift */, E7B0A00000000000000000D7 /* NextSettingsUITests.swift */, E7B0A00000000000000000D8 /* NextSearchUITests.swift */, E7B0A00000000000000000D9 /* NextDiagnosticsUITests.swift */, E7B0A00000000000000000DA /* NextCloudUITests.swift */); path = cmuxUITests; sourceTree = "<group>"; };
 		D4E2A0050000000000000001 /* NotificationService */ = {isa = PBXGroup; children = (D4E2A0020000000000000001 /* NotificationService.swift */, C7A000000000000000000014 /* Localizable.xcstrings */); path = "../NotificationService"; sourceTree = "<group>"; };
 		C7A000000000000000000006 /* AgentActivityWidget */ = {isa = PBXGroup; children = (C7A000000000000000000001 /* AgentActivityWidgetBundle.swift */, C7A000000000000000000003 /* Info.plist */); path = "../AgentActivityWidget"; sourceTree = "<group>"; };
 
@@ -281,7 +303,7 @@
 		};
 		C7A000000000000000000008 /* AgentActivityWidget Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C7A000000000000000000002 /* AgentActivityWidgetBundle.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
-		E7B0A0000000000000000003 /* cmuxUITests Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E7B0A0000000000000000020 /* KeyboardUITestSupport.swift in Sources */, E7B0A0000000000000000021 /* KeyboardAuditUITests.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		E7B0A0000000000000000003 /* cmuxUITests Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E7B0A0000000000000000020 /* KeyboardUITestSupport.swift in Sources */, E7B0A0000000000000000021 /* KeyboardAuditUITests.swift in Sources */, E7B0A00000000000000000E0 /* NextUITestSupport.swift in Sources */, E7B0A00000000000000000E1 /* NextOnboardingUITests.swift in Sources */, E7B0A00000000000000000E2 /* NextShellTabsUITests.swift in Sources */, E7B0A00000000000000000E3 /* NextFeedUITests.swift in Sources */, E7B0A00000000000000000E4 /* NextWorkspacesUITests.swift in Sources */, E7B0A00000000000000000E5 /* NextComposerUITests.swift in Sources */, E7B0A00000000000000000E6 /* NextHostsUITests.swift in Sources */, E7B0A00000000000000000E7 /* NextSettingsUITests.swift in Sources */, E7B0A00000000000000000E8 /* NextSearchUITests.swift in Sources */, E7B0A00000000000000000E9 /* NextDiagnosticsUITests.swift in Sources */, E7B0A00000000000000000EA /* NextCloudUITests.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 		D4E2A0080000000000000001 /* NotificationService Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4E2A0010000000000000001 /* NotificationService.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXTargetDependency section */

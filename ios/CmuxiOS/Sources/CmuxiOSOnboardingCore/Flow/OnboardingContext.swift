@@ -10,11 +10,13 @@ public struct OnboardingContext: Hashable, Sendable {
     /// A Mac other than this device is trusted on the account.
     public var hasTrustedMac: Bool
     public var mode: OnboardingMode
+    /// The Cloud step is on (flag) and the app registered a create hook (C12).
+    public var offersCloudMachine: Bool
 
     public init(
         isSignedIn: Bool = false, notifications: PermissionStatus = .notDetermined,
         localNetwork: PermissionStatus = .notDetermined, camera: PermissionStatus = .notDetermined,
-        hasTrustedMac: Bool = false, mode: OnboardingMode = .firstRun
+        hasTrustedMac: Bool = false, mode: OnboardingMode = .firstRun, offersCloudMachine: Bool = false
     ) {
         self.isSignedIn = isSignedIn
         self.notifications = notifications
@@ -22,6 +24,7 @@ public struct OnboardingContext: Hashable, Sendable {
         self.camera = camera
         self.hasTrustedMac = hasTrustedMac
         self.mode = mode
+        self.offersCloudMachine = offersCloudMachine
     }
 
     public func status(of kind: PermissionKind) -> PermissionStatus {

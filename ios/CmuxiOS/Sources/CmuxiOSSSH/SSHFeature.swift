@@ -14,7 +14,12 @@ public final class SSHFeature {
     let device: SSHDeviceState
     /// The device's terminal settings (lane C11); nil keeps renderer defaults.
     let appearance: (any TerminalAppearanceProviding)?
+    /// Lane C14: browser screens for a host's localhost; nil hides the action.
+    public var browsers: SSHBrowserScreens?
     private weak var navigation: UINavigationController?
+    /// Opens a paired Mac's row (lane C3: the remote desktop entry). Set by
+    /// the composition root; nil leaves paired Macs informational.
+    public var openPairedMac: (@MainActor (HostRecord, UIViewController, UIView?) -> Void)?
     private(set) lazy var prompter = SSHTrustAlertPrompter { [weak self] in
         self?.navigation?.topmostPresented
     }
@@ -111,6 +116,36 @@ public final class SSHFeature {
                 self.showEditor(.edit(host.id), records: records, from: list.topmostPresented)
             }
             list.navigationController?.pushViewController(screen, animated: true)
+        }
+    }
+
+    /// Opens the tunnel browser for `host` (lane C14): a paired Mac's dev
+    /// servers, or an SSH host's localhost over the same hop chain, trust
+    /// and credentials the terminal uses.
+    func openBrowser(_ host: HostRecord, records: [HostRecord], from list: UIViewController) {
+        guard let browsers else { return }
+        switch host.kind {
+        case .pairedMac:
+            list.navigationController?.pushViewController(browsers.mac(host.id, host.name), animated: true)
+        case .ssh:
+            Task {
+                let chain: SSHHostChain
+                do {
+                    chain = try SSHHostChain(target: host.id, records: records)
+                } catch {
+                    showFailure(SSHSessionFailure(error), on: list)
+                    return
+                }
+                for hop in chain.hops where await device.settings.settings(for: hop.hostID).auth == .unset {
+                    showEditor(.edit(hop.hostID), records: records, from: list)
+                    return
+                }
+                let verifier = TOFUHostKeyVerifier(knownHosts: device.knownHosts, prompter: prompter, names: chain.names)
+                let opener = NIOSSHTunnelOpener(chain: chain, credentials: device.credentials, verifier: verifier)
+                list.navigationController?.pushViewController(browsers.ssh(host.id, host.name, opener), animated: true)
+            }
+        case .direct:
+            break
         }
     }
 

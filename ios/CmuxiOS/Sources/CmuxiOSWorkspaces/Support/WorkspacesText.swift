@@ -21,6 +21,8 @@ enum WorkspacesText {
     static func unreadCount(_ count: Int) -> String {
         String(localized: "workspaces.row.unread", defaultValue: "\(count) unread", bundle: .module)
     }
+    static var changes: String { String(localized: "workspaces.detail.changes", defaultValue: "Changes", bundle: .module) }
+    static var files: String { String(localized: "workspaces.detail.files", defaultValue: "Files", bundle: .module) }
     static var mockData: String { String(localized: "workspaces.mock", defaultValue: "Mock data", bundle: .module) }
     static var allOffline: String { String(localized: "workspaces.all-offline", defaultValue: "Every Mac is offline", bundle: .module) }
 
@@ -58,6 +60,9 @@ enum WorkspacesText {
 
     // Menu
     static var viewOptions: String { String(localized: "workspaces.menu.view", defaultValue: "View Options", bundle: .module) }
+    static var workspaceActions: String {
+        String(localized: "workspaces.menu.actions", defaultValue: "Workspace Actions", bundle: .module)
+    }
     static var filter: String { String(localized: "workspaces.menu.filter", defaultValue: "Filter", bundle: .module) }
     static var sort: String { String(localized: "workspaces.menu.sort", defaultValue: "Sort", bundle: .module) }
     static var grouping: String { String(localized: "workspaces.menu.grouping", defaultValue: "Group", bundle: .module) }

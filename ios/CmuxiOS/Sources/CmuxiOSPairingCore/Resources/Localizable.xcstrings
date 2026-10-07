@@ -4,9 +4,51 @@
     "pairing.device.guest": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "%1$@ (%2$@)"
           }
         },
@@ -15,15 +57,129 @@
             "state": "translated",
             "value": "%1$@（%2$@）"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
+          }
         }
       }
     },
     "pairing.device.this": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This iPhone"
           }
         },
@@ -32,15 +188,129 @@
             "state": "translated",
             "value": "このiPhone"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This iPhone"
+          }
         }
       }
     },
     "pairing.error.cannot_rename": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Only your own devices can be renamed."
           }
         },
@@ -49,15 +319,129 @@
             "state": "translated",
             "value": "名前を変更できるのは自分のデバイスだけです。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Only your own devices can be renamed."
+          }
         }
       }
     },
     "pairing.error.declined": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "The Mac's owner declined this iPhone."
           }
         },
@@ -66,15 +450,129 @@
             "state": "translated",
             "value": "Macの所有者がこのiPhoneを拒否しました。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The Mac's owner declined this iPhone."
+          }
         }
       }
     },
     "pairing.error.invalid_link": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This pairing code is damaged. Show a new code on your Mac."
           }
         },
@@ -83,15 +581,129 @@
             "state": "translated",
             "value": "このペアリングコードは読み取れません。Macで新しいコードを表示してください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code is damaged. Show a new code on your Mac."
+          }
         }
       }
     },
     "pairing.error.key_mismatch": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
           }
         },
@@ -100,15 +712,129 @@
             "state": "translated",
             "value": "このコードはMacの鍵と一致しません。そのMacのcmuxに表示されたコードをスキャンしてください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This code does not match the Mac's key. Scan the code shown in cmux on that Mac."
+          }
         }
       }
     },
     "pairing.error.not_link": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This is not a cmux pairing code."
           }
         },
@@ -117,15 +843,129 @@
             "state": "translated",
             "value": "これはcmuxのペアリングコードではありません。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This is not a cmux pairing code."
+          }
         }
       }
     },
     "pairing.error.offer_unknown": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This pairing code expired. Show a new code on your Mac."
           }
         },
@@ -134,15 +974,129 @@
             "state": "translated",
             "value": "このペアリングコードは期限切れです。Macで新しいコードを表示してください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code expired. Show a new code on your Mac."
+          }
         }
       }
     },
     "pairing.error.offer_used": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This pairing code was already used. Show a new code on your Mac."
           }
         },
@@ -151,15 +1105,129 @@
             "state": "translated",
             "value": "このペアリングコードはすでに使用されています。Macで新しいコードを表示してください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code was already used. Show a new code on your Mac."
+          }
         }
       }
     },
     "pairing.error.offline": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "You're offline. Connect to the internet and try again."
           }
         },
@@ -168,15 +1236,129 @@
             "state": "translated",
             "value": "オフラインです。インターネットに接続してもう一度お試しください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "You're offline. Connect to the internet and try again."
+          }
         }
       }
     },
     "pairing.error.refused": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Pairing failed: %@"
           }
         },
@@ -185,15 +1367,129 @@
             "state": "translated",
             "value": "ペアリングに失敗しました: %@"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pairing failed: %@"
+          }
         }
       }
     },
     "pairing.error.unknown_device": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "That device is no longer on your account."
           }
         },
@@ -202,15 +1498,129 @@
             "state": "translated",
             "value": "そのデバイスはもうアカウントにありません。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "That device is no longer on your account."
+          }
         }
       }
     },
     "pairing.error.update_required": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
           }
         },
@@ -219,15 +1629,129 @@
             "state": "translated",
             "value": "このペアリングコードには新しいバージョンのcmuxが必要です。アプリをアップデートしてもう一度スキャンしてください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This pairing code needs a newer version of cmux. Update the app and scan again."
+          }
         }
       }
     },
     "pairing.status.paired": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Paired with %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Paired with %@."
           }
         },
@@ -236,15 +1760,129 @@
             "state": "translated",
             "value": "%@とペアリングしました。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paired with %@."
+          }
         }
       }
     },
     "pairing.status.pending": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Waiting for the Mac's owner to accept this iPhone."
           }
         },
@@ -252,6 +1890,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macの所有者がこのiPhoneを承認するのを待っています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Waiting for the Mac's owner to accept this iPhone."
           }
         }
       }
