@@ -145,6 +145,34 @@ async fn the_local_app_sends_no_prompt_while_the_folders_trust_is_pending() {
 }
 
 #[tokio::test]
+async fn local_app_and_web_cannot_create_an_agent_before_folder_trust() {
+    let d = dir("new");
+    let hub = hub_with(&d, "ask");
+    let work = d.join("work");
+    for origin in [Origin::LocalApp, Origin::Web] {
+        let mut client = Client::new(&hub, origin);
+        let r = client
+            .call(
+                "session/new",
+                json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+            )
+            .await;
+        assert_eq!(reason(&r), "trust.pending", "{origin:?}: {r}");
+        assert!(r["result"].is_null(), "the agent was created: {r}");
+    }
+    let mut local = Client::new(&hub, Origin::Local);
+    local.trust(&work, "trusted").await;
+    let r = local
+        .call(
+            "session/new",
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "trusted creation: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
 async fn the_sessions_own_agent_answers_without_a_decision() {
     let d = dir("harness");
     let hub = hub(&d);
