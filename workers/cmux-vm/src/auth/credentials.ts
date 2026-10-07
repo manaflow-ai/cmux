@@ -5,7 +5,7 @@
  * never stored).
  */
 import { Context, Data, Effect, Layer, Redacted, Schema } from "effect";
-import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { createLocalJWKSet, errors as joseErrors, jwtVerify, type JSONWebKeySet, type JWTVerifyGetKey } from "jose";
 import { TenantId, UserId } from "../lib/ids.ts";
 
 export const API_KEY_PREFIX = "cmuxvm_sk_";
@@ -72,20 +72,65 @@ const looksLikeCompactJws = (value: string): boolean => {
   return parts.length === 3 && parts.every((part) => part.length > 0);
 };
 
+const JWKS_MAX_AGE_MS = 10 * 60 * 1000;
+const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
+
+const optionalString = Schema.optional(Schema.String);
+/** The public JWK fields jose reads for ES256 (and RSA, for completeness). */
+const Jwk = Schema.Struct({
+  kty: optionalString,
+  crv: optionalString,
+  x: optionalString,
+  y: optionalString,
+  n: optionalString,
+  e: optionalString,
+  kid: optionalString,
+  alg: optionalString,
+  use: optionalString,
+});
+const JwksDocument = Schema.Struct({ keys: Schema.mutable(Schema.Array(Jwk)) });
+
+/**
+ * Stack's JWKS, cached as data (never as a pending promise): a Worker must
+ * not await I/O that another request started. Each fetch happens inside the
+ * request that needs it; an unknown `kid` refetches at most every 30 s.
+ */
+function stackJwks(url: URL, send: (request: Request) => Promise<Response>): JWTVerifyGetKey {
+  let cached: { readonly verify: JWTVerifyGetKey; readonly fetchedAt: number } | undefined;
+  const refresh = async (): Promise<JWTVerifyGetKey> => {
+    const response = await send(new Request(url, { headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(3000) }));
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`jwks ${response.status}`);
+    }
+    const document: JSONWebKeySet = Schema.decodeUnknownSync(JwksDocument)(await response.json());
+    cached = { verify: createLocalJWKSet(document), fetchedAt: Date.now() };
+    return cached.verify;
+  };
+  return async (header, token) => {
+    const current = cached !== undefined && Date.now() - cached.fetchedAt < JWKS_MAX_AGE_MS ? cached : undefined;
+    const verify = current?.verify ?? (await refresh());
+    try {
+      return await verify(header, token);
+    } catch (error) {
+      if (!(error instanceof joseErrors.JWKSNoMatchingKey) || current === undefined) throw error;
+      if (Date.now() - current.fetchedAt < JWKS_REFRESH_COOLDOWN_MS) throw error;
+      return (await refresh())(header, token);
+    }
+  };
+}
+
 /**
  * Stack signs access tokens with ES256 under its project issuer and audience.
  * `getKey` defaults to Stack's published JWKS for the project.
  */
-export function makeStackSessionVerifier(config: StackConfig & { readonly getKey?: JWTVerifyGetKey }): SessionVerifierService {
+export function makeStackSessionVerifier(
+  config: StackConfig & { readonly getKey?: JWTVerifyGetKey; readonly fetch?: (request: Request) => Promise<Response> },
+): SessionVerifierService {
   const origin = stackOrigin(config.apiUrl);
   const issuer = `${origin}/api/v1/projects/${config.projectId}`;
   const getKey =
-    config.getKey ??
-    createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`), {
-      cacheMaxAge: 10 * 60 * 1000,
-      cooldownDuration: 30 * 1000,
-      timeoutDuration: 3000,
-    });
+    config.getKey ?? stackJwks(new URL(`${issuer}/.well-known/jwks.json`), config.fetch ?? ((request) => fetch(request)));
   const decodeUser = Schema.decodeUnknownOption(UserId);
 
   return {
@@ -119,6 +164,9 @@ export function makeStackSessionVerifier(config: StackConfig & { readonly getKey
   };
 }
 
+const MEMBERSHIP_TTL_MS = 60 * 1000;
+const MEMBERSHIP_CACHE_MAX = 10_000;
+
 const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String })) });
 
 /** Team membership through the Stack server API. */
@@ -131,8 +179,24 @@ export function makeStackTeamMembership(
   const origin = stackOrigin(config.apiUrl);
   const send = config.fetch ?? ((request: Request) => fetch(request));
   const decode = Schema.decodeUnknown(TeamsResponse);
-  return {
-    isMember: (tenantId, userId) =>
+  // Per-isolate cache of answers (not promises), so a burst of requests makes
+  // one Stack call per user and team a minute instead of one each.
+  const cache = new Map<string, { readonly member: boolean; readonly at: number }>();
+  const lookup = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
+    Effect.suspend(() => {
+      const key = `${tenantId}\u0000${userId}`;
+      const hit = cache.get(key);
+      if (hit !== undefined && Date.now() - hit.at < MEMBERSHIP_TTL_MS) return Effect.succeed(hit.member);
+      return fetchMembership(tenantId, userId).pipe(
+        Effect.tap((member) =>
+          Effect.sync(() => {
+            if (cache.size >= MEMBERSHIP_CACHE_MAX) cache.clear();
+            cache.set(key, { member, at: Date.now() });
+          }),
+        ),
+      );
+    });
+  const fetchMembership = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
       Effect.tryPromise({
         try: async () => {
           const url = new URL("/api/v1/teams", origin);
@@ -160,8 +224,8 @@ export function makeStackTeamMembership(
       }).pipe(
         Effect.flatMap((body) => decode(body).pipe(Effect.mapError(() => new IdentityUnavailable({ reason: "stack-shape" })))),
         Effect.map((teams) => teams.items.some((team) => team.id === tenantId)),
-      ),
-  };
+      );
+  return { isMember: lookup };
 }
 
 export const stackLayers = (

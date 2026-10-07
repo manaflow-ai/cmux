@@ -28,8 +28,10 @@
     "logs": { "enabled": true, "invocation_logs": true }
   },
   "env": {
-    // One Worker per lane push on workers.dev. The Hyperdrive id is a
-    // placeholder until the preview Hyperdrive config exists.
+    // Environments carry no Hyperdrive id: scripts/deploy.sh resolves the
+    // config named cmux-vm-<env> through the Cloudflare API at deploy time and
+    // writes it into wrangler.generated.json. The top-level placeholder id is
+    // for wrangler dev and the tests only.
     "preview": {
       "name": "cmux-vm-preview",
       "workers_dev": true,
@@ -37,8 +39,7 @@
         "ENVIRONMENT": "preview",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
-      },
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000001" }]
+      }
     },
     // vm-staging.cmux.com is attached when DNS is set up; no route here yet.
     "staging": {
@@ -48,8 +49,7 @@
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
-      },
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000002" }]
+      }
     },
     // vm.cmux.com is attached when DNS is set up; no route here yet.
     "production": {
@@ -59,8 +59,7 @@
         "ENVIRONMENT": "production",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
-      },
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000003" }]
+      }
     }
   }
 }

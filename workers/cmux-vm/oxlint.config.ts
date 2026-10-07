@@ -12,4 +12,11 @@ const preset = gdp({ strict: true, proofs: ["src/proofs/**"], allowAssertions: [
 export default {
   ...preset,
   jsPlugins: preset.jsPlugins.map((plugin) => ({ ...plugin, specifier: "./.gdp-lint/plugin.js" })),
+  overrides: [
+    ...preset.overrides,
+    // Network access is confined to the upstream client and the identity
+    // checks, so no other code can reach the provider without a proof.
+    { files: ["src/**/*.ts"], rules: { "no-restricted-globals": ["error", "fetch"] } },
+    { files: ["src/upstream/**", "src/auth/**"], rules: { "no-restricted-globals": "off" } },
+  ],
 };

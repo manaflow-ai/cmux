@@ -11,12 +11,20 @@
 #   environment          trigger                       Worker
 #   cmux-vm-preview      same-repo pull request        cmux-vm-preview (workers.dev)
 #   cmux-vm-staging      push to main                  cmux-vm-staging
-#   cmux-vm-production   tag cmux-vm-v*                cmux-vm-production
+#
+# Production deploys are added with the protected cmux-vm-production
+# environment (cx-b4h.5), not here.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
-# CMUX_VM_STACK_PROJECT_ID, CMUX_VM_STACK_SECRET_SERVER_KEY. They reach the
-# Worker through `wrangler secret put` on stdin and are never printed.
+# CMUX_VM_STACK_PROJECT_ID, CMUX_VM_STACK_SECRET_SERVER_KEY, and
+# CMUX_VM_DATABASE_URL (read only by the hyperdrive ensure job). No Hyperdrive
+# id is committed: deploys resolve the config named after the environment.
+#
+# Manual runs (workflow_dispatch) choose one read-only or setup action:
+#   cloudflare-preflight  token, Workers scripts and Hyperdrive list checks
+#   hyperdrive-ensure     create or update the Hyperdrive config named after
+#                         the chosen environment from its CMUX_VM_DATABASE_URL
 
 name: cmux VM
 
@@ -27,10 +35,21 @@ on:
       - .github/workflows/cmux-vm.yml
   push:
     branches: [main]
-    tags: ["cmux-vm-v*"]
     paths:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Manual action
+        type: choice
+        options: [cloudflare-preflight, hyperdrive-ensure]
+        default: cloudflare-preflight
+      environment:
+        description: Environment for hyperdrive-ensure
+        type: choice
+        options: [cmux-vm-staging, cmux-vm-preview]
+        default: cmux-vm-staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -41,6 +60,7 @@ permissions:
 
 jobs:
   check:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
@@ -96,8 +116,78 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Read-only: confirms the repository Cloudflare token works and can see
+  # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.
+  cloudflare-preflight:
+    name: cloudflare preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Read-only Cloudflare API checks
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          # The token goes to curl through a header file, never argv or logs.
+          printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$work/auth"
+          api="https://api.cloudflare.com/client/v4"
+          get() { curl -sS -o "$work/body" -w '%{http_code}' -H @"$work/auth" "$api$1" || echo 000; }
+          # Prints only the HTTP code, the API success flag and a result count.
+          summary() { jq -r '"success=\(.success) results=\(if (.result|type)=="array" then (.result|length) else "n/a" end)"' "$work/body" 2>/dev/null || echo "unparseable body"; }
+          failed=0
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify")"
+          if [ "$code" = 200 ]; then
+            echo "token verify (account token): HTTP $code $(summary)"
+          else
+            echo "token verify (account token): HTTP $code"
+            code="$(get "/user/tokens/verify")"
+            echo "token verify (user token): HTTP $code $(summary)"
+            [ "$code" = 200 ] || failed=1
+          fi
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
+          echo "workers scripts list: HTTP $code $(summary)"
+          [ "$code" = 200 ] || failed=1
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs")"
+          echo "hyperdrive configs list: HTTP $code $(summary)"
+          [ "$code" = 200 ] || failed=1
+          exit "$failed"
+
+  hyperdrive-ensure:
+    name: hyperdrive ensure
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: cmux-vm-hyperdrive-${{ inputs.environment }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Create or update the Hyperdrive config
+        env:
+          CONFIG_NAME: ${{ inputs.environment }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bash scripts/hyperdrive.sh ensure "$CONFIG_NAME"
+
   deploy-preview:
-    if: vars.CMUX_VM_DEPLOY_ENABLED == '1' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: check
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -109,17 +199,35 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
+      # The gate is an environment variable, which a job-level `if` cannot see
+      # (it is evaluated before the environment attaches), so it is read here.
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.2"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.gate.outputs.enabled == 'true'
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+        if: steps.gate.outputs.enabled == 'true'
       - name: Deploy and set secrets
+        if: steps.gate.outputs.enabled == 'true'
         env:
           TARGET: preview
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -130,7 +238,7 @@ jobs:
         run: bash scripts/deploy.sh
 
   deploy-staging:
-    if: vars.CMUX_VM_DEPLOY_ENABLED == '1' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -142,52 +250,37 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
+      # The gate is an environment variable, which a job-level `if` cannot see
+      # (it is evaluated before the environment attaches), so it is read here.
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.2"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.gate.outputs.enabled == 'true'
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+        if: steps.gate.outputs.enabled == 'true'
       - name: Deploy and set secrets
+        if: steps.gate.outputs.enabled == 'true'
         env:
           TARGET: staging
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
-          CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
-          CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
-        run: bash scripts/deploy.sh
-
-  deploy-production:
-    if: vars.CMUX_VM_DEPLOY_ENABLED == '1' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/cmux-vm-v')
-    needs: check
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    environment: cmux-vm-production
-    concurrency:
-      group: cmux-vm-deploy-production
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: workers/cmux-vm
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24"
-      - run: bun install --frozen-lockfile
-      - name: Deploy and set secrets
-        env:
-          TARGET: production
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}

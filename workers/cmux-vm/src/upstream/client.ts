@@ -2,7 +2,7 @@
  * The upstream VM provider, as this service sees it.
  *
  * Every method demands gdp-ts proofs about its exact named arguments, and the
- * upstream id comes only from a TenantOwnsResource proof. The raw HTTP request
+ * upstream id comes only from a minted TenantOwnsResource proof. The raw HTTP request
  * function and the provider key are private to `makeUpstreamClient`; nothing
  * else in the Worker can reach the provider. See upstream/PINNED.json for the
  * pinned provider API surface.
@@ -11,7 +11,7 @@ import type { Named } from "@gdp-ts/core";
 import { Context, Data, Effect, Redacted, Schema } from "effect";
 import type { VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
-import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
 export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
@@ -49,7 +49,7 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientService {
   const base = new URL(config.baseUrl);
-  if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash) {
+  if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash || base.pathname !== "/") {
     throw new Error("upstream base URL must be a bare HTTPS origin");
   }
   const send = config.fetch ?? ((request: Request) => fetch(request));
@@ -69,9 +69,9 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
           await response.body?.cancel();
           return { ok: false as const, status: response.status };
         }
-        const text = await response.text();
-        if (text.length > MAX_RESPONSE_BYTES) return { ok: false as const, status: response.status };
-        const body: unknown = JSON.parse(text);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > MAX_RESPONSE_BYTES) return { ok: false as const, status: response.status };
+        const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
         return { ok: true as const, body };
       },
       catch: () => new UpstreamError({ operation, status: null }),
@@ -83,7 +83,10 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 
   return {
     getVm: (_vm, { owns }) =>
-      getJson("getVm", `/v5/vms/${encodeURIComponent(owns.upstreamId)}`).pipe(
+      Effect.try(() => upstreamIdOf(owns)).pipe(
+        Effect.orDie,
+        Effect.flatMap((upstreamId) => getJson("getVm", `/v5/vms/${encodeURIComponent(upstreamId)}`)),
+      ).pipe(
         Effect.flatMap(Schema.decodeUnknown(UpstreamVm)),
         Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation: "getVm", status: null }))),
       ),

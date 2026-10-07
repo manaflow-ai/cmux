@@ -30,6 +30,6 @@ export const hyperdriveSqlLayer = (connectionString: string): Layer.Layer<SqlCli
             try: async (): Promise<ReadonlyArray<unknown>> => Array.from(await sql.unsafe(text, [...params])),
             catch: (cause) => new StoreError({ operation, cause }),
           }),
-        (sql) => Effect.promise(() => sql.end({ timeout: 1 })).pipe(Effect.ignore),
+        (sql) => Effect.tryPromise(() => sql.end({ timeout: 1 })).pipe(Effect.ignore),
       ),
   });

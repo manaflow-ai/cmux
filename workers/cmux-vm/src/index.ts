@@ -34,12 +34,28 @@ const liveServices = (env: Env) =>
 
 let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
 
+/** A missing secret or binding answers 503 instead of crashing every request. */
+const notConfigured = (): Promise<Response> =>
+  Promise.resolve(
+    Response.json({ _tag: "ServiceUnavailable", message: "The cmux VM service is not configured" }, { status: 503 }),
+  );
+
+const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
+  try {
+    if (!env.HYPERDRIVE || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
+      return notConfigured;
+    }
+    const { handler } = makeWebHandler(liveServices(env));
+    return (incoming) => handler(incoming);
+  } catch {
+    console.error("cmux-vm configuration invalid");
+    return notConfigured;
+  }
+};
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    if (cached === undefined || cached.env !== env) {
-      const { handler } = makeWebHandler(liveServices(env));
-      cached = { env, handler: (incoming) => handler(incoming) };
-    }
+    if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
     return cached.handler(request);
   },
 } satisfies ExportedHandler<Env>;
