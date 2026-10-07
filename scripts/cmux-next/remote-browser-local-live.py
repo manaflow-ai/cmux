@@ -148,15 +148,15 @@ try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120):
         sys.exit("app did not come up")
     # The palette's registry path (`action.run`), the same one the palette runs.
-    # A fresh app shows Home; a Chromium tab gives the window a focused workspace pane.
-    report["seed"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": BASE + "/two"}, "focus": True})
-    wait(lambda: "error" not in rpc("browser.page.state"), 45)
-    # It takes no arguments: the tab starts on the default page, then the typed-URL path loads the test page.
-    report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
-    if "error" in report["open"]:
-        # A no-activation test app has no focused pane; the debug verb runs the same openLocal
-        # in the first window's pane.
-        report["open_debug"] = rb("open_local")
+    # A fresh app shows Home, which has no pane: select the window's workspaces by number until
+    # the palette's registry path (`action.run`, no arguments) finds a focused pane.
+    for index in range(1, 10):
+        report["select"] = rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
+        time.sleep(1)
+        report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
+        if "error" not in report["open"]:
+            report["workspace_index"] = index
+            break
     opened = wait(lambda: session_where(lambda s: s.get("title")), 120)
     shot("start-page")
     if opened:
@@ -186,7 +186,12 @@ try:
     menu = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
     shot("context-menu")
     rb("menu_cancel", tab=tab1)
-    step("right-click opens a native menu (rb.menu)", menu, {"menu": menu and menu.get("menu")})
+    closed = wait(lambda: session_where(lambda s: s["tab"] == tab1 and not s.get("menu")), 15)
+    step("right-click opens a native menu (rb.menu) and Escape closes it", menu and closed,
+         {"menu": menu and menu.get("menu"), "closed": bool(closed)})
+    # Back to the top, so the links are where the page put them.
+    rb("scroll", tab=tab1, x=600, y=400, dy=400)
+    wait(title_is("rb scrolled 0"), 15)
 
     # Select near the bottom edge: a native menu; choosing Charlie reaches the page.
     height = int(((first or {}).get("frame") or "0x600").split("x")[1])

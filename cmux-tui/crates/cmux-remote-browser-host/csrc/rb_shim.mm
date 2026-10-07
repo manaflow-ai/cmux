@@ -572,6 +572,18 @@ int rb_shim_run(int argc,
       return 4;
     }
     CefRunMessageLoop();
+    // Menus and dialogs still open when the host quits (the viewer left with
+    // one showing) hold CEF callbacks: answer and drop them before
+    // CefShutdown, or their static maps release them during exit, after
+    // shutdown, which is a CEF fatal check.
+    for (auto& entry : MenuCallbacks()) {
+      entry.second->Cancel();
+    }
+    MenuCallbacks().clear();
+    for (auto& entry : DialogCallbacks()) {
+      entry.second.callback->Continue(false, CefString());
+    }
+    DialogCallbacks().clear();
     Browsers().clear();
     Windows().clear();
     CefShutdown();
