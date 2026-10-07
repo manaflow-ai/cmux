@@ -681,6 +681,40 @@
         }
       }
     },
+    "conversation.menu.showTimes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Times"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時刻を表示"
+          }
+        }
+      }
+    },
+    "conversation.menu.hideTimes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Times"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時刻を非表示"
+          }
+        }
+      }
+    },
     "conversation.composer.emoji": {
       "extractionState": "manual",
       "localizations": {

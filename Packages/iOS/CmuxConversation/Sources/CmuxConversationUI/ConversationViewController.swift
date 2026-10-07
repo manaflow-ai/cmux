@@ -70,6 +70,9 @@ public final class ConversationViewController: UIViewController {
 
     // Interaction state (see +Gestures).
     var timestampReveal: CGFloat = 0
+    /// How far outgoing bubbles travel at a full swipe-left reveal.
+    var timestampRevealDistance: CGFloat = 58
+    var timestampSettleAnimator: UIViewPropertyAnimator?
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
@@ -642,6 +645,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.contentView.alpha = flyingRowIDs.contains(model.rowID) ? 0 : 1
+            cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
             cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"

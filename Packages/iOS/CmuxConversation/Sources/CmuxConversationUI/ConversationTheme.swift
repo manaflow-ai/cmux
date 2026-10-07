@@ -71,14 +71,19 @@ enum ConversationTheme {
     /// "Delivered"/"Read": 11 pt semibold, 13.33 pt tall, 6 pt under the body
     /// and 20 pt in from its trailing edge.
     static let footerFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    static let footerDetailFont = UIFont.systemFont(ofSize: 11, weight: .regular)
     static let footerHeight: CGFloat = 40.0 / 3
     static let footerGap: CGFloat = 6
     static let footerInset: CGFloat = 20
     static let editedFont = UIFont.systemFont(ofSize: 11, weight: .regular)
     /// Reply quote text: subheadline, 15 pt at the default size.
     static var quoteFont: UIFont { .preferredFont(forTextStyle: .subheadline) }
-    static let timestampFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-    static let timestampBoldFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    /// Status, separators and swipe times are 11 pt in Messages (iOS 26).
+    static let timestampFont = UIFont.systemFont(ofSize: 11, weight: .regular)
+    static let timestampBoldFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    /// Separator, swipe-time and status gray: Messages draws these in the
+    /// system secondary label color (138,138,142 on white).
+    static let timestampText = UIColor.secondaryLabel
 
     /// Composer metrics.
     static let composerSideInset: CGFloat = 27

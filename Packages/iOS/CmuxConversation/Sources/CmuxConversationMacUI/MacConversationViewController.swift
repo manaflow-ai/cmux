@@ -79,6 +79,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var swipeAccumulatedX: CGFloat = 0
     private var swipeRowID: String?
     private var timestampsRevealed: CGFloat = 0
+    /// Points outgoing bubbles travel at a full reveal (sized per swipe).
+    private var timestampRevealDistance: CGFloat = 60
+    /// "Show Times" from the context menu keeps every time revealed.
+    private var showsTimes = false
 
     public init(store: ConversationStore, serviceTitle: String = "iMessage") {
         self.store = store
@@ -642,6 +646,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
+            view.timestampRevealDistance = timestampRevealDistance
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
@@ -1032,6 +1037,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.store.discardFailed(rowID: model.rowID) })
         }
+        menu.addItem(.separator())
+        let timesTitle = showsTimes
+            ? String(localized: "conversation.menu.hideTimes", defaultValue: "Hide Times", bundle: .module)
+            : String(localized: "conversation.menu.showTimes", defaultValue: "Show Times", bundle: .module)
+        menu.addItem(item(timesTitle, "clock") { [weak self] in self?.toggleShowsTimes() })
         // Messages darkens the bubble while its menu is open.
         menuHighlight.begin(rowView)
         menu.delegate = menuHighlight
@@ -1119,6 +1129,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             isPinnedToBottom = isNearBottom()
             boundsDidChange()
             return "ok"
+        case "times":
+            toggleShowsTimes()
+            return showsTimes ? "shown" : "hidden"
+        case "reveal":
+            // A held swipe-left at this finger travel (points).
+            sizeTimestampReveal()
+            let shift = min(max(0, (Double(argument) ?? 0) - 14) * 0.4, timestampRevealDistance)
+            setTimestampReveal(shift / timestampRevealDistance)
+            return "shift \(shift) of \(timestampRevealDistance)"
         case "rows":
             let visible = tableView.rows(in: scrollView.contentView.bounds)
             let ids = (visible.location..<min(rows.count, visible.location + visible.length)).compactMap { messageModel(at: $0)?.message.id }
@@ -1211,6 +1230,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
             swipeAccumulatedX = 0
             swipeRowID = row(at: event, in: table).flatMap { messageModel(at: $0.0)?.rowID }
+            if !showsTimes { sizeTimestampReveal() }
             return true
         case .changed:
             guard swipeRowID != nil || swipeAccumulatedX != 0 || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return false }
@@ -1218,8 +1238,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             if swipeAccumulatedX > 0, let id = swipeRowID, let index = rowIndex[id],
                let container = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacMessageContainerView {
                 container.replyDrag = min(80, swipeAccumulatedX * 0.8)
-            } else if swipeAccumulatedX < 0 {
-                setTimestampReveal(min(1, -swipeAccumulatedX / 60))
+            } else if swipeAccumulatedX < 0, !showsTimes {
+                // Messages for Mac shares the iOS transcript: 0.4x the finger
+                // past a 14 pt dead zone, stopping dead at a full reveal.
+                let shift = min(max(0, -swipeAccumulatedX - 14) * 0.4, timestampRevealDistance)
+                setTimestampReveal(shift / timestampRevealDistance)
             }
             return true
         case .ended, .cancelled:
@@ -1232,7 +1255,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 }
                 if commit, let model = messageModel(at: index) { enterReply(model.message) }
             }
-            setTimestampReveal(0, animated: true)
+            if !showsTimes { setTimestampReveal(0, animated: true) }
             swipeRowID = nil
             swipeAccumulatedX = 0
             return true
@@ -1251,12 +1274,35 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
+                // An exponential settle (time constant ~0.114 s), as on iOS.
+                context.duration = 0.6
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.18, 0.95, 0.45, 1)
                 apply()
             }
         } else {
             apply()
         }
+    }
+
+    /// The widest visible time ends at the side margin, clear of the bubbles.
+    private func sizeTimestampReveal() {
+        let visible = tableView.rows(in: tableView.visibleRect)
+        var widest: CGFloat = 0
+        for index in visible.lowerBound..<visible.upperBound {
+            guard let container = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacMessageContainerView else { continue }
+            widest = max(widest, container.timeLabelWidth)
+        }
+        timestampRevealDistance = MacMessageContainerView.revealDistance(forTimeWidth: widest > 0 ? widest : 44)
+        for index in visible.lowerBound..<visible.upperBound {
+            (tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacMessageContainerView)?.timestampRevealDistance = timestampRevealDistance
+        }
+    }
+
+    /// Context menu "Show Times" / "Hide Times".
+    private func toggleShowsTimes() {
+        if !showsTimes { sizeTimestampReveal() }
+        showsTimes.toggle()
+        setTimestampReveal(showsTimes ? 1 : 0, animated: true)
     }
 }
 
@@ -1267,6 +1313,13 @@ final class MacMessageContainerView: MacFlippedView {
     var topSpacing: CGFloat = 0 { didSet { needsLayout = true } }
     @objc dynamic var replyDrag: CGFloat = 0 { didSet { needsLayout = true } }
     @objc dynamic var timestampReveal: CGFloat = 0 { didSet { needsLayout = true } }
+    var timestampRevealDistance: CGFloat = 60 { didSet { needsLayout = true } }
+    var timeLabelWidth: CGFloat { timeLabel.frame.width }
+
+    /// Bubble travel that clears a time of this width by the side margin.
+    static func revealDistance(forTimeWidth width: CGFloat) -> CGFloat {
+        (width + MacConversationTheme.sideMargin).rounded()
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1285,15 +1338,18 @@ final class MacMessageContainerView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        let reveal = timestampReveal * 64
+        let reveal = timestampReveal * timestampRevealDistance
         let isOutgoing = row.model?.isOutgoing ?? false
         let shift = replyDrag - (isOutgoing ? reveal : 0)
         row.frame = CGRect(x: shift, y: topSpacing, width: bounds.width, height: bounds.height - topSpacing)
         timeLabel.stringValue = row.model?.message.sentAt.formatted(date: .omitted, time: .shortened) ?? ""
         timeLabel.sizeToFit()
         let content = row.contentFrame
-        timeLabel.frame.origin = CGPoint(x: bounds.width - reveal + 6, y: topSpacing + content.midY - timeLabel.frame.height / 2)
-        timeLabel.alphaValue = timestampReveal
+        // The time slides in from 8 pt past the edge (no fade), a little
+        // faster than the bubbles, and ends at the side margin.
+        let travel = timeLabel.frame.width + 8 + MacConversationTheme.sideMargin
+        timeLabel.frame.origin = CGPoint(x: bounds.width + 8 - travel * timestampReveal, y: topSpacing + content.midY - timeLabel.frame.height / 2)
+        timeLabel.alphaValue = timestampReveal > 0 ? 1 : 0
     }
 }
 

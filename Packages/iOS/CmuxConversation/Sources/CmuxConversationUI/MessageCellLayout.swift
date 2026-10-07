@@ -243,10 +243,10 @@ extension MessageCellLayout {
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?
-        func footerRect(_ y: CGFloat) -> CGRect {
+        func footerRect(_ y: CGFloat, inset: CGFloat = footerInset) -> CGRect {
             model.isOutgoing
-                ? CGRect(x: margin, y: y, width: bodyTrailing - footerInset - margin, height: footerHeight)
-                : CGRect(x: bodyLeading + footerInset, y: y, width: width - bodyLeading - footerInset - margin, height: footerHeight)
+                ? CGRect(x: margin, y: y, width: bodyTrailing - inset - margin, height: footerHeight)
+                : CGRect(x: bodyLeading + inset, y: y, width: width - bodyLeading - inset - margin, height: footerHeight)
         }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
@@ -257,7 +257,12 @@ extension MessageCellLayout {
             y += 4 + footerHeight
         }
         if model.footer != .none {
-            footerFrame = footerRect(y + t.footerGap)
+            // Messages ends "Delivered"/"Read" 20 pt inside the bubble edge,
+            // 6 pt under the body; "Not Delivered" keeps the 9 pt inset that
+            // lines it up beside the failed badge.
+            footerFrame = model.footer == .notDelivered
+                ? footerRect(y + t.footerGap, inset: 9)
+                : footerRect(y + t.footerGap)
             y += t.footerGap + footerHeight
         }
 

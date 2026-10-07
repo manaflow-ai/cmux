@@ -77,3 +77,35 @@ extension ConversationRunPlanTests {
         #expect(plan.entries.map(\.status) == [.none, .none])
     }
 }
+
+extension ConversationRunPlanTests {
+    /// iOS 26 Messages: "Delivered" stays under the older message while the
+    /// newer one is in flight, then moves once the newer one is delivered.
+    @Test func statusMovesToTheNewerMessageOnceItIsDelivered() {
+        let inFlight = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0, delivery: .delivered),
+            message(nil, "me", minute: 1, delivery: .sending),
+        ], meID: "me")
+        #expect(inFlight.entries.map(\.status) == [.delivered, .none])
+        let landed = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0, delivery: .delivered),
+            message(2, "me", minute: 1, delivery: .delivered),
+        ], meID: "me")
+        #expect(landed.entries.map(\.status) == [.none, .delivered])
+    }
+
+    @Test func aFailedNewerSendLeavesTheStatusOnTheLastDeliveredOne() {
+        let plan = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0, delivery: .read(nil)),
+            message(nil, "me", minute: 1, delivery: .failed("x")),
+        ], meID: "me")
+        #expect(plan.entries.map(\.status) == [.read(nil), .notDelivered])
+    }
+
+    @Test func onlyTheFirstMessageOfAnHourGapShowsATimestamp() {
+        let plan = ConversationRunPlan(messages: [
+            message(1, "a", minute: 0), message(2, "me", minute: 59), message(3, "a", minute: 120), message(4, "a", minute: 121),
+        ], meID: "me")
+        #expect(plan.entries.map(\.showsTimestamp) == [true, false, true, false])
+    }
+}
