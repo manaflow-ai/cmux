@@ -176,6 +176,15 @@ async function main() {
   check(reacted.message.reactions.some((r: any) => r.participantId === "aziz" && r.reaction === "heart"), "react adds my reaction");
   const unreacted = await c.call("react", { messageId: mid, reaction: null });
   check(!unreacted.message.reactions.some((r: any) => r.participantId === "aziz"), "react null removes my reaction");
+  const emojiReacted = await c.call("react", { messageId: mid, reaction: "\u{1F525}" });
+  check(emojiReacted.message.reactions.some((r: any) => r.participantId === "aziz" && r.reaction === "\u{1F525}"), "react accepts a custom emoji");
+  const skinTone = await c.call("react", { messageId: mid, reaction: "\u{1F44F}\u{1F3FD}" });
+  check(skinTone.message.reactions.filter((r: any) => r.participantId === "aziz").map((r: any) => r.reaction).join() === "\u{1F44F}\u{1F3FD}", "an emoji tapback replaces my previous one (skin tone kept)");
+  for (const bad of ["fire", "\u{1F525}\u{1F525}", "a", ""]) {
+    const rejected = await c.raw("react", { messageId: mid, reaction: bad });
+    check(rejected.error?.code === -32602, `react rejects ${JSON.stringify(bad)} (not one emoji or tapback)`);
+  }
+  await c.call("react", { messageId: mid, reaction: null });
   const edited = await c.call("edit", { messageId: mid, text: "edited text" });
   check(edited.message.text === "edited text" && edited.message.editedAt > 0 && edited.message.editCount === 1, "edit sets text, editedAt and editCount");
   const badEdit = await c.raw("edit", { messageId: newest.messages.find((m: any) => m.senderId !== "aziz").id, text: "x" });
@@ -214,8 +223,15 @@ async function main() {
   const amEvent = await c.waitFor(() => c.events().find((e) => e.kind === "message.created" && e.message.id === am.message.id), 3000, "mention event");
   check(amEvent.message.mentions?.[0]?.participantId === "aziz", "mention arrives on the live event");
   let historyMentions = 0;
+  let historyEmojiTapbacks = 0;
+  const classicTapbacks = ["heart", "thumbsup", "thumbsdown", "haha", "exclamation", "question"];
   for (let before: number | null = null, pages = 0; pages < 8; pages++) {
     const page = await c.call("history", { beforeSeq: before, limit: 200 });
+    for (const m of page.messages) for (const r of m.reactions) {
+      if (classicTapbacks.includes(r.reaction)) continue;
+      if (!/^\p{RGI_Emoji}$/v.test(r.reaction)) throw new Error(`FAIL: history reaction ${JSON.stringify(r.reaction)} in ${m.id} is neither a tapback nor one emoji`);
+      historyEmojiTapbacks++;
+    }
     for (const m of page.messages)
       for (const x of m.mentions ?? []) {
         if (m.text.slice(x.location, x.location + x.length) !== h.conversation.participants.find((p: any) => p.id === x.participantId).name.split(" ")[0])
@@ -224,6 +240,7 @@ async function main() {
       }
     before = page.messages[0].seq;
   }
+  check(historyEmojiTapbacks > 0, `history carries custom emoji tapbacks (${historyEmojiTapbacks} in 1600 msgs)`);
   check(historyMentions > 0, `group history carries mentions whose ranges name the participant (${historyMentions} in 1600 msgs)`);
 
   console.log("text formatting");

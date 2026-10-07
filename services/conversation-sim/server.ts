@@ -8,8 +8,21 @@ import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } fr
 
 // ---------------------------------------------------------------- types
 
-type Reaction = "heart" | "thumbsup" | "thumbsdown" | "haha" | "exclamation" | "question";
-const REACTIONS: Reaction[] = ["heart", "thumbsup", "thumbsdown", "haha", "exclamation", "question"];
+type ClassicReaction = "heart" | "thumbsup" | "thumbsdown" | "haha" | "exclamation" | "question";
+/** A classic tapback name, or any single emoji (iOS 18+ "Add custom emoji reaction"). */
+type Reaction = ClassicReaction | string;
+const REACTIONS: ClassicReaction[] = ["heart", "thumbsup", "thumbsdown", "haha", "exclamation", "question"];
+/** Emoji the bots and history pick for custom-emoji tapbacks. */
+const EMOJI_REACTIONS = ["\u{1F525}", "\u{1F602}", "\u{1F440}", "\u{1F64F}", "\u{1F389}", "\u{1F92F}", "\u{1F680}", "\u{1F480}", "\u{1FAE1}", "\u{2705}", "\u{1F44F}\u{1F3FD}", "\u{1F1EF}\u{1F1F5}"];
+const SINGLE_EMOJI = /^\p{RGI_Emoji}$/v;
+/** Whether `r` is a valid reaction: a classic tapback, or exactly one emoji. */
+function isReaction(r: unknown): r is Reaction {
+  return typeof r === "string" && ((REACTIONS as string[]).includes(r) || SINGLE_EMOJI.test(r));
+}
+/** A random tapback; ~15% of the time a custom emoji, like people use them. */
+function pickReaction(rng: Rng): Reaction {
+  return rng() < 0.15 ? pick(rng, EMOJI_REACTIONS) : pick(rng, REACTIONS);
+}
 /** Messages "send with effect": four bubble effects, then eight full-screen effects. */
 type Effect =
   | "slam" | "loud" | "gentle" | "invisibleInk"
@@ -387,6 +400,7 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
   let dayFirstIndex = 0;
   // Separate stream: adding effects must not shift the rest of the seeded corpus.
   const effectRng = mulberry32(seed ^ 0x5eed);
+  const emojiRng = mulberry32(seed ^ 0xe30f);
   for (let i = 0; i < drafts.length; i++) {
     const m = drafts[i];
     if (i === 0 || drafts[i - 1].day !== m.day) dayFirstIndex = i;
@@ -416,6 +430,8 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       const n = randInt(rng, 1, Math.min(3, reactors.length));
       const chosen = [...reactors].sort(() => rng() - 0.5).slice(0, n);
       m.reactions = chosen.map((p) => ({ participantId: p.id, reaction: pick(rng, REACTIONS) }));
+      // Own rng, so adding emoji tapbacks leaves the rest of history unchanged.
+      for (const r of m.reactions) if (emojiRng() < 0.15) r.reaction = pick(emojiRng, EMOJI_REACTIONS);
     }
     if (effectRng() < 0.015 && m.text && !m.attachments.length) m.effect = pick(effectRng, EFFECTS);
     if (m.senderId === ME.id) {
@@ -805,7 +821,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       const m = store.byId.get(p?.messageId);
       if (!m) throw invalid("unknown messageId");
       const reaction = p?.reaction ?? null;
-      if (reaction !== null && !REACTIONS.includes(reaction)) throw invalid("reaction");
+      if (reaction !== null && !isReaction(reaction)) throw invalid("reaction");
       await sleep(lat(80, 400));
       m.reactions = m.reactions.filter((r) => r.participantId !== ME.id);
       if (reaction) m.reactions.push({ participantId: ME.id, reaction });
@@ -959,7 +975,7 @@ function afterMySend(store: Store, m: Message) {
       await botSleep(uniform(1500, 6000));
       const bot = pick(R, store.bots());
       m.reactions = m.reactions.filter((r) => r.participantId !== bot.id);
-      m.reactions.push({ participantId: bot.id, reaction: pick(R, REACTIONS) });
+      m.reactions.push({ participantId: bot.id, reaction: pickReaction(R) });
       store.emit("message.updated", m);
     })();
   }
@@ -1061,7 +1077,7 @@ async function botLoop(store: Store) {
         const target = store.messages[store.headSeq - 1 - Math.floor(R() * Math.min(10, store.headSeq))];
         const reactor = pick(R, store.bots().filter((b) => b.id !== target.senderId).concat(store.bots()));
         target.reactions = target.reactions.filter((r) => r.participantId !== reactor.id);
-        target.reactions.push({ participantId: reactor.id, reaction: pick(R, REACTIONS) });
+        target.reactions.push({ participantId: reactor.id, reaction: pickReaction(R) });
         store.emit("message.updated", target);
       }
     } catch (e) {

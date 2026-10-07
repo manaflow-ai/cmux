@@ -89,7 +89,7 @@ Participant  { id, name, initials, colorHex, isMe }
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?, editCount?, unsentAt?,
-  reactions: [{participantId, reaction}],
+  reactions: [{participantId, reaction}],       // Reaction: see below
   attachments: [Attachment],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
   mentions?: [Mention]                           // omitted when none
@@ -119,10 +119,17 @@ unknown participants and out-of-range or overlapping mentions with `-32602`.
 
 ```
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
+         | <one emoji>       // custom emoji tapback, e.g. "\u{1F525}" or "\u{1F44F}\u{1F3FD}"
 Effect   = "slam"|"loud"|"gentle"|"invisibleInk"                       // bubble
          | "echo"|"spotlight"|"balloons"|"confetti"|"love"|"lasers"
          | "fireworks"|"celebration"                                   // screen
 ```
+
+A custom emoji tapback is the emoji itself, exactly one RGI emoji (skin tones,
+flags and ZWJ sequences included); `react` rejects anything else with
+`-32602`. Clients that predate emoji tapbacks should skip reactions they do not
+recognize. About 15% of bot and history tapbacks are custom emoji (history
+draws them from its own seeded rng).
 
 `textRuns` carry iMessage formatting and animated text effects. `start` and
 `length` count UTF-16 code units of `text`. Runs are sorted, non-overlapping
@@ -191,7 +198,7 @@ carry only `{url, state: "tapToLoad"}`; the client fetches the card with
 - Bots: a participant starts typing every 5 to 25 s, types for a time based on
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
-  most of the time, tapbacks my messages ~30% of the time, edits its own last
+  most of the time, tapbacks my messages ~30% of the time (~15% of tapbacks are custom emoji), edits its own last
   message ~5% of the time (an edit drops formatting). In `group`, ~12% of bot
   messages mention someone (half of those mention me); ~4% of group history
   mentions someone. About 6% of bot and history messages are formatted: half
