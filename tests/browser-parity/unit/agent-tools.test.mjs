@@ -537,6 +537,153 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   }
 });
 
+// A lazy page (the session's first `page` before any call opens its tab)
+// has no tab yet. Its cookie reads and writes open that tab first, as its
+// clear does, so the driver uses the store the page's own tab is in: a call
+// without a tab would reach the active tab's store, another site's (a
+// private tab's, or a user's tab the session drives).
+test("a lazy page's cookie calls open its tab and never use the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method.startsWith("cookies.")) calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-lazy-${process.pid}`, print: () => {} }), driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      await other.bringToFront();
+      await lazy.context().addCookies([{ name: "lazy", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      await lazy.context().cookies();
+      JSON.stringify({ wasLazy, lazy: lazy._targetId, other: other._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(calls.length, 2, JSON.stringify(calls));
+    for (const c of calls) {
+      assert.notEqual(c.targetId, undefined, `${c.method} names a tab: ${JSON.stringify(calls)}`);
+      assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}`);
+    }
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// fetch() goes through the current page's tab. While that page is lazy (no
+// tab yet), fetch opens its tab first, reads cookies from that tab's store
+// and binds the request to it: without a tab both would use the active
+// tab's store, another site's.
+test("fetch from a lazy current page opens its tab and never uses the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-fetch-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method === "cookies.get") calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const host = createNodeHost({ workDir: dir, sessionId: `fetch-lazy-${process.pid}`, print: () => {} });
+  const hostFetch = host.fetch.bind(host);
+  host.fetch = (url, init = {}) => {
+    calls.push({ method: "host.fetch", targetId: init.targetId });
+    return hostFetch(url, init);
+  };
+  const repl = createDevRepl({ host, driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html", { background: true });
+      await other.bringToFront();
+      const res = await fetch(${JSON.stringify(primary)} + "/index.html");
+      JSON.stringify({ wasLazy, status: res.status, lazy: lazy._targetId, other: other._targetId, current: page._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(ids.status, 200);
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+    assert.equal(ids.current, ids.lazy, "the lazy page stays the current page");
+    assert.deepEqual(calls.map((c) => c.method), ["cookies.get", "host.fetch"], JSON.stringify(calls));
+    for (const c of calls) assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}: ${JSON.stringify(calls)}`);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// A page whose tab closed (the user closed it, or a narrowed domain policy
+// closed it) has no site and no store any more: its cookie calls fail with
+// `closed` and never fall back to the current tab. Seen on the app: once
+// tabs.list() let the close event land, clearCookies() through the closed
+// blocked tab cleared the allowed current tab's site.
+test("cookie calls through a closed page fail with closed and never reach the current tab", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-closed-");
+  const driver = browser.driver();
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver });
+  try {
+    const setup = await repl.evaluate(`
+      await page.goto(${JSON.stringify(primary)} + "/set-cookie");
+      globalThis.primaryTab = page;
+      globalThis.peerTab = await tabs.open(${JSON.stringify(peer)} + "/set-cookie");
+      await tabs.use(primaryTab);
+      peerTab._targetId
+    `);
+    assert.equal(setup.ok, true, setup.error);
+    // Closed from outside the page object, as the app closes a tab.
+    await driver.call("tabs.close", { targetId: setup.value });
+    const r = await repl.evaluate(`
+      await tabs.list();
+      const outcome = async (f) => { try { await f(); return "done"; } catch (e) { return e.code || e.message; } };
+      const cx = peerTab.context();
+      const url = ${JSON.stringify(primary)} + "/";
+      const out = { closed: peerTab.isClosed() };
+      out.clear = await outcome(() => cx.clearCookies());
+      out.clearName = await outcome(() => cx.clearCookies({ name: "parity" }));
+      out.clearRegExp = await outcome(() => cx.clearCookies({ name: /parity/ }));
+      out.get = await outcome(() => cx.cookies());
+      out.set = await outcome(() => cx.addCookies([{ name: "planted", value: "1", url }]));
+      out.state = await outcome(() => cx.storageState({ all: true }));
+      out.setState = await outcome(() => cx.setStorageState({ cookies: [{ name: "planted2", value: "1", url }] }));
+      out.primary = (await primaryTab.context().cookies([url])).map((c) => c.name).sort();
+      JSON.stringify(out)
+    `);
+    assert.equal(r.ok, true, r.error);
+    const out = JSON.parse(r.value);
+    assert.equal(out.closed, true, "the close landed");
+    for (const key of ["clear", "clearName", "clearRegExp", "get", "set", "state", "setState"]) {
+      assert.equal(out[key], "closed", `${key} through the closed page: ${JSON.stringify(out)}`);
+    }
+    assert.deepEqual(out.primary, ["parity"], "the current tab's site keeps its cookies and gets none planted");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
 // localStorage lives in a tab's data store too: storageState and
 // setStorageState read and write it only through tabs in the page's own
 // store, and restore an origin no such tab shows in a new tab of that store.
@@ -620,32 +767,6 @@ test("storage state: an origin that redirects to another origin gets no items, a
   } finally {
     await new Promise((r) => redirect.close(r));
     await servers.close();
-  }
-});
-
-// Playwright's context outlives its pages: a closed page's context still
-// reads and adds cookies, through the session's default store.
-test("a closed page's context still reads and adds cookies", async () => {
-  const browser = await createDevBrowser();
-  const servers = await startFixtureServers();
-  const { primary } = servers.origins;
-  const dir = makeTestDir("cmux-repl-cookie-closed-");
-  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver: browser.driver() });
-  try {
-    const r = await repl.evaluate(`
-      const p = await tabs.open(${JSON.stringify(primary)} + "/index.html");
-      const context = p.context();
-      await p.close();
-      await context.addCookies([{ name: "after-close", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
-      (await context.cookies(${JSON.stringify(primary)} + "/")).map((c) => c.name)
-    `);
-    assert.equal(r.ok, true, r.error);
-    assert.ok(r.value.includes("after-close"), JSON.stringify(r.value));
-  } finally {
-    repl.dispose();
-    await browser.close();
-    await servers.close();
-    removeTestDir(dir);
   }
 });
 

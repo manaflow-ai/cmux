@@ -1371,23 +1371,24 @@
       }
       const urls = listed.length ? listed : null;
       const page = fromPage || currentPage();
+      const scope = cookieScope(page, "session.storageState");
       let site = null;
       if (!options.all && !urls) {
-        const url = page && !page._closed ? String(page.url()) : "";
+        const url = page ? String(page.url()) : "";
         const hostname = /^https?:/i.test(url) ? new core.URL(url).hostname : "";
         if (!hostname) throw new Error(`session.storageState: the current tab (${url || "none"}) has no site to scope to; open the site first, or pass { all: true } for the whole profile or { urls: [...] }`);
         site = siteOf(hostname);
       }
       const inScope = (hostname) => site === null || siteOf(hostname) === site;
       // The cookies of the page's own data store (cookieScope).
-      const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
+      const cookies = (await session.call("cookies.get", { ...scope, ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
       // localStorage only from the open tabs in that store (storeTabs).
       // It is page-controlled, so every frame's is read within what the
       // call's one page-read budget has left (READ_NODES items and
       // READ_SIZE characters of names and values over all frames), and
       // past it the call fails with the note rather than save part of a
       // state.
-      const { targetIds } = await storeTabs(page);
+      const { targetIds } = await storeTabs(page, "session.storageState");
       const origins = new Map();
       const budget = { left: READ_NODES, sizeLeft: READ_SIZE };
       for (const page of [...session.pages.values()]) {
@@ -1437,16 +1438,18 @@
     }`;
     // A page's cookie calls name its tab, so the driver uses that tab's data
     // store (a private tab's, or the session's proxy store), not another's.
-    function cookieScope(page) {
-      return page && !page._closed && typeof page._cookieScope === "function" ? page._cookieScope() : {};
+    // A closed page fails with `closed` (Page._cookieScope) rather than
+    // reach the current tab's store.
+    function cookieScope(page, method) {
+      return page && typeof page._cookieScope === "function" ? page._cookieScope(method) : {};
     }
     // The data store the page's cookie calls use (`tabs.dataStore`), and the
     // open tabs in it. localStorage belongs to a store too, so storage state
     // reads and writes it only through those tabs, never through a tab on
     // the same origin in another store. A driver without `tabs.dataStore`
     // gets the page's own tab only.
-    async function storeTabs(page) {
-      const scope = cookieScope(page);
+    async function storeTabs(page, method) {
+      const scope = cookieScope(page, method);
       let dataStore;
       try {
         ({ dataStore } = await session.call("tabs.dataStore", scope));
@@ -1463,7 +1466,7 @@
         throw new Error("session.setStorageState: expected { cookies, origins } (Playwright's storage state) or a path to one");
       }
       const target = fromPage || currentPage();
-      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(target), cookies: state.cookies });
+      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(target, "session.setStorageState"), cookies: state.cookies });
       let restored = 0;
       let store = null;
       for (const { origin, localStorage } of state.origins || []) {
@@ -1479,7 +1482,7 @@
         // An open tab on the origin in the page's data store takes the
         // items; otherwise a background tab of that store loads the origin,
         // takes them and closes.
-        if (!store) store = await storeTabs(target);
+        if (!store) store = await storeTabs(target, "session.setStorageState");
         let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === canonical);
         const temp = !page;
         if (temp) {
