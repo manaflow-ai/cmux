@@ -46,8 +46,12 @@ public struct SSHTuiConnection: Sendable {
                           configuration.identityFile ?? ""] + persistentOptions
         if includeAgentSocket {
             if configuration.agentSocketPathOverrideIsSet {
-                components.append(configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .flatMap { $0.isEmpty ? nil : $0 } ?? "<disabled-agent>")
+                if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !agent.isEmpty {
+                    components.append(agent)
+                } else {
+                    components.append("<disabled-agent>")
+                }
             } else {
                 components.append("<inherited-agent>")
             }
