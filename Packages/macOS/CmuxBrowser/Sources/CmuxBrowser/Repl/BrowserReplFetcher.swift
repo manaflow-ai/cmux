@@ -245,7 +245,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         }
         guard let task = created else { return (.failure(Self.closedError), 0) }
         do {
-            let (data, response) = try await data(for: task, onResponse: onResponse)
+            let (data, response) = try await data(for: task, onResponse: onResponse) {
+                // The policy may have narrowed while the cookies were read.
+                self.reason(url) ?? self.upgradeBlockReason(url)
+            }
             guard let http = response as? HTTPURLResponse else {
                 bodyBudget.release(data.count)
                 return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response")), 0)
@@ -341,11 +344,30 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         }
     }
 
-    private func data(for task: URLSessionDataTask, onResponse: (@Sendable () -> Void)?) async throws -> (Data, URLResponse) {
+    /// Sends `task` and returns its body and response. `blockReason` is
+    /// the domain policy's verdict on the task's URL, judged against the
+    /// current policy in the same synchronous step that resumes the task,
+    /// so a policy narrowed while the request was prepared (its cookies are
+    /// read with an await) blocks it before anything is sent.
+    private func data(
+        for task: URLSessionDataTask,
+        onResponse: (@Sendable () -> Void)?,
+        blockReason: @escaping () -> String?
+    ) async throws -> (Data, URLResponse) {
         let collector = FetchCollector(limit: maxBodyBytes, budget: bodyBudget, onResponse: onResponse)
         lock.withLock { collectors[task.taskIdentifier] = collector }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                if let reason = blockReason() {
+                    lock.withLock {
+                        collectors[task.taskIdentifier] = nil
+                        tasks[task.taskIdentifier] = nil
+                    }
+                    task.cancel()
+                    let url = task.originalRequest?.url?.absoluteString ?? "the URL"
+                    continuation.resume(throwing: BrowserReplDriverError(code: "blocked", message: "fetch: \(url) is blocked: \(reason)"))
+                    return
+                }
                 collector.continuation = continuation
                 task.resume()
             }
@@ -451,6 +473,14 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             if let url = next.url, Self.sendsCookies(info, to: url),
                let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
+            }
+            // The awaits above let the policy narrow; the hop is judged
+            // again against the current policy right before it is followed.
+            if let url = next.url, let reason = self.reason(url) ?? self.upgradeBlockReason(url) {
+                self.lock.withLock { self.tasks[task.taskIdentifier]?.blocked = "fetch: redirect to \(url.absoluteString) is blocked: \(reason)" }
+                completionHandler(nil)
+                task.cancel()
+                return
             }
             completionHandler(next)
         }
