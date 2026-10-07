@@ -4093,6 +4093,7 @@
 		C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */; };
 		C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */; };
 		D79030000000000000000001 /* TextBoxSubmitSurfaceControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */; };
+		38BD2C3E45CA7392B68D18AB /* TextViewUndoRegistrationLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */; };
 		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */; };
 		F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */; };
@@ -8514,6 +8515,7 @@
 		C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionTests.swift; sourceTree = "<group>"; };
 		C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitAvailability.swift; sourceTree = "<group>"; };
 		D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitSurfaceControlling.swift; sourceTree = "<group>"; };
+		07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextViewUndoRegistrationLifetimeTests.swift"; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryContainerView.swift; sourceTree = "<group>"; };
 		F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryHostingView.swift; sourceTree = "<group>"; };
@@ -13524,6 +13526,7 @@
 				A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */,
 				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
 				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
+				07DB2FB4809697C47BBD0341 /* TextViewUndoRegistrationLifetimeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18518,6 +18521,7 @@
 				C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
 				C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */,
+				38BD2C3E45CA7392B68D18AB /* TextViewUndoRegistrationLifetimeTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */,
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,
