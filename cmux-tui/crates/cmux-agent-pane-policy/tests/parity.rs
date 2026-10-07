@@ -426,3 +426,20 @@ fn reading_the_token_file() {
     assert_eq!(connection::read_local_app_token(&dir), None, "over 256 bytes");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The built-in policy.json parses completely: `policy()` falls back to
+/// deny-all on a file that does not, which must never ship.
+#[test]
+fn the_built_in_policy_parses() {
+    let text =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("policy.json")).unwrap();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let p = policy();
+    assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
+    assert_eq!(
+        p.reply_shapes.len(),
+        v["reply_shapes"].as_object().unwrap().len(),
+        "every reply shape parsed"
+    );
+    assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
+}

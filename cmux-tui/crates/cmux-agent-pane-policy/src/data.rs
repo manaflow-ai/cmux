@@ -54,7 +54,7 @@ impl ReplyShape {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct Raw {
     pane_origin: String,
     initialize: String,
@@ -117,11 +117,14 @@ pub struct Policy {
 pub fn policy() -> &'static Policy {
     static POLICY: OnceLock<Policy> = OnceLock::new();
     POLICY.get_or_init(|| {
-        let raw: Raw = serde_json::from_str(POLICY_JSON).expect("policy.json is valid");
+        // policy.json is built in; tests/parity.rs fails on a file that does
+        // not parse. Should it not, the policy denies everything (no method,
+        // every frame too large) instead of ending the host.
+        let raw: Raw = serde_json::from_str(POLICY_JSON).unwrap_or_default();
         let reply_shapes = raw
             .reply_shapes
             .iter()
-            .map(|(k, v)| (k.clone(), ReplyShape::from_json(v).expect("policy.json reply shape")))
+            .filter_map(|(k, v)| ReplyShape::from_json(v).map(|shape| (k.clone(), shape)))
             .collect();
         Policy {
             pane_origin: raw.pane_origin,
