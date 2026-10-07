@@ -19,6 +19,8 @@ _NO_FREEZE = tempfile.NamedTemporaryFile("w", suffix="-WINDOW", delete=False)
 _NO_FREEZE.write("[CORE] cmux-tui-core\nowner: none\nLOCK (Cargo.lock writer): free\n")
 _NO_FREEZE.close()
 os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = _NO_FREEZE.name
+# No helper run reaches the real repository: merged-head checks use a fixture clone.
+os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
 HEAD = "a" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
@@ -909,6 +911,7 @@ class FreezeRegression(unittest.TestCase):
         "[CORE] cmux-tui-core, spec/\nowner: none\n"
         "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
         "FREEZE: webviews/src/agent-session/ token=0badc0ffee00\n"
+        "FREEZE: docs/frozen/ docs/app.md token=d0c5d0c5\n"
     )
 
     def run_with_window(self, directory, window, changed_files, extra_args=()):
@@ -945,15 +948,15 @@ class FreezeRegression(unittest.TestCase):
     def test_a_sibling_of_a_frozen_prefix_still_merges(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker = self.run_with_window(
-                directory, self.WINDOW, ("webviews/src/agent-session-web/main.ts", "Packages/macOS/CmuxNext/Package.swift.md"))
+                directory, self.WINDOW, ("docs/frozen-notes/a.md", "docs/app.md.orig"))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
     def test_the_freeze_token_holder_merges(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker = self.run_with_window(
-                directory, self.WINDOW, ("Packages/macOS/CmuxNext/Package.swift",),
-                extra_args=("--freeze-token", "69600a4e4c73"))
+                directory, self.WINDOW, ("docs/frozen/a.md", "docs/app.md"),
+                extra_args=("--freeze-token", "d0c5d0c5"))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 

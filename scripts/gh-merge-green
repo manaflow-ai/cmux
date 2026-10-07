@@ -152,7 +152,7 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels 2>/dev/null); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>/dev/null); then
   refuse \
     "not green: cannot read $ref" \
     'check the repository, pull request number, GitHub login, and network access'
@@ -593,6 +593,78 @@ for path in sys.stdin.read().split():
       "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
+fi
+# The merged head passes the checks a red lint job can hide (#18326 grew a god
+# type while an unrelated lint red masked the god-file step): the Swift god-file
+# check when CmuxNext changes, vp check when webviews changes. They run here on
+# base + head merged locally, with the base branch's copy of the god-file script
+# and baseline, so a pull request cannot loosen its own check.
+merged_head_checks() {
+  local repo_dir tmp merged base_sha head_sha status=0 output bun
+  local swift_changed=0 web_changed=0
+  grep -q '^Packages/macOS/CmuxNext/' <<<"$changed" && swift_changed=1
+  grep -q '^webviews/' <<<"$changed" && web_changed=1
+  [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
+  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1; then
+    refuse \
+      "not merged: $ref is from a fork, and its merged-head checks would run its code here" \
+      'send the PR to the coordinator, who merges it after reviewing the god-file and vp check results'
+  fi
+  repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
+  if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
+      "+refs/heads/$base:refs/gh-merge-green/base" "+refs/pull/$num/head:refs/gh-merge-green/head" 2>/dev/null; then
+    refuse \
+      "not merged: cannot fetch $base and $ref to check the merged head" \
+      'run gh-merge-green from its cmux checkout with network access, or set GH_MERGE_GREEN_REPO_DIR to a cmux clone'
+  fi
+  base_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/base)
+  head_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/head)
+  if [ "$head_sha" != "$sha" ]; then
+    refuse \
+      "not merged: $ref moved to $head_sha while checking $sha" \
+      'retry on the current head'
+  fi
+  tmp=$(mktemp -d)
+  merged="$tmp/merged"
+  git -C "$repo_dir" worktree add --quiet --detach "$merged" "$base_sha" >/dev/null 2>&1
+  if ! git -C "$merged" -c user.name=gh-merge-green -c user.email=gh-merge-green@invalid \
+      merge --quiet --no-ff --no-edit "$head_sha" >/dev/null 2>&1; then
+    git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+    refuse \
+      "not merged: $ref does not merge cleanly into $base ($base_sha)" \
+      'merge the base into the PR (scripts/merge-main.sh), push, and retry'
+  fi
+  if [ "$swift_changed" -eq 1 ]; then
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/check-no-godfiles.sh" > "$merged/scripts/cmux-next/check-no-godfiles.sh"
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/godfile-baseline.tsv" > "$merged/scripts/cmux-next/godfile-baseline.tsv"
+    if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" --only swift --base "$base_sha" \
+        "$merged/Packages/macOS/CmuxNext" 2>&1); then
+      status=1
+      printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true
+      printf 'not merged: the merged head of %s fails the Swift god-file check\n' "$ref" >&2
+    fi
+  fi
+  if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
+    if ! bun=$(command -v bun); then
+      status=2
+      printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
+    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
+      status=1
+      printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
+      printf 'not merged: the merged head of %s fails vp check in webviews/\n' "$ref" >&2
+    fi
+  fi
+  git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  if [ "$status" -ne 0 ]; then
+    refusal_reported=1
+    print_repair 'fix the merged head (split the god type, or run vp check --fix in webviews/), push, and retry'
+    exit 1
+  fi
+}
+if [ "$base" = feat-cmux-next ]; then
+  merged_head_checks
 fi
 if [ -n "$override_reason" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
