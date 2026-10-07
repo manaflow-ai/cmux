@@ -4,7 +4,8 @@ pub(super) const SCREEN_HELP: &str = "\
 USAGE
   cmux screen list
   cmux screen create [--correlation-key <value>]
-  cmux screen <selector> show|rename|focus|close
+  cmux screen <selector> show|focus|close
+  cmux screen <selector> rename <name>|--name <name>
   cmux screen <selector> pin|unpin
   cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon]
@@ -24,4 +25,8 @@ USAGE
 
 Pinned screens sort first and leave their group. Group colors: grey, blue,
 red, yellow, green, pink, purple, cyan, orange.
+
+SELECTORS
+  <selector> is an id (screen_…), current, or an exact name. Prefix name:
+  to a name that looks like an id or a command word.
 ";

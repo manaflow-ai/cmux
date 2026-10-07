@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::BOOLEAN_FLAGS;
+use flags::{BOOLEAN_FLAGS, usage};
 
 mod browser;
 #[cfg(test)]
@@ -193,6 +193,7 @@ struct Tokens {
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
+    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
     let scope = tokens
         .words
         .first()
@@ -291,10 +292,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value = args
-                    .get(index + 1)
-                    .cloned()
-                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
+                let value =
+                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
                 index += 1;
                 Some(value)
             };
@@ -858,6 +857,7 @@ fn parse_tab_strings(
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -1251,8 +1251,11 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` is refused: the reply
 /// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window` and `--id-format` are accepted for
-/// signature parity and have no meaning on a machine.
+/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
+/// for signature parity and have no meaning on a machine: the Mac decides how
+/// a machine's row is delivered. `--desktop` is still validated so a bad value
+/// fails the same way it does locally, and like the local flag it is not
+/// validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1265,6 +1268,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     }
     let _ = flags.take("window");
     let _ = flags.take("id-format");
+    let desktop = flags.take("desktop");
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -1309,6 +1313,11 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             params.insert("terminal_id".into(), Value::String(surface));
         }
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
+    if let Some(desktop) = desktop {
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -1403,6 +1412,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             };
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+            terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -2760,10 +2770,6 @@ fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
 }
 
-fn usage<T>(what: &str) -> Result<T, UsageError> {
-    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
-}
-
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     match crate::plugin_manager::execute(
         &plan.positionals,
@@ -3495,6 +3501,7 @@ mod tests {
         }
     }
 
+    /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
         const TERMINAL: &str = "term_00000000000000000000000000000041";
@@ -3530,12 +3537,36 @@ mod tests {
         assert_eq!(clear.params["terminal_id"], TERMINAL);
         let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
         assert!(clear_all.params.get("terminal_id").is_none());
+        let clear_ignores_desktop =
+            protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
+        assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
         assert!(
             parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
                 .is_err(),
             "no reply channel across the link"
         );
+        // The Mac owns delivery for a machine's rows, so the local banner
+        // switch parses for parity and adds nothing to the request.
+        for parity in [
+            &["notify", "--workspace", "current", "--desktop", "false"][..],
+            &["notify", "--workspace", "current", "--desktop=true"][..],
+        ] {
+            let plan = protocol(parity);
+            assert_eq!(plan.operation.name().unwrap(), "notification.create");
+            assert!(plan.params.get("effects").is_none(), "{parity:?}");
+        }
+        match parse(
+            &strings(&["notify", "--workspace", "current", "--desktop", "maybe"]),
+            super::super::Surface::CmuxTui,
+        ) {
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "--desktop must be true|false",
+                "--desktop is validated like the local flag, with the local error text"
+            ),
+            Ok(_) => panic!("--desktop maybe was accepted"),
+        }
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
                 parse(&strings(&["notify", "--clear"]), super::super::Surface::CmuxTui).is_err(),

@@ -20,8 +20,12 @@ pub mod flags {
     pub const REFINE: u8 = 0b0010;
     /// The frame recovers from a loss by referencing an acknowledged frame.
     pub const RECOVERY: u8 = 0b0100;
+    /// The frame is a lossless tile top-off (rd change C3) on a tile stream:
+    /// standalone (no reference chain); `ref_frame` names the video frame of
+    /// the surface stream it applies on top of. Sent only with the `tile` cap.
+    pub const TILE: u8 = 0b1000;
     /// Every defined flag.
-    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY;
+    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY | TILE;
 }
 
 /// What a datagram carries.
@@ -44,6 +48,10 @@ pub enum DatagramKind {
     Feedback = 7,
     /// Bandwidth probe padding (host to viewer).
     Probe = 8,
+    /// A clock probe with the viewer's current estimate (viewer to host; cap `clock`).
+    ClockPing = 9,
+    /// The host's answer to a clock probe (host to viewer; cap `clock`).
+    ClockPong = 10,
 }
 
 impl DatagramKind {
@@ -58,6 +66,8 @@ impl DatagramKind {
             6 => Self::CursorPos,
             7 => Self::Feedback,
             8 => Self::Probe,
+            9 => Self::ClockPing,
+            10 => Self::ClockPong,
             other => return Err(DecodeError::Kind(other)),
         })
     }

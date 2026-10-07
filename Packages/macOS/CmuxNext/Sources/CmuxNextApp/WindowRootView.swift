@@ -49,21 +49,24 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The top row the title bar buttons reveal over (R83): full width,
     /// takes no clicks.
     let titlebarRevealRegion = PassThroughView(frame: .zero)
-    /// A hover cue under the traffic lights. It is a theme fill, not a second
-    /// glass material: the window keeps its one root material (WindowRootMaterialTests).
+    /// A patch under the traffic lights that fades in with the buttons. It
+    /// is a theme fill, not a second glass material: the window keeps its
+    /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back and Forward stay visible at their final size; the glass patch is
-    /// a hover cue only.
+    /// The sidebar toggle, Back, Forward and the glass patch: hidden until the
+    /// top row or the sidebar is hovered (`window.titlebarButtons`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
-    /// The top-left corner (traffic lights and the band) remains a pointer
-    /// tracking seam; the controls stay mounted (`WindowRootView+CornerReveal`).
+    /// Held while the pointer is over the sidebar (its chrome reveal).
+    var sidebarHoverHold: HoverReveal.Hold?
+    /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
+    /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
     let cornerRegion = PassThroughView(frame: .zero)
     private(set) lazy var cornerReveal = HoverReveal(region: cornerRegion)
     /// The sidebar is hidden (WindowController follows the sidebar model).
     var sidebarHidden = false {
         didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
     }
-    /// Kept for layout/debug compatibility; stable chrome never collapses.
+    /// The traffic lights and band are collapsed: strips under them keep no room.
     var windowControlsCollapsed = false
     /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
     var onWindowControlsChange: ((Bool) -> Void)?

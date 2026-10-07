@@ -10,9 +10,9 @@ extension SidebarBridge {
     }
 }
 
-/// The R114 card stack's content: the update card (the updater's gate
-/// decides whether one shows), the test-feed notice, and later what's new
-/// and announcements. Card actions go back to their owners.
+/// The R114 card stack's content (a check the user asked for, the test-feed
+/// notice, what's new, announcements) and the footer's update pill
+/// (SIDEBAR-FOOTER-MINIMAL). Card actions go back to their owners.
 @MainActor
 enum SidebarCardFeed {
     static let updateCardID = "update"
@@ -38,8 +38,9 @@ enum SidebarCardFeed {
             handle(id, action, updater: updater)
         }
         return Task {
-            for await cards in Observations({ () -> [SidebarCard] in cards(updater) }) {
+            for await (cards, pill) in Observations({ () -> ([SidebarCard], SidebarUpdatePill?) in (cards(updater), updatePill(updater)) }) {
                 if model.cards != cards { model.cards = cards }
+                if model.updatePill != pill { model.updatePill = pill }
             }
         }
     }
@@ -50,13 +51,14 @@ enum SidebarCardFeed {
             try? updater.useTestFeed(nil, pinned: false)
         case (updateCardID, .open):
             updater.cardClicked()
-        case (updateCardID, .button(UpdateCardPresentation.Button.installNow.rawValue)):
-            updater.installNow()
-        case (updateCardID, .button(UpdateCardPresentation.Button.later.rawValue)):
-            updater.installLater()
         default:
             break
         }
+    }
+
+    /// The footer pill for a staged update (nil while checking or downloading).
+    static func updatePill(_ updater: UpdaterService) -> SidebarUpdatePill? {
+        updater.footerPill.map { SidebarUpdatePill(title: $0.title, help: $0.help, isEnabled: $0.isEnabled) }
     }
 
     /// The update card first, then the test-feed notice while one is active.
@@ -84,7 +86,6 @@ enum SidebarCardFeed {
     static func sidebarCard(_ card: UpdateCard) -> SidebarCard {
         let text = card.presentation
         return SidebarCard(id: updateCardID, title: text.title, detail: text.detail, progress: text.progress,
-                           buttons: text.buttons.map { SidebarCard.Button(id: $0.rawValue, title: $0.title) },
                            dismissible: false, alwaysVisible: true)
     }
 }

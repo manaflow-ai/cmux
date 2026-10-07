@@ -12,7 +12,7 @@ public nonisolated struct MetricTunable: Sendable {
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { tunable.resolve(Metrics.pick(compact, comfortable, key)) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compact, comfortable, key))) }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,

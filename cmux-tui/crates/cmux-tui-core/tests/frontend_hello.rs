@@ -232,21 +232,24 @@ fn a_proved_app_confirms_for_its_own_page_relay() {
     let mut relay = Client::connect(&socket);
     let started = relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }));
     let relay_id = started["data"]["connection_id"].as_str().expect("connection id").to_string();
-    let params = json!({ "app": "cmux/demo", "version": "1.0.0" });
+    let params = json!({ "machine": "current", "session": "current" });
     // SHA-256 of the params in canonical JSON (sorted keys, no whitespace).
-    let sha = sha256_hex(br#"{"app":"cmux/demo","version":"1.0.0"}"#);
+    let sha = sha256_hex(br#"{"machine":"current","session":"current"}"#);
     let issued = app.rpc(json!({ "protocol": "cmux.protocol/2", "type": "request", "id": "i1",
         "operation": "origin.confirmation.issue", "params": { "machine": "current",
-        "session": "current", "operation": "apps.install", "params_sha256": sha,
+        "session": "current", "operation": "session.ping", "params_sha256": sha,
         "relay_connection_id": relay_id } }));
     assert_eq!(issued["ok"], true, "{issued}");
     let token = issued["result"]["token"].as_str().expect("token").to_string();
     let claim = json!({ "claim": "user", "confirmation": token });
-    let confirmed = relay.rpc(v2("apps.install", params.clone(), Some(claim.clone())));
-    assert_ne!(confirmed["error"]["code"], FORBIDDEN, "{confirmed}");
+    // The claim is accepted (the page rule then refuses every catalog
+    // operation on a relay: the result would reach page JS).
+    let confirmed = relay.rpc(v2("session.ping", params.clone(), Some(claim.clone())));
+    assert_eq!(confirmed["error"]["details"], json!({"required": "agent", "derived": "page"}));
     // Single use.
-    let replayed = relay.rpc(v2("apps.install", params, Some(claim)));
+    let replayed = relay.rpc(v2("session.ping", params, Some(claim)));
     assert_eq!(replayed["error"]["code"], FORBIDDEN, "{replayed}");
+    assert_eq!(replayed["error"]["details"]["reason"], "confirmation_invalid", "{replayed}");
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

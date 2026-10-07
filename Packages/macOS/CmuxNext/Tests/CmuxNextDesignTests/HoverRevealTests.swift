@@ -55,6 +55,47 @@ import Testing
         withExtendedLifetime(reveal) {}
     }
 
+    /// Lawrence (2026-10-05, nxdog55): with the sidebar closed and the pointer away, the window
+    /// controls stayed shown. The tracking area was removed and added again on every
+    /// updateTrackingAreas, also with an unchanged rect (each layout pass of the sidebar slide), so
+    /// an exit during that churn went to a removed area and "inside" stuck. An unchanged rect keeps
+    /// its tracking area.
+    @Test func anUnchangedRectKeepsItsTrackingArea() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let region = NSView(frame: NSRect(x: 0, y: 360, width: 151, height: 28))
+        window.contentView?.addSubview(region)
+        let reveal = HoverReveal(region: region)
+        let tracker = try #require(region.subviews.first)
+        tracker.updateTrackingAreas()
+        let first = try #require(tracker.trackingAreas.first)
+        tracker.updateTrackingAreas()
+        region.frame = NSRect(x: 0, y: 360, width: 151, height: 28)
+        #expect(tracker.trackingAreas.count == 1)
+        #expect(tracker.trackingAreas.first === first, "the same rect keeps the same tracking area (no exit can be lost)")
+        withExtendedLifetime(reveal) {}
+    }
+
+    /// When the tracked rect does change, the new area cannot know an exit the old one missed, so
+    /// the reveal reads where the pointer really is (here: not over an offscreen window).
+    @Test func aRebuiltAreaReadsThePointerAgain() throws {
+        try withInstantMotion {
+            let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 600, height: 400), styleMask: [.titled],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let region = NSView(frame: NSRect(x: 0, y: 360, width: 151, height: 28))
+            window.contentView?.addSubview(region)
+            let reveal = HoverReveal(region: region)
+            reveal.setPointerInside(true)
+            #expect(reveal.state.pointerInside)
+            region.frame = NSRect(x: 0, y: 360, width: 180, height: 28)
+            #expect(!reveal.state.pointerInside, "a missed exit does not keep the region revealed")
+        }
+    }
+
     @Test func revealFollowsThePointerHoldsFocusAndTheSetting() {
         var state = HoverRevealState()
         #expect(!state.isRevealed)

@@ -97,6 +97,10 @@ impl ProviderEngine {
         let popups = created.clone();
         let session_events = events.clone();
         let subscription = provider.subscribe(Arc::new(move |event: DriverEvent| {
+            // Only the source's policy log hook writes the policy log.
+            if event.name == crate::driver::POLICY_LOG_EVENT {
+                return;
+            }
             if event.name == "tab.created"
                 && let (Some(target), Some(opener)) = (
                     event.payload.get("targetId").and_then(Value::as_str),
@@ -110,6 +114,16 @@ impl ProviderEngine {
             }
             session_events(event);
         }));
+        let log_events = events.clone();
+        provider.policy_log(
+            subscription,
+            Arc::new(move |entry: Value| {
+                log_events(DriverEvent {
+                    name: crate::driver::POLICY_LOG_EVENT.to_owned(),
+                    payload: entry,
+                });
+            }),
+        );
         Ok(ProviderEngine {
             created,
             provider,
@@ -158,9 +172,32 @@ impl ProviderEngine {
                         open.insert(key.into(), value.clone());
                     }
                 }
+                // An incognito tab needs a store that keeps nothing: a source
+                // without one (the app has none yet) refuses the call, never
+                // opening it in the person's persistent profile (private
+                // data P1). A source with one gets the flag either way.
+                match params.get("incognito") {
+                    None | Some(Value::Null) => {}
+                    Some(Value::Bool(incognito)) => {
+                        if self.provider.capabilities(&self.engine).contains(&"incognito") {
+                            open.insert("incognito".into(), Value::Bool(*incognito));
+                        } else if *incognito {
+                            return Err(DriverError::new(
+                                crate::protocol::ErrorCode::Unsupported,
+                                format!(
+                                    "tabs.open: incognito tabs are not supported on {} tabs yet; nothing was opened",
+                                    self.engine
+                                ),
+                            ));
+                        }
+                    }
+                    Some(_) => {
+                        return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
+                    }
+                }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
-                let opened = self.provider.call(method, &Value::Object(open))?;
+                let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
                     self.provider.opened(self.subscription, target);
@@ -258,6 +295,7 @@ impl ProviderEngine {
             observe: observe.as_ref(),
             agent_source: &self.agent_source,
             raw,
+            origin: &self.lease.origin,
         });
         // A read is never blocked; only a read that succeeded is the fresh
         // observe after a hand back.

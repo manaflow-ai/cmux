@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextSettings
 import Foundation
 
@@ -130,7 +132,7 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
     func bookmarkChildren(of parent: String) -> [BookmarkNode] { service?.tree(profile).children(of: parent) ?? [] }
 
     func favicon(for node: BookmarkNode) -> NSImage? {
-        NSImage(systemSymbolName: node.isFolder ? "folder" : "globe", accessibilityDescription: nil)
+        NSImage.icon(node.isFolder ? .folder : .browser, size: Metrics.smallIconSize)
     }
 
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {

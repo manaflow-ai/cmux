@@ -22,13 +22,14 @@ import Testing
     @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
         #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
         let moved = try SidebarLayoutReducer.reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .bottom, index: 1)).get()
         let bands = moved.bands(room: nil)
-        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
+        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.recentsSectionID,
+                                           SidebarLayoutDocument.bottomSectionID])
         #expect(bands.below.isEmpty)
     }
 

@@ -30,8 +30,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
                 replyHandler(AgentPaneModel.transportReply(error), nil)
             }
         }
-        // Transport requests carry chat content and run per batch: not logged.
-        if !request.isTransport {
+        // Transport and shell requests carry chat content or commands and run often: not logged.
+        if !request.isTransport, !request.isShell {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
         // task-owner: one page request; its reply goes back through replyHandler
@@ -44,6 +44,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // The handshake can wait up to 20 seconds for acpmux to start. Only
         // the model is held across it, so closing the tab frees the view and
         // its web view right away.
+        guard request == .ready else { return await model.respond(to: request) }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
+        defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
         return await model.respond(to: request)
     }
 

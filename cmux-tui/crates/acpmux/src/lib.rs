@@ -16,6 +16,7 @@ mod agent_exit_tests;
 pub mod agent_host;
 #[cfg(test)]
 mod agent_replay_tests;
+pub mod chats;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
@@ -28,6 +29,7 @@ pub mod hub;
 pub mod login_env;
 pub mod native;
 pub mod peer;
+pub mod protected_folders;
 pub mod rpc;
 pub mod schema;
 pub mod server;

@@ -7,6 +7,7 @@
 // with no `fontFamily` or `fontSize` the editor uses the terminal font the host sends in
 // `appearance`. Every key is optional; an invalid value keeps its default. Pure: no Monaco import.
 import type { DiffViewerAppearance } from "../../appearance";
+import { monacoScrollerOptions, type ScrollerStyle } from "../../scrollers";
 
 export type WordWrap = "off" | "on" | "bounded" | "wordWrapColumn";
 export type LineNumbers = "on" | "off" | "relative" | "interval";
@@ -279,10 +280,17 @@ export function editorFont(
 export function monacoOptions(
   settings: EditorSettings,
   appearance: DiffViewerAppearance | undefined,
-  context: { readOnly: boolean; large: boolean; ariaLabel: string; readOnlyMessage?: string },
+  context: {
+    readOnly: boolean;
+    large: boolean;
+    ariaLabel: string;
+    readOnlyMessage?: string;
+    scrollers?: ScrollerStyle;
+  },
 ): Record<string, unknown> {
   const font = editorFont(settings, appearance);
   const large = context.large;
+  const scrollerOptions = monacoScrollerOptions(context.scrollers ?? "overlay");
   const options: Record<string, unknown> = {
     fontFamily: font.family,
     fontSize: font.size,
@@ -324,8 +332,10 @@ export function monacoOptions(
     maxTokenizationLineLength: 20_000,
     automaticLayout: true,
     fixedOverflowWidgets: true,
+    // The macOS "Show scroll bars" setting from the host (scrollers.ts).
+    ...scrollerOptions,
     // The page is the scroller's only owner; the native view handles the window.
-    scrollbar: { alwaysConsumeMouseWheel: false },
+    scrollbar: { ...scrollerOptions.scrollbar, alwaysConsumeMouseWheel: false },
     // Monaco's own context menu inside the editor (R139 allows it); no popup while typing.
     contextmenu: true,
     quickSuggestions: false,

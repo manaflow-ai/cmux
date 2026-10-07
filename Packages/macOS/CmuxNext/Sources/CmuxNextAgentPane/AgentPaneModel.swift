@@ -12,6 +12,10 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page drew its first frame after the handshake (`pane.painted`), the
+    /// first that shows what it is. Until then its pane keeps what it showed.
+    public internal(set) var hasPainted = false
+    @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -45,6 +49,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
+    @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -80,6 +86,7 @@ public final class AgentPaneModel {
     @ObservationIgnored private let allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
+    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -87,7 +94,17 @@ public final class AgentPaneModel {
     /// handshake's cwd and the new tab page's folders they are the roots every `cwd` or `path`
     /// the page sends must be under (``AcpmuxPathPolicy``).
     @ObservationIgnored public var workspaceRoots: (@MainActor () -> [String])?
-    @ObservationIgnored private var handshakeCwd: String?
+    /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
+    /// exists, and where a new chat starts when the workspace has no folder (no other root).
+    @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
+    /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
+    /// agent folder; a refusal carries its localized text (an older background service, a save
+    /// that failed).
+    @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
+    /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
+    /// workspace's own field (``workspaceRoots``) carries it.
+    @ObservationIgnored public internal(set) var chosenFolder: String?
+    @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -110,6 +127,7 @@ public final class AgentPaneModel {
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
+        transport.agentHome = { [weak self] in self?.workspaceAgentHome?() }
         transport.requestRoot = { [weak self] folder, answer in
             guard let onRequestRoot = self?.onRequestRoot else { return answer(false) }
             onRequestRoot(folder, answer)
@@ -126,26 +144,6 @@ public final class AgentPaneModel {
 
     /// Asks the user to add a folder the page named outside every root (the view's native sheet).
     @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
-
-    /// The host's own roots for ``AcpmuxPathPolicy``: the workspace's local tab folders, the
-    /// handshake's cwd and the new tab page's cwd.
-    func roots() -> [String] {
-        var roots = workspaceRoots?() ?? []
-        if let handshakeCwd { roots.append(handshakeCwd) }
-        if let cwd = newTab?.cwd { roots.append(cwd) }
-        return roots
-    }
-
-    /// The new tab page's project scan and open folders: roots only when the user picks one.
-    func gestureRoots() -> [String] {
-        guard let newTab else { return [] }
-        return newTab.projects + newTab.omnibar.folders
-    }
-
-    /// The pane's workspace root: what a `session/new` without a cwd gets.
-    func primaryRoot() -> String? {
-        handshakeCwd ?? workspaceRoots?().first ?? newTab?.cwd
-    }
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -174,7 +172,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -207,7 +205,15 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
+                handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                // An inherited or default `~` is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) { handshake.cwd = nil }
+                // A new chat with no folder starts in agent-home; the page offers Choose Folder….
+                if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
+                   workspaceAgentHome?() != nil {
+                    handshake.chooseFolder = true
+                }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -237,6 +243,9 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
+        case .painted:
+            markPainted()
+            return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
@@ -247,13 +256,17 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
+        case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
+        case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New).
-            guard id == "newTab.page" || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
+            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
+            // and the command palette's chats page ("Show all", decision K1).
+            guard id == "newTab.page" || id == "agentPane.searchChats" || (id == "palette.welcomeChecklist" && newTab != nil),
+                  let onRunAction else {
                 return Self.unsupported("action.run")
             }
             onRunAction(id)
@@ -266,6 +279,8 @@ public final class AgentPaneModel {
             guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
             onSetDefaultKind(kind)
             return AgentPaneReply.success()
+        case .chooseFolder:
+            return await chooseFolder()
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -277,6 +292,7 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -363,11 +379,11 @@ public final class AgentPaneModel {
         error.map(transportFailure) ?? AgentPaneReply.success()
     }
 
-    private static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
+    static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
-    private static func unsupported(_ method: String) -> [String: Any] {
+    static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
 
@@ -375,16 +391,5 @@ public final class AgentPaneModel {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
-    }
-}
-
-extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
-        return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
-            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

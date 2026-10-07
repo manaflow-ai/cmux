@@ -20,9 +20,7 @@ enum AgentPaneTheme {
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
-            // On the transparent New Tab page: the pane's own background, for the part that
-            // stands in for a terminal ("!", R81), so the swap to the terminal changes nothing.
-            "surfaceBackground": css(surface == .newTabPage ? pageColor(tokens) : page),
+            "surfaceBackground": css(page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
             // The field sits on the page; it adds only the hover tint, so a
             // translucent window's backdrop shows through it as much as

@@ -35,7 +35,6 @@ final class SidebarBridge {
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
-    var sectionStepCursor: (item: LayoutItemID, workspace: String?)?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -53,8 +52,13 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
-        SidebarHelpMenuProvider.install(on: container.sidebarView, services: services)
+        let recents = services.agentRecents.map { feed in
+            AgentRecentsSection(feed: feed) { [weak services] id in
+                guard let services else { return }
+                try? DeepLinkNavigator(services: services).open(DeepLink(.session(id, turn: nil)), background: false)
+            }
+        }
+        container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host, recents: recents)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -83,12 +87,15 @@ final class SidebarBridge {
         let machines = services.machines
         let registry = services.windows.registry
         let layout = services.sidebarLayout
+        let pageTabs = services.agentTabs.pageTabs
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
             // The layout too: removing the Home item lists the home workspace.
+            // And the New Tab pages: one that becomes a chat lists as a chat.
             for await (sections, launching, failed) in Observations({
-                Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document))
+                Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
+                                  newTabPages: pageTabs.ids)
             }) {
                 self?.show(sections, launching: launching, failed: failed)
             }
@@ -106,7 +113,8 @@ final class SidebarBridge {
             guard let windowState else { return [] }
             return spaceCache.sections(for: key) {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
-                              hidesHome: Self.hidesHome(layout.document), selection: windowState.selection)
+                              hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
+                              newTabPages: pageTabs.ids)
             }
         }
         let state = windowState
@@ -120,13 +128,13 @@ final class SidebarBridge {
             }
         }
         selectionObservation = Task { [weak self] in
-            // While a top page shows, no workspace row is selected (its item is).
-            for await id in Observations({ state.page == nil ? state.workspaceID : nil }) {
+            // One selection: the shown page's top item, else the shown workspace.
+            for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
+                                                                                layout: layout.document) }) {
                 guard let self else { return }
-                let selected = id.map { SidebarWorkspaceID($0) }
-                if self.model.activeWorkspaceID != selected {
-                    self.model.activeWorkspaceID = selected
-                    self.model.selection = selected.map { [$0] } ?? []
+                if self.model.selectedItem != selected {
+                    self.model.selectedItem = selected
+                    self.model.selection = self.model.activeWorkspaceID.map { [$0] } ?? []
                 }
             }
         }
@@ -150,7 +158,8 @@ final class SidebarBridge {
             model.activeProfileID = saved.sidebarActiveProfileID
         }
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state,
-                                                              hidesHome: Self.hidesHome(services.sidebarLayout.document))
+                                                              hidesHome: Self.hidesHome(services.sidebarLayout.document),
+                                                              newTabPages: services.agentTabs.pageTabs.ids)
         show(sections, launching: launching, failed: failed)
     }
 
@@ -192,9 +201,10 @@ final class SidebarBridge {
     /// connection gave up (their launch placeholders end). Rows from the
     /// daemon's launch snapshot are `.stale` until the live tree replaces them.
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
-                             window: WindowState, hidesHome: Bool = true) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             window: WindowState, hidesHome: Bool = true,
+                             newTabPages: Set<String> = []) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
-                                     selection: window.selection)
+                                     selection: window.selection, newTabPages: newTabPages)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
@@ -210,11 +220,14 @@ final class SidebarBridge {
     /// workspaces the window owns (`WindowRegistry`) in the profile it shows
     /// (`WindowProfiles`).
     /// `selection` is the window's tab selection: each row's type glyph shows its selected tab.
+    /// `newTabPages` are the tabs still on the New Tab page (`AgentTabs.pageTabs`).
     static func sections(_ machines: MachineRegistry, members: [String],
-                         profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init()) -> [SidebarRowSection] {
+                         profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init(),
+                         newTabPages: Set<String> = []) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-        let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection),
+        let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection,
+                                                         newTabPages: newTabPages),
                                                 members: Set(visible))
         return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
     }
@@ -238,21 +251,24 @@ final class SidebarBridge {
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
     static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
-                         selection: TabSelectionMemory = .init()) -> [SidebarRowSection] {
+                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = []) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, selectedTab: selectedTab)
+                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, selectedTab: selectedTab,
+                                               newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: header, showsUnread: showsUnread, selectedTab: selectedTab)
+                                                machine: header, showsUnread: showsUnread, selectedTab: selectedTab,
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: sshMachine(session, machines: machines), selectedTab: selectedTab)
+                                                machine: sshMachine(session, machines: machines), selectedTab: selectedTab,
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
         return sections
     }

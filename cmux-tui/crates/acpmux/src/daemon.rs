@@ -63,10 +63,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         );
     }
     std::fs::create_dir_all(home())?;
-    // launchd starts us in /; sessions without a cwd default to home.
-    if let Some(h) = dirs::home_dir() {
-        let _ = std::env::set_current_dir(h);
-    }
+    // launchd starts us in /. The daemon's own folder is its cwd, never the
+    // home folder: nothing the daemon or a child does relative to its cwd may
+    // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
+    let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
     let store = crate::store::open(&config.store, &home())?;
@@ -165,6 +165,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
+    // Without a home directory no file can answer, so every folder waits (fails closed).
+    hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
+        let none = std::path::PathBuf::from("/nonexistent/acpmux-no-home");
+        crate::trust::Paths {
+            claude_json: none.join(".claude.json"),
+            codex_config: none.join("config.toml"),
+            record: none.join("trust.json"),
+        }
+    })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
     // (default 300; 0 keeps every harness running).
@@ -240,7 +250,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tokio::spawn(async move {
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
-            hub.finish_startup().await
+            hub.finish_startup().await;
+            // After the login env import: it names harness homes.
+            let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
+            if let Some(sources) = sources
+                && let Err(e) = hub.start_chats(sources).await
+            {
+                tracing::warn!("{e}");
+            }
         });
     }
     tokio::spawn(notify_loop(hub.clone()));

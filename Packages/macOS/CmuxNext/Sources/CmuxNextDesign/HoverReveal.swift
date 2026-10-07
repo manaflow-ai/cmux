@@ -71,6 +71,9 @@ public final class HoverReveal {
 
     public private(set) weak var region: NSView?
     private var views: [ObjectIdentifier: Weak] = [:]
+    /// Views whose keyboard focus reveals this region, without this reveal
+    /// owning their alpha (`watchFocus(in:)`).
+    private var focusViews: [ObjectIdentifier: Weak] = [:]
     private let probe: HoverRevealProbe
     /// Bumped when the window goes away, so older holds no longer count.
     fileprivate var generation = 0
@@ -126,6 +129,14 @@ public final class HoverReveal {
         return true
     }
 
+    /// Keyboard focus inside `view` reveals this region too, while another
+    /// reveal (or nobody) owns `view`'s alpha: the top-left corner collapses
+    /// the window controls and comes back for focus on any title bar button,
+    /// while the title bar row's reveal fades those buttons.
+    public func watchFocus(in view: NSView) {
+        focusViews[ObjectIdentifier(view)] = Weak(view)
+    }
+
     public func remove(_ view: NSView) {
         let key = ObjectIdentifier(view)
         guard views.removeValue(forKey: key) != nil else { return }
@@ -166,6 +177,7 @@ public final class HoverReveal {
         let view = responder as? NSView
         let inside = view.map { focused in
             views.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
+                || focusViews.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
         } ?? false
         update { $0.focusInside = inside }
     }
@@ -225,12 +237,28 @@ private final class HoverRevealProbe: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        let own = trackingAreas.filter { $0.owner === self }
+        // An unchanged rect keeps its area. Replacing it on every call (each layout pass of the
+        // sidebar slide) dropped an exit that arrived between the removal and the new area, and the
+        // new area, added with the pointer already outside, never reported it, so the reveal stayed
+        // on (Lawrence 2026-10-05, nxdog55: the window controls with the sidebar closed).
+        if tracksPointer, own.count == 1, own[0].rect == bounds { return }
+        for area in own { removeTrackingArea(area) }
         guard tracksPointer else { return }
         // Exactly the bounds, not `.inVisibleRect`: the visible rect of a view that does not clip
         // reaches past its bounds (nxdog43: the whole window), so the pointer never "left" until it
         // left the window. AppKit calls this again whenever the bounds change.
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, trackingOptions], owner: self))
+        // A new area cannot know an exit the old one missed: read where the pointer is now.
+        readPointer()
+    }
+
+    /// Sets "inside" from the pointer's position now. A window that is not
+    /// shown cannot be under the pointer.
+    private func readPointer() {
+        guard tracksPointer, let window, let owner else { return }
+        let inside = window.isVisible && bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        if inside != owner.state.pointerInside { owner.setPointerInside(inside) }
     }
 
     /// The tracked rect follows the bounds even when the visible rect does not change.
@@ -271,7 +299,6 @@ private final class HoverRevealProbe: NSView {
         // A pointer already over the region when it joins a shown window
         // reveals at once, before any click (no mouseEntered arrives for
         // it). A window that is not on screen cannot be under the pointer.
-        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        if tracksPointer, window.isVisible, bounds.contains(point) { owner?.setPointerInside(true) }
+        readPointer()
     }
 }

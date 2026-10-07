@@ -48,9 +48,12 @@ import Testing
         #expect(blank.liveDetail == nil)
         #expect(live.liveDetail == "Claude: running tests")
         #expect(passive.rowDetail == "~")
-        #expect(m.height(for: passive) == m.rowHeightWithSubtitle)
-        #expect(m.height(for: blank) == m.rowHeight)
-        #expect(m.height(for: live) == m.rowHeightWithSubtitle)
+        // S1: the passive folder line shows only when the setting is on.
+        #expect(passive.rowDetail(showingDirectory: false) == nil)
+        #expect(m.height(for: passive, showingDirectory: false) == m.rowHeight)
+        #expect(m.height(for: passive, showingDirectory: true) == m.rowHeightWithSubtitle)
+        #expect(m.height(for: blank, showingDirectory: true) == m.rowHeight)
+        #expect(m.height(for: live, showingDirectory: false) == m.rowHeightWithSubtitle)
     }
 
     @Test func sidebarHasNoSearchFieldAndTypingDoesNotFilter() throws {
@@ -76,14 +79,13 @@ import Testing
         h.sidebar.list.inlineRename.end(commit: false)
     }
 
-    @Test func titlebarButtonsStayMountedAndSupportTabDrags() {
+    @Test func titlebarButtonsRevealOnHoverAndForTabDrags() {
         let h = Harness()
         #expect(!h.sidebar.isChromeRevealed)
-        #expect(h.sidebar.newButton.alphaValue == 1)
+        #expect(h.sidebar.newButton.alphaValue == 0)
         h.sidebar.setChromeRevealed(true)
         #expect(h.sidebar.isChromeRevealed)
         h.sidebar.setChromeRevealed(false)
-        #expect(h.sidebar.newButton.alphaValue == 1)
         // A tab drag over the "+" reveals it and targets a new workspace.
         let button = h.sidebar.newButton.frame
         let screen = h.window.convertToScreen(h.sidebar.convert(NSRect(x: button.midX, y: button.midY, width: 0, height: 0), to: nil)).origin

@@ -25,9 +25,16 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "server.addServer", title: t("action.server.addServer", "Add Server…"),
                 keywords: ["server", "pair", "code", "approve", "add", "chief", "always on"],
-                category: .settings, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .menu], mainMenu: .server,
-                // `cmux servers add CODE` (server.pair.approve) is the owner's verb.
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+                category: .settings, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .menu],
+                // With a code it approves without a window: `cmux servers add --code CODE [--chief] [--name N]`.
+                arguments: [
+                    ActionArgument(name: "code", title: t("argument.server.code", "Pairing Code"), kind: .string, isRequired: false),
+                    ActionArgument(name: "name", title: t("argument.server.name", "Server Name"), kind: .string, isRequired: false),
+                    ActionArgument(name: "chief", title: t("argument.server.chief", "Run My Chief There"), kind: .bool, isRequired: false),
+                ],
+                cliName: "servers add", mainMenu: .server,
+                // Approving a server gives it access to the account: a person does it, never an MCP agent.
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
             ),
             ActionDescriptor(
                 id: "server.showPanel", title: t("action.server.showPanel", "Server Status"),

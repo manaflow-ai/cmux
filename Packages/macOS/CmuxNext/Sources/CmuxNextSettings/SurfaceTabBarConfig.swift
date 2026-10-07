@@ -37,17 +37,11 @@ public struct SurfaceTabBarConfig: Sendable, Hashable {
         self.usesDefaults = usesDefaults
     }
 
-    /// No trailing buttons by default (R120): the plus shows on hover;
-    /// users add buttons back in cmux-next.json (`ui.surfaceTabBar.buttons`).
+    /// No buttons by default. cmux-next's tab strip draws none at all
+    /// (TAB-STRIP-TRAILING-BUTTONS-REMOVED): the list is still parsed, so a
+    /// cmux.json shared with the old app loads cleanly and its inline
+    /// command entries stay palette actions.
     public static let defaultButtons: [TabBarButtonSpec] = []
-
-    /// The built-in buttons a user can add back: new terminal tab, split
-    /// right, split down.
-    public static let builtInButtons: [TabBarButtonSpec] = [
-        TabBarButtonSpec(id: "cmux.newTerminal", actionID: "newSurface", icon: .symbol("terminal")),
-        TabBarButtonSpec(id: "cmux.splitRight", actionID: "splitRight", icon: .symbol("square.split.2x1")),
-        TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown", icon: .symbol("square.split.1x2")),
-    ]
 
     public static let defaults = SurfaceTabBarConfig(buttons: defaultButtons, usesDefaults: true)
 }

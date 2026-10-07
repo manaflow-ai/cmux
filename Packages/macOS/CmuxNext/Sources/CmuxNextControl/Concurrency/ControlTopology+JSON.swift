@@ -76,6 +76,7 @@ extension ControlTabInfo {
             "rows": rows.map { JSONValue($0) } ?? .null, "cwd": .optional(cwd), "url": .optional(url),
             "git_branch": .optional(gitBranch), "pinned": .bool(isPinned), "dead": .bool(isDead), "unread": .bool(hasUnread),
             "tab_group": .optional(tabGroupID), "agent_state": .optional(agentState),
+            "agent_session": .optional(agentSessionID),
         ]
     }
 }

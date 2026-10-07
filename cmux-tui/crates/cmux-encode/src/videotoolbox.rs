@@ -4,10 +4,13 @@
 //! length-prefixed (AVCC) form to Annex-B with SPS/PPS before every IDR.
 
 use crate::{H264Encoder, I420, Res};
+
+mod surface;
 use std::ffi::c_void;
 use std::os::raw::{c_int, c_long};
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
+pub use surface::{ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect};
 
 type CFTypeRef = *const c_void;
 type CFStringRef = *const c_void;
@@ -86,6 +89,23 @@ unsafe extern "C" {
     fn CVPixelBufferUnlockBaseAddress(pb: CVPixelBufferRef, flags: u64) -> i32;
     fn CVPixelBufferGetBaseAddressOfPlane(pb: CVPixelBufferRef, plane: usize) -> *mut u8;
     fn CVPixelBufferGetBytesPerRowOfPlane(pb: CVPixelBufferRef, plane: usize) -> usize;
+    fn CVPixelBufferCreateWithIOSurface(
+        a: CFAllocatorRef,
+        surface: *mut c_void,
+        attrs: CFDictionaryRef,
+        out: *mut CVPixelBufferRef,
+    ) -> i32;
+    static kCVImageBufferColorPrimaries_ITU_R_709_2: CFStringRef;
+    static kCVImageBufferColorPrimaries_P3_D65: CFStringRef;
+    static kCVImageBufferTransferFunction_ITU_R_709_2: CFStringRef;
+    static kCVImageBufferYCbCrMatrix_ITU_R_709_2: CFStringRef;
+}
+
+#[link(name = "IOSurface", kind = "framework")]
+unsafe extern "C" {
+    fn IOSurfaceGetWidth(surface: *mut c_void) -> usize;
+    fn IOSurfaceGetHeight(surface: *mut c_void) -> usize;
+    fn IOSurfaceGetPixelFormat(surface: *mut c_void) -> u32;
 }
 
 #[link(name = "CoreMedia", kind = "framework")]
@@ -124,6 +144,9 @@ unsafe extern "C" {
     static kVTProfileLevel_H264_High_AutoLevel: CFStringRef;
     static kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel: CFStringRef;
     static kVTEncodeFrameOptionKey_ForceKeyFrame: CFStringRef;
+    static kVTCompressionPropertyKey_ColorPrimaries: CFStringRef;
+    static kVTCompressionPropertyKey_TransferFunction: CFStringRef;
+    static kVTCompressionPropertyKey_YCbCrMatrix: CFStringRef;
     fn VTCompressionSessionCreate(
         a: CFAllocatorRef,
         w: i32,
@@ -162,11 +185,18 @@ struct Output {
 
 pub struct VideoToolbox {
     session: VTCompressionSessionRef,
+    /// The size the session encodes (a surface of another size recreates it).
+    session_size: (usize, usize),
+    /// The I420 path's pixel buffer, at `width` x `height`.
     pixel_buffer: CVPixelBufferRef,
     out: Box<Mutex<Output>>,
     width: usize,
     height: usize,
+    fps: u32,
+    baseline: bool,
     kbps: u32,
+    /// The color tag the session carries (surface path); `None` until set.
+    color: Option<ColorTag>,
     name: String,
 }
 
@@ -275,38 +305,66 @@ extern "C" fn on_output(
     }
 }
 
+/// A low-latency hardware H.264 session at `width` x `height` whose output
+/// callback writes into `out` (which must outlive the session).
+fn create_session(
+    width: usize,
+    height: usize,
+    fps: u32,
+    baseline: bool,
+    out: &Mutex<Output>,
+) -> Res<VTCompressionSessionRef> {
+    let mut session: VTCompressionSessionRef = null_mut();
+    // SAFETY: CF statics from the frameworks; the dictionary is released after use.
+    let status = unsafe {
+        let spec = dict(&[
+            (kVTVideoEncoderSpecification_EnableLowLatencyRateControl, kCFBooleanTrue),
+            (kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder, kCFBooleanTrue),
+        ]);
+        let s = VTCompressionSessionCreate(
+            null(),
+            width as i32,
+            height as i32,
+            CODEC_H264,
+            spec,
+            null(),
+            null(),
+            on_output,
+            (out as *const Mutex<Output>).cast_mut().cast(),
+            &mut session,
+        );
+        CFRelease(spec);
+        s
+    };
+    if status != 0 || session.is_null() {
+        return Err(format!("VTCompressionSessionCreate failed: {status}").into());
+    }
+    // SAFETY: setting properties on our live session with CF values we release.
+    unsafe {
+        let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
+        set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
+        set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
+        let profile = if baseline {
+            kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel
+        } else {
+            kVTProfileLevel_H264_High_AutoLevel
+        };
+        set(kVTCompressionPropertyKey_ProfileLevel, profile);
+        let gop = number_i32(i32::MAX);
+        set(kVTCompressionPropertyKey_MaxKeyFrameInterval, gop);
+        CFRelease(gop);
+        let rate = number_f64(f64::from(fps.max(1)));
+        set(kVTCompressionPropertyKey_ExpectedFrameRate, rate);
+        CFRelease(rate);
+    }
+    Ok(session)
+}
+
 impl VideoToolbox {
     /// `baseline`: constrained baseline (for openh264-decoded checks); otherwise High.
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
         let out: Box<Mutex<Output>> = Box::default();
-        let mut session: VTCompressionSessionRef = null_mut();
-        // SAFETY: CF statics from the frameworks; the dictionary is released after use.
-        let status = unsafe {
-            let spec = dict(&[
-                (kVTVideoEncoderSpecification_EnableLowLatencyRateControl, kCFBooleanTrue),
-                (
-                    kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
-                    kCFBooleanTrue,
-                ),
-            ]);
-            let s = VTCompressionSessionCreate(
-                null(),
-                width as i32,
-                height as i32,
-                CODEC_H264,
-                spec,
-                null(),
-                null(),
-                on_output,
-                (&*out as *const Mutex<Output>).cast_mut().cast(),
-                &mut session,
-            );
-            CFRelease(spec);
-            s
-        };
-        if status != 0 || session.is_null() {
-            return Err(format!("VTCompressionSessionCreate failed: {status}").into());
-        }
+        let session = create_session(width as usize, height as usize, fps, baseline, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
@@ -332,39 +390,69 @@ impl VideoToolbox {
             }
             return Err(format!("CVPixelBufferCreate failed: {pb_status}").into());
         }
-        let this = Self {
+        let mut this = Self {
             session,
+            session_size: (width as usize, height as usize),
             pixel_buffer,
             out,
             width: width as usize,
             height: height as usize,
+            fps,
+            baseline,
             kbps: kbps.max(100),
+            color: None,
             name: format!(
                 "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
                 if baseline { "constrained-baseline" } else { "high" }
             ),
         };
-        // SAFETY: setting properties on our live session with CF values we release.
-        unsafe {
-            let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
-            set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
-            set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
-            let profile = if baseline {
-                kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel
-            } else {
-                kVTProfileLevel_H264_High_AutoLevel
-            };
-            set(kVTCompressionPropertyKey_ProfileLevel, profile);
-            let gop = number_i32(i32::MAX);
-            set(kVTCompressionPropertyKey_MaxKeyFrameInterval, gop);
-            CFRelease(gop);
-            let rate = number_f64(f64::from(fps.max(1)));
-            set(kVTCompressionPropertyKey_ExpectedFrameRate, rate);
-            CFRelease(rate);
-        }
-        let mut this = this;
         this.apply_bitrate(this.kbps);
         Ok(this)
+    }
+
+    /// Makes the session encode `width` x `height`, recreating it on a change.
+    /// Returns true when it was recreated (the next frame must be an IDR).
+    fn ensure_session(&mut self, width: usize, height: usize) -> Res<bool> {
+        if self.session_size == (width, height) {
+            return Ok(false);
+        }
+        let session = create_session(width, height, self.fps, self.baseline, &self.out)?;
+        // SAFETY: invalidating and releasing our previous session once.
+        unsafe {
+            VTCompressionSessionInvalidate(self.session);
+            CFRelease(self.session as CFTypeRef);
+        }
+        self.session = session;
+        self.session_size = (width, height);
+        self.color = None;
+        self.apply_bitrate(self.kbps);
+        Ok(true)
+    }
+
+    /// Tags the session's output with `color` (primaries, transfer, matrix).
+    fn apply_color(&mut self, color: ColorTag) {
+        if self.color == Some(color) {
+            return;
+        }
+        // SAFETY: CF statics from the frameworks set on our live session.
+        unsafe {
+            let primaries = match color {
+                ColorTag::Srgb => kCVImageBufferColorPrimaries_ITU_R_709_2,
+                ColorTag::DisplayP3 => kCVImageBufferColorPrimaries_P3_D65,
+            };
+            VTSessionSetProperty(self.session, kVTCompressionPropertyKey_ColorPrimaries, primaries);
+            VTSessionSetProperty(
+                self.session,
+                kVTCompressionPropertyKey_TransferFunction,
+                kCVImageBufferTransferFunction_ITU_R_709_2,
+            );
+            VTSessionSetProperty(
+                self.session,
+                kVTCompressionPropertyKey_YCbCrMatrix,
+                kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+            );
+        }
+        self.color = Some(color);
     }
 
     fn apply_bitrate(&mut self, kbps: u32) {
@@ -412,7 +500,39 @@ impl VideoToolbox {
 
 impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        // A surface of another size may have resized the session.
+        let resized = self.ensure_session(self.width, self.height)?;
         self.fill(pic)?;
+        let pb = self.pixel_buffer;
+        self.encode_buffer(pb, force_idr || resized, pts, out)
+    }
+
+    fn set_bitrate(&mut self, kbps: u32) {
+        let kbps = kbps.max(100);
+        if kbps.abs_diff(self.kbps) * 20 >= self.kbps {
+            self.apply_bitrate(kbps);
+        }
+    }
+
+    fn kbps(&self) -> u32 {
+        self.kbps
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl VideoToolbox {
+    /// Encodes one pixel buffer synchronously: the output callback has run
+    /// when this returns.
+    fn encode_buffer(
+        &mut self,
+        pixel_buffer: CVPixelBufferRef,
+        force_idr: bool,
+        pts: i64,
+        out: &mut Vec<u8>,
+    ) -> Res<bool> {
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
         }
@@ -430,7 +550,7 @@ impl H264Encoder for VideoToolbox {
             let mut info = 0u32;
             let s = VTCompressionSessionEncodeFrame(
                 self.session,
-                self.pixel_buffer,
+                pixel_buffer,
                 time,
                 INVALID_TIME,
                 props,
@@ -457,21 +577,6 @@ impl H264Encoder for VideoToolbox {
         out.clear();
         out.extend_from_slice(&result.annexb);
         Ok(result.keyframe && !out.is_empty())
-    }
-
-    fn set_bitrate(&mut self, kbps: u32) {
-        let kbps = kbps.max(100);
-        if kbps.abs_diff(self.kbps) * 20 >= self.kbps {
-            self.apply_bitrate(kbps);
-        }
-    }
-
-    fn kbps(&self) -> u32 {
-        self.kbps
-    }
-
-    fn name(&self) -> String {
-        self.name.clone()
     }
 }
 

@@ -115,10 +115,11 @@ public struct AccountRowState: Sendable, Equatable {
     /// Whether CodeRouter can hold this provider at all.
     public var isLinkable: Bool { provider.codeRouterLink != .unsupported }
 
-    /// Connect needs cmux sign-in and a linkable provider. A provider that
-    /// takes a pasted secret can connect without a local sign-in.
+    /// Connect needs cmux sign-in, a linkable provider and a reachable
+    /// CodeRouter. A provider that takes a pasted secret can connect without
+    /// a local sign-in.
     public var canConnect: Bool {
-        guard cmuxSignedIn, isLinkable else { return false }
+        guard cmuxSignedIn, isLinkable, codeRouterProblem == nil else { return false }
         switch provider.codeRouterLink {
         case .claudeOAuthToken, .apiKey, .anthropicAPIKey: return true
         case .codexOAuth: return status == .signedIn

@@ -21,7 +21,7 @@ export function TrustAsk({
   const t = useT();
   const folder = projectName(ask.cwd) ?? ask.cwd;
   return (
-    <div className="acpmux-trust-ask" aria-live="polite" title={ask.cwd}>
+    <div className="acpmux-trust-ask" aria-live="polite">
       {ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">

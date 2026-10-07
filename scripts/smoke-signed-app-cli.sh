@@ -47,6 +47,9 @@ if command -v lipo >/dev/null 2>&1 && ! lipo "$EXECUTABLE_PATH" -verify_arch "$H
   APP_ARCHS="$(lipo -archs "$EXECUTABLE_PATH" 2>/dev/null || echo unknown)"
   if [[ "$HOST_ARCH" == "arm64" && "$APP_ARCHS" == "x86_64" ]] && /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
     echo "cli smoke: running x86_64-only app through Rosetta on $HOST_ARCH host"
+    # Rosetta translates the large CLI binary on its first run, which alone
+    # can pass 20s on a CI runner (nightly-next run 37506678564).
+    ROSETTA_CLI_TIMEOUT_SECONDS=120
   else
     echo "SKIP: cannot run the CLI smoke for an app built for '$APP_ARCHS' on a $HOST_ARCH host (Rosetta unavailable)"
     exit 0
@@ -103,7 +106,7 @@ fail() {
 # Run the bundled CLI against the private socket with a hard timeout so a hung
 # socket call fails this step instead of the whole job timeout.
 cli() {
-  local timeout_seconds="${CLI_TIMEOUT_SECONDS:-20}"
+  local timeout_seconds="${CLI_TIMEOUT_SECONDS:-${ROSETTA_CLI_TIMEOUT_SECONDS:-20}}"
   local out_file="$WORK_DIR/cli.out"
   local err_file="$WORK_DIR/cli.err"
   # Drop caller context a cmux terminal would export, so a local run inside

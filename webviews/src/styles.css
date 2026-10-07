@@ -899,6 +899,11 @@ body[data-status-only="true"] #files-motion-curtain {
   --trees-status-added-override: var(--cmux-diff-count-added);
   --trees-status-deleted-override: var(--cmux-diff-count-deleted);
 }
+/* SCROLLBARS-FOLLOW-MACOS: the tree has no scroller of its own width in overlay mode (rows keep the
+   full width); for "Always" it shows the library's scroller in a gutter (scrollers.ts). */
+html[data-scrollers="legacy"] #file-list {
+  --trees-scrollbar-gutter-override: 6px;
+}
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;
 }

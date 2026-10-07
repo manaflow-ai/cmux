@@ -506,7 +506,9 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 - Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
   pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
   its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is
-  unknown and never paused.
+  unknown and never paused. A capable report without activity times means nobody acted since the VM
+  started: the idle period starts at the last start or bind (else the create), for the idle policy and
+  for the 24 h backstop (2026-10-06; before, such a machine never paused).
 
 ### Snapshots (2026-10-05)
 

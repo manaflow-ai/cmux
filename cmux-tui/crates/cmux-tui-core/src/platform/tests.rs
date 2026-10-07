@@ -577,6 +577,33 @@ fn terminal_pwd_converts_local_osc7_urls_without_trusting_remote_hosts() {
     assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
 }
 
+/// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`
+/// after the Cloud prompt's `file://` report on a shell's first prompt and
+/// after every `cd`, so that report is the one a hosted terminal keeps.
+#[cfg(unix)]
+#[test]
+fn terminal_pwd_accepts_local_kitty_shell_cwd_reports() {
+    let hostname = local_hostname().expect("hostname");
+
+    assert_eq!(
+        terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/home/cmux")),
+        Some(PathBuf::from("/home/cmux"))
+    );
+    // kitty-shell-cwd carries the raw path; `%20` is three literal bytes.
+    assert_eq!(
+        terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/a b%20c"),
+        Some(PathBuf::from("/tmp/a b%20c"))
+    );
+    assert_eq!(
+        local_terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/srv")),
+        Some(PathBuf::from("/srv"))
+    );
+    assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp/nope"), None);
+    assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+    assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost"), None);
+    assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/\0nul"), None);
+}
+
 #[cfg(unix)]
 #[test]
 fn terminal_pwd_accepts_ghostty_kitty_shell_cwd_reports() {

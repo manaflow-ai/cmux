@@ -28,7 +28,7 @@ struct TopPageTests {
     @Test func otherItemsOpenNoPage() {
         #expect(TopPageRoute(.builtIn(.settings), in: .bottom) == nil)
         #expect(TopPageRoute(.app("cmux/app-store"), in: .middle) == nil)
-        #expect(TopPageRoute(.builtIn(.newWorkspace), in: .top) == nil)
+        #expect(TopPageRoute(.builtIn(.newTerminal), in: .top) == nil)
         #expect(TopPageRoute(.workspace("s:ws_1"), in: .top) == nil)
     }
 
@@ -127,16 +127,6 @@ struct TopPageTests {
         state.page = nil
         let plain = try #require(registry.record("w1", state: state, order: 0))
         #expect(WindowState(record: plain).page == nil)
-    }
-
-    // MARK: Sidebar
-
-    @Test func theShownPagesItemIsActive() {
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, shownPage: .page(.appStore))
-        #expect(infos[LayoutItemID("itm_app_store")]?.isActive == true)
-        #expect(infos[LayoutItemID("itm_home")]?.isActive == false)
-        let home = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, shownPage: .home)
-        #expect(home[LayoutItemID("itm_home")]?.isActive == true)
     }
 
     // MARK: Fixture

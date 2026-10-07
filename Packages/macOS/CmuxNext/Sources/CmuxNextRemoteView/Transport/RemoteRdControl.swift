@@ -14,13 +14,16 @@ public nonisolated enum RemoteRdControl: Sendable, Equatable {
     case refused(reason: String)
     case ended(reason: String)
     case stats(RemoteRdHostStats)
+    /// A message of the session's service (an rb/1 body), passed through
+    /// untouched (rd change B3.2); rd never interprets `body`.
+    case service(service: String, body: RemoteRdJSON)
     /// A message type this viewer does not know (a newer host); ignored.
     case unknown(String)
 }
 
 nonisolated extension RemoteRdControl: Codable {
     private enum TagKey: String, CodingKey { case t }
-    private enum Fields: String, CodingKey { case key, mode, session, reason }
+    private enum Fields: String, CodingKey { case key, mode, session, reason, service, body }
 
     public init(from decoder: any Decoder) throws {
         let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .t)
@@ -35,6 +38,11 @@ nonisolated extension RemoteRdControl: Codable {
         case "refused": self = .refused(reason: try fields.decode(String.self, forKey: .reason))
         case "ended": self = .ended(reason: try fields.decode(String.self, forKey: .reason))
         case "stats": self = .stats(try RemoteRdHostStats(from: decoder))
+        case "service":
+            self = .service(
+                service: try fields.decode(String.self, forKey: .service),
+                body: try fields.decode(RemoteRdJSON.self, forKey: .body)
+            )
         default: self = .unknown(tag)
         }
     }
@@ -67,6 +75,10 @@ nonisolated extension RemoteRdControl: Codable {
         case let .stats(stats):
             try tag.encode("stats", forKey: .t)
             try stats.encode(to: encoder)
+        case let .service(service, body):
+            try tag.encode("service", forKey: .t)
+            try fields.encode(service, forKey: .service)
+            try fields.encode(body, forKey: .body)
         case let .unknown(name):
             try tag.encode(name, forKey: .t)
         }

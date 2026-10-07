@@ -3,7 +3,7 @@ import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
-import { recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
+import { recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
 import { useT } from "../i18n";
 
@@ -12,10 +12,8 @@ export type NewTabScreenActions = {
   onAsk(harness: string, text: string): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
-  /// `!` was typed: the tab becomes a terminal now, `command` typed at its prompt.
-  onTerminal(command: string): void;
-  /// The command as typed since `onTerminal`, whole each time, until the terminal has focus.
-  onTypeAhead(command: string): void;
+  /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
+  onShell(command: string): void;
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
@@ -34,7 +32,7 @@ type Props = NewTabScreenActions & {
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): one field that reads what is
-/// typed (`!` a terminal, an address, or a prompt with the installed agents and a web search
+/// typed (`!` a shell command, an address, or a prompt with the installed agents and a web search
 /// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
@@ -43,7 +41,8 @@ export function NewTabScreen(props: Props) {
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
   const [selected, setSelected] = useState(0);
-  const [converting, setConverting] = useState(false);
+  /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
+  const [shell, setShell] = useState(false);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
@@ -58,8 +57,8 @@ export function NewTabScreen(props: Props) {
     [snapshot.catalog],
   );
   const rows = useMemo(
-    () => (touched && !converting ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
-    [touched, converting, text, agents, omnibar, lastAgent, home],
+    () => (touched && !shell ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
+    [touched, shell, text, agents, omnibar, lastAgent, home],
   );
   const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
@@ -96,23 +95,31 @@ export function NewTabScreen(props: Props) {
   const edit = (next: string) => {
     touch();
     setTouched(true);
-    if (converting) {
-      setText(next);
-      props.onTypeAhead(next.replace(/^\s*!/, ""));
+    const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
+    wholeSelection.current = false;
+    if (entry) {
+      setShell(true);
+      setText(entry.command);
       return;
     }
-    const conversion = composing.current ? undefined : terminalConversion(text, next, wholeSelection.current);
-    wholeSelection.current = false;
     setText(next);
-    if (conversion) {
-      setConverting(true);
-      props.onTerminal(conversion.command);
-    }
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
-    if (composing.current || event.nativeEvent.isComposing || converting) return;
+    if (composing.current || event.nativeEvent.isComposing) return;
     const input = event.currentTarget;
+    if (shell) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const command = text.trim();
+        if (command) props.onShell(command);
+      } else if (event.key === "Escape" || (event.key === "Backspace" && input.selectionEnd === 0)) {
+        // Leaves shell mode; what was typed stays in the field.
+        event.preventDefault();
+        setShell(false);
+      }
+      return;
+    }
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
@@ -131,27 +138,22 @@ export function NewTabScreen(props: Props) {
   };
 
   return (
-    <div className="nt-screen" data-converting={converting || undefined}>
-      {converting && (
-        // R81: the terminal shows in this frame (same background, the typed command, a cursor)
-        // while the daemon starts the shell; a quiet "starting" line appears after 1 s (CSS delay).
-        <div className="nt-terminal" aria-label={nt("terminal")}>
-          <span className="nt-terminal-command">{text.replace(/^\s*!/, "")}</span>
-          <span className="nt-cursor" aria-hidden="true" />
-          <span className="nt-terminal-starting">{nt("terminal")}</span>
-        </div>
-      )}
+    <div className="nt-screen" data-shell={shell || undefined}>
       <div className="nt-box">
+        {shell && (
+          <span className="nt-shell-glyph" aria-hidden="true">
+            !
+          </span>
+        )}
         <input
           ref={field}
           className="nt-field"
-          aria-label={nt("placeholder")}
-          placeholder={nt("placeholder")}
+          aria-label={shell ? t("composer.shell") : nt("placeholder")}
+          placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
           value={text}
           aria-controls="nt-rows"
           aria-activedescendant={rows.length ? `nt-row-${selected}` : undefined}
-          aria-busy={converting || undefined}
-          spellCheck
+          spellCheck={!shell}
           autoCapitalize="off"
           autoCorrect="off"
           onChange={(event) => edit(event.target.value)}
@@ -194,7 +196,7 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      {!converting && <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />}
+      <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
     </div>
   );
 }

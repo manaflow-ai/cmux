@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 
@@ -35,6 +36,7 @@ final class KeybindingsPageService: InternalPageProvider {
     var page: InternalPageID { .keybindings }
     var title: String { KeybindingStrings.pageTitle }
     var symbol: String { "keyboard" }
+    var icon: IconName? { .keyboard }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)

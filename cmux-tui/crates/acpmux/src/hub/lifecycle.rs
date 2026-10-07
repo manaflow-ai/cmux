@@ -60,6 +60,9 @@ impl Hub {
             current.auto_default = next.auto_default;
             current.auto_prefer = next.auto_prefer;
             current.unavailable = next.unavailable;
+            current.profile_meta = next.profile_meta;
+            current.profile_diagnostics = next.profile_diagnostics;
+            current.shadowed_config = next.shadowed_config;
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.web_asking_modes = next.web_asking_modes;
@@ -85,11 +88,14 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote)?
+            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
         let agent = agent.as_str();
+        if profile.kind == crate::config::HarnessKind::Terminal {
+            return Err(terminal_harness_refusal(agent));
+        }
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
         let model = model.or(defaults.model);
@@ -105,6 +111,15 @@ impl Hub {
             Adoption::Found(recorded) => recorded,
         };
         let cwd = session_cwd(cwd, recorded, &family)?;
+        // A folder profile runs only in chats whose folder is inside its folder (H4).
+        if let Some(root) = &folder_root
+            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+        {
+            return Err(RpcError::invalid_params(format!(
+                "harness {agent} is a folder profile of {}; the chat folder must be inside it",
+                root.display()
+            )));
+        }
         let mut meta = draft_meta(Draft {
             id: String::new(),
             agent,
@@ -133,6 +148,11 @@ impl Hub {
         // creations can never publish the same name twice.
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
+            // The shutdown reads the sessions after it starts: a session
+            // inserted after that is never ended, so none is (shutdown.rs).
+            if self.shutting_down() {
+                return Err(super::shutdown::shutting_down_error());
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = &adopt
@@ -247,6 +267,7 @@ impl Hub {
                 crate::config::HarnessKind::Acp => {
                     ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
                 }
+                crate::config::HarnessKind::Terminal => {}
             }
             if ids.contains(&spec)
                 || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
@@ -280,6 +301,7 @@ impl Hub {
                     .flatten()
                     .map(|(id, _)| id.clone()),
             ),
+            crate::config::HarnessKind::Terminal => {}
         }
         ids.dedup();
         ids
@@ -297,6 +319,9 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -430,7 +455,21 @@ impl Hub {
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
         };
-        *session.child.lock().await = Some(child.clone());
+        {
+            // The shutdown marks itself started, then takes each session's
+            // child: checked under that lock, either the shutdown finds this
+            // child or this spawn sees the shutdown and ends what it started.
+            let mut slot = session.child.lock().await;
+            if self.shutting_down() {
+                drop(slot);
+                child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+                if child.host_record().is_some() {
+                    self.end_unadopted_host(session).await;
+                }
+                return Err(super::shutdown::shutting_down_error());
+            }
+            *slot = Some(child.clone());
+        }
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
@@ -793,10 +832,14 @@ impl Hub {
         let known = self.known_models.lock().unwrap().clone();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
+            // A terminal harness has no models and no ACP session.
+            if profile.kind == crate::config::HarnessKind::Terminal {
+                continue;
+            }
             let mut models: Vec<Value> = profile
                 .models
                 .iter()
-                .map(|m| json!({"id": m.id(), "name": m.name(), "declared": true}))
+                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
                 .collect();
             let reported: Vec<Value> = match profile.kind {
                 crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
@@ -807,6 +850,7 @@ impl Hub {
                     .get(name)
                     .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
                     .unwrap_or_default(),
+                crate::config::HarnessKind::Terminal => Vec::new(),
             };
             for r in reported {
                 if !models.iter().any(|m| m["id"] == r["id"]) {
@@ -856,13 +900,13 @@ impl Hub {
             return Ok(child.clone());
         }
         self.wait_startup().await;
-        let agent = session.meta().harness;
+        let meta = session.meta();
+        let agent = meta.harness.clone();
         let (profile, defaults) = {
             let cfg = self.config.read().await;
-            let profile = cfg
-                .profile(&agent)
-                .cloned()
-                .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
+            let profile =
+                super::resolve::session_profile(&cfg, &agent, &meta.cwd, meta.remote_origin)
+                    .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
@@ -883,6 +927,34 @@ fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> S
 }
 
 /// Whether the harness takes its model on the command line or in env.
+/// A declared model as `_acpmux/models` lists it: id, name, `declared`, and
+/// the catalog fields its profile file gave (shortName, family, efforts…).
+pub fn declared_model_json(
+    model: &crate::config::DeclaredModel,
+    meta: Option<&crate::config::ProfileMeta>,
+) -> Value {
+    let mut v = json!({"id": model.id(), "name": model.name(), "declared": true});
+    if let Some(detail) = meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id()))
+        && let (Some(out), Ok(Value::Object(extra))) =
+            (v.as_object_mut(), serde_json::to_value(detail))
+    {
+        for (k, x) in extra {
+            if k != "id" && k != "name" {
+                out.insert(k, x);
+            }
+        }
+    }
+    v
+}
+
+/// `session/new` for a terminal harness: it runs in a terminal tab.
+pub fn terminal_harness_refusal(name: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "harness.terminal: {name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
+    ))
+    .with_data(json!({"reason": "harness.terminal", "harness": name}))
+}
+
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
     profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))

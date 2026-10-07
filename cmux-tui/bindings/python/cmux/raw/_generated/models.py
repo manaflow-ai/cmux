@@ -512,6 +512,16 @@ class ConversationChange:
 
 
 @dataclass(frozen=True)
+class ConversationImportMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationImportMessage'
+    author: str
+    client_msg_id: str
+    created_at: str
+    parts: List[ConversationPart]
+    id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationMessage:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationMessage'
     author: str
@@ -937,6 +947,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2330,6 +2341,21 @@ class ConversationHistoryRequest:
 class ConversationHistoryResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
     messages: List[ConversationMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/request'
+    conversation: str
+    messages: List[ConversationImportMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/result'
+    conversation: ConversationSummary
+    imported: List[int]
+    skipped: int
 
 
 @dataclass(frozen=True)
@@ -4845,6 +4871,7 @@ __all__ = [
     'CloseTerminalResult',
     'ColumnPin',
     'ConversationChange',
+    'ConversationImportMessage',
     'ConversationMessage',
     'ConversationPart',
     'ConversationPartRef',
@@ -5040,6 +5067,8 @@ __all__ = [
     'ConversationCreateResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
+    'ConversationImportRequest',
+    'ConversationImportResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',

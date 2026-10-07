@@ -14,7 +14,7 @@ where
 {
     crate::client_log::stderr_log!(
         "startup",
-        "cmux-tui: headless, control socket at {}",
+        "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
     // The daemon is ready: apps with an `always` server start off this path.

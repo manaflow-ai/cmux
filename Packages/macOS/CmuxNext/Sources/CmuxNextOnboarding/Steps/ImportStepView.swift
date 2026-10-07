@@ -151,7 +151,8 @@ final class ImportStepView: NSView {
 
     private func statusText(_ profiles: [BrowserSourceProfile]) -> String {
         switch model.phase {
-        case .idle, .detecting: return OnboardingStrings.detecting
+        case .idle: return OnboardingStrings.notSearched
+        case .detecting: return OnboardingStrings.detecting
         case .importing, .confirmingPasswords: return ""
         case .finished(let summary):
             let counts = ImportCountsText.line(summary.counts)
@@ -163,8 +164,7 @@ final class ImportStepView: NSView {
             return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
         case .failed(let message): return message
         default:
-            return profiles.isEmpty ? OnboardingStrings.noBrowsers
-                : (model.kinds.contains(.cookies) || model.kinds.contains(.passwords) ? OnboardingStrings.keychainNote : "")
+            return profiles.isEmpty ? OnboardingStrings.noBrowsers : ""
         }
     }
 }

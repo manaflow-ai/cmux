@@ -1,14 +1,18 @@
 import AppKit
 import CmuxNextDesign
 
-// Titlebar buttons are stable chrome. The hover seam may paint the traffic-light
-// cue, but controls never disappear or change size as state changes.
+// R83: the title bar buttons (the sidebar toggle, Back, Forward; Lawrence
+// 2026-10-05: "sidebar button should fade") and a glass patch under the
+// traffic lights stay hidden until the pointer is over the top row or the
+// sidebar, then fade in, in place, through the one hover-reveal mechanism
+// (HoverReveal; the sidebar's hover is a hold on it). Shortcuts and the
+// palette reach the same actions while they are hidden; keyboard focus on a
+// hidden button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
-        // Back and Forward are stable chrome. Hover may tint the row, but it
-        // never mounts or fades the controls themselves.
-        toolbarBand.backButton.alphaValue = 1
-        toolbarBand.forwardButton.alphaValue = 1
+        titlebarReveal.add(toolbarBand.sidebarToggle)
+        titlebarReveal.add(toolbarBand.backButton)
+        titlebarReveal.add(toolbarBand.forwardButton)
         // The glass patch is a hover cue only: it never shows at rest.
         trafficLightsGlass.alphaValue = 0
         titlebarReveal.onChange = { [weak self] revealed in
@@ -16,12 +20,23 @@ extension WindowRootView {
             let glass = trafficLightsGlass
             Motion.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
         }
+        // The pointer over the sidebar shows its chrome: its + button and these buttons above it.
+        sidebar.sidebarView.onChromeRevealChange = { [weak self] revealed in
+            guard let self else { return }
+            if revealed {
+                if sidebarHoverHold == nil { sidebarHoverHold = titlebarReveal.hold() }
+            } else {
+                sidebarHoverHold?.release()
+                sidebarHoverHold = nil
+            }
+        }
         applyTitlebarButtonsMode()
     }
 
-    /// `window.titlebarButtons` no longer changes chrome mounting or opacity.
+    /// `window.titlebarButtons`: hover hides the buttons at rest; always
+    /// shows them.
     func applyTitlebarButtonsMode() {
-        titlebarReveal.isEnabled = false
+        titlebarReveal.isEnabled = DesignSettings.shared.titlebarButtons == .hover
     }
 
     /// The region spans the top row; the glass patch covers the traffic

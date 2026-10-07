@@ -1,3 +1,4 @@
+public import CmuxNextIcons
 import Foundation
 
 /// The kind icon used by an optional sidebar tab row.
@@ -8,16 +9,19 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     case conversation
     /// A conversation tab on an acpmux session (an agent chat tab).
     case agentChat
+    /// An agent session tab still on the New Tab page.
+    case newTab
     case other(String)
 
-    public var symbolName: String {
+    /// The kind's cmux icon.
+    public var icon: IconName {
         switch self {
-        case .terminal: "terminal"
-        case .browser: "globe"
-        case .remoteTerminal: "network"
-        case .conversation: "bubble.left.and.bubble.right"
-        case .agentChat: "bubble.left.and.text.bubble.right"
-        case .other: "square"
+        case .terminal: .terminal
+        case .browser: .browser
+        case .remoteTerminal: .network
+        case .conversation, .agentChat: .agentChat
+        case .newTab: .tabNew
+        case .other: .placeholder
         }
     }
 }

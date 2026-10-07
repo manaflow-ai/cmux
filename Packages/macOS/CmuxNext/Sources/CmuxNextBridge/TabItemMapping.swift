@@ -12,19 +12,24 @@ public struct TabItemMapping {
     /// page, whose recorded title is that page's address.
     /// A conversation tab (conversation-tabs-v1) rides a frontend browser
     /// record titled with the blank page's address: it shows `fallbackTitle`
-    /// (the conversation's) and the agent chat icon.
+    /// (the conversation's) and the agent chat icon. `isNewTabPage` marks a
+    /// tab still on the New Tab page, which draws the new-tab icon instead.
 
-    public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
+    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        let title = untitled ? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+        // A terminal its shell has not titled yet shows its folder, which the
+        // shell's first title usually is, so the label does not change a
+        // frame after the tab opens.
+        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
+        let title = untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
             title: title,
             subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: icon(tab, isBrowser: isBrowser, isConversation: isConversation),
+            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),

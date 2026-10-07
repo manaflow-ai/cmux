@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .activateItemAccessory, .layout, .toggleLayoutSection:
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .layout, .toggleLayoutSection:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
@@ -187,7 +187,7 @@ public nonisolated enum SidebarEdits {
             return false
         })
         let removed = removeWorkspaces(joining, from: &sections)
-        let group = SidebarGroup(id: id, name: name, color: color, workspaces: removed)
+        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
         sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
         return true

@@ -106,17 +106,6 @@ extension UpdateIndicatorPhase {
         }
     }
 
-    /// The Settings row control's label: what a click does for a found,
-    /// staged or installing update; nil while no control shows.
-    nonisolated public var badgeTitle: String? {
-        switch self {
-        case .ready: UpdaterStrings.restartToUpdate
-        case .available: UpdaterStrings.availableNoVersion
-        case .installing: UpdaterStrings.installing
-        case .hidden, .checking, .downloading, .note: nil
-        }
-    }
-
     /// The pill beside the circle, or nil when none shows.
     public var pillText: String? {
         switch self {

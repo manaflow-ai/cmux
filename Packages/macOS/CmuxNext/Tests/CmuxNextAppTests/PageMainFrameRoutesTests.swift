@@ -8,13 +8,15 @@ import Testing
 /// shared pages).
 @MainActor
 @Suite struct PageMainFrameRoutesTests {
-    @Test(arguments: [PageDescriptor.passwords, .iconPicker, .keybindings])
-    func everyAppPageRoutesByFragmentOnly(_ descriptor: PageDescriptor) {
-        func policy(_ url: URL?) -> PageNavigation.Policy {
-            PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: nil)
+    /// Main-actor statics: read inside the test, not in `@Test(arguments:)` (Xcode 27 refuses that).
+    @Test func everyAppPageRoutesByFragmentOnly() {
+        for descriptor in [PageDescriptor.passwords, .iconPicker, .keybindings] {
+            func policy(_ url: URL?) -> PageNavigation.Policy {
+                PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: nil)
+            }
+            #expect(policy(descriptor.url()) == .allow, "\(descriptor.id)")
+            #expect(policy(descriptor.url(route: "#/x")) == .allow, "\(descriptor.id)")
+            #expect(policy(descriptor.url().appendingPathComponent("other")) == .cancel, "\(descriptor.id)")
         }
-        #expect(policy(descriptor.url()) == .allow, "\(descriptor.id)")
-        #expect(policy(descriptor.url(route: "#/x")) == .allow, "\(descriptor.id)")
-        #expect(policy(descriptor.url().appendingPathComponent("other")) == .cancel, "\(descriptor.id)")
     }
 }
