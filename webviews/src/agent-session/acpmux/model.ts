@@ -6,6 +6,8 @@ import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
+import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENT_ROW } from "./subagents/subagentRows";
 
 export type AcpmuxRow = {
   id: string;
@@ -42,6 +44,8 @@ export type AcpmuxRow = {
   ended?: boolean;
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
+  /// A subagent group's subagents (subagents/subagentFold.ts).
+  subagents?: Subagent[];
 };
 
 export type AcpmuxActivity = {
@@ -310,6 +314,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
+  // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
+  // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
+  if (row.kind === SUBAGENTS) return 56;
+  if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.

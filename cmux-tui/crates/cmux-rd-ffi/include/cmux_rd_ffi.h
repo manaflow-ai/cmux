@@ -375,7 +375,8 @@ int32_t cmux_rd_bulk_receiver_accept(CmuxRdBulkReceiver *receiver, const uint8_t
 int32_t cmux_rd_bulk_receiver_finish(CmuxRdBulkReceiver *receiver, uint64_t transfer);
 
 /* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
-   One client per remote tab. Inputs and outcomes are JSON in the shapes of
+   One client per rb session of a remote tab: make a new one for each rb.open
+   (tokens and screen seqs restart per session). Inputs and outcomes are JSON in the shapes of
    schemas/remote-tab/client.json: an input is {"op": ...}; the outcome is
    {"effects": [...], "note": null|"...", "reject": null|"..."}. A reject
    leaves the state unchanged. The outcome bytes stay valid until the next

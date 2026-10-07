@@ -80,7 +80,6 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
-import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "./SearchChats";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
@@ -91,6 +90,9 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { SUBAGENTS } from "./subagents/subagentFold";
+import { SUBAGENT_ROW, withSubagentRows } from "./subagents/subagentRows";
+import { SubagentGroupHeader, SubagentListRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -129,7 +131,7 @@ declare global {
         registryJS?: string;
         layout?: Record<string, unknown>;
       }): void;
-      /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
+      /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
@@ -324,6 +326,23 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
+const SubagentGroupRow = memo(
+  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const SubagentRow = memo(
+  function SubagentRow({ row }: RowProps) {
+    return <SubagentListRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
@@ -349,6 +368,8 @@ const defaultRegistry: NativeRegistry = {
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
   [MOVE_ROW]: MoveRow,
+  [SUBAGENTS]: SubagentGroupRow,
+  [SUBAGENT_ROW]: SubagentRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -941,7 +962,10 @@ function AcpmuxPane() {
         )
       : snapshot.rows;
     return withMoveRows(
-      withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns),
+      withShellRows(
+        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        chatShellRuns,
+      ),
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
@@ -1140,12 +1164,9 @@ function AcpmuxPane() {
     openDiff,
     diff: { open: diffOpen, paths: (diffFiles ?? []).map((file) => file.path) },
   };
-  // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
-  // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
-  // live bindings through applyShortcuts, so labels follow a rebind.
-  const [search, setSearch] = useState<SearchState>("closed");
-  const searchEvent = (event: "toggle" | "close" | "exited") =>
-    setSearch((state) => nextSearchState(state, event, searchAnimates()));
+  // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
+  // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
+  const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -1203,18 +1224,6 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
-  const freshChatRef = useRef(freshChat);
-  freshChatRef.current = freshChat;
-  // New chat always lands in a focused composer. An empty chat is already a new chat, so
-  // another click focuses it instead of starting a duplicate session.
-  const newChat = useCallback(() => {
-    const focusPrompt = () => requestAnimationFrame(() => prompt.current?.focus());
-    if (freshChatRef.current) {
-      focusPrompt();
-      return;
-    }
-    void callNative("chat.new").then(focusPrompt, () => undefined);
-  }, []);
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -1279,8 +1288,6 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       command(name) {
-        // The Quick Composer has no chat list to search or switch to.
-        if (name === "searchChats" && surfaceRef.current !== "quick") searchEvent("toggle");
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
           [
@@ -2109,7 +2116,7 @@ function AcpmuxPane() {
                 cwd: newTab.cwd,
                 leave: () => setNewTab(undefined),
                 selectSession,
-                showAllChats: () => searchEvent("toggle"),
+                showAllChats,
                 runShell: (command, cwd) => {
                   if (cwd) setProjectDraft(cwd);
                   shellRuns.start(command, cwd ? { cwd } : {});
@@ -2134,7 +2141,7 @@ function AcpmuxPane() {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
-              onShowAll={() => searchEvent("toggle")}
+              onShowAll={showAllChats}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
@@ -2230,22 +2237,6 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {search !== "closed" && (
-          <SearchChats
-            sessions={snapshot.sessions}
-            closing={search === "closing"}
-            onExited={() => searchEvent("exited")}
-            onClose={() => searchEvent("close")}
-            onSelect={(sessionId) => {
-              searchEvent("close");
-              selectSession(sessionId);
-            }}
-            onNewChat={() => {
-              searchEvent("close");
-              newChat();
-            }}
-          />
-        )}
       </section>
     </ShortcutsContext.Provider>
   );

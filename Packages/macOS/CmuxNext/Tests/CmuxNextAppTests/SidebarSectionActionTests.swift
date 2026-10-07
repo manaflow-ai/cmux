@@ -49,9 +49,9 @@ import Testing
     @Test func rightClickRemoveTargetsTheItem() {
         withPrototype(true) {
             let (registry, layout) = make()
-            let target = ActionTargetRef(kind: .sidebarItem, id: "itm_settings")
+            let target = ActionTargetRef(kind: .sidebarItem, id: "itm_account")
             #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: target)))
-            #expect(layout.document.item(LayoutItemID("itm_settings")) == nil)
+            #expect(layout.document.item(LayoutItemID("itm_account")) == nil)
             // A built-in name also names the item (`cmux sidebar item remove home`).
             #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "home"))))
             #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
