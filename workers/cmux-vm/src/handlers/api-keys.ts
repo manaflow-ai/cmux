@@ -4,6 +4,7 @@
  * - a new key's scopes are a subset of the issuer's (a team-admin session
  *   holds every scope, `admin` included);
  * - an issuer limited to a resource allowlist issues only keys inside it;
+ * - an expiring issuer key issues only keys that expire no later than it does;
  * - the full key is returned once and only its SHA-256 hash is stored;
  * - every create and revoke is audited with the key id;
  * - another tenant's key is the same 404 as a missing one.
@@ -84,6 +85,15 @@ export const apiKeysHandlers = HttpApiBuilder.group(CmuxVmApi, "apiKeys", (handl
         const expiresAt = payload.expiresAt ?? null;
         if (expiresAt !== null && expiresAt.getTime() <= now.getTime()) {
           return yield* Effect.fail(new InvalidRequest({ message: "expiresAt must be in the future" }));
+        }
+        // A key never outlives its issuer: otherwise a leaked short-lived key could mint a permanent one.
+        const issuerExpiry = principal.credentialExpiresAt;
+        if (issuerExpiry !== null && (expiresAt === null || expiresAt.getTime() > issuerExpiry.getTime())) {
+          return yield* Effect.fail(
+            new InvalidRequest({
+              message: `This credential expires at ${issuerExpiry.toISOString()}; a key it issues must set expiresAt no later than that`,
+            }),
+          );
         }
         const id = newApiKeyId();
         const secret = generateApiKey();

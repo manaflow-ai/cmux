@@ -57,8 +57,11 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
   {
     message: Schema.String,
     retryAfterSeconds: Schema.optional(Schema.Int),
-    /** Which budget ran out, when the endpoint names it: live snapshots, live VMs, or the request rate. */
-    budget: Schema.optional(Schema.Literal("snapshots", "vms", "requests")),
+    /**
+     * Which budget ran out: the team's live snapshots or live VMs, its
+     * per-minute request rate, or the platform's VM capacity (not the team's).
+     */
+    budget: Schema.optional(Schema.Literal("snapshots", "vms", "rate", "capacity")),
   },
   HttpApiSchema.annotations({ status: 429 }),
 ) {}
