@@ -30,6 +30,7 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
+const { webKitPress } = await import("./popoverTriggerTesting");
 const promptField = () => fieldIn(dom.window.document);
 
 /// Milkdown makes its editor a task after the composer mounts.
@@ -246,7 +247,20 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
-  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+  test("pressing + while its menu is open closes it, as WebKit delivers the press", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: () => {}, onStop: () => {} }),
+      ),
+    );
+    await ready();
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("true");
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the + menu holds no permission modes (the access chip owns them); Plan stays a toggle there", async () => {
     const modes = {
       currentModeId: "ask",
       availableModes: [
@@ -268,18 +282,18 @@ describe("acpmux composer slash menu", () => {
       ),
     );
     await ready();
-    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
     expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    ).toEqual(["Mention a file or folder@", "Plan"]);
+    expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
-        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="plan:plan"]')!
         .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
     );
-    expect(modeCalls).toEqual(["bypassPermissions"]);
+    expect(modeCalls).toEqual(["plan"]);
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {

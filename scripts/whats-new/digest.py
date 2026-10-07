@@ -70,10 +70,32 @@ def headline(entries):
     return HEADLINE_MANY.format(title=first, count=len(entries) - 1)
 
 
-def build(version, date, head, since=""):
+def entry_problems(entry):
+    """The validator's problems for one entry alone (a nightly document around it)."""
+    import validate
+    document = {"schemaVersion": 1, "version": "0.0.0-nightly.1", "channel": "nightly", "date": "2026-01-01",
+                "headline": {"en": "Highlights"}, "entries": [entry]}
+    return validate.validate_document("0.0.0-nightly.1.json", document)
+
+
+def build(version, date, head, since="", report=lambda line: print(line, file=sys.stderr)):
+    """The digest of the highlight files added in since..head. A file that does not
+    parse or validate is skipped with a report, so one bad file never empties the digest."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     span = f"{since}..{head}" if since else head
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
-    entries = [parse(path, git("show", f"{head}:{path}")) for path in sorted({p for p in added if p.endswith(".md")})]
+    entries = []
+    for path in sorted({p for p in added if p.endswith(".md")}):
+        try:
+            entry = parse(path, git("show", f"{head}:{path}"))
+        except ValueError as error:
+            report(f"skipped {path}: {error}")
+            continue
+        problems = entry_problems(entry)
+        if problems:
+            report(f"skipped {path}: " + "; ".join(p.split(": ", 2)[-1] for p in problems))
+            continue
+        entries.append(entry)
     # New features first, then improved, fixed, security; file order inside a category.
     order = {"new": 0, "improved": 1, "fixed": 2, "security": 3}
     entries.sort(key=lambda entry: order.get(entry["category"], 9))
@@ -89,7 +111,6 @@ def main(argv=None):
     parser.add_argument("--since", default="")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import validate
     document = build(args.version, args.date, args.head, args.since)
     problems = validate.validate_document(f"{args.version}.json", document)
