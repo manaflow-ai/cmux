@@ -34,6 +34,7 @@ public final class ConversationViewController: UIViewController {
     let layout = ConversationTranscriptLayout()
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
+    let topEdgeFade = ConversationTopEdgeFade()
     let composer = ConversationComposerView()
     let composerContainer = UIView()
     var composerHeightConstraint: NSLayoutConstraint?
@@ -126,6 +127,8 @@ public final class ConversationViewController: UIViewController {
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
+        topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topEdgeFade)
         view.addSubview(header)
 
         view.keyboardLayoutGuide.followsUndockedKeyboard = true
@@ -142,6 +145,10 @@ public final class ConversationViewController: UIViewController {
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight),
+            topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
+            topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topEdgeFade.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: ConversationTopEdgeFade.extent),
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             composerBottom,
@@ -153,12 +160,9 @@ public final class ConversationViewController: UIViewController {
         ])
 
         if #available(iOS 26.0, *) {
-            collectionView.topEdgeEffect.style = .soft
+            // The top edge is ConversationTopEdgeFade (Messages washes, never blurs, there).
+            collectionView.topEdgeEffect.isHidden = true
             collectionView.bottomEdgeEffect.style = .soft
-            let top = UIScrollEdgeElementContainerInteraction()
-            top.scrollView = collectionView
-            top.edge = .top
-            header.addInteraction(top)
             let bottom = UIScrollEdgeElementContainerInteraction()
             bottom.scrollView = collectionView
             bottom.edge = .bottom

@@ -169,4 +169,52 @@ final class ConversationHeaderView: UIView {
         return view === self ? nil : view
     }
 }
+/// Messages' top scroll edge: the transcript washes out toward the
+/// background under the header without blurring. Measured on iOS 26
+/// Messages: a flat 85.5% wash down to 74 pt above the header's bottom, then
+/// an S-shaped ramp that clears 46 pt below it. The system soft edge effect
+/// blurs the whole header height instead, so this replaces it.
+final class ConversationTopEdgeFade: UIView {
+    /// (offset from the header's bottom, wash opacity)
+    static let stops: [(CGFloat, CGFloat)] = [
+        (-74, 0.855), (-49, 0.78), (-34, 0.66), (-19, 0.47), (-4, 0.26),
+        (6, 0.17), (16, 0.08), (26, 0.04), (41, 0.01), (46, 0),
+    ]
+    static let extent: CGFloat = 46
+
+    private let gradient = CAGradientLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        layer.addSublayer(gradient)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradient.frame = bounds
+        guard bounds.height > 0 else { return }
+        let headerBottom = bounds.height - Self.extent
+        let color = ConversationTheme.background.resolvedColor(with: traitCollection)
+        var colors = [color.withAlphaComponent(Self.stops[0].1).cgColor]
+        var locations: [NSNumber] = [0]
+        for (offset, alpha) in Self.stops {
+            colors.append(color.withAlphaComponent(alpha).cgColor)
+            locations.append(NSNumber(value: Double(max(0, headerBottom + offset) / bounds.height)))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.colors = colors
+        gradient.locations = locations
+        CATransaction.commit()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsLayout()
+    }
+}
 #endif
