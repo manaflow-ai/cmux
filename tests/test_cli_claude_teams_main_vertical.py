@@ -26,7 +26,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import resolve_cmux_cli, socket_request_method
 from fake_socket_env import cli_environment, unwrap_capability
 
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -263,10 +263,16 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if not line:
                 return
             request = json.loads(unwrap_capability(line.decode("utf-8")))
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
+
             response = {
                 "ok": True,
                 "result": self.server.state.handle(
-                    request["method"],
+                    method,
                     request.get("params", {}),
                 ),
                 "id": request.get("id"),

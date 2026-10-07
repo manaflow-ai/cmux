@@ -16,6 +16,18 @@ import WebKit
 struct BrowserReplRenderHostTests {
     private static let renderWindowIdentifier = "cmux.browserVisualAutomationRender"
 
+    /// Render windows other suites in this test process left on screen; only
+    /// a render window that appears during a test belongs to it.
+    private let preexistingRenderWindows: Set<ObjectIdentifier>
+
+    init() {
+        preexistingRenderWindows = Set(
+            NSApp.windows
+                .filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+                .map(ObjectIdentifier.init)
+        )
+    }
+
     private func makeWindow() throws -> (NSWindow, NSView) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -34,7 +46,10 @@ struct BrowserReplRenderHostTests {
     }
 
     private func visibleRenderWindows() -> [NSWindow] {
-        NSApp.windows.filter { $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible }
+        NSApp.windows.filter {
+            $0.identifier?.rawValue == Self.renderWindowIdentifier && $0.isVisible
+                && !preexistingRenderWindows.contains(ObjectIdentifier($0))
+        }
     }
 
     @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {

@@ -196,3 +196,29 @@ extension Workspace {
         return lhs.key > rhs.key
     }
 }
+
+extension Workspace {
+    /// Returns the existing sidebar agent identity when this panel is in an
+    /// active turn. Close warnings use the same sidebar lifecycle evidence
+    /// rather than introducing another process detector.
+    func activeAgentCloseWarningInfo(panelId: UUID) -> String? {
+        guard panels[panelId] != nil else { return nil }
+        let states = agentLifecycleStatesByPanelId[panelId, default: [:]]
+        if let key = states.first(where: { $0.value == .running })?.key {
+            return Self.closeWarningAgentDisplayName(for: key)
+        }
+        let entries = agentStatusEntriesByPanelId[panelId, default: [:]]
+        if let key = entries.first(where: { entry in
+            entry.value.workState == .running || entry.value.workState == .subagents
+        })?.key {
+            return Self.closeWarningAgentDisplayName(for: key)
+        }
+        return nil
+    }
+
+    private static func closeWarningAgentDisplayName(for key: String) -> String {
+        key.split(separator: "_", omittingEmptySubsequences: true)
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+}

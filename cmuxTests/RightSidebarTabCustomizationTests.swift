@@ -172,9 +172,10 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     func testModeBarDragLayoutLeavesTheBarOnlyWellOutsideIt() {
         let tab = CGRect(x: 0, y: 7, width: 40, height: 24)
-        XCTAssertFalse(RightSidebarModeBarDragLayout.leavesBar(pointerY: 40, tabFrame: tab, barHeight: 38))
-        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointerY: 51, tabFrame: tab, barHeight: 38))
-        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointerY: -13, tabFrame: tab, barHeight: 38))
+        XCTAssertFalse(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 40), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 51), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: -13), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: -1, y: 40), tabFrame: tab, barHeight: 38))
         XCTAssertNil(RightSidebarModeBarDragLayout(frames: [], source: 0))
     }
 

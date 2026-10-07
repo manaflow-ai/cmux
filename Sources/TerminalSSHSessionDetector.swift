@@ -143,7 +143,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         var uploadedRemotePaths: [String] = []
         do {
             try operation.throwIfCancelled()
-            try prepareRemotePasteDirectory()
+            let remoteHomeDirectory = try prepareRemotePasteDirectory()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
@@ -156,7 +156,10 @@ struct DetectedSSHSession: Equatable, Sendable {
                     ])
                 }
 
-                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(
+                    for: normalizedLocalURL,
+                    homeDirectory: remoteHomeDirectory
+                )
                 uploadedRemotePaths.append(remotePath)
                 let result = try Self.runProcess(
                     executable: "/usr/bin/scp",
@@ -202,7 +205,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         }
     }
 
-    private func prepareRemotePasteDirectory() throws {
+    private func prepareRemotePasteDirectory() throws -> String {
         let result = try Self.runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
@@ -226,6 +229,17 @@ struct DetectedSSHSession: Equatable, Sendable {
                 NSLocalizedDescriptionKey: message,
             ])
         }
+        guard let remoteHomeDirectory = remotePastePolicy.remoteHomeDirectory(
+            fromMaintenanceOutput: result.stdout
+        ) else {
+            throw NSError(domain: "cmux.detected-ssh.drop", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "detectedSSH.fileDrop.error.uploadFailed",
+                    defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
+                ),
+            ])
+        }
+        return remoteHomeDirectory
     }
 
     private func finalizeRemotePasteFile(_ remotePath: String) throws {

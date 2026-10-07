@@ -26,6 +26,7 @@ debug.browser.address_bar_focused
 debug.browser.favicon
 debug.canvas.command_scroll_hint
 debug.cloudtree.gallery
+debug.cloudtree.rows
 debug.cloudtree.spacing
 debug.command_palette.rename_input.delete_backward
 debug.command_palette.rename_input.interact

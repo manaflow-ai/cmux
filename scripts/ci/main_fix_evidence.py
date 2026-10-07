@@ -7,6 +7,7 @@ refuses the merge. This exception currently has a contract only for cmux-next.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import json
 import re
 import subprocess
@@ -28,6 +29,9 @@ ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+:
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
 MAX_OUTPUT = 32 * 1024 * 1024
+MAX_ANCESTOR_DEPTH = 100
+MAX_ANCESTOR_NODES = 500
+PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
 
 
 class Refused(RuntimeError):
@@ -76,6 +80,53 @@ def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
             if check["id"] > previous.get("id", -1):
                 checks[check["name"]] = check
     return checks
+
+
+def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
+    """Return the parent SHAs GitHub reports for a commit."""
+    commit = github.json(f"repos/{repo}/commits/{sha}")
+    parents = commit.get("parents", []) if isinstance(commit, dict) else []
+    return [parent["sha"] for parent in parents
+            if isinstance(parent, dict) and isinstance(parent.get("sha"), str)]
+
+
+def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> tuple[str, dict, int] | None:
+    """Find the closest parent with NAME evidence using bounded breadth-first search."""
+    queue = deque((parent, 1) for parent in _parent_shas(repo, base, github))
+    visited: set[str] = set()
+    while queue and len(visited) < MAX_ANCESTOR_NODES:
+        sha, distance = queue.popleft()
+        if sha in visited or distance > MAX_ANCESTOR_DEPTH:
+            continue
+        visited.add(sha)
+        checks = latest_checks(repo, sha, github)
+        if name in checks:
+            return sha, checks[name], distance
+        queue.extend((parent, distance + 1) for parent in _parent_shas(repo, sha, github))
+    return None
+
+
+def path_filtered_intervening_changes(repo: str, ancestor: str, base: str, github: GitHub) -> list[str]:
+    """Reject ancestor evidence when intervening paths could affect Swift tests."""
+    comparison = github.json(f"repos/{repo}/compare/{ancestor}...{base}")
+    files = comparison.get("files", []) if isinstance(comparison, dict) else []
+    if len(files) >= 300:
+        raise Refused("GitHub compare reached the 300-file limit; intervening changes are not fully verified")
+    paths = []
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        for key in ("filename", "previous_filename"):
+            if isinstance(file.get(key), str):
+                paths.append(file[key])
+    unsafe = [path for path in paths if not path.startswith(PATH_FILTERED_PREFIXES)]
+    if unsafe:
+        message = (
+            f"Swift tests have not run on base {base}; ancestor evidence is unsafe because "
+            f"intervening changes may affect the test ({', '.join(unsafe[:5])})"
+        )
+        raise Refused(message)
+    return paths
 
 
 def completed_success(item: dict) -> bool:
@@ -152,9 +203,25 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             if step["name"] not in TEST_STEPS or step.get("status") != "completed" or step.get("conclusion") != "failure":
                 raise Refused(f"{step['name']}: non-test failure cannot be waived")
         base_checks = latest_checks(repo, base, github)
+        base_check_sha = base
+        base_reason = f"exact base `{base}`"
         if SWIFT not in base_checks:
-            raise Refused(f"Swift tests have not run on the exact base {base}")
-        base_job = job_for(repo, base_checks[SWIFT], base, github)
+            ancestor = nearest_ancestor_check(repo, base, SWIFT, github)
+            if ancestor is None:
+                raise Refused(f"Swift tests have not run on base {base} or any of its nearest {MAX_ANCESTOR_DEPTH} ancestors ({MAX_ANCESTOR_NODES} commit limit)")
+            base_check_sha, base_checks[SWIFT], distance = ancestor
+            intervening = path_filtered_intervening_changes(repo, base_check_sha, base, github)
+            base_reason = (
+                f"nearest ancestor `{base_check_sha}` ({distance} parent step"
+                f"{'s' if distance != 1 else ''}) because the exact base `{base}`"
+                f" has no `{SWIFT}` run and its intervening changes are path-filtered"
+            )
+            audit.append(
+                f"- Base evidence: {base_reason} ({len(intervening)} path-filtered file"
+                f"{'s' if len(intervening) != 1 else ''}); using its `{SWIFT}` job "
+                f"([job]({base_checks[SWIFT]['details_url']}))."
+            )
+        base_job = job_for(repo, base_checks[SWIFT], base_check_sha, github)
         require_build(base_job, BUILDS[SWIFT])
         head_log = github.log(repo, swift)
         base_log = github.log(repo, base_job)
@@ -162,11 +229,11 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             name = step["name"]
             base_step = next((step for step in base_job["steps"] if step["name"] == name), {})
             if base_step.get("conclusion") != "failure" or base_step.get("status") != "completed":
-                raise Refused(f"{name}: failed tests not reproduced on exact base {base}")
+                raise Refused(f"{name}: failed tests not reproduced on {base_reason}")
             head_failures, base_failures = failures(head_log, name), failures(base_log, name)
             unmatched = head_failures - base_failures
             if unmatched:
-                raise Refused(f"{name}: failures not reproduced on exact base {base}: {sorted(unmatched)!r}")
+                raise Refused(f"{name}: failures not reproduced on {base_reason}: {sorted(unmatched)!r}")
             for test, source, issue in sorted(head_failures):
                 audit.append(f"- Matched base failure: `{source}` / `{test}`: {json.dumps(issue, ensure_ascii=False)} "
                              f"([head]({checks[SWIFT]['details_url']}), [base]({base_checks[SWIFT]['details_url']})).")

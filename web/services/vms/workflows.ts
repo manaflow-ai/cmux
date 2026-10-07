@@ -1064,6 +1064,11 @@ function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Paramete
   };
 }
 
+/** Forks and checkpoint restores both resume a live machine's memory image. */
+function resumesLiveMachine(origin: VmCreateOrigin | undefined): boolean {
+  return origin === "fork" || origin === "restore";
+}
+
 export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
@@ -1171,6 +1176,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
         // blocking post-create rename on current backends.
@@ -1811,6 +1817,18 @@ function reopenBaseIfProviderDeleted(
 }
 
 /**
+ * Hands bookkeeping the response does not depend on to `defer` (failures are
+ * dropped there, as the response already went out), else runs it inline.
+ */
+function afterResponseOrNow<E>(
+  work: Effect.Effect<void, E>,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void, E> {
+  if (!defer) return work;
+  return Effect.sync(() => defer(work.pipe(Effect.catchAll(() => Effect.void))));
+}
+
+/**
  * A pending snapshot request older than this belongs to an attempt that died
  * without finishing (the route budget is 600 s), so a retry may take it over.
  */
@@ -1824,6 +1842,13 @@ export function snapshotVm(input: {
   readonly name?: string;
   /** Idempotency-Key of the request: a retry with the same key returns the first snapshot. */
   readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+  /**
+   * Runs the post-snapshot stats read and `vm.snapshot.created` ledger row
+   * after the response. A fork's copy does not depend on either, so they stay
+   * off its critical path; a plain checkpoint still records them inline.
+   */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1856,7 +1881,7 @@ export function snapshotVm(input: {
     const freeKey: Effect.Effect<void> = key && finish
       ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "failed" } }))
       : Effect.void;
-    const snapshot = yield* Effect.tapError(takeSnapshot, () => freeKey);
+    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", Effect.tapError(takeSnapshot, () => freeKey));
     if (key && finish) {
       // The snapshot exists now. A failed write here leaves the row pending;
       // a retry then waits for the stale window instead of failing this call.
@@ -1865,6 +1890,7 @@ export function snapshotVm(input: {
     // Read after the provider confirms the snapshot. Grow-only resizes that
     // finish during snapshot creation are then included in the captured claim;
     // a later resize can only make this conservative.
+    const recordCreated = Effect.gen(function* () {
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
         Effect.timeoutFail({
@@ -1900,6 +1926,8 @@ export function snapshotVm(input: {
         diskMb: snapshotReservation.diskMb,
       },
     });
+    });
+    yield* afterResponseOrNow(recordCreated, input.deferAfterResponse);
     return snapshot;
   });
 }
@@ -2344,6 +2372,8 @@ export function forkVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Ledger and guest follow-ups that may finish after the response (see createVm). */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -2363,13 +2393,23 @@ export function forkVm(input: {
         reason: createDisabledReason,
       }));
     }
+    // A paused VM is a valid snapshot source. Only native forks require a
+    // running provider VM; waking a paused source adds avoidable startup time.
+    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
+    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
       source,
       input.providerVmId,
       "fork",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId, modelPlane: input.modelPlane },
+      {
+        forceProviderProbe: true,
+        allowPausedSnapshot: !nativeFork,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.billingPlanId,
+        modelPlane: input.modelPlane,
+      },
     );
 
     // A native fork has no way to accept the new row's edge rules. Use the
@@ -2378,8 +2418,6 @@ export function forkVm(input: {
     // A fork keeps its source's outbound policy. The native provider fork
     // copies no rules, so a restricted source always takes the create path,
     // which installs the policy before the copy boots.
-    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
-    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -2565,6 +2603,8 @@ export function forkVm(input: {
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
+      timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
     // Snapshotting establishes the copy point for providers without a native
     // fork. Read the source shape after that point so a concurrent grow cannot
@@ -2589,8 +2629,9 @@ export function forkVm(input: {
       agentUpdates: vmAgentUpdatesFromRow(source),
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
-    yield* repo.recordUsageEvent({
+    const forkedEvent = repo.recordUsageEvent({
       userId: source.userId,
       billingTeamId: source.billingTeamId,
       billingPlanId: source.billingPlanId,
@@ -2604,6 +2645,7 @@ export function forkVm(input: {
         idempotencyKeySet: !!input.idempotencyKey,
       },
     }).pipe(Effect.catchAll(() => Effect.void));
+    yield* afterResponseOrNow(forkedEvent, input.deferAfterResponse);
     return { snapshot, fork };
   });
 }
@@ -3130,6 +3172,8 @@ type ResumePreflightOptions = {
    * Passive reads intentionally leave this off.
    */
   readonly forceProviderProbe?: boolean;
+  /** Snapshot-based forks can copy a paused VM directly without waking it. */
+  readonly allowPausedSnapshot?: boolean;
 };
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
@@ -3392,6 +3436,7 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status !== "paused") return false;
+    if (options.allowPausedSnapshot) return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms, options.callerPlanId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(

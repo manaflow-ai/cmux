@@ -8,6 +8,15 @@ import WebKit
 public struct CloudBrowserRouting: Sendable {
     private static let probeQueue = DispatchQueue(label: "cmux.cloud.desktop-readiness")
 
+    /// What a desktop probe established. Only `unreachable` is evidence that
+    /// the desktop is down: the proxy or the service answered with an error.
+    /// `unknown` (no answer before the deadline) must not trigger a repair.
+    public enum DesktopReachability: Sendable, Equatable {
+        case reachable
+        case unreachable
+        case unknown
+    }
+
     /// Test the service through the same authenticated carrier the page will use.
     /// A healthy desktop needs no control-plane exec. This short-lived stream is
     /// closed after the headers; no listener or persistent connection is added.
@@ -18,44 +27,59 @@ public struct CloudBrowserRouting: Sendable {
         timeout: Duration = .seconds(2),
         clock: any Clock<Duration> = ContinuousClock()
     ) async throws -> Bool {
+        try await desktopReachability(endpoint: endpoint, address: address, port: port, timeout: timeout, clock: clock) == .reachable
+    }
+
+    /// The deadline cancels the connection itself: its awaits do not observe
+    /// task cancellation, so a stalled proxy used to hold the probe until the
+    /// proxy's own 10s header timeout, and that timeout then read as
+    /// "unreachable" and started a desktop repair.
+    public static func desktopReachability(
+        endpoint: CloudBrowserProxyEndpoint,
+        address: String,
+        port: Int,
+        timeout: Duration = .seconds(2),
+        clock: any Clock<Duration> = ContinuousClock()
+    ) async throws -> DesktopReachability {
         let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard endpoint.host == "127.0.0.1", endpoint.port != 0,
-              (1...65535).contains(port), IPv4Address(host) != nil || IPv6Address(host) != nil else { return false }
+              (1...65535).contains(port), IPv4Address(host) != nil || IPv6Address(host) != nil else { return .unreachable }
         let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
         let credential = Data("\(endpoint.username):\(endpoint.password)".utf8).base64EncodedString()
         let connection = NWConnection(host: "127.0.0.1", port: .init(rawValue: endpoint.port)!, using: .tcp)
         defer { connection.cancel() }
+        let probe: @Sendable () async throws -> DesktopReachability = {
+            try await connection.startAndWaitUntilReady(queue: probeQueue)
+            try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
+            guard try await responseStatus(connection) == 200 else { return .unreachable }
+            do {
+                try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
+                return try await responseStatus(connection) == 200 ? .reachable : .unreachable
+            } catch NWConnection.StreamError.failed(.posix(let code)) where code == .ECONNRESET || code == .ECONNREFUSED {
+                // The tunnel to the desktop opened, then the desktop reset or
+                // refused it: it is there but not serving noVNC. Before the
+                // tunnel, the same error is the local proxy's and stays unknown.
+                return .unreachable
+            }
+        }
         do {
             return try await withTaskCancellationHandler {
-                try await withDeadline(timeout, clock: clock) {
-                    try await connection.startAndWaitUntilReady(queue: probeQueue)
-                    try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
-                    guard try await responseStatus(connection) == 200 else { return false }
-                    try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
-                    return try await responseStatus(connection) == 200
+                try await withThrowingTaskGroup(of: DesktopReachability?.self) { group in
+                    group.addTask { try await probe() }
+                    group.addTask {
+                        try await clock.sleep(for: timeout)
+                        connection.cancel()
+                        return nil
+                    }
+                    defer { group.cancelAll() }
+                    return try await group.next()! ?? .unknown
                 }
             } onCancel: {
                 connection.cancel()
             }
         } catch {
             try Task.checkCancellation()
-            return false
-        }
-    }
-
-    private static func withDeadline<T: Sendable>(
-        _ duration: Duration,
-        clock: any Clock<Duration>,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await clock.sleep(for: duration)
-                throw CloudTunnelError.deadlineExceeded
-            }
-            defer { group.cancelAll() }
-            return try await group.next()!
+            return .unknown
         }
     }
 

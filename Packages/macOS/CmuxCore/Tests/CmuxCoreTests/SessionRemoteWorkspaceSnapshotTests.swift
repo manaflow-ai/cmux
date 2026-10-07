@@ -16,6 +16,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
             port: 2222,
             identityFile: "/id",
             sshOptions: ["ForwardAgent=yes"],
+            agentSocketPath: "/tmp/agent.sock",
             preserveAfterTerminalExit: true,
             skipDaemonBootstrap: true,
             relayPort: 7000,
@@ -47,11 +48,27 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.destination == "user@host")
         #expect(decoded.port == nil)
         #expect(decoded.identityFile == nil)
+        #expect(decoded.agentSocketPath == nil)
         #expect(decoded.preserveAfterTerminalExit == nil)
         #expect(decoded.skipDaemonBootstrap == nil)
         #expect(decoded.relayPort == nil)
         #expect(decoded.persistentDaemonSlot == nil)
         #expect(decoded.managedCloudVMID == nil)
+    }
+
+    @Test("a cmux-tui SSH snapshot keeps only a cmux-owned ControlPath")
+    func carrierSnapshotKeepsCmuxOwnedControlPath() throws {
+        let directory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        let owned = directory + "/" + String(repeating: "b", count: 40)
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ProxyJump=bastion", "ControlMaster=auto", "ControlPersist=600", "ControlPath=\(owned)"]
+        ) == ["ProxyJump=bastion", "ControlPath=\(owned)"])
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ControlMaster=auto", "ControlPath=/tmp/shared-%C"]
+        ) == [])
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ControlMaster=no", "ControlPath=\(owned)"]
+        ) == [])
     }
 
     @Test("transport raw values are the persisted wire strings")

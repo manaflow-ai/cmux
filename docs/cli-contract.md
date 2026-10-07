@@ -61,7 +61,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
-| `welcome` | Print the welcome screen. |
+| `welcome` | Print the welcome screen: the logo, the default keys for the main shortcuts (from the built-in shortcut table, never the user's bindings), and pointers to `cmux shortcuts` and the Command Palette. Works without the app or a socket. |
 | `sudo` | Run one command through the cmux privileged helper, prompting through the app rather than a terminal. Exits with the command's own exit code. |
 | `help` | Print top-level usage, or one task-focused group of commands with `help <topic>`. Works without a socket. |
 | `version` | Print the running CLI's version, build, and commit. Works without the app, a socket, or sign-in. |
@@ -969,7 +969,9 @@ the expected text without connecting to a cmux socket.
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm new --help` -> `Create a Cloud VM.`
+- `cmux vm ls --help` -> `List your Cloud VMs`
+- `cmux vm ports --help` -> `Show listening TCP ports inside a Cloud VM.`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
@@ -1010,7 +1012,10 @@ the expected text without connecting to a cmux socket.
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
+- `cmux welcome --help` -> `the default shortcuts`
+- `cmux welcome` -> `Default shortcuts`
 - `cmux welcome` -> `Command Palette`
+- `cmux welcome` -> `cmux shortcuts`
 - `cmux welcome` -> `Settings > Keyboard Shortcuts`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`

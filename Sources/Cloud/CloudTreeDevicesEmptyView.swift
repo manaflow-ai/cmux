@@ -20,7 +20,7 @@ struct CloudTreeDevicesEmptyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if section.count == 0 {
-                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No devices yet"))
                     .cmuxFont(size: style.detailSize, design: style.fontDesign)
                     .foregroundStyle(.secondary)
                     .padding(.leading, scaled(textInset))

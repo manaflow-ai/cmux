@@ -10,11 +10,14 @@ import {
   type RouteTokenPrincipal,
 } from "./repository";
 import {
+  isKnownVmAuthorizationKey,
+  unverifiedVmAuthorizationKeyId,
   VM_AUTHORIZATION_HEADER,
   type VmAuthorizationClaims,
   verifyVmAuthorization,
 } from "./vmAuthorization";
 import {
+  recordCoderouterAuthFailure,
   recordCoderouterAuthStarted,
   recordCoderouterIdentity,
   recordCoderouterSignedVmClaims,
@@ -53,9 +56,33 @@ export type RouteTokenAuthFailure =
   | "invalid_route_token"
   | "vm_mismatch";
 
+/**
+ * Why a credential was refused, finer than the response reason and never
+ * sent to the caller. `placeholder_only`: only the public placeholder key
+ * arrived, so the provider edge injected nothing. `signed_unknown_key`: the
+ * injected token names a key this deployment does not hold (another
+ * deployment signed it). `signed_unverified`: it failed signature or claims. `not_live`: the
+ * credential parsed but no live row matched (revoked, unknown, or the machine
+ * is no longer live). `binding`: the row belongs to another machine.
+ */
+export type RouteTokenAuthFailureDetail =
+  | "no_credential"
+  | "placeholder_only"
+  | "signed_unverified"
+  | "signed_unknown_key"
+  | "not_live"
+  | "binding"
+  | "chatmux_unverified";
+
 export type RouteTokenAuthResult =
   | { readonly ok: true; readonly identity: RouteTokenIdentity }
-  | { readonly ok: false; readonly reason: RouteTokenAuthFailure };
+  | {
+    readonly ok: false;
+    readonly reason: RouteTokenAuthFailure;
+    readonly detail?: RouteTokenAuthFailureDetail;
+    /** The unverified key id of a refused signed token. Diagnostic only. */
+    readonly keyId?: string;
+  };
 
 /**
  * The credential a data-plane request carries, in precedence order:
@@ -103,6 +130,7 @@ export async function authenticateRequestRouteToken(
     },
   });
   if (result.ok) recordCoderouterIdentity(result.identity);
+  else recordCoderouterAuthFailure(result.reason, result.detail, result.keyId);
   return result;
 }
 
@@ -115,7 +143,7 @@ async function authenticateChatmuxMachine(request: Request): Promise<RouteTokenA
   const value = request.headers.get(CHATMUX_VM_AUTHORIZATION_HEADER)?.trim() ?? "";
   const token = /^Bearer[ \t]+([^\s,]+)$/i.exec(value)?.[1];
   const claims = token ? await verifyChatmuxVmToken(token) : null;
-  if (!token || !claims) return { ok: false, reason: "invalid_route_token" };
+  if (!token || !claims) return { ok: false, reason: "invalid_route_token", detail: "chatmux_unverified" };
   return {
     ok: true,
     identity: {
@@ -128,6 +156,27 @@ async function authenticateChatmuxMachine(request: Request): Promise<RouteTokenA
   };
 }
 
+function signedRefusal(token: string): RouteTokenAuthResult {
+  const keyId = unverifiedVmAuthorizationKeyId(token);
+  const detail = keyId !== undefined && !isKnownVmAuthorizationKey(keyId) ? "signed_unknown_key" : "signed_unverified";
+  return { ok: false, reason: "invalid_route_token", detail, ...(keyId ? { keyId } : {}) };
+}
+
+function carriesPlaceholder(request: Request): boolean {
+  const bearer = /^Bearer[ \t]+(.+)$/i.exec(request.headers.get("authorization")?.trim() ?? "")?.[1]?.trim();
+  return bearer === VM_PLACEHOLDER_API_KEY || request.headers.get("x-api-key")?.trim() === VM_PLACEHOLDER_API_KEY;
+}
+
+function isVmAuthorizationCandidate(token: string): boolean {
+  return !token.startsWith("crt_") && !token.startsWith("crk_") &&
+    token.length <= 4096 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+}
+
+function vmAuthorizationClaims(token: string): Promise<VmAuthorizationClaims | null> {
+  if (!isVmAuthorizationCandidate(token)) return Promise.resolve(null);
+  return verifyVmAuthorization(token);
+}
+
 async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
@@ -135,17 +184,26 @@ async function authenticateUnobserved(
   if (request.headers.has(CHATMUX_VM_AUTHORIZATION_HEADER)) return await authenticateChatmuxMachine(request);
   const signedHeader = request.headers.has(VM_AUTHORIZATION_HEADER);
   const token = routeTokenFromRequest(request);
-  if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };
-  const claims = signedHeader ? await verifyVmAuthorization(token) : null;
-  if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token" };
+  if (!token) {
+    if (signedHeader) return { ok: false, reason: "invalid_route_token", detail: "signed_unverified" };
+    return { ok: false, reason: "missing_route_token", detail: carriesPlaceholder(request) ? "placeholder_only" : "no_credential" };
+  }
+  // A provider edge may preserve the standard bearer/route headers while
+  // dropping the custom signed header. Verify the same JWT before falling
+  // back to the legacy VM-id binding so those requests retain the signed
+  // identity contract. Human route tokens and API keys keep their existing
+  // prefix-based authentication paths.
+  const signedToken = signedHeader || isVmAuthorizationCandidate(token);
+  const claims = await vmAuthorizationClaims(token);
+  if (signedToken && !claims) return signedRefusal(token);
   // The signature verified; attribute a crash in the ownership lookup below
   // to this machine and team instead of to nobody.
   if (claims) {
     recordCoderouterSignedVmClaims({ teamId: claims.team_id, vmId: claims.vm_id, stackUserId: claims.owner_id });
   }
   const identity = await authenticate(token);
-  if (!identity) return { ok: false, reason: "invalid_route_token" };
-  if (!validVmBinding(request, identity, claims)) return { ok: false, reason: "vm_mismatch" };
+  if (!identity) return { ok: false, reason: "invalid_route_token", detail: "not_live" };
+  if (!validVmBinding(request, identity, claims)) return { ok: false, reason: "vm_mismatch", detail: "binding" };
   const legacyVmId = identity.vmId ?? null;
   const vmId = claims?.vm_id ?? legacyVmId;
   return {

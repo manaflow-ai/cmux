@@ -57,10 +57,11 @@ struct CloudSidebarSectionIdentityIconTests {
         }
     }
 
-    /// The name, not an icon, now starts a machine row, so every machine state
-    /// has to put its name on the same column or the list jumps as a create
-    /// finishes or a free-plan machine locks. Status glyphs follow the name.
-    @Test("Ready, locked, creating and failed machine names share one column",
+    /// The name, not an icon, now starts every live machine row, so the list
+    /// does not jump as a create finishes or a free-plan machine locks. A
+    /// failed create has no machine identity, so its warning starts the row
+    /// directly beside the error instead of repeating the request label.
+    @Test("Machine states keep identity columns and failed creates show only the error",
           arguments: CloudTreeStyle.presets, [100, 150])
     func machineNamesShareOneColumn(style: CloudTreeStyle, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
@@ -96,7 +97,7 @@ struct CloudSidebarSectionIdentityIconTests {
 
         var starts: [CGFloat] = []
         var glyphCounts: [Int] = []
-        for node in nodes {
+        for (index, node) in nodes.enumerated() {
             let cell = try #require(
                 outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true) as? CloudTreeCellView
             )
@@ -106,7 +107,12 @@ struct CloudSidebarSectionIdentityIconTests {
             // A status glyph (lock, warning) is never the leading ink.
             let glyphs = Self.icons(in: try CloudTreeHeaderActionsTests.display(in: cell))
             for glyph in glyphs {
-                #expect(glyph.convert(glyph.bounds, to: cell).minX > titleStart, "\(node.id)'s status glyph follows its name")
+                let glyphFrame = glyph.convert(glyph.bounds, to: cell)
+                if index < 3 {
+                    #expect(glyphFrame.minX > titleStart, "\(node.id)'s status glyph follows its name")
+                } else {
+                    #expect(glyphFrame.minX <= titleStart + 1, "\(node.id)'s warning leads the error")
+                }
             }
             glyphCounts.append(glyphs.count)
             starts.append(titleStart)
@@ -115,7 +121,9 @@ struct CloudSidebarSectionIdentityIconTests {
         #expect(glyphCounts == [0, 1, 0, 1], "Status glyphs survive the icon removal: \(glyphCounts)")
         let pixelsPerPoint = fixture.window.backingScaleFactor
         let tolerance = (CGFloat(percent) / 100 * pixelsPerPoint).rounded() / pixelsPerPoint
-        for start in starts.dropFirst() {
+        // Only live rows have a name column. The failed row deliberately starts
+        // with its warning icon and error text.
+        for start in starts.dropFirst().prefix(2) {
             #expect(abs(start - starts[0]) <= tolerance, "Every machine state starts its name on one column: \(starts)")
         }
     }

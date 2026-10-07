@@ -277,34 +277,30 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(body.provider.go.options.apiKey).toBe(CLI_TOKEN);
   });
 
-  test("a bound token without the matching x-cmux-vm-id is rejected", async () => {
+  test("a signed token survives missing and forged VM headers", async () => {
     const missing = await openCodeClientConfig(
-      configRequest({ "x-coderouter-route-token": BOUND_TOKEN }),
+      configRequest({ authorization: `Bearer ${BOUND_TOKEN}` }),
       dependencies(),
     );
-    expect(missing.status).toBe(401);
+    expect(missing.status).toBe(200);
     await expect(missing.json()).resolves.toMatchObject({
-      error: "unauthorized",
-      message:
-        "This machine's coderouter credential does not match the machine it was issued to.",
+      provider: { go: { options: { apiKey: VM_PLACEHOLDER_API_KEY } } },
     });
 
     const wrong = await proxyOpenCodeRequest(
       new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-          "x-coderouter-route-token": BOUND_TOKEN,
+          "authorization": `Bearer ${BOUND_TOKEN}`,
           "x-cmux-vm-id": "vm-2",
         },
         body: "{}",
       }),
       "go",
       ["chat"],
-      dependencies(),
+      dependencies([], { fetch: async () => new Response("ok", { status: 200 }) }),
     );
-    expect(wrong.status).toBe(401);
-    await expect(wrong.json()).resolves.toMatchObject({ error: "unauthorized" });
+    expect(wrong.status).toBe(200);
   });
 
   test("the placeholder API key alone is never looked up", async () => {

@@ -27,6 +27,15 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// The app's plan and network catalog cache; nil only in tests.
     private var dataCache: NewMachineSheetDataCache? { NewMachineSheetDataCache.shared }
 
+    /// The plan state used to build a fetching-plan sheet before its first
+    /// layout. A missing or incomplete cache keeps the loading indicator on;
+    /// complete cached data is shown immediately while it is revalidated.
+    static func initialPlanState(from data: NewMachineSheetData?) -> (
+        plan: MachinePlanSnapshot?, limits: VMPlanLimits?, isLoading: Bool
+    ) {
+        (plan: data?.plan, limits: data?.limits, isLoading: data?.hasPlan != true)
+    }
+
     /// The shared paywall decision used by both sheet entrypoints.
     static func shouldPresentUpgrade(for plan: MachinePlanSnapshot?) -> Bool {
         guard let plan else { return false }
@@ -68,6 +77,40 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         if request.reservedWorkspaceID != nil { return request }
         guard let workspaceID = reserveNewMachineWorkspace(title: request.displayName, preferredWindow: preferredWindow) else { return nil }
         return request.targetingReservedWorkspace(workspaceID)
+    }
+
+    /// Forks a machine in the background: the Machines panel shows a pending
+    /// "Fork of …" row and a reserved workspace shows the loading card at once,
+    /// both before any process or network work, and the copy adopts them when
+    /// `cmux vm fork` prints its machine receipt. The row menu and the command
+    /// palette call this; the New Machine sheet reaches the same coordinator.
+    @discardableResult
+    func startFork(sourceMachineID: String, sourceName: String?, preferredWindow: NSWindow?) -> Bool {
+        let cached = dataCache?.currentData?.machines.first { $0.id == sourceMachineID }
+        let request = MachineCreateRequest.fork(
+            sourceMachineID: sourceMachineID,
+            sourceName: sourceName ?? cached?.displayName ?? cached?.slug ?? sourceMachineID,
+            kind: NewMachineModel.machineKind,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) }
+        )
+        guard let reserved = reserving(request, preferredWindow: preferredWindow) else { return false }
+        return MachineCreateCoordinator.shared.start(reserved, cancellableLaunch: Self.launchCreate)
+    }
+
+    /// Runs one create or fork invocation for ``MachineCreateCoordinator``.
+    private static func launchCreate(
+        arguments: [String],
+        progress: @escaping @MainActor (String) -> Void,
+        completion: @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
+    ) -> CloudVMActionLauncher.CancellationHandle? {
+        var cancellation: CloudVMActionLauncher.CancellationHandle?
+        let didStart = MachineRowActions.openNewMachine(
+            arguments: arguments,
+            onOutput: progress,
+            onCompletion: { result in completion(result) },
+            onCancellationReady: { cancellation = $0 }
+        )
+        return didStart ? cancellation : nil
     }
 
     /// Removes only the unadopted creating card. User-added panes and an already
@@ -123,9 +166,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             allowlistExpanded = true
         }
 #endif
-        let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
+        let sheet = CloudSheetWindow(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
+        let window = sheet.window
         window.identifier = NSUserInterfaceItemIdentifier("cmux.newMachine")
         window.styleMask = [.titled]
         window.title = model.isBaseSetup
@@ -155,13 +197,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #endif
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { _ in }
+            sheet.beginSheet(on: host)
         } else {
             // No host: float it. Cancel is the only way out, so no close button
             // can leave the presenter holding a window nobody sees.
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
@@ -212,19 +253,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
-                let didStart = coordinator.start(effectiveRequest, cancellableLaunch: { arguments, progress, completion in
-                    var cancellation: CloudVMActionLauncher.CancellationHandle?
-                    let didStart = MachineRowActions.openNewMachine(
-                        arguments: arguments,
-                        onOutput: progress,
-                        onCompletion: { result in
-                            completion(result)
-                        },
-                        onCancellationReady: { cancellation = $0 }
-                    )
-                    return didStart ? cancellation : nil
-                })
-                return didStart
+                return coordinator.start(effectiveRequest, cancellableLaunch: Self.launchCreate)
             }
         )
         present(model: model, preferredWindow: preferredWindow)
@@ -243,11 +272,21 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
+        // Seed the model from the shared cache before the first SwiftUI layout.
+        // A warmed cache is still revalidated below, but it should not make a
+        // ready sheet flash its loading state while that happens.
+        let initialPlan = Self.initialPlanState(from: dataCache?.currentData)
+        let cachedLimits = initialPlan.limits
         let model = NewMachineModel(
             mode: .newMachine,
-            plan: nil,
+            plan: initialPlan.plan,
+            memoryOptionsMb: cachedLimits?.memoryOptionsMb ?? [],
+            lockedMemoryOptionsMb: cachedLimits?.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: cachedLimits?.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: cachedLimits?.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: cachedLimits?.vcpusByMemoryMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
-            planIsLoading: true,
+            planIsLoading: initialPlan.isLoading,
             submit: { [weak self] request in
                 guard let self, self.pendingSelectionID == selectionID else { return false }
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
@@ -263,7 +302,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             guard let self, let model, self.pendingSelectionID == selectionID else { return }
             self.beginPlanLoad(model: model, selectionID: selectionID)
         }
-        present(model: model, preferredWindow: preferredWindow, loadPlanFromCache: false)
+        present(model: model, preferredWindow: preferredWindow, loadPlanFromCache: true)
         beginPlanLoad(model: model, selectionID: selectionID)
 
         let request = await withTaskCancellationHandler(operation: {
@@ -285,24 +324,36 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             if let request, let workspaceID = request.reservedWorkspaceID { Self.closeReservedWorkspace(workspaceID) }
             return nil
         }
-        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
-            var cancellation: CloudVMActionLauncher.CancellationHandle?
-            let didStart = MachineRowActions.openNewMachine(
-                arguments: arguments,
-                onOutput: progress,
-                onCompletion: { result in completion(result) },
-                onCancellationReady: { cancellation = $0 }
-            )
-            return didStart ? cancellation : nil
-        })
+        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: Self.launchCreate)
     }
 
     /// Loads the authoritative fleet page for one open sheet and ignores stale results.
     private func beginPlanLoad(model: NewMachineModel, selectionID: UUID) {
         planLoadTask?.cancel()
+        if let cached = dataCache?.currentData, cached.hasPlan {
+            Self.apply(cached, to: model, includingPlan: true)
+            if dataCache?.readyData != nil { return }
+        }
         if model.plan == nil { model.setPlanLoading() }
         planLoadTask = Task { @MainActor [weak self, weak model] in
             guard let self, let model else { return }
+            // Join the account-scoped preload first. On a cold first open the
+            // cache may still be fetching the plan even though the sheet is
+            // already visible; showing an error for that transient gap makes
+            // the second open appear to fix the problem by accident.
+            if let dataCache = self.dataCache {
+                let data = await dataCache.data(waitingAtMost: .seconds(15))
+                guard !Task.isCancelled, self.pendingSelectionID == selectionID, self.model === model else { return }
+                if let data, data.hasPlan, let limits = data.limits {
+                    model.applyPlan(activeCount: data.activeCount, limits: limits)
+                    if Self.shouldPresentUpgrade(for: model.plan) {
+                        self.finishSelection(selectionID, request: nil)
+                        model.cancel()
+                        ProUpgradePresenter.present(source: .newMachineAtLimit)
+                    }
+                    return
+                }
+            }
             let page = await CloudMenuModel.shared.fleetPageForPresentation()
             guard !Task.isCancelled, self.pendingSelectionID == selectionID, self.model === model else { return }
             guard let page, let limits = page.limits else {
@@ -370,6 +421,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Applies cache changes while optionally keeping plan ownership with CloudMenuModel.
     static func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
+        if model.supportsBaseImage { model.applySourceMachines(data.machines) }
         if includingPlan, data.hasPlan, model.mode == .newMachine {
             model.applyPlan(activeCount: data.activeCount, limits: data.limits)
         }

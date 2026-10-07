@@ -307,7 +307,7 @@ final class HiveComputersService {
         if ManagedDevicePolicy().isDeviceDiscoveryDisabled {
             return String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
         }
-        return String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices.")
+        return String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other devices to see your devices.")
     }
 
     /// Why the account's Macs cannot be listed at all, or `nil` while

@@ -72,9 +72,9 @@ public struct SSHTuiConnection: Sendable {
     }
 
     /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
-    /// connection broker used for every connect. Snapshots drop control
-    /// options, so without this a restored carrier opens its own connection,
-    /// which batch mode can't log in on a password-only host.
+    /// connection broker used for every connect. Snapshots keep only the
+    /// cmux-owned ControlPath an open used, so these defaults restore the rest;
+    /// without a shared master, batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {

@@ -2,6 +2,33 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
+    /// Guest display discovery for a machine whose Displays are on screen. The
+    /// guest helper starts a standby display on this request, so the first
+    /// New Display hands over a running desktop.
+    /// Returns false, starting nothing, when the machine is asleep or has no
+    /// desktop. `completion` reports whether discovery produced a guest catalog,
+    /// so a failed attempt can be retried rather than treated as done.
+    func beginDisplayDiscovery(
+        on machine: SurfaceMachineID,
+        completion: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) -> Bool {
+        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
+              provider.supportsDisplayCreation else { return false }
+        Task {
+            await provider.refreshDisplays()
+            completion(provider.displayCoordinator.isAvailable)
+        }
+        return true
+    }
+
+    /// Names a display for every client; an empty name restores "Display N".
+    func renameDisplay(_ id: SurfaceResourceID, name: String) async throws {
+        guard id.kind == .display, let provider = provider(for: id.machine) as? CmuxTuiSurfaceProvider else {
+            throw SurfaceCatalogError.noProvider(id.machine)
+        }
+        try await provider.renameDisplay(displayID: id.key, name: name)
+    }
+
     /// Creates a guest display and publishes it in the machine pool. Projection
     /// into a local workspace is intentionally separate: the guest resource
     /// must survive a missing or changing local destination.
@@ -74,9 +101,12 @@ extension SurfaceCatalog {
             _ = try await createDisplay(on: machine)
             return
         }
-        SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(
-            String(localized: "cloud.display.starting", defaultValue: "Starting display…")
-        )
+        let starting = String(localized: "cloud.display.starting", defaultValue: "Starting display…")
+        SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(starting)
+        // The tab says what the pane is from the click; materializing the
+        // display replaces it with the display's name.
+        Workspace.liveWorkspace(id: pane.workspaceID)?.setPanelCustomTitle(
+            panelId: pane.panelID, title: starting, source: .remote, propagateToCloud: false, catalog: self)
         let resource: SurfaceResource
         do {
             resource = try await createDisplay(on: machine)
@@ -106,6 +136,9 @@ extension SurfaceCatalog {
     private func discardReservedDisplayPane(_ pane: (workspaceID: UUID, panelID: UUID), error: Error) {
         SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else { return }
+        // The pane stays (a workspace's last surface): it no longer starts a display.
+        Workspace.liveWorkspace(id: pane.workspaceID)?.setPanelCustomTitle(
+            panelId: pane.panelID, title: nil, source: .remote, propagateToCloud: false, catalog: self)
         browser.cloudAccess.showUnavailable(
             error is CancellationError
                 ? String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged.")

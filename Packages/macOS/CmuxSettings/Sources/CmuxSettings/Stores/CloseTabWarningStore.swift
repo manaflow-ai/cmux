@@ -2,7 +2,8 @@ import Foundation
 
 /// Repository for the close warning settings, persisted in `UserDefaults`
 /// under the catalog's `app.warnBeforeClosingTab`,
-/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingWorkspace`,
+/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingAgentSession`,
+/// `app.warnBeforeClosingWorkspace`,
 /// `app.warnBeforeClosingWindow`, and
 /// `app.hideTabCloseButton` keys.
 ///
@@ -26,6 +27,10 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
 
     public var warnsBeforeClosingTabXButton: Bool {
         keys.warnBeforeClosingTabXButton.value(in: defaults)
+    }
+
+    public var warnsBeforeClosingAgentSession: Bool {
+        keys.warnBeforeClosingAgentSession.value(in: defaults)
     }
 
     public var hidesTabCloseButton: Bool {
@@ -56,8 +61,18 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
 
     /// Turns off the given warnings, for a dialog's "Don't ask again" checkbox.
     public func disableWarnings(_ kinds: CloseWarningKinds) {
+        // An agent-session prompt owns its own suppression choice. Keep a
+        // simultaneous tab-button warning enabled so “Don’t ask again” never
+        // silences ordinary tab protection.
+        if kinds.contains(.agentSession) {
+            keys.warnBeforeClosingAgentSession.set(false, in: defaults)
+            return
+        }
         if kinds.contains(.tab) {
             keys.warnBeforeClosingTab.set(false, in: defaults)
+        }
+        if kinds.contains(.agentSession) {
+            keys.warnBeforeClosingAgentSession.set(false, in: defaults)
         }
         if kinds.contains(.tabCloseButton) {
             keys.warnBeforeClosingTabXButton.set(false, in: defaults)

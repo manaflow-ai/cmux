@@ -2157,6 +2157,7 @@
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
           "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL.",
+          "showLinkHoverURL": "Muestra el destino de un enlace en la esquina inferior izquierda del panel del navegador mientras el puntero está sobre el enlace o cuando el enlace recibe el foco del teclado.",
           "urlAllowlist": "Patrones de host o URL que restringen la navegación del navegador integrado. Ajustes sugiere orígenes de desarrollo local; guardar una lista activa la restricción opcional. Elimina entradas para bloquearlas o deja vacío el valor del usuario, si no hay una política administrada, para desactivar la restricción."
         },
         "workspaceGroups": {
@@ -5342,7 +5343,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está activo",
     "title": "Te damos la bienvenida a cmux Pro",
-    "body": "Las funciones Pro siguen en desarrollo. El acceso a la nube llegará pronto, con créditos de uso acumulados por cada mes de suscripción. Hoy, Pro incluye acceso a cmux para iOS mediante TestFlight.",
+    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight.",
     "done": "Ir al panel",
     "steps": {
       "iosApp": {

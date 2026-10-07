@@ -123,4 +123,21 @@ struct ControlHandleRegistryTests {
         registry.invalidateTopologyRefresh()
         #expect(registry.needsTopologyRefresh)
     }
+
+    @Test @MainActor func coordinatorGatesHandleTopologyRefresh() {
+        let coordinator = ControlCommandCoordinator()
+        #expect(coordinator.needsHandleTopologyRefresh)
+        coordinator.markHandleTopologyRefreshCompleted()
+        #expect(!coordinator.needsHandleTopologyRefresh)
+        coordinator.invalidateHandleTopologyRefresh()
+        #expect(coordinator.needsHandleTopologyRefresh)
+    }
+
+    @Test @MainActor func coordinatorResolvesExistingRefWithoutMinting() {
+        let coordinator = ControlCommandCoordinator()
+        let id = UUID()
+        #expect(coordinator.existingRef(kind: .workspace, uuid: id) == nil)
+        let ref = coordinator.ensureRef(kind: .workspace, uuid: id)
+        #expect(coordinator.existingRef(kind: .workspace, uuid: id) == ref)
+    }
 }
