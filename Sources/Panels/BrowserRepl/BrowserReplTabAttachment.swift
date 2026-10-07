@@ -260,11 +260,13 @@ final class BrowserReplTabAttachment {
     func markCreated(by sessionID: String) {
         ownership.markCreated(by: sessionID)
         applyContextToWebView()
+        panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// `tab.handleEvents`: the events `sessionID` has a handler for here.
     func setHandledEvents(_ events: Set<BrowserReplTabEvent>, sessionID: String) {
         ownership.setHandledEvents(events, for: sessionID)
+        panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// Runs `body`, a session's input or navigation on this tab: a dialog or

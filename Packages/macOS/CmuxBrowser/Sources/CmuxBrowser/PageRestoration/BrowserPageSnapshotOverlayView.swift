@@ -10,8 +10,8 @@ public import AppKit
 public final class BrowserPageSnapshotOverlayView: NSView {
     private let imageView = NSImageView()
 
-    public override var isFlipped: Bool { true }
-    public override var isOpaque: Bool { false }
+    public nonisolated override var isFlipped: Bool { true }
+    public nonisolated override var isOpaque: Bool { false }
 
     /// - Parameter snapshot: The page as it looked before the discard.
     public init(snapshot: BrowserPageSnapshotImage?) {
@@ -44,7 +44,7 @@ public final class BrowserPageSnapshotOverlayView: NSView {
     /// Whether the overlay carries a page snapshot, not just the badge.
     public var showsSnapshot: Bool { imageView.image != nil }
 
-    public override func hitTest(_ point: NSPoint) -> NSView? {
+    public nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 

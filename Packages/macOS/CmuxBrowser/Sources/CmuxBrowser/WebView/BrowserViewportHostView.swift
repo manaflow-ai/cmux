@@ -10,15 +10,16 @@ public import WebKit
 // AppKit and WebKit may enter NSView overrides synchronously from their own
 // main-thread stacks (notably RemoteLayerTreeHost while committing a layer
 // tree). A main-thread callback does not establish Swift's MainActor executor,
-// so this framework-facing view must not be actor-isolated. Callers that own
-// its lifecycle remain main-actor-bound; the override itself stays available to
-// AppKit without an executor check on the layer-tree path.
+// so the framework-facing override is explicitly `nonisolated` below. NSView
+// inherits `@MainActor` from NSResponder in the Swift 6 SDK; omitting that
+// modifier still emits an executor-checking Objective-C thunk. All view
+// ownership remains on the AppKit main thread.
 public final class BrowserViewportHostView: NSView {
     public private(set) weak var webView: WKWebView?
     public private(set) var appliedLayout: BrowserViewportLayout?
 
-    public override var isFlipped: Bool { true }
-    public override var isOpaque: Bool { false }
+    public nonisolated override var isFlipped: Bool { true }
+    public nonisolated override var isOpaque: Bool { false }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -219,7 +220,7 @@ public final class BrowserViewportHostView: NSView {
             webView.autoresizingMask == webView.cmuxBrowserViewportAutoresizingMask
     }
 
-    public override func layout() {
+    public nonisolated override func layout() {
         super.layout()
         applyRawWebViewGeometryIfSafe()
     }

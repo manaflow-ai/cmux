@@ -350,7 +350,7 @@ final class BrowserStreamMacMirrorView: NSView {
         imageView.image = image
     }
 
-    public override func hitTest(_ point: NSPoint) -> NSView? {
+    public nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 }

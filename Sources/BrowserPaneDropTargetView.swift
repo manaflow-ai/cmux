@@ -3,6 +3,9 @@ import Bonsplit
 import Foundation
 import WebKit
 
+// Drag and hit-test callbacks are synchronous AppKit entry points. Keep them
+// out of the inherited MainActor executor-checking thunks while the owning
+// browser slot remains main-thread confined.
 final class BrowserPaneDropTargetView: NSView {
     weak var slotView: WindowBrowserSlotView?
     var dropContext: BrowserPaneDropContext? {
@@ -25,9 +28,9 @@ final class BrowserPaneDropTargetView: NSView {
     private var lastHitTestSignature: String?
 #endif
 
-    override var acceptsFirstResponder: Bool { false }
+    nonisolated override var acceptsFirstResponder: Bool { false }
 
-    override init(frame frameRect: NSRect) {
+    nonisolated override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(Set([
             DragOverlayRoutingPolicy.filePreviewTransferType,
@@ -42,7 +45,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     deinit {}
 
-    override func viewWillMove(toSuperview newSuperview: NSView?) {
+    nonisolated override func viewWillMove(toSuperview newSuperview: NSView?) {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
             transferDropRouter.clear()
@@ -109,7 +112,7 @@ final class BrowserPaneDropTargetView: NSView {
         return true
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point), dropContext != nil else { return nil }
         let eventType = NSApp.currentEvent?.type
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return nil }
@@ -153,7 +156,7 @@ final class BrowserPaneDropTargetView: NSView {
         return nil
     }
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    nonisolated override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         if let dropContext {
             transferDropRouter.begin(context: dropContext)
         } else {
@@ -164,13 +167,13 @@ final class BrowserPaneDropTargetView: NSView {
         return operation
     }
 
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    nonisolated override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let operation = updateDragState(sender, phase: "updated")
         dropRoutingRegistration.update(sender, operation: operation, targetView: self)
         return operation
     }
 
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+    nonisolated override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dropRoutingRegistration.clear(sender)
         exitActiveFileDropWebView(sender)
         didRequestWebViewRestoreForDrag = false
@@ -178,7 +181,7 @@ final class BrowserPaneDropTargetView: NSView {
         transferDropRouter.clear()
     }
 
-    override func draggingEnded(_ sender: any NSDraggingInfo) {
+    nonisolated override func draggingEnded(_ sender: any NSDraggingInfo) {
         dropRoutingRegistration.clear(sender)
         exitActiveFileDropWebView(sender)
         didRequestWebViewRestoreForDrag = false
@@ -186,7 +189,7 @@ final class BrowserPaneDropTargetView: NSView {
         transferDropRouter.clear()
     }
 
-    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    nonisolated override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let dropContext = activeDropContext() else {
 #if DEBUG
             cmuxDebugLog("browser.paneDrop.prepare allowed=0 reason=missingContext")
@@ -229,7 +232,7 @@ final class BrowserPaneDropTargetView: NSView {
         }
     }
 
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    nonisolated override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer {
             dropRoutingRegistration.clear(sender)
             didRequestWebViewRestoreForDrag = false
@@ -330,7 +333,7 @@ final class BrowserPaneDropTargetView: NSView {
         return handled
     }
 
-    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+    nonisolated override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
             dropRoutingRegistration.clear(sender)
             activeFileDropWebView = nil

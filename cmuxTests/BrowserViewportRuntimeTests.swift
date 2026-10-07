@@ -47,10 +47,24 @@ struct BrowserViewportRuntimeTests {
         defer { invalidator.invalidate() }
 
         NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: view)
+        #expect(!invalidator.structureIsCurrent())
         #expect(callbackCount == 0)
 
         await Task.yield()
         #expect(callbackCount == 1)
+    }
+
+    @Test
+    func frameworkObserversDoNotRetainInvalidatorAfterTeardown() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        weak var weakInvalidator: PortalSplitDividerCacheInvalidator?
+        do {
+            let invalidator = PortalSplitDividerCacheInvalidator()
+            weakInvalidator = invalidator
+            invalidator.observe(geometryViews: [view], structureViews: []) {}
+        }
+
+        #expect(weakInvalidator == nil)
     }
 
     @Test
