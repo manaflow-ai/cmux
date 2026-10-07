@@ -335,9 +335,8 @@ struct SidebarSessionHistoryButton: View {
             if isShowingVault {
                 _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: window)
             } else {
-                _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                _ = AppDelegate.shared?.revealRightSidebarInActiveMainWindow(
                     mode: .sessions,
-                    focusFirstItem: false,
                     preferredWindow: window
                 )
             }

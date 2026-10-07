@@ -7688,6 +7688,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Shows the right sidebar in `mode` without moving keyboard focus, so a
+    /// terminal keeps receiving keystrokes. Returns false when no window can
+    /// host the sidebar.
+    @discardableResult
+    func revealRightSidebarInActiveMainWindow(
+        mode: RightSidebarMode,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        guard mode.isAvailable(), let state = context?.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        revealRightSidebar(state, mode: mode, context: context)
+        return true
+    }
+
+    private func revealRightSidebar(
+        _ state: FileExplorerState,
+        mode: RightSidebarMode,
+        context: MainWindowContext?
+    ) {
+        state.setVisible(true)
+        state.mode = mode
+        context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
+    }
+
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
         target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
@@ -7767,9 +7793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
                 }
             } else {
-                state.setVisible(true)
-                state.mode = mode
-                context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
+                revealRightSidebar(state, mode: mode, context: context)
             }
             return .ok
 
@@ -7792,9 +7816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
                 }
             } else {
-                state.setVisible(true)
-                state.mode = .customSidebar
-                context?.keyboardFocusCoordinator.rememberRightSidebarMode(.customSidebar)
+                revealRightSidebar(state, mode: .customSidebar, context: context)
             }
             return .ok
         case .getState:
