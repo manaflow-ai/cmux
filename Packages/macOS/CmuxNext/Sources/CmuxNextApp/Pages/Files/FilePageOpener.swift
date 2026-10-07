@@ -24,7 +24,7 @@ final class FilePageOpener: FileOpening {
     /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
     /// cannot decode (``LocalFileHandoff``), else nil (the default engine).
     nonisolated static func tabEngine(for url: URL) -> String? {
-        LocalFileHandoff.target(for: url) == .webKitTab ? BrowserEngineTag.webkit.rawValue : nil
+        url.localFileHandoff == .webKitTab ? BrowserEngineTag.webkit.rawValue : nil
     }
 
     /// The page that opens `url`, nil for a file the browser tab previews.

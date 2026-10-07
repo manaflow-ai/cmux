@@ -144,7 +144,7 @@ extension PaneController {
                        notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         var requested = requested
         if child == nil, let url {
-            switch LocalFileHandoff.target(for: url) {
+            switch url.localFileHandoff {
             case .markdownPage? where then == nil:
                 _ = services.viewers.markdownPages.open(URL(fileURLWithPath: url.path), in: self, focus: !background, userChose: false)
                 return

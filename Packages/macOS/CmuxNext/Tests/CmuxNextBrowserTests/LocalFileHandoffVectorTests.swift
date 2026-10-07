@@ -23,16 +23,16 @@ import Testing
         #expect(!vectors.cases.isEmpty)
         for item in vectors.cases {
             let url = try #require(URL(string: item.url), "\(item.url)")
-            #expect(LocalFileHandoff.handsOff(url, engine: .cef) == item.cef, "cef \(item.url)")
-            #expect(LocalFileHandoff.handsOff(url, engine: .webkit) == item.webkit, "webkit \(item.url)")
+            #expect(url.isHandedOff(by: .cef) == item.cef, "cef \(item.url)")
+            #expect(url.isHandedOff(by: .webkit) == item.webkit, "webkit \(item.url)")
         }
     }
 
     /// Markdown opens the markdown page; the codecs CEF lacks open a WebKit tab.
     @Test func eachFileGoesWhereItShows() {
-        #expect(LocalFileHandoff.target(for: URL(fileURLWithPath: "/r/README.md")) == .markdownPage)
-        #expect(LocalFileHandoff.target(for: URL(fileURLWithPath: "/r/clip.mov")) == .webKitTab)
-        #expect(LocalFileHandoff.target(for: URL(fileURLWithPath: "/r/clip.webm")) == nil)
-        #expect(LocalFileHandoff.target(for: URL(string: "https://example.com/clip.mp4")!) == nil)
+        #expect(URL(fileURLWithPath: "/r/README.md").localFileHandoff == .markdownPage)
+        #expect(URL(fileURLWithPath: "/r/clip.mov").localFileHandoff == .webKitTab)
+        #expect(URL(fileURLWithPath: "/r/clip.webm").localFileHandoff == nil)
+        #expect(URL(string: "https://example.com/clip.mp4")!.localFileHandoff == nil)
     }
 }
