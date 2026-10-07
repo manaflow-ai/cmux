@@ -72,8 +72,7 @@ where
             hand_to_entry(stream, &record.peer(), None, session_socket).await
         }
         Some(ServiceHello { service: Service::OwnerSession, link_token: None, epoch: None }) => {
-            let _ = (owner, &record);
-            Err(InboundRefused::BadHello) // RED: owner sessions are not served yet
+            serve_owner_session(stream, &record.peer(), owner).await
         }
         _ => Err(InboundRefused::BadHello),
     }

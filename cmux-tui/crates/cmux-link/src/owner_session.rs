@@ -81,7 +81,10 @@ impl OwnerSession {
     pub fn parse(text: &str) -> io::Result<Option<Self>> {
         let json: ServerJson = serde_json::from_str(text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let Some(block) = json.owner_session else { return Ok(None) };
-        Ok(Some(block)) // RED: no validation yet
+        if !block.is_valid() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid owner_session block"));
+        }
+        Ok(Some(block))
     }
 
     fn is_valid(&self) -> bool {
@@ -95,8 +98,11 @@ impl OwnerSession {
     /// owner team. `peer` is the identity the link derived from the
     /// WireGuard key's pairing record.
     pub fn authorize(&self, peer: &LinkPeer) -> Result<(), OwnerRefused> {
-        let _ = peer;
-        Ok(()) // RED: no owner check yet
+        if peer.user == self.owner_user && peer.team == self.owner_team {
+            Ok(())
+        } else {
+            Err(OwnerRefused::NotOwner)
+        }
     }
 
     /// The socket to connect to, after checking it: not a symlink, a Unix
@@ -104,8 +110,22 @@ impl OwnerSession {
     /// resolved (a symlinked parent cannot point it elsewhere).
     #[cfg(unix)]
     pub fn check_socket(&self, uid: u32) -> Result<PathBuf, OwnerRefused> {
-        let _ = uid;
-        Ok(self.socket.clone()) // RED: no socket checks yet
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let meta = std::fs::symlink_metadata(&self.socket).map_err(|_| OwnerRefused::NotASocket)?;
+        if !meta.file_type().is_socket() {
+            return Err(OwnerRefused::NotASocket);
+        }
+        if meta.uid() != uid {
+            return Err(OwnerRefused::WrongOwner);
+        }
+        let parent = self.socket.parent().ok_or(OwnerRefused::OutsideBrainHome)?;
+        let name = self.socket.file_name().ok_or(OwnerRefused::NotASocket)?;
+        let parent = std::fs::canonicalize(parent).map_err(|_| OwnerRefused::OutsideBrainHome)?;
+        let home = std::fs::canonicalize(&self.brain_home).map_err(|_| OwnerRefused::OutsideBrainHome)?;
+        if !parent.starts_with(&home) {
+            return Err(OwnerRefused::OutsideBrainHome);
+        }
+        Ok(parent.join(name))
     }
 }
 
@@ -115,8 +135,16 @@ pub const IDENTIFY_REQUEST: &str = "{\"id\":1,\"cmd\":\"identify\"}\n";
 /// Whether an `identify` reply line is from a brain daemon: an `ok` cmux-tui
 /// that reports every [`BRAIN_CAPABILITIES`].
 pub fn is_brain_identity(reply: &str) -> bool {
-    let _ = reply;
-    true // RED: no identity check yet
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim_end()) else { return false };
+    if value["ok"].as_bool() != Some(true) {
+        return false;
+    }
+    let data = &value["data"];
+    if data["app"].as_str() != Some("cmux-tui") {
+        return false;
+    }
+    let Some(capabilities) = data["capabilities"].as_array() else { return false };
+    BRAIN_CAPABILITIES.iter().all(|wanted| capabilities.iter().any(|have| have.as_str() == Some(wanted)))
 }
 
 #[cfg(all(test, unix))]
