@@ -51,4 +51,15 @@ import Testing
         view.backButton.performClick(nil)
         #expect(runs == 1)
     }
+
+    /// Drawing must not dirty the button again: setting its image or title in
+    /// `updateLayer` redraws it every frame, which hung the whole test run.
+    @Test func drawingTheBackButtonLeavesItClean() async {
+        let view = await sidebar()
+        view.model.showsBack = true
+        await settle(view)
+        view.backButton.needsDisplay = false
+        view.backButton.updateLayer()
+        #expect(!view.backButton.needsDisplay)
+    }
 }
