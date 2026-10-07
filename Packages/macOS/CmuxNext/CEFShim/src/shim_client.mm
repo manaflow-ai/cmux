@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "local_file_handoff.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
 
@@ -134,6 +135,10 @@ class Client : public CefClient,
     std::string url = request->GetURL().ToString();
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
+    if (cmux_shim::CEFHandsOffLocalFile(url)) {
+      Emit(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, 0, 0, url);
+      return true;
+    }
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;

@@ -35,6 +35,13 @@ final class ViewerService {
         self.recents = recents
     }
 
+    /// Opens `file` through ``fileOpener`` (the markdown page, a previewing tab, or the editor).
+    /// `userChose` false for a page's or an agent's open. Returns why it did not open.
+    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
+        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose) }
+        return fileOpener.open(file, in: pane)
+    }
+
     /// The pane's folder: its selected terminal's cwd, else the cwd of its
     /// last terminal tab (a page or an agent tab has none).
     static func folder(of pane: PaneController) -> String? {

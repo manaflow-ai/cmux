@@ -128,6 +128,11 @@ typedef enum {
   // Once per download: a = 1 complete, 2 cancelled, 3 interrupted;
   // b = cef_download_interrupt_reason_t; s1 = the full path ("" if none).
   CMUX_SHIM_DOWNLOAD_DONE = 36,
+  // A main-frame navigation to a local file cmux shows elsewhere (Markdown,
+  // or H.264/HEVC or AAC media this build cannot decode;
+  // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
+  // host opens the file in cmux's markdown page or a WebKit tab.
+  CMUX_SHIM_LOCAL_FILE_HANDOFF = 37,
 } cmux_shim_event_kind_t;
 
 typedef enum {

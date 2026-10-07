@@ -10,6 +10,9 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A terminal tab in the current window's focused pane, started in
     /// `cwd`, then `command` typed into its shell (already shell-quoted).
     case terminal(cwd: String?, command: String?)
+    /// Any other file: the caller's file opener shows it (the markdown
+    /// page, a tab that previews an image, PDF or media file, or the editor).
+    case file(URL)
     /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
     /// `link.open` action with it, which only navigates.
     case deepLink(URL)
@@ -94,7 +97,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
         }
         if ext.isEmpty, isExecutable(path) { return .terminal(cwd: folder, command: ShellQuote.quote(path)) }
-        return .unsupported
+        return .file(URL(fileURLWithPath: path))
     }
 
     /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and

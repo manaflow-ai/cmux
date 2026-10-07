@@ -111,6 +111,9 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         case .rerouteStore:
             // The debug window has no machines, so it never sets a guard.
             break
+        case .openLocalFile:
+            // The debug window has no file pages or WebKit tab to hand to.
+            break
         }
     }
 

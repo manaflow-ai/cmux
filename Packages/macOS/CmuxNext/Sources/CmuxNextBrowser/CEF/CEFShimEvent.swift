@@ -45,6 +45,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case chromeCommand(browser: Int32, command: Int32)
     /// The navigation guard cancelled a main-frame navigation to `url`.
     case navigationReroute(browser: Int32, url: String, isRedirect: Bool)
+    /// The shim cancelled a main-frame navigation to a local file cmux shows
+    /// elsewhere (`LocalFileHandoff`).
+    case localFileHandoff(browser: Int32, url: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -110,6 +113,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 34...36:
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
+        case 37: self = .localFileHandoff(browser: browser, url: s1)
         default: self = .unknown(kind: kind)
         }
     }

@@ -134,10 +134,26 @@ extension PaneController {
     /// `default`); `notice` shows on the new page; `then` runs with the new
     /// surface once the daemon made the tab. `opener` is the tab of the page
     /// that asked for it: the new tab goes next to it in Chrome's order
-    /// (`BrowserTabOpeners`); without it the tab goes to the end.
+    /// (`BrowserTabOpeners`); without it the tab goes to the end. A local
+    /// file goes where `LocalFileHandoff` shows it: Markdown opens the
+    /// markdown page (unless the caller waits for the tab's surface), and
+    /// media Chromium cannot play opens in WebKit unless an engine was asked
+    /// for (a tab's first page load is not guarded).
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        var requested = requested
+        if child == nil, let url {
+            switch LocalFileHandoff.target(for: url) {
+            case .markdownPage? where then == nil:
+                _ = services.viewers.markdownPages.open(URL(fileURLWithPath: url.path), in: self, focus: !background, userChose: false)
+                return
+            case .webKitTab? where requested == nil && inherited == nil:
+                requested = BrowserEngineTag.webkit.rawValue
+            default:
+                break
+            }
+        }
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
