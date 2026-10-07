@@ -669,6 +669,11 @@
       // `s` with its cuts settled, for a page function that cuts or
       // searches its own text before it replies (sealing settles the rest).
       settle: (s) => settleCuts(s),
+      // The bounded DOM reads, charged to this budget.
+      textContent: (node) => boundedTextContent(node, b),
+      innerText: (el) => boundedInnerText(el, b),
+      outerHTML: (el) => boundedHTML(el, b, true),
+      innerHTML: (el) => boundedHTML(el, b, false),
       get truncated() {
         return b.truncated;
       },
@@ -768,11 +773,211 @@
     }
   }
 
-  // Every reply this world sends to the session passes through `reply`:
-  // the runtime wraps each agent-world call in it (runtime-core.js,
-  // Frame._call) and the host's frame.observe script runs each read inside
-  // it, so a method or page function added here cannot reply around it.
-  // Sealing settles every cut the reply's strings hold (settleCuts).
+  // ---------------------------------------------------------------------------
+  // Bounded DOM reads. A DOM getter (textContent, innerText, outerHTML)
+  // builds its whole string before anything can cut it, and a hostile
+  // page sets how large that is. These read within a page-read budget `b`:
+  // first a counting walk (nodes, and the lengths of the strings the getter
+  // would join, read without copying them), stopped at what `b` has left;
+  // when the getter's string fits, the getter runs and the string is
+  // charged (exact text); else the string is built node by node and stops
+  // where the budget does (`b.truncated` says why). Walks are iterative.
+  // What a getter of `kind` ("text": textContent, "inner": innerText,
+  // "html": innerHTML/outerHTML) would read under `root`: { nodes, size,
+  // depth } within `limits` ({ nodes, size, depth, deadline }), else
+  // { over: "nodes" | "size" | "time" | "depth" }. Attributes count as
+  // nodes; the size of HTML adds tags and attributes.
+  function measureTree(root, kind, limits) {
+    let nodes = 0;
+    let size = 0;
+    let depth = 0;
+    let deepest = 0;
+    let over = null;
+    walkTree(root, (n) => {
+      if (++nodes > limits.nodes) return (over = "nodes"), STOP;
+      if ((nodes & 255) === 0 && now() > limits.deadline) return (over = "time"), STOP;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) size += n.data.length;
+      else if (t === 8 || t === 7) size += kind === "html" ? n.data.length + 7 : 0;
+      else if (t === 1) {
+        if (kind === "html") {
+          const attrs = n.attributes;
+          nodes += attrs.length;
+          if (nodes > limits.nodes) return (over = "nodes"), STOP;
+          size += 2 * n.tagName.length + 5;
+          for (let i = 0; i < attrs.length; i++) size += attrs[i].name.length + attrs[i].value.length + 4;
+        } else if (kind === "inner") size += 2;
+        if (++depth > deepest) deepest = depth;
+        if (deepest > limits.depth) return (over = "depth"), STOP;
+      }
+      if (size > limits.size) return (over = "size"), STOP;
+      return kind === "html" || t === 1 || t === 9 || t === 11;
+    }, (n) => {
+      if (n.nodeType === 1) depth--;
+    }, kind === "html");
+    return over ? { over } : { nodes, size, depth: deepest };
+  }
+  // How far a getter's result may run past the counted size: escaping
+  // grows HTML, innerText adds line breaks. A result past it is still cut.
+  function readLimits(b) {
+    return { nodes: b.left, size: b.sizeLeft, depth: Infinity, deadline: b.deadline };
+  }
+  // textContent: every Text descendant's data, in order.
+  function boundedTextContent(node, b) {
+    const t = node.nodeType;
+    if (t === 3 || t === 4 || t === 7 || t === 8) return spend(b, 1) ? fit(b, node.data) : "";
+    if (t === 9 || t === 10) return null;
+    const m = measureTree(node, "text", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, node.textContent);
+    }
+    const parts = [];
+    walkTree(node, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, n.data));
+        if (b.truncated) return STOP;
+      }
+      return n.nodeType === 1 || n.nodeType === 11;
+    });
+    return parts.join("");
+  }
+  // innerText: past the budget, an approximation of the rendered text (no
+  // hidden, script or style content; a line break around each block and
+  // at each <br>) that stops at the budget.
+  const NO_INNER_TEXT = new Set(["script", "style", "template", "noscript", "head", "title", "meta", "link"]);
+  function boundedInnerText(el, b) {
+    const m = measureTree(el, "inner", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, el.innerText);
+    }
+    const parts = [];
+    const blocks = [];
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, head(b, n.data).replace(/[ \t\r\n]+/g, " ")));
+        return b.truncated ? STOP : true;
+      }
+      if (n.nodeType !== 1) return false;
+      const tag = tagOf(n);
+      if (NO_INNER_TEXT.has(tag)) return false;
+      if (tag === "br") {
+        parts.push(fit(b, "\n"));
+        return false;
+      }
+      const style = styleOf(n);
+      if (!style || style.display === "none") return false;
+      const block = n !== el && !/^inline/.test(style.display) && style.display !== "contents";
+      if (block) parts.push(fit(b, "\n"));
+      blocks.push(block);
+      return true;
+    }, (n) => {
+      if (n.nodeType === 1 && n !== el && blocks.length && blocks.pop()) parts.push(fit(b, "\n"));
+    });
+    return parts.join("").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+  }
+  // innerHTML (`outer` false) or outerHTML: past the budget, the HTML
+  // fragment serialization algorithm, node by node, stopped at the budget.
+  const VOID_TAGS = new Set(["area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"]);
+  const RAW_TEXT_TAGS = new Set(["style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript"]);
+  const FOREIGN_NS = new Set([HTML_NS, "http://www.w3.org/2000/svg", "http://www.w3.org/1998/Math/MathML"]);
+  const escapeText = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/"/g, "&quot;");
+  function attrName(a) {
+    if (!a.namespaceURI) return a.localName;
+    if (a.namespaceURI === "http://www.w3.org/XML/1998/namespace") return "xml:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/2000/xmlns/") return a.localName === "xmlns" ? "xmlns" : "xmlns:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/1999/xlink") return "xlink:" + a.localName;
+    return a.name;
+  }
+  function boundedHTML(el, b, outer) {
+    const m = measureTree(el, "html", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, outer ? el.outerHTML : el.innerHTML);
+    }
+    const parts = [];
+    const push = (s) => {
+      parts.push(fit(b, s));
+      return b.truncated ? STOP : true;
+    };
+    const tagName = (n) => (FOREIGN_NS.has(n.namespaceURI) ? n.localName : n.tagName);
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n === el && !outer) return true;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) {
+        const p = n.parentNode;
+        return push(p && p.nodeType === 1 && p.namespaceURI === HTML_NS && RAW_TEXT_TAGS.has(tagOf(p)) ? n.data : escapeText(n.data)) === STOP ? STOP : false;
+      }
+      if (t === 8) return push(`<!--${n.data}-->`) === STOP ? STOP : false;
+      if (t === 7) return push(`<?${n.target} ${n.data}>`) === STOP ? STOP : false;
+      if (t !== 1) return false;
+      const attrs = n.attributes;
+      if (!spend(b, attrs.length)) return STOP;
+      let head = "<" + tagName(n);
+      for (let i = 0; i < attrs.length; i++) head += ` ${attrName(attrs[i])}="${escapeAttr(attrs[i].value)}"`;
+      if (push(head + ">") === STOP) return STOP;
+      return !(n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n)));
+    }, (n) => {
+      if (n.nodeType !== 1 || (n === el && !outer)) return;
+      if (n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n))) return;
+      return push(`</${tagName(n)}>`);
+    }, true);
+    return parts.join("");
+  }
+  // A string read whole by the page (an attribute, a field's value),
+  // charged and cut.
+  function boundedString(s, b) {
+    if (typeof s !== "string") return s;
+    return spend(b, 1) ? fit(b, s) : "";
+  }
+
+
+  // The reply budget. Every reply this world sends to the session passes
+  // through `reply`: the runtime wraps each agent-world call in it
+  // (runtime-core.js, Frame._call) and the host's frame.observe script runs
+  // each read inside it, so a method or page function added here cannot
+  // reply around it. Past `limit` characters of JSON (at most MAX_REPLY) the
+  // reply becomes a cut marker, which the runtime turns into an error worded
+  // by core.readCutNote, as every read cut at its budget. A caller can lower
+  // the limit, never raise it. The default is what a read within the
+  // page-read budget can return: MAX_SIZE characters of values and NODE_SIZE
+  // of keys for each of MAX_NODES nodes. Sealing also settles every cut the
+  // reply's strings hold (settleCuts).
+  const MAX_REPLY = MAX_SIZE + MAX_NODES * NODE_SIZE;
+  const REPLY_CUT = "__cmuxReplyCut";
+  // The reply of a method that stopped at its budget before it had all its
+  // answer: the runtime fails the call with core.readCutNote's words, as
+  // for a reply past the reply budget. `cut` is { truncated, maxNodes, maxSize }.
+  const cutReply = (cut) => ({ [REPLY_CUT]: cut });
+  // The characters of JSON `value` takes, counted until they pass `max`.
+  // Iterative, and it stops there, so measuring costs at most the limit.
+  function replySize(value, max) {
+    let size = 0;
+    const stack = [value];
+    while (stack.length && size <= max) {
+      const v = stack.pop();
+      if (typeof v === "string") size += v.length + 2;
+      else if (v === null || v === undefined || typeof v !== "object") size += typeof v === "function" ? 0 : 8;
+      else if (Array.isArray(v)) {
+        size += 2 + v.length;
+        for (let i = 0; i < v.length && size <= max; i++) stack.push(v[i]);
+      } else {
+        size += 2;
+        for (const key of Object.keys(v)) {
+          size += key.length + 4;
+          stack.push(v[key]);
+          if (size > max) break;
+        }
+      }
+    }
+    return size;
+  }
+  // Settles every cut in `value`'s strings (settleCuts), in place.
   function settleReply(value) {
     if (typeof value === "string") return settleCuts(value);
     const stack = [value];
@@ -788,8 +993,13 @@
     }
     return value;
   }
-  function reply(value) {
-    return value instanceof Promise ? value.then(settleReply) : settleReply(value);
+  function sealReply(value, limit) {
+    const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
+    if (replySize(value, max) <= max) return settleReply(value);
+    return cutReply({ truncated: "size", maxSize: max });
+  }
+  function reply(value, limit) {
+    return value instanceof Promise ? value.then((v) => sealReply(v, limit)) : sealReply(value, limit);
   }
 
   // The walk descends at most MAX_DEPTH elements, over the whole stitched
@@ -1192,11 +1402,16 @@
     return hops;
   }
 
-  function queryAll(selector, scopeHandle) {
+  // MAX_NODES handles (the page-read node budget): past that, a call
+  // without a limit is cut, and a limit above it keeps the first MAX_NODES.
+  function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
+    const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
+    const asked = Number.isInteger(limit) && limit >= 0;
+    if (!asked && found.length > MAX_NODES) return cutReply({ truncated: "nodes", maxNodes: MAX_NODES });
+    return found.slice(0, asked ? Math.min(limit, MAX_NODES) : MAX_NODES).map(handleFor);
   }
 
   function describe(id) {
