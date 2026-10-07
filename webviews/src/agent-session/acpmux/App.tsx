@@ -1492,9 +1492,7 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
-        setGithubRepository(
-          typeof host.githubRepository === "string" && host.githubRepository ? host.githubRepository : undefined,
-        );
+        if (typeof host.githubRepository === "string" && host.githubRepository) setGithubRepository(host.githubRepository);
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the

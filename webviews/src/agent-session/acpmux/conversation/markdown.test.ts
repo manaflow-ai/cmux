@@ -120,7 +120,7 @@ describe("links", () => {
     const out = renderToStaticMarkup(
       createElement(Markdown, {
         githubRepository: "manaflow-ai/cmux",
-        children: "[Fix #1234](https://example.com) ![#5678](https://example.com/image.png)",
+        children: "[Fix #1234 and upstream/cmux#56](https://example.com) ![#5678](https://example.com/image.png)",
       }),
     );
     expect(out.match(/href="https:\/\/github\.com/g) ?? []).toHaveLength(0);

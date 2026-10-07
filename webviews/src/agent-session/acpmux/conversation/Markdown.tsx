@@ -249,6 +249,8 @@ export type InlineOptions = {
   overBudget?: Set<string>;
   /** The workspace's GitHub `owner/repo`, used for bare issue references. */
   githubRepository?: string;
+  /** Link GitHub references in prose; labels of an outer link disable this. */
+  linkGithubReferences?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -342,7 +344,8 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-function linkedGithubText(text: string, key: string, repository?: string): ReactNode[] {
+function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+  if (!enabled) return linkedText(text, key);
   const refs = githubReferences(text, repository);
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
@@ -380,7 +383,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last) out.push(...linkedGithubText(text.slice(last, m.index), `t${k++}`, opts.githubRepository));
+    if (m.index! > last)
+      out.push(...linkedGithubText(text.slice(last, m.index), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false));
     const t = m[0];
     if (m[1]) {
       const path = codePath(t.slice(1, -1));
@@ -403,7 +407,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = opts.githubRepository ? { ...opts, githubRepository: undefined } : opts;
+      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
       if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (linkKind(lm[2]) === "file")
         out.push(
@@ -448,7 +452,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     }
     last = m.index! + t.length;
   }
-  if (last < text.length) out.push(...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository));
+  if (last < text.length)
+    out.push(...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false));
   return out;
 }
 
