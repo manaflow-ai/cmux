@@ -22,10 +22,11 @@ tables by [bakeoff/summarize.py](bakeoff/summarize.py).
   DTLS fingerprints (b2-webrtc.md section 8): a relay that swaps SDP cannot sign for the pinned keys.
   V2's other advantage, roaming without a session reconnect, costs V1 about one reconnect (5 ms on
   loopback, 3 to 4 RTT on a WAN), which LinkSession resume already makes lossless.
-- V1 is the default only with the large-message mitigation (follow-up F1): on loopback, frames of
-  8 KiB and up push dcSCTP into loss recovery that drops bulk to single-digit Mbit/s and stalls the
-  input channel for seconds. Until F1 lands or device runs clear it, C4 and other bulk senders chunk at
-  8 KiB, which measured 316 Mbit/s (median) with 0.9/6.4 ms echo p50/p99 under bulk.
+- F1 (large-message collapse) is fixed in the carrier (B2, 2026-10-07): V1 splits lane frames into
+  8 KiB messages, schedules them by lane priority against `bufferedAmount`, and bounds reliable bytes
+  in flight with a 256 KiB credit window. 64 KiB bulk now measures 595 Mbit/s with 0.9/1.4 ms echo
+  p50/p99 under bulk and no UDP drops (was 10 Mbit/s and 12.5/3944 ms). Senders no longer need to
+  chunk; device runs (section 6, step 7) still confirm it on a phone.
 - Revisit V2 only if device runs show V1 DTLS/SCTP failing where V2's single unreliable channel
   succeeds (for example a TURN path that throttles SCTP), and only after F4 to F6.
 
@@ -71,10 +72,19 @@ Machine: Apple M4 Pro (14 cores), macOS 27.0.1, release build, load average 23 t
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref (A3 loopback) | 0.1 | 0.03/0.05 | 0.4/2.7 | 4686 (4) | 48637 (0) | 340322 | 0.1 | 0.1 (no) | 69 |
 | V3 direct | 1.3 | 0.13/0.21 | 4.7/11.9 | 726 (31) | 2871 (6) | 2604 | 1.3 | 1.3 (no) | 25 |
-| V1 webrtc, 64 KiB bulk | 11.4 | 0.27/0.92 | 12.5/3944 | 184 (86) | 10 (44) | 7 | 5.3 | 5.2 (no) | 68 |
-| V1 webrtc, 8 KiB bulk | n/a | 0.22/0.61 | 0.9/6.4 | n/a | 316 (46) | 431 | n/a | n/a | 65 |
+| V1 webrtc, 64 KiB bulk (F1 fix) | 7.4 | 0.22/0.30 | 0.9/1.4 | 334 (72) | 595 (32) | 662 | 5.2 | 4.8 (no) | 858 (a) |
+| V1 webrtc, 8 KiB bulk (F1 fix) | n/a | 0.23/0.39 | 0.5/1.1 | n/a | 327 (63) | 353 | n/a | n/a | 309 (a) |
+| V1 webrtc, 64 KiB bulk (before F1) | 11.4 | 0.27/0.92 | 12.5/3944 | 184 (86) | 10 (44) | 7 | 5.3 | 5.2 (no) | 68 |
+| V1 webrtc, 8 KiB bulk (before F1) | n/a | 0.22/0.61 | 0.9/6.4 | n/a | 316 (46) | 431 | n/a | n/a | 65 |
 | V2 over real WebRTC | 7.4 | 0.43/0.69 | 5.8/11.6 | 82 (326) | 97 (268) | 101 | 5.9 | 3.2 (yes) | 33 |
 | V2 in-memory underlay | 0.7 | 0.08/0.13 | 1.7/2.0 | 351 (53) | 309 (48) | 292 | 0.7 | 0.1 (yes) | 25 |
+
+(a) The V1 RSS high-water comes from the `raw` workload: a bare transport with no `LinkSession`
+has no consumer-side credit, and at 600 Mbit/s frames pile up in the receiver's event stream
+before the bench task reads them. The session-level `bulk` workload alone peaks at 102 MiB; a
+real consumer always sits behind `LinkSession`, whose per-channel credit bounds it. F1 rows: release
+build, 3 runs each, 2026-10-07, load average 34 to 36, 0 UDP full-socket drops in every run
+(64 KiB bulk spread 548 to 634 Mbit/s, under-bulk p99 1.4 to 2.6 ms).
 
 Spread across the 3 runs (load): V3 flood 218 to 811 Mbit/s and bulk 1517 to 3557; V1 64 KiB bulk 5 to
 15 and raw 5 to 583; V1 8 KiB bulk 28 to 509; V2 over WebRTC was the steadiest (bulk 95 to 101). One V1
@@ -215,10 +225,12 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
 
 ## 8. Follow-ups
 
-- F1 (B2, V1 blocking for bulk): large-message collapse. Confirm on device first (section 6, step 7).
-  If it reproduces, the carrier splits reliable frames into at most 8 KiB data channel messages with a
-  continuation flag (one record per frame stays true above the carrier), or LinkSession advertises a
-  per-path preferred chunk size that C4 honors. Also report SCTP stats (retransmissions) in `rtt` events.
+- F1 (B2): large-message collapse. Fixed 2026-10-07 on `feat-cmux-next-ios-b2-webrtc` (b2-webrtc.md
+  section 6): 8 KiB lane messages with a piece header, a priority scheduler paced by
+  `bufferedAmount` events, a 256 KiB credit window on reliable lanes. Regression test
+  `LargeFrameTests` (64 B echo p99 under 16 MiB of 256 KiB frames: 4 to 11 s before, 1 to 80 ms
+  typical after; rare outliers to 1.2 s at load 35, bound 2 s). Still open: confirm on device, tune
+  the window for WAN RTTs (256 KiB caps one association at 40 Mbit/s at 50 ms), SCTP stats in `rtt`.
 - F2 (D2/D3): bench split mode: `cmux-link-bench serve` hosting the acceptors and an echo/source
   service over B5's signaling, plus an iOS DEV "Link bench" screen running the same workloads, so the
   same JSON comes from device runs.

@@ -9,6 +9,10 @@ enum CarrierControlMessage: Sendable, Hashable {
     case finAck
     /// Describes a media track the sender added (matched by track id).
     case track(MediaTrackDescriptor)
+    /// Flow credit: total reliable lane message bytes the sender of this
+    /// message has received so far (cumulative), so the peer's scheduler
+    /// keeps at most `inFlightWindowBytes` unacknowledged.
+    case credit(received: Int)
 
     private struct Wire: Codable {
         var t: String
@@ -16,6 +20,7 @@ enum CarrierControlMessage: Sendable, Hashable {
         var id: String?
         var kind: String?
         var label: String?
+        var received: Int?
     }
 
     init?(data: Data) {
@@ -23,6 +28,9 @@ enum CarrierControlMessage: Sendable, Hashable {
         switch wire.t {
         case "fin": self = .fin(counts: wire.counts ?? [:])
         case "fin.ack": self = .finAck
+        case "credit":
+            guard let received = wire.received else { return nil }
+            self = .credit(received: received)
         case "track":
             guard let id = wire.id, let raw = wire.kind, let kind = MediaTrackKind(rawValue: raw) else { return nil }
             self = .track(MediaTrackDescriptor(id: id, kind: kind, label: wire.label ?? ""))
@@ -35,6 +43,7 @@ enum CarrierControlMessage: Sendable, Hashable {
         switch self {
         case let .fin(counts): wire = Wire(t: "fin", counts: counts)
         case .finAck: wire = Wire(t: "fin.ack")
+        case let .credit(received): wire = Wire(t: "credit", received: received)
         case let .track(descriptor):
             wire = Wire(t: "track", id: descriptor.id, kind: descriptor.kind.rawValue, label: descriptor.label)
         }
