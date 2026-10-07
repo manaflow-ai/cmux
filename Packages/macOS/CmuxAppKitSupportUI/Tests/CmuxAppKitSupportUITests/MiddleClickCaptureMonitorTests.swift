@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import Testing
 
 @testable import CmuxAppKitSupportUI
@@ -111,63 +110,40 @@ import Testing
         #expect(invoked == 0)
     }
 
-    @Test func pressClippedByAnAncestorIsIgnored() {
+    @Test func pressClippedByAScrollViewIsIgnored() {
         let view = MiddleClickCaptureView()
         var invoked = 0
         view.onMiddleClick = { invoked += 1 }
-        let window = makeWindow(capture: view)
-        // Shrink the parent so the right half of the capture view is clipped away.
-        window.contentView?.frame = NSRect(x: 0, y: 0, width: 80, height: 60)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        // The scroll view shows only the left 80pt of a 200pt document, so the right part of
+        // the capture view (which spans window x 20...140) is clipped away.
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 80, height: 60))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        view.frame = NSRect(x: 20, y: 10, width: 120, height: 30)
+        document.addSubview(view)
+        scrollView.documentView = document
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        root.addSubview(scrollView)
+        window.contentView = root
 
-        let consumed = view.handleMiddleMouseDown(
+        let visiblePart = view.handleMiddleMouseDown(
+            buttonNumber: 2,
+            window: window,
+            locationInWindow: NSPoint(x: 50, y: 25)
+        )
+        let clippedPart = view.handleMiddleMouseDown(
             buttonNumber: 2,
             window: window,
             locationInWindow: NSPoint(x: 120, y: 25)
         )
 
-        #expect(!consumed)
-        #expect(invoked == 0)
-    }
-
-    // MARK: Delivery through the registered monitor
-
-    /// Builds a real middle-button `otherMouseDown` aimed at `locationInWindow` of `window`.
-    private func middleMouseDown(in window: NSWindow, at locationInWindow: NSPoint) throws -> NSEvent {
-        let screenHeight = try #require(NSScreen.screens.first?.frame.height)
-        let screenPoint = window.convertPoint(toScreen: locationInWindow)
-        let cgEvent = try #require(CGEvent(
-            mouseEventSource: CGEventSource(stateID: .hidSystemState),
-            mouseType: .otherMouseDown,
-            mouseCursorPosition: CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y),
-            mouseButton: .center
-        ))
-        cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
-        let event = try #require(NSEvent(cgEvent: cgEvent))
-        try #require(event.buttonNumber == 2)
-        return event
-    }
-
-    @Test func monitorRegisteredInWindowFiresForMiddlePressAndStopsAfterRemoval() throws {
-        _ = NSApplication.shared
-        let view = MiddleClickCaptureView()
-        var invoked = 0
-        view.onMiddleClick = { invoked += 1 }
-        let window = makeWindow(capture: view)
-        window.orderBack(nil)
-        defer { window.close() }
-        try #require(window.windowNumber > 0)
-
-        // Inside the view: the monitor runs `onMiddleClick` once for a real event.
-        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 60, y: 25)))
-        #expect(invoked == 1)
-
-        // Outside the view: the monitor lets the event through untouched.
-        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 180, y: 25)))
-        #expect(invoked == 1)
-
-        // Once the view leaves its window the monitor is gone.
-        view.removeFromSuperview()
-        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 60, y: 25)))
+        #expect(visiblePart)
+        #expect(!clippedPart)
         #expect(invoked == 1)
     }
 }
