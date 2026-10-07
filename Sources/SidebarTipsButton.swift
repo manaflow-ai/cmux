@@ -13,11 +13,10 @@ import SwiftUI
 /// popover's "Show Tips" brings it back.
 struct SidebarTipsButton: View {
     private static let iconSize: CGFloat = 13
-    private static let dotSize: CGFloat = 6
-    /// Gap knocked out of the glyph around the dot so it reads on any backdrop.
-    private static let dotRing: CGFloat = 1.5
-    private static let dotTopInset: CGFloat = 2.5
-    private static let dotTrailingInset: CGFloat = 3
+    /// `circle.fill` point size; draws a dot about 6pt across.
+    private static let dotPointSize: CGFloat = 6.5
+    private static let dotTopInset: CGFloat = 2
+    private static let dotTrailingInset: CGFloat = 2
 
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
@@ -60,20 +59,19 @@ struct SidebarTipsButton: View {
             }
             isPopoverPresented.toggle()
         } label: {
-            SidebarFooterCircularIcon(
-                systemName: "lightbulb",
-                style: SidebarFooterCircularIconStyle.standard.resized(to: Self.iconSize)
-            )
-            .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
-            .mask { glyphMask }
-            .overlay(alignment: .topTrailing) {
+            // The dot is a hosted symbol like the bulb, not a SwiftUI shape:
+            // the bulb is an AppKit view, and SwiftUI drawing or masking on
+            // top of it does not show reliably (see `CmuxHostedSystemSymbolImage`).
+            ZStack(alignment: .topTrailing) {
+                SidebarFooterCircularIcon(
+                    systemName: "lightbulb",
+                    style: SidebarFooterCircularIconStyle.standard.resized(to: Self.iconSize)
+                )
+                .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
                 if showsUnopenedIndicator {
-                    Circle()
-                        .fill(cmuxAccent.color)
-                        .frame(width: Self.dotSize, height: Self.dotSize)
+                    CmuxSystemSymbolImage(systemName: "circle.fill", pointSize: Self.dotPointSize, tint: cmuxAccent.color)
                         .padding(.top, Self.dotTopInset)
                         .padding(.trailing, Self.dotTrailingInset)
-                        .transition(.opacity)
                 }
             }
         }
@@ -89,7 +87,6 @@ struct SidebarTipsButton: View {
                 isHidden = true
             }
         })
-        .animation(.easeOut(duration: 0.15), value: showsUnopenedIndicator)
         .accessibilityElement(children: .ignore)
         .safeHelp(title)
         .accessibilityLabel(title)
@@ -99,22 +96,6 @@ struct SidebarTipsButton: View {
                 : ""
         )
         .accessibilityIdentifier("SidebarTipsButton")
-    }
-
-    /// Opaque everywhere except a small circle behind the dot, so the bulb
-    /// glyph keeps a clean gap around it.
-    private var glyphMask: some View {
-        ZStack(alignment: .topTrailing) {
-            Rectangle()
-            if showsUnopenedIndicator {
-                Circle()
-                    .frame(width: Self.dotSize + Self.dotRing * 2, height: Self.dotSize + Self.dotRing * 2)
-                    .padding(.top, Self.dotTopInset - Self.dotRing)
-                    .padding(.trailing, Self.dotTrailingInset - Self.dotRing)
-                    .blendMode(.destinationOut)
-            }
-        }
-        .compositingGroup()
     }
 
     private func store(_ next: SidebarTipsProgress) {
@@ -174,6 +155,7 @@ private struct SidebarTipsPopover: View {
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
     @AppStorage(SidebarTipsStorage.seenTipIDsKey) private var seenTipIDs = ""
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var isDontShowAgainHovered = false
 
     var body: some View {
         let tips = SidebarTipsCatalog.visibleTips(showsModifierHoldHints: showsModifierHoldHints)
@@ -215,9 +197,10 @@ private struct SidebarTipsPopover: View {
             Button(action: onDontShowAgain) {
                 Text(String(localized: "sidebar.tips.dontShowAgain", defaultValue: "Don’t show again"))
                     .cmuxFont(size: 11)
-                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    .foregroundStyle(Color(nsColor: isDontShowAgainHovered ? .labelColor : .secondaryLabelColor))
             }
             .buttonStyle(.plain)
+            .onHover { isDontShowAgainHovered = $0 }
             .padding(.top, 4)
             .accessibilityIdentifier("SidebarTipsDontShowAgainButton")
         }

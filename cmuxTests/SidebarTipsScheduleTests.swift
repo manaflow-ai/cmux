@@ -13,7 +13,9 @@ struct SidebarTipsScheduleTests {
 
     @Test
     func theDotShowsUntilTheFirstOpenAndOpeningShowsTheFirstTip() {
-        let fresh = SidebarTipsProgress()
+        // What the footer reads from never-written defaults (the @AppStorage defaults).
+        let fresh = SidebarTipsStorage.progress(currentTipID: "", seenTipIDs: "", lastOpenedDay: "")
+        #expect(fresh == SidebarTipsProgress())
         #expect(SidebarTipsSchedule.showsButton(fresh))
         #expect(SidebarTipsSchedule.showsUnopenedIndicator(fresh))
 
