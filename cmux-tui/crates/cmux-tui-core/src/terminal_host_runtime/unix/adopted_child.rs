@@ -62,7 +62,7 @@ fn is_zombie(pid: libc::pid_t) -> bool {
             0,
         )
     };
-    if result != 0 || size != KINFO_PROC_SIZE {
+    if result != 0 {
         return false;
     }
     let recorded_pid = libc::pid_t::from_ne_bytes([
@@ -71,7 +71,19 @@ fn is_zombie(pid: libc::pid_t) -> bool {
         info[P_PID_OFFSET + 2],
         info[P_PID_OFFSET + 3],
     ]);
-    recorded_pid == pid && u32::from(info[P_STAT_OFFSET]) == libc::SZOMB
+    if size != KINFO_PROC_SIZE || recorded_pid != pid {
+        // An unexpected layout: answer "unknown" (not a zombie, the old
+        // behavior) and say so once.
+        static REPORTED: std::sync::Once = std::sync::Once::new();
+        REPORTED.call_once(|| {
+            eprintln!(
+                "cmux-tui: unexpected kinfo_proc layout ({size} bytes, pid {recorded_pid} for \
+                 {pid}); exited shells are not detected before replacement"
+            );
+        });
+        return false;
+    }
+    u32::from(info[P_STAT_OFFSET]) == libc::SZOMB
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
