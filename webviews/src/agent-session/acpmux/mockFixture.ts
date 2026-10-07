@@ -624,10 +624,10 @@ function latencyChart(): string {
     })
     .join("");
   return (
-    "<style>body{padding:14px 16px}svg{width:100%;max-width:420px;height:auto;font:12px var(--cmux-font)}" +
+    "<style>body{padding:14px 16px}svg{display:block;width:420px;max-width:100%;height:auto;font:12px var(--cmux-font)}" +
     ".l{fill:var(--cmux-muted)}.v{fill:var(--cmux-text)}.b{fill:#3b82f6}.m{fill:var(--cmux-border)}" +
     "p{margin:10px 0 0;color:var(--cmux-muted);font-size:12px}i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 5px 0 12px}</style>" +
-    `<svg viewBox="0 0 260 148" role="img" aria-label="Median keystroke-to-paint by layout">${rows}</svg>` +
+    `<svg viewBox="0 0 420 148" role="img" aria-label="Median keystroke-to-paint by layout">${rows}</svg>` +
     '<p><i style="background:#3b82f6;margin-left:0"></i>This branch<i style="background:var(--cmux-border)"></i>main</p>'
   );
 }

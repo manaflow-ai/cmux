@@ -58,9 +58,9 @@ export function RenderCard({ call }: { call: RenderCall }) {
   const title = call.title ?? t("render.untitled");
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
-    <div className="acpmux-render">
-      <div className="acpmux-render-head">
-        <span className="acpmux-render-title" title={title}>
+    <div className="acpmux-render-card">
+      <div className="acpmux-render-card-head">
+        <span className="acpmux-render-card-title" title={title}>
           {title}
         </span>
         {tall && (
@@ -76,7 +76,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
       </div>
       <iframe
         ref={frame}
-        className="acpmux-render-frame"
+        className="acpmux-render-card-frame"
         src={RENDER_FRAME_URL}
         title={title}
         sandbox="allow-scripts"
