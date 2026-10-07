@@ -4,7 +4,8 @@ public import CmuxNextRemoteView
 #if DEBUG
 /// Turns AppKit events into rb/1 input events (remote-tab-protocol.md
 /// section 6, JSON form), the opaque bytes of an rd service input event.
-public nonisolated enum RemoteBrowserInputEncoder {
+public nonisolated struct RemoteBrowserInputEncoder {
+    public nonisolated init() {}
     /// rb modifier bits (`cmux_remote_browser::proto::modifiers`).
     public static func modifiers(_ flags: NSEvent.ModifierFlags) -> Int64 {
         var bits: Int64 = 0

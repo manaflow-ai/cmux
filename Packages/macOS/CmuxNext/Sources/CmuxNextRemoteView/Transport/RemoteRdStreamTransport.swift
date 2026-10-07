@@ -129,6 +129,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     /// Subscribe before `connect()`: bodies that arrive with no subscriber
     /// are not kept. A new call finishes the previous stream.
     public func serviceMessages() -> AsyncStream<RemoteRdJSON> {
+        // concurrency-allow: rb/1 control bodies (page state, menus, dialogs), not frames; the session drains them at once into its reducer, and a dropped body would desync it
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdJSON.self, bufferingPolicy: .unbounded)
         let previous = state.withLock { state in
             defer { state.services = continuation }
