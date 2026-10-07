@@ -50,6 +50,8 @@ export type CatalogHarness = {
   brand: string;
   families: string[];
   modelSource: "catalog" | "probe";
+  pickable?: boolean;
+  kind?: string;
   defaultModel?: string;
   models: HarnessModel[];
 };
@@ -99,6 +101,7 @@ export type PickerHarness = {
   acpmuxHarness: string | null;
   /** acpmux has a harness of this family. A catalog harness that is not installed still lists. */
   installed: boolean;
+  pickable: boolean;
   unavailable?: string;
   defaultModel?: string;
   models: PickerModel[];
@@ -275,6 +278,11 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
+    pickable:
+      harness.pickable !== false &&
+      harness.kind !== "terminal" &&
+      harness.kind !== "unknown" &&
+      (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
@@ -295,6 +303,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
     installed: true,
+    pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
   };
@@ -386,6 +395,11 @@ function isCatalogHarness(value: unknown): value is CatalogHarness {
     && Array.isArray(value.families)
     && Array.isArray(value.models)
   );
+}
+
+function entryPickable(entry: AcpmuxHarness): boolean {
+  const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
+  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

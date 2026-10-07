@@ -27,6 +27,7 @@ type HarnessChoice = {
   models: { id: string; name?: string; unavailable?: string }[];
   unavailable?: string;
   acpmuxHarness?: string;
+  pickable: boolean;
 };
 
 type ModelChoice = {
@@ -83,6 +84,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         models: entry.models,
         unavailable: entry.unavailable,
         acpmuxHarness: entry.id,
+        pickable: true,
       }))
     : (catalog as PickerCatalog).harnesses.map((entry: PickerHarness) => ({
         id: entry.id,
@@ -91,6 +93,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         models: entry.models,
         unavailable: entry.unavailable,
         acpmuxHarness: entry.acpmuxHarness ?? undefined,
+        pickable: entry.pickable,
       }));
   const result: HarnessChoice[] = [];
   const byName = new Map<string, HarnessChoice>();
@@ -111,6 +114,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     }
     existing.ids.push(entry.id);
     if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
+    existing.pickable ||= entry.pickable;
     const known = new Set(existing.models.map((model) => model.id));
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
     existing.unavailable ??= entry.unavailable;
@@ -250,7 +254,7 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [active, visible.length]);
 
   const selectModel = (model: ModelChoice) => {
-    if (model.unavailable) return;
+    if (model.unavailable || !selected?.pickable) return;
     if (!selected?.ids.includes(harness ?? "")) {
       if (selected?.acpmuxHarness) onHarness?.(selected.acpmuxHarness);
       close();
@@ -376,6 +380,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   role="option"
                   key={entry.name}
                   aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                  disabled={!entry.pickable}
                   className="acpmux-mp-harness"
                   tabIndex={index === activeHarness ? 0 : -1}
                   onKeyDown={(event) => {
@@ -392,7 +397,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       search.current?.focus();
                     }
                   }}
-                  onPointerEnter={() => onHarnessHint?.(entry.id)}
+                  onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
                   onClick={() => {
                     setSelectedHarness(entry.id);
                     setActiveHarness(index);
