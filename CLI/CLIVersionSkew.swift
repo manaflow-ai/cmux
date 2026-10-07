@@ -50,13 +50,14 @@ enum CLIVersionSkew {
     /// `text` without terminal control characters. The peer controls every
     /// string it reports, and an escape sequence or newline in them could
     /// rewrite the terminal or forge extra lines of this message. Drops C0
-    /// and C1 controls (ESC, BEL, CSI, CR, LF) and bidirectional overrides.
+    /// and C1 controls (ESC, BEL, CSI, CR, LF), bidirectional marks,
+    /// overrides, and isolates, and Unicode line and paragraph separators.
     static func printable(_ text: String) -> String {
         var scalars = String.UnicodeScalarView()
         scalars.append(contentsOf: text.unicodeScalars.filter { scalar in
             if scalar.properties.generalCategory == .control { return false }
             switch scalar.value {
-            case 0x202A...0x202E, 0x2066...0x2069: return false
+            case 0x061C, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069: return false
             default: return true
             }
         })

@@ -95,6 +95,7 @@ struct CLIVersionSkewMessageTests {
     func printableStripsControls() {
         #expect(CLIVersionSkew.printable("a\u{1B}[31mb\u{07}c\u{9B}d\ne\r\u{202E}f\u{2066}g") == "a[31mbcdefg")
         #expect(CLIVersionSkew.printable("cmux-next 0.3.0 日本") == "cmux-next 0.3.0 日本")
+        #expect(CLIVersionSkew.printable("/a\u{200F}b\u{200E}c\u{061C}d\u{2028}e\u{2029}f") == "/abcdef")
         let peer = CLIVersionSkew.Peer(identify: ["app": " \u{1B}]0;x\u{07} ", "version": "\n\t"])
         #expect(peer.app == "]0;x")
         #expect(peer.version == nil)
