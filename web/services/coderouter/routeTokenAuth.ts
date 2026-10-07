@@ -167,6 +167,11 @@ function carriesPlaceholder(request: Request): boolean {
   return bearer === VM_PLACEHOLDER_API_KEY || request.headers.get("x-api-key")?.trim() === VM_PLACEHOLDER_API_KEY;
 }
 
+function vmAuthorizationClaims(token: string): Promise<VmAuthorizationClaims | null> {
+  if (token.startsWith("crt_") || token.startsWith("crk_")) return Promise.resolve(null);
+  return verifyVmAuthorization(token);
+}
+
 async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
@@ -183,9 +188,7 @@ async function authenticateUnobserved(
   // back to the legacy VM-id binding so those requests retain the signed
   // identity contract. Human route tokens and API keys keep their existing
   // prefix-based authentication paths.
-  const claims = !token.startsWith("crt_") && !token.startsWith("crk_")
-    ? await verifyVmAuthorization(token)
-    : null;
+  const claims = await vmAuthorizationClaims(token);
   if (signedHeader && !claims) return signedRefusal(token);
   // The signature verified; attribute a crash in the ownership lookup below
   // to this machine and team instead of to nobody.
