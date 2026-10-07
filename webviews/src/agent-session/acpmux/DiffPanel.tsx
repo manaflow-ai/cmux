@@ -49,16 +49,19 @@ function store(key: string, value: string) {
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
+  const ownerDocument = panel.ownerDocument;
+  const ownerWindow = ownerDocument.defaultView;
+  if (!ownerWindow) return () => {};
   const close = (event: KeyboardEvent) => {
-    const focus = document.activeElement;
-    if (event.key !== "Escape" || event.defaultPrevented || focus instanceof HTMLInputElement) return;
-    if (!focus || focus === document.body || panel.contains(focus)) {
+    const focus = ownerDocument.activeElement;
+    if (event.key !== "Escape" || event.defaultPrevented || focus instanceof ownerWindow.HTMLInputElement) return;
+    if (!focus || focus === ownerDocument.body || panel.contains(focus)) {
       event.preventDefault();
       onClose();
     }
   };
-  window.addEventListener("keydown", close);
-  return () => window.removeEventListener("keydown", close);
+  ownerWindow.addEventListener("keydown", close);
+  return () => ownerWindow.removeEventListener("keydown", close);
 }
 
 /// The changes one turn's tool calls made, file by file, or a git scope of the session's
