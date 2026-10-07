@@ -177,6 +177,19 @@ class WebValidationTests(unittest.TestCase):
                 self.assertIn("path: ~/.bun/install/cache", block)
                 self.assertIn(f"hashFiles('{lockfile}')", block)
 
+    def test_webviews_tests_run_on_a_runner_with_room_for_the_suite(self):
+        """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
+        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
+        self.assertIn("bun run test", block)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("4vcpu", runs_on)
+        self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)
+
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},
                      "build": {"result": "skipped"},
