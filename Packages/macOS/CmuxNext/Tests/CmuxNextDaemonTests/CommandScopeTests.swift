@@ -68,4 +68,14 @@ import Testing
         #expect(decoded.focusedPane == "pane_1")
         #expect(decoded.selectedTabs == ["pane_1": "tab_1"])
     }
+
+    /// `cmux tab create browser` in an app session runs `openBrowser`, and
+    /// the CLI prints the tab it made from `action.run`'s `created`. A
+    /// frontend browser tab must be reported like every other new tab.
+    @Test func aFrontendBrowserTabIsReportedAsCreated() {
+        let request = NewFrontendBrowserTabRequest(url: "https://a.test", engine: .webkit)
+        let response = NewFrontendBrowserTabRequest.Response(surface: SurfaceID(rawValue: 9), tabResourceID: nil, contentResourceID: nil)
+        let created = (request as Any as? any DaemonCreatingRequest)?.createdObjects(inAny: response) ?? []
+        #expect(created == [DaemonCreatedObject(.tab, SurfaceID(rawValue: 9).description)])
+    }
 }
