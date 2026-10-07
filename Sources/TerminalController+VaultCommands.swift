@@ -160,6 +160,14 @@ extension TerminalController {
     // MARK: vault.fork
 
     nonisolated func v2VaultFork(params: [String: Any]) async -> V2CallResult {
+        if Self.trimmedParam(params["checkpoint"]) != nil, params["turn"] != nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.vault.conflictingForkSelectors",
+                                defaultValue: "Pass checkpoint or turn, not both."),
+                data: nil
+            )
+        }
         switch await Self.vaultResolveEntry(params: params) {
         case .failure(let error):
             return error
