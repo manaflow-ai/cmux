@@ -178,10 +178,10 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `sidebarAppearance.matchTerminalBackground` | boolean | `true` | Use the terminal background instead of the sidebar tint. |
-| `sidebarAppearance.tintColor` | colorHex | `"#000000"` | Base sidebar tint color used when light/dark overrides are not set. |
+| `sidebarAppearance.tintColor` | colorHex | `"#393939"` | Base sidebar tint color used when light/dark overrides are not set. |
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |
-| `sidebarAppearance.tintOpacity` | number | `0.18` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
+| `sidebarAppearance.tintOpacity` | number | `0.72` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
 
 ## automation
 

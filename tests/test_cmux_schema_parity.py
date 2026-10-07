@@ -89,6 +89,14 @@ NOT_IN_CMUX_JSON = frozenset({
     "sidebarAppearance.material",
     "sidebarAppearance.preset",
     "sidebarAppearance.state",
+    # Sidebar customization from Settings > Sidebar (peek, row density, drag
+    # switching, compositor glass); no cmux.json parser maps these yet.
+    "sidebar.dragSwitchDisabled",
+    "sidebar.peekDisabled",
+    "sidebar.peekReveal",
+    "sidebar.rowDensity",
+    "sidebarAppearance.compositorGlass",
+    "sidebarAppearance.glassBlurRadius",
     # Terminal remembered UI state remains UserDefaults-only.
     "terminal.sessionContentMaxWidth.remembered",
     "workspaceGroups.anchorCloseSuppressed",
