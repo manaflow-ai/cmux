@@ -83,7 +83,7 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     let entry = tokio::net::UnixListener::bind(&entry_path).unwrap();
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(peers_path).unwrap());
-    let server = tokio::spawn(serve_overlay(listener, peers, Some(session)));
+    let server = tokio::spawn(serve_overlay(listener, peers, Some(session), None));
 
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });

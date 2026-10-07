@@ -18,6 +18,13 @@
 //!   Known limit: `skills/` is not a cmux-tui tree-key input
 //!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
 //!   reaches a published cmux-tui build with the next cmux-tui change.
+//! - Computer use: when the cmux app exported its tag's helper socket
+//!   (`CMUX_NEXT_CUA_SOCKET`, `cua_socket.rs`), `cmux-cua mcp` gets it as
+//!   `--socket` plus the agent token in its env; this daemon starts no
+//!   helper. The tools refuse the user's cmux and other terminals; a profile
+//!   or preset env with `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` (for example
+//!   the session's own tagged `com.cmuxterm.app.debug.<tag>`) unlocks exact
+//!   bundle ids for that session only.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
 //!   binary leaves its server out. `cmux mcp serve` refuses unless
@@ -37,6 +44,9 @@ use serde_json::{Map, Value, json};
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
 /// `0` turns the agent tools off for this daemon.
 pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
+/// A session env key passed to `cmux-cua mcp`: exact bundle ids the
+/// session's computer use may target although the guard refuses them.
+pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -113,6 +123,8 @@ pub struct Inputs {
     pub cmux_json: Option<String>,
     /// `<ACPMUX_HOME>/agent-tools`.
     pub state_dir: PathBuf,
+    /// The tag's helper socket the cmux app exported, if any.
+    pub cua: Option<crate::cua_socket::Socket>,
 }
 
 impl Inputs {
@@ -130,6 +142,7 @@ impl Inputs {
             bin_dir,
             cmux_json: std::fs::read_to_string(config).ok(),
             state_dir: crate::config::home().join("agent-tools"),
+            cua: crate::cua_socket::from_env(),
         }
     }
 }
@@ -152,16 +165,38 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 
 /// `mcpServers` for a session's ACP harness.
 pub fn acp_servers_for(remote_origin: bool, env: &BTreeMap<String, String>) -> Value {
-    if left_out(remote_origin, env, &[]) { json!([]) } else { current().acp_servers() }
+    if left_out(remote_origin, env, &[]) { json!([]) } else { current().scoped(env).acp_servers() }
 }
 
-/// Extra Claude Code flags for a session whose command line is `args`.
+/// Extra Claude Code flags for session `session_id` whose command line is
+/// `args`. The MCP config goes to [`mcp_config_path`], never into argv.
 pub fn claude_args_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     args: &[String],
+    session_id: &str,
 ) -> Vec<String> {
-    if left_out(remote_origin, env, args) { Vec::new() } else { current().claude_args() }
+    if left_out(remote_origin, env, args) {
+        Vec::new()
+    } else {
+        current().scoped(env).claude_args(&mcp_config_path(&crate::config::home(), session_id))
+    }
+}
+
+/// The session's Claude Code MCP config file: `<home>/run/mcp/<session>.json`.
+/// It holds the helper's agent token, so it is 0600 in a 0700 folder and
+/// never on a command line, where any process of the user can read it.
+pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    home.join("run").join("mcp").join(format!("{safe}.json"))
+}
+
+/// Remove the session's MCP config when the session ends.
+pub fn remove_mcp_config(home: &Path, session_id: &str) {
+    let _ = std::fs::remove_file(mcp_config_path(home, session_id));
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -173,10 +208,19 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
     if let Some(cua) = executable("cmux-cua") {
+        let mut args = vec!["mcp".to_owned()];
+        let mut socket_env: Vec<(String, String)> = Vec::new();
+        if let Some(socket) = &inputs.cua {
+            args.push("--socket".into());
+            args.push(socket.path.to_string_lossy().into_owned());
+            if !socket.token.is_empty() {
+                socket_env.push(("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), socket.token.clone()));
+            }
+        }
         servers.push(McpServer {
             name: "cmux-cua".into(),
             command: cua,
-            args: vec!["mcp".into()],
+            args,
             env: [
                 // Always the signed helper over its socket, never in-process
                 // computer use with this agent's TCC identity.
@@ -189,6 +233,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             ]
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .chain(socket_env)
             .collect(),
         });
     }
@@ -213,6 +258,20 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
 }
 
 impl AgentTools {
+    /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
+    /// the computer use server. Without one the server gets the key empty,
+    /// so a value inherited from the daemon's env never widens the guard.
+    pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
+        let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
+        for server in &mut self.servers {
+            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);
+            if server.name == "cmux-cua" {
+                server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
+            }
+        }
+        self
+    }
+
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
     pub fn acp_servers(&self) -> Value {
         Value::Array(
@@ -227,22 +286,39 @@ impl AgentTools {
         )
     }
 
-    /// Claude Code flags: the servers as one `--mcp-config`, the skills as a
-    /// session-only plugin.
-    pub fn claude_args(&self) -> Vec<String> {
+    /// The servers as one Claude Code MCP config, or `None` without servers.
+    pub fn mcp_config(&self) -> Option<Value> {
+        if self.servers.is_empty() {
+            return None;
+        }
+        let mut servers = Map::new();
+        for s in &self.servers {
+            let env: Map<String, Value> =
+                s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+            servers.insert(
+                s.name.clone(),
+                json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
+            );
+        }
+        Some(json!({"mcpServers": servers}))
+    }
+
+    /// Claude Code flags: the servers as `--mcp-config <config_file>` (the
+    /// file is written here), the skills as a session-only plugin.
+    pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
-        if !self.servers.is_empty() {
-            let mut servers = Map::new();
-            for s in &self.servers {
-                let env: Map<String, Value> =
-                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-                servers.insert(
-                    s.name.clone(),
-                    json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
-                );
+        if let Some(config) = self.mcp_config() {
+            match write_private(config_file, config.to_string().as_bytes()) {
+                Ok(()) => {
+                    args.push("--mcp-config".into());
+                    args.push(config_file.to_string_lossy().into_owned());
+                }
+                // Never fall back to inline JSON: that puts the token in argv.
+                Err(e) => tracing::warn!(
+                    "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
+                    config_file.display()
+                ),
             }
-            args.push("--mcp-config".into());
-            args.push(json!({"mcpServers": servers}).to_string());
         }
         if let Some(dir) = &self.plugin_dir {
             args.push("--plugin-dir".into());
@@ -250,6 +326,28 @@ impl AgentTools {
         }
         args
     }
+}
+
+/// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
+/// file first, then renamed, so claude never reads half a config).
+fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
+    let written = (|| -> std::io::Result<()> {
+        let mut f =
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(written?)
 }
 
 fn is_executable(path: &Path) -> bool {

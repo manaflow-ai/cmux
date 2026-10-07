@@ -1,5 +1,5 @@
 /**
- * The mesh store against migrations 0001-0005 on an in-process Postgres
+ * The mesh store against migrations 0001-0006 on an in-process Postgres
  * (PGlite). No network database is involved.
  */
 import { PGlite } from "@electric-sql/pglite";
@@ -10,6 +10,7 @@ import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent.sql?raw";
 import mesh from "../../migrations/0004_cmux_vm_mesh.sql?raw";
 import meshM2 from "../../migrations/0005_cmux_vm_mesh_m2.sql?raw";
+import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import { MeshStore, sqlMeshStoreLayer } from "../../src/db/mesh.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { AuditStore, OwnershipStore, sqlStoresLayer } from "../../src/db/stores.ts";
@@ -28,7 +29,7 @@ const at = new Date(Date.UTC(2026, 9, 7, 0, 0));
 
 beforeEach(async () => {
   pg = new PGlite();
-  for (const migration of [ownership, s2, snapshots, mesh, meshM2]) await pg.exec(migration);
+  for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3]) await pg.exec(migration);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>
       Effect.tryPromise({
@@ -63,7 +64,7 @@ describe("migration 0004", () => {
 
   it("audits mesh ids", async () => {
     await run(
-      Effect.flatMap(AuditStore, (store) => store.append({ tenantId: A, actor: "key:x", action: "mesh.create", cmuxId: newMeshId(), outcome: "ok", at })),
+      Effect.flatMap(AuditStore, (store) => store.append({ tenantId: A, actor: "key:x", ownerActor: null, action: "mesh.create", cmuxId: newMeshId(), outcome: "ok", at })),
     );
   });
 });
@@ -230,4 +231,89 @@ describe("mesh store", () => {
       ),
     ).rejects.toThrow();
   });
+
+  it("M3 (0006): device-signed purposes, devices found by id alone, codes burned and restored", async () => {
+    const meshId = newMeshId();
+    const deviceId = newDeviceId();
+    const INSTALL = "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
+    const hash = (n: number) => n.toString(16).padStart(64, "0");
+    const later = new Date(at.getTime() + 60_000);
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* MeshStore;
+        yield* store.recordDevice(A, { deviceId, meshId, tunnelId: newTunnelId(), name: "a", wgPublicKey: KEY, installPublicKey: INSTALL, createdBy: "key:x", createdAt: at });
+        const peers = yield* store.claimSignedRequest(A, hash(1), "peers", later, at);
+        const tunnel = yield* store.claimSignedRequest(A, hash(2), "tunnel", later, at);
+        const byId = yield* store.findDeviceForSignedRequest(deviceId);
+        const unknown = yield* store.findDeviceForSignedRequest(newDeviceId());
+
+        const code = (n: number) => ({ codeSha256: hash(n), tenantId: A, meshId, createdBy: "key:x", createdAt: at, expiresAt: new Date(at.getTime() + 600_000) });
+        // Burn: an unused code can no longer be found or used, even if restored afterwards.
+        yield* store.insertEnrollmentCode(code(10));
+        yield* store.burnEnrollmentCode(hash(10), later);
+        const burned = yield* store.findEnrollmentCode(hash(10), meshId, later);
+        yield* store.restoreEnrollmentCode(hash(10), later);
+        const burnedRestored = yield* store.findEnrollmentCode(hash(10), meshId, later);
+        // Restore: a consumed code is usable again, only for the claim it made.
+        yield* store.insertEnrollmentCode(code(11));
+        const claimed = yield* store.consumeEnrollmentCode(hash(11), meshId, later);
+        yield* store.restoreEnrollmentCode(hash(11), new Date(later.getTime() + 1));
+        const wrongClaim = yield* store.findEnrollmentCode(hash(11), meshId, later);
+        yield* store.restoreEnrollmentCode(hash(11), later);
+        const restored = yield* store.findEnrollmentCode(hash(11), meshId, later);
+        // A claim that consumed a code burned meanwhile stays dead after restore.
+        yield* store.insertEnrollmentCode(code(12));
+        yield* store.consumeEnrollmentCode(hash(12), meshId, later);
+        yield* store.burnEnrollmentCode(hash(12), new Date(later.getTime() + 5));
+        yield* store.restoreEnrollmentCode(hash(12), later);
+        const burnedWhileClaimed = yield* store.findEnrollmentCode(hash(12), meshId, new Date(later.getTime() + 10));
+        // A code that made a device is never burned or restored.
+        yield* store.insertEnrollmentCode(code(13));
+        yield* store.consumeEnrollmentCode(hash(13), meshId, later);
+        yield* store.recordEnrollmentCodeDevice(hash(13), deviceId);
+        yield* store.restoreEnrollmentCode(hash(13), later);
+        yield* store.burnEnrollmentCode(hash(13), later);
+        // Burning an unknown hash is a no-op.
+        yield* store.burnEnrollmentCode(hash(99), later);
+        return {
+          peers,
+          tunnel,
+          byId: Option.map(byId, (row) => [row.tenantId, row.deviceId, row.installPublicKey]),
+          unknown,
+          burned,
+          burnedRestored,
+          claimed,
+          wrongClaim,
+          restored,
+          burnedWhileClaimed,
+        };
+      }),
+    );
+    expect(result.peers).toBe(true);
+    expect(result.tunnel).toBe(true);
+    expect(result.byId).toEqual(Option.some([A, deviceId, INSTALL]));
+    expect(Option.isNone(result.unknown)).toBe(true);
+    expect(Option.isNone(result.burned)).toBe(true);
+    expect(Option.isNone(result.burnedRestored)).toBe(true);
+    expect(result.claimed).toBe(true);
+    expect(Option.isNone(result.wrongClaim)).toBe(true);
+    expect(Option.isSome(result.restored)).toBe(true);
+    expect(Option.isNone(result.burnedWhileClaimed)).toBe(true);
+    const made = await pg.query<{ used_at: unknown; device_cmux_id: string }>(`SELECT used_at, device_cmux_id FROM cmux_vm.mesh_enrollment_codes WHERE code_sha256 = $1`, [hash(13)]);
+    expect(made.rows[0]?.device_cmux_id).toBe(deviceId);
+    expect(made.rows[0]?.used_at).not.toBeNull();
+  });
+
+  it("0006 is idempotent, keeps the M2 purposes and refuses unknown ones", async () => {
+    await pg.exec(meshM3);
+    await pg.exec(meshM3);
+    const insert = (purpose: string, n: number) =>
+      pg.query(`INSERT INTO cmux_vm.mesh_signed_requests (message_sha256, tenant_id, purpose, expires_at) VALUES ($1, 'team_alpha', $2, now())`, [
+        n.toString(16).padStart(64, "0"),
+        purpose,
+      ]);
+    for (const [index, purpose] of ["enroll", "rotate-key", "peers", "tunnel"].entries()) await insert(purpose, index + 1);
+    await expect(insert("delete", 9)).rejects.toThrow();
+  });
 });
+

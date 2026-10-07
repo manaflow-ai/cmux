@@ -32,14 +32,21 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         var brainSocket: String
     }
 
-    static func make(chiefs: [CloudChief], hosts: [PairedServer], local: LocalServer?) -> ServerReachPlan {
+    /// This Mac's running `cmux link`: its socket and the installs it has
+    /// paired peers for (`cmux link show`, `cmux link peer list`).
+    nonisolated struct LinkPeers: Sendable, Equatable {
+        var socket: String
+        var installs: Set<String>
+    }
+
+    static func make(chiefs: [CloudChief], hosts: [PairedServer], local: LocalServer?, link: LinkPeers? = nil) -> ServerReachPlan {
         let byID = Dictionary(hosts.map { ($0.host, $0) }, uniquingKeysWith: { first, _ in first })
         var seen: Set<String> = []
         var desired: [ServerReach] = []
         var unroutable: [String] = []
         for chief in chiefs {
             guard let place = chief.brainPlace, let host = byID[place.host], host.kind != "device", seen.insert(place.host).inserted else { continue }
-            guard let route = route(for: host, local: local),
+            guard let route = route(for: host, install: place.install, local: local, link: link),
                   let reach = try? ServerReach(hostID: host.host, installID: place.install, name: host.name, route: route)
             else {
                 unroutable.append(host.name)
@@ -50,14 +57,32 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         return ServerReachPlan(desired: desired, unroutable: unroutable)
     }
 
-    /// This Mac's brain socket when the server is this Mac, else SSH to the
-    /// server's host name (dev-only until the overlay route exists).
-    static func route(for host: PairedServer, local: LocalServer?) -> ServerReach.Route? {
+    /// This Mac's brain socket when the server is this Mac; else the overlay
+    /// when this Mac's link has the server's install as a paired peer; else
+    /// SSH to the server's host name (dev-only).
+    static func route(for host: PairedServer, install: String? = nil, local: LocalServer?, link: LinkPeers? = nil) -> ServerReach.Route? {
         if let local, let theirs = ServerReach.dnsLabel(host.name),
            local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs }) {
             return .unix(local.brainSocket)
         }
+        if let link, let install, link.installs.contains(install) {
+            return .overlay(linkSocket: link.socket)
+        }
         return ServerReach.brainRoute(serverName: host.name)
+    }
+
+    /// `cmux link show` JSON: the live link's socket, or nil when it is not running.
+    static func parseLinkShow(_ data: Data) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              object["running"] as? Bool == true, let socket = object["socket"] as? String, socket.hasPrefix("/") else { return nil }
+        return socket
+    }
+
+    /// `cmux link peer list` JSON: the paired installs.
+    static func parsePeerList(_ data: Data) -> Set<String> {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let peers = object?["peers"] as? [[String: Any]] ?? []
+        return Set(peers.compactMap { $0["install"] as? String })
     }
 
     /// What to add and remove so the shown servers match `desired`; a server

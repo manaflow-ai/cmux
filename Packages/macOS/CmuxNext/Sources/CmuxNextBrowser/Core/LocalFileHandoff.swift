@@ -7,7 +7,7 @@ public import Foundation
 /// reports `localFileHandoff`); a WebKit tab hands off Markdown only. The C++ copy is the shim's
 /// `CEFHandsOffLocalFile` (CEFShim/src/local_file_handoff.h); both pass
 /// schemas/local-file-handoff/vectors.json.
-public enum LocalFileHandoff: Equatable, Sendable {
+public nonisolated enum LocalFileHandoff: Equatable, Sendable {
     /// cmux's markdown page.
     case markdownPage
     /// A WebKit browser tab.
@@ -17,7 +17,7 @@ public enum LocalFileHandoff: Equatable, Sendable {
 extension URL {
     /// Where this local file shows instead of a browser tab (``LocalFileHandoff``), nil for any
     /// other URL or a file a browser tab shows itself.
-    public var localFileHandoff: LocalFileHandoff? {
+    public nonisolated var localFileHandoff: LocalFileHandoff? {
         guard scheme?.lowercased() == "file" else { return nil }
         switch pathExtension.lowercased() {
         case "md", "markdown": return .markdownPage
@@ -28,7 +28,7 @@ extension URL {
     }
 
     /// Whether a tab of `engine` hands a main-frame navigation to this URL off.
-    public func isHandedOff(by engine: BrowserEngineKind) -> Bool {
+    public nonisolated func isHandedOff(by engine: BrowserEngineKind) -> Bool {
         switch localFileHandoff {
         case .markdownPage?: true
         case .webKitTab?: engine == .cef

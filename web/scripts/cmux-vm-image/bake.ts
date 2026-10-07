@@ -171,6 +171,9 @@ export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): str
     "Type=simple",
     "User=root",
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
+    // so a stop or restart of this unit keeps every terminal for re-adoption.
+    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
     `Environment=PATH=${STORE_PATH}`,
     ...daemonEnvLines(extraEnv),
     "ExecStart=/usr/local/bin/cmux-devbox-boot",
@@ -191,6 +194,10 @@ function parkCommand(): string {
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "pkill -f '[_]_terminal-host' || true",
+    "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
+    // cmux-tui hosts since 2323e5bdbb76 survive a SIGTERM that is not from PID 1 (host_signals.rs);
+    // the builder's terminals are smoke leftovers whose state is wiped next, so they get SIGKILL.
+    "pkill -KILL -f '[_]_terminal-host' || true",
     "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
     "! pgrep -f '[_]_terminal-host' >/dev/null",
     `systemctl is-active ${DAEMON_UNIT} >/dev/null`,
