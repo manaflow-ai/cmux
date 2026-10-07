@@ -63,19 +63,12 @@ extension PaneController {
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
-    /// Makes `id` the selected tab and shows it on the next display frame.
-    /// Called by the focus applier; never moves focus itself.
-    ///
-    /// The strip highlights the tab at once; the content follows once per
-    /// frame, for whatever tab is selected by then. Holding Ctrl-Tab (key
-    /// repeat, several selections per frame) therefore shows only the
-    /// latest one and never creates, attaches or reveals content for a tab
-    /// the user already moved past.
+    /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
-        services.presentation.setNeedsShowSelected(self)
+        PaneSelectionPresenter(pane: self).present()
         services.windows.recordSaver.stateDidChange(state)
     }
 
