@@ -239,12 +239,16 @@ describe("acpmux composer pickers", () => {
     // The highlight opens on the current mode, the last one.
     await key(mode, "ArrowDown");
     expect(
-      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) => row.textContent?.includes("Full access")),
+      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+        row.textContent?.includes("Full access"),
+      ),
     ).toBeTruthy();
     // A live update drops that option while it is highlighted.
     await render(snapshot({ modes: { ...full, availableModes: [full.availableModes[0]!] } }));
     expect(
-      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) => row.textContent?.includes("Ask for approval")),
+      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+        row.textContent?.includes("Ask for approval"),
+      ),
     ).toBeTruthy();
     await key(mode, " ");
     expect(mode.getAttribute("aria-expanded")).toBe("true");

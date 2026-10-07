@@ -222,6 +222,7 @@ pub(crate) fn spawn(
                 libc::SIGQUIT,
                 libc::SIGTERM,
                 libc::SIGALRM,
+                libc::SIGPIPE,
             ] {
                 libc::signal(signal, libc::SIG_DFL);
             }
