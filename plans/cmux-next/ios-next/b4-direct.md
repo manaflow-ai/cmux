@@ -1,6 +1,6 @@
 # B4 `direct`: the direct-address carrier (V3)
 
-Status: in progress on `feat-cmux-next-ios-b4-direct`, 2026-10-06. Plan: [PLAN.md](PLAN.md) section 2, B4.
+Status: landed on `feat-cmux-next-ios-b4-direct` (local), 2026-10-06. Plan: [PLAN.md](PLAN.md) section 2, B4.
 Binding: [a3-link.md](a3-link.md) (carrier contract, conformance), [a0-rpc.md](a0-rpc.md) section 3.1
 (byte-stream carriers add a `u32 LE` length), [a1-shell.md](a1-shell.md) (`HostsStore`),
 `transport.md` (keys, paths), `OWNERSHIP-PRINCIPLES.md`.
@@ -122,38 +122,65 @@ advertisement only fails the handshake.
 ## 6. API
 
 ```swift
-public struct DirectIdentity: Sendable { init(); init(privateKey:); var publicKey: DirectPublicKey }
-public struct DirectPublicKey: Sendable, Hashable { init(rawRepresentation:); init?(base64:); var base64: String }
-public struct DirectEndpoint: Sendable, Hashable { var address: DirectAddress; var port: UInt16; var hostKey: DirectPublicKey }
-public final class DirectCarrier: LinkCarrier { init(identity:, resolver:, reachability:) }
+public struct DirectIdentity { init(); init(privateKeyRepresentation:) throws; var publicKey: DirectPublicKey }
+public struct DirectPublicKey: Hashable { init?(rawRepresentation:); init?(base64:); var base64: String }
+public struct DirectAddress: Hashable { init?(_ text:); host; form; addressClass: DirectAddressClass }
+public struct DirectEndpoint: Hashable { target: .address(DirectAddress, port:) | .service(name:type:domain:); hostKey }
+public protocol DirectEndpointResolver { func endpoints(for: LinkPeer) async -> [DirectEndpoint] }
+public struct DirectHintsResolver: DirectEndpointResolver { endpoint(from:); hints(for:) }   // direct.address/port/hostKey
+public final class DirectCarrier: LinkCarrier { init(identity:, resolver: = DirectHintsResolver(), routes: (any DirectRouteProvider)? = nil) }
 public final class DirectAcceptor: LinkAcceptor {
-    init(identity:, hostID:, configuration: DirectListenConfiguration, authorizer: DirectAuthorizer)
-    func start() async throws -> UInt16   // bound port
+    init(identity:, hostID:, configuration: DirectListenConfiguration = .init(), authorizer: any DirectAuthorizer)
+    func start() async throws -> UInt16   // bound port, after the listener is ready
     func stop() async
 }
-public protocol DirectAuthorizer: Sendable { func authorize(device: DirectPublicKey) async -> Bool }
-public actor DirectReachabilityMonitor { func snapshots() -> AsyncStream<DirectPathSnapshot>; func status(for:) }
-public struct DirectRoutePlanner { func carriers(direct:, endpoints:, snapshot:, others:) -> [any LinkCarrier] }
-public final class DirectBrowser { func results() -> AsyncStream<[DirectDiscoveredHost]> }
+public final class DirectTransport: LinkTransport { let remoteKey: DirectPublicKey }
+public protocol DirectAuthorizer { func authorize(device: DirectPublicKey) async -> Bool }
+public struct DirectPinnedAuthorizer: DirectAuthorizer
+public final class DirectReachabilityMonitor: DirectRouteProvider { currentSnapshot; snapshots() -> AsyncStream<DirectPathSnapshot> }
+public struct DirectRouteEvaluator { status(for: DirectEndpoint.Target, on: DirectPathSnapshot) -> DirectRouteStatus }
+public struct DirectRoutePlanner { carriers(direct:, endpoints:, snapshot:, others:, directFailed: = false) -> [any LinkCarrier] }
+public final class DirectBrowser { results() -> AsyncStream<[DirectDiscoveredHost]>; stop() }
 ```
 
-B5 hosts with `DirectAcceptor(...)` passed to `LinkHost(acceptor:)`, plus its trust store as the
-authorizer. Testing hooks (`DirectFaultInjector`: drop, simulated path change, throttle) are
-`@_spi(Testing)`.
+B5 hosts with `DirectAcceptor(identity:hostID:configuration:authorizer:)` passed to
+`LinkHost(acceptor:)` (call `start()` first), with the paired-device trust store as the authorizer
+and `bonjourName` set to advertise. Testing hooks (`DirectFaultInjector`: drop, simulated path
+change, roam, throttle) are `@_spi(Testing)` initializers on the carrier and acceptor.
+
+`directFailed` in the planner covers a reachable route whose host does not answer (Mac asleep, not
+listening): the app then races every carrier and the selector's upgrade retry returns to direct.
 
 ## 7. Hosts hook
 
-`HostKind.direct` gains the pinned key: `.direct(endpoint: HostEndpoint, hostKey: String)`.
-`CmuxiOSFeatureKit/Hosts/DirectAddressDraft.swift` is the form model (name, address, port, host key;
-validation; `hostDraft()`), and `DirectAddressFormModel` drives a small form that saves through
-`HostsStore.add`. The form lives in its own files; C9 owns the Hosts tab and decides where the
-"Add direct address" entry point sits.
+`HostKind.direct` carries the pinned key: `.direct(endpoint: HostEndpoint, hostKey: DirectHostKey)`
+(`DirectHostKey` validates base64 of 32 bytes and normalizes it). In `CmuxiOSFeatureKit/Hosts`,
+`DirectAddressDraft` holds the form fields, reports `DirectAddressIssue`s and builds the
+`HostDraft`. In `CmuxiOSShell/DirectAddress`, `DirectAddressFormModel` (`@Observable`, one intent
+key per form, add or update) and `DirectAddressFormView` (SwiftUI `Form`, en and ja) save through
+`HostsStore`. These are separate files; C9 owns the Hosts tab and presents the form from its
+"Add direct address" entry point.
 
 ## 8. Tests
 
-Swift Testing in the package: Noise vector and negative cases, record codec, address classification,
-route evaluator and planner, `LinkConformanceSuite` on a real localhost harness (NWListener on
-`127.0.0.1:0`, NWConnection dialer, real Noise), auth refusal cases.
+`swift test` in `Packages/Shared/CmuxLinkDirect` (25 tests, about 0.6 s, stable over 6 runs):
+- Noise: the cacophony `Noise_IK_25519_ChaChaPoly_SHA256` vector byte for byte (both handshake
+  messages, handshake hash, four transport messages), wrong pinned key, prologue mismatch, tamper,
+  replay, reorder, size limit.
+- Wire and addresses: record round trips and errors, 200 KiB segmentation, handshake payloads,
+  base64 keys, hints, 23 address classifications and 9 rejections.
+- Routes: evaluator table, planner, carrier refusing a dead route without dialing.
+- Localhost transport: mutual auth (each end sees the other's pinned key), 256 KiB frames, graceful
+  close once, wrong host key, unpaired device, wrong host id, no listener, socket drop.
+- `LinkConformanceSuite`, all seven cases passed (none skipped) over NWListener on 127.0.0.1 and an
+  NWConnection dialer with the real Noise layer: ordering, loss recovery, reconnect resume,
+  back-pressure, close semantics, path change mid-stream (plus roam), priority under a 2 MiB/s throttle.
+
+The hosts hook tests (`DirectAddressDraftTests`, `DirectAddressFormModelTests`) live in the
+`CmuxiOS` package and passed on macOS through a throwaway package over the same sources; the Shell
+module typechecks for the iOS 17 simulator. Not verified: a real iPhone over Tailscale or LAN, the
+Bonjour browse path, the Local Network prompt (needs `NSLocalNetworkUsageDescription` and
+`NSBonjourServices` `_cmux._tcp` in the app's Info.plist, a B5/D3 build step).
 
 ## 9. Not in this lane
 
