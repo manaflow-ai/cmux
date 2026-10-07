@@ -1,0 +1,46 @@
+{
+  "bulkFile" : {
+    "cpuMillisecondsPerMiB" : 5.39,
+    "cpuSeconds" : 9.062,
+    "megabitsPerSecond" : 3518.4,
+    "priority" : "bulk",
+    "receivedBytes" : 1761476608,
+    "recordBytes" : 65536,
+    "seconds" : 4.005
+  },
+  "carrier" : "direct",
+  "conditions" : {
+    "loss" : 0,
+    "note" : "real sockets on loopback; shape with the dnctl recipe in d2-bakeoff.md",
+    "rttMilliseconds" : 0,
+    "shaped" : false
+  },
+  "durationSeconds" : 8.047081667,
+  "errors" : [
+
+  ],
+  "machine" : {
+    "cores" : 14,
+    "cpu" : "Apple M4 Pro",
+    "loadAverage1m" : 29.43,
+    "model" : "Mac16,11",
+    "os" : "Version 27.0.1 (Build 26A434)"
+  },
+  "memory" : {
+    "baselineMaxResidentMiB" : 9.140625,
+    "finalFootprintMiB" : 8.406913757324219,
+    "finalMaxResidentMiB" : 19.671875
+  },
+  "rawTransport" : {
+    "cpuMillisecondsPerMiB" : 4.17,
+    "cpuSeconds" : 7.576,
+    "megabitsPerSecond" : 3783.4,
+    "priority" : "bulk (raw transport)",
+    "receivedBytes" : 1905590272,
+    "recordBytes" : 65536,
+    "seconds" : 4.029
+  },
+  "rig" : "v3-direct-localhost",
+  "schema" : "cmux-link-bench\/1",
+  "startedAt" : "2026-10-07T07:53:05Z"
+}

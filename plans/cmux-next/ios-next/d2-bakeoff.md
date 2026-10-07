@@ -78,11 +78,19 @@ Machine: Apple M4 Pro (14 cores), macOS 27.0.1, release build, load average 23 t
 | V1 webrtc, 8 KiB bulk (before F1) | n/a | 0.22/0.61 | 0.9/6.4 | n/a | 316 (46) | 431 | n/a | n/a | 65 |
 | V2 over real WebRTC | 7.4 | 0.43/0.69 | 5.8/11.6 | 82 (326) | 97 (268) | 101 | 5.9 | 3.2 (yes) | 33 |
 | V2 in-memory underlay | 0.7 | 0.08/0.13 | 1.7/2.0 | 351 (53) | 309 (48) | 292 | 0.7 | 0.1 (yes) | 25 |
+| V1 webrtc, 64 KiB bulk (E1 back-pressure) | 6.5 | 0.22/0.32 | 0.9/1.4 | 335 (73) | 527 (36) | 619 | 6.0 | 5.2 (no) | 50 (b) |
 
-(a) The V1 RSS high-water comes from the `raw` workload: a bare transport with no `LinkSession`
-has no consumer-side credit, and at 600 Mbit/s frames pile up in the receiver's event stream
-before the bench task reads them. The session-level `bulk` workload alone peaks at 102 MiB; a
-real consumer always sits behind `LinkSession`, whose per-channel credit bounds it. F1 rows: release
+(a) The V1 RSS high-water came from the `raw` workload. Fixed by E1 (b).
+
+(b) E1 (2026-10-08, one full run, load average 27 to 31; raw in
+[bakeoff/results/e1](bakeoff/results/e1)). Two causes: the carrier credited reliable bytes when a
+piece arrived and queued frames in an unbounded event stream, and libwebrtc work left autoreleased
+objects in pools that never drained (the lane scheduler's drain loop ran many sends in one job; the
+data channel callbacks run on libwebrtc's C++ threads). With a bounded `TransportInbox` and credit
+on consumption alone, raw still peaked at 487 to 516 MiB RSS; with each send and callback draining
+its own pool, `raw` alone peaks at 38 MiB RSS (22 MiB footprint) in all 3 runs at 531 to 668 Mbit/s,
+and the full V1 run at 50 MiB. Same build: V3 raw 3783 Mbit/s at 20 MiB, V2 over WebRTC raw 99 at
+31 MiB, V2 in-memory raw 296 at 22 MiB. F1 rows: release
 build, 3 runs each, 2026-10-07, load average 34 to 36, 0 UDP full-socket drops in every run
 (64 KiB bulk spread 548 to 634 Mbit/s, under-bulk p99 1.4 to 2.6 ms).
 
@@ -245,5 +253,7 @@ and needs no pfctl; on the iPhone it is Settings > Developer > Network Link Cond
   to cut first byte from about 4 RTT to about 2.
 - F7 (B4): head-of-line on the single TCP stream: cap the socket send buffer (or unsent low-water) so
   bulk cannot queue more than about one BDP in the kernel, or carry `bulk` on a second connection.
+- F9 (E1, done 2026-10-08): bounded ingress on every carrier (`TransportInbox`, credit on
+  consumption, conformance case `rawBackPressure`); see note (b) in section 3.
 - F8 (A3/C1): the 256 KiB render credit caps flood at 256 KiB per RTT (9 Mbit/s at 200 ms); size the
   credit from the path's RTT if device runs show users waiting on flood catch-up.
