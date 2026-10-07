@@ -299,6 +299,8 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
+    /// The device-wide chat index, once started (`chats/`).
+    pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -370,6 +372,7 @@ impl Hub {
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
+            chats: std::sync::OnceLock::new(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -431,6 +434,8 @@ impl Hub {
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env && crate::login_env::import().await {
+            // `CLAUDE_CONFIG_DIR` / `CODEX_HOME` may come from the login shell only.
+            self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
             match self.reload_catalog().await {
                 Ok(_) => reloaded = true,
                 Err(e) => tracing::warn!("catalog reload after login env: {e}"),

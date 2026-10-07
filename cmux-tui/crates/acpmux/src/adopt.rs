@@ -35,7 +35,8 @@ impl AdoptRequest {
 }
 
 /// Where the harnesses keep their sessions: `CLAUDE_CONFIG_DIR` (else
-/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`).
+/// `~/.claude`) and `CODEX_HOME` (else `~/.codex`), from the daemon's
+/// environment, else the imported login shell environment.
 #[derive(Debug, Clone)]
 pub struct HarnessHomes {
     pub claude: PathBuf,
@@ -46,10 +47,7 @@ impl HarnessHomes {
     pub fn from_env() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let dir = |key: &str, default: &str| {
-            std::env::var_os(key)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(default))
+            crate::chats::login_var(key).map(PathBuf::from).unwrap_or_else(|| home.join(default))
         };
         Self { claude: dir("CLAUDE_CONFIG_DIR", ".claude"), codex: dir("CODEX_HOME", ".codex") }
     }

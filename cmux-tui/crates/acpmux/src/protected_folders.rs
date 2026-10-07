@@ -40,22 +40,24 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     if !cwd.is_absolute() {
         return Some(format!("{} is not an absolute folder", cwd.display()));
     }
-    let resolved = std::fs::canonicalize(cwd).ok();
     // The home folder may itself be reached through a symlink (`/var` on macOS).
     let homes: Vec<PathBuf> = home
         .into_iter()
         .flat_map(|h| [Some(h.to_path_buf()), std::fs::canonicalize(h).ok()])
         .flatten()
         .collect();
-    for path in std::iter::once(cwd.to_path_buf()).chain(resolved) {
-        if let Some(reason) = guarded(&path, &homes) {
-            return Some(format!(
-                "{} is {reason}; an agent starts there only when a person picks it",
-                cwd.display()
-            ));
-        }
+    let refused = |reason: &str| {
+        Some(format!(
+            "{} is {reason}; an agent starts there only when a person picks it",
+            cwd.display()
+        ))
+    };
+    // The spelling first: resolving a guarded path already reads inside it.
+    if let Some(reason) = guarded(cwd, &homes) {
+        return refused(reason);
     }
-    None
+    let resolved = std::fs::canonicalize(cwd).ok()?;
+    guarded(&resolved, &homes).and_then(refused)
 }
 
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
