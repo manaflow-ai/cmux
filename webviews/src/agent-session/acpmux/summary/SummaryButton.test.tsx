@@ -51,18 +51,12 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(
-  opened: string[],
-  shown: readonly AcpmuxRow[] = rows,
-  changeFiles?: readonly TurnFile[],
-) {
+async function render(opened: string[], shown: readonly AcpmuxRow[] = rows, changeFiles?: readonly TurnFile[]) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(
-        createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) }),
-      ),
+      root.render(createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) })),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
