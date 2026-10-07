@@ -58,11 +58,22 @@ public final class DirectTransport: LinkTransport {
         throw DirectTransportError.mediaUnsupported
     }
 
+    /// How long a graceful close may wait for queued frames to drain into
+    /// the socket (a peer that stopped reading) before the socket is cut.
+    static let closeDrainLimit: Duration = .seconds(2)
+
     /// Graceful: frames accepted before this reach the peer before its
-    /// `.closed(.remote)`.
+    /// `.closed(.remote)`, bounded by `closeDrainLimit`.
     public func close() async {
         guard !core.isFinished else { return }
-        await core.writer.closeGracefully()
-        core.finish(.local)
+        let writer = core.writer
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await writer.closeGracefully() }
+            group.addTask { try? await Task.sleep(for: Self.closeDrainLimit) }
+            await group.next()
+            group.cancelAll()
+            // Cutting the socket completes a send stuck on a full buffer.
+            core.finish(.local)
+        }
     }
 }
