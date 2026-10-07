@@ -34,7 +34,11 @@ def _cleanup_retained_settings_fixtures() -> None:
 atexit.register(_cleanup_retained_settings_fixtures)
 
 
-def retain_settings_artifact_for_assertions(home: Path, real_argv: list[str]) -> list[str]:
+def retain_settings_artifact_for_assertions(
+    home: Path,
+    real_argv: list[str],
+    original_directory_modes: dict[str, int] | None = None,
+) -> list[str]:
     """Keep durable wrapper output readable after run_wrapper tears down its sandbox."""
     if "--settings" not in real_argv:
         return real_argv
@@ -45,6 +49,9 @@ def retain_settings_artifact_for_assertions(home: Path, real_argv: list[str]) ->
     durable_root = home / ".cmuxterm" / "claude-settings"
     if not source.is_file() or source.parent != durable_root:
         return real_argv
+    if original_directory_modes is not None:
+        original_directory_modes["cmuxterm"] = source.parent.parent.stat().st_mode & 0o777
+        original_directory_modes["claude-settings"] = source.parent.stat().st_mode & 0o777
     fixture_root = Path(tempfile.mkdtemp(prefix="cmux-claude-wrapper-settings-fixture-"))
     fixture_dir = fixture_root / ".cmuxterm" / "claude-settings"
     fixture_dir.mkdir(parents=True)
@@ -273,6 +280,7 @@ def run_wrapper(
     generated_hook_settings: str | None = None,
     help_output: str | None = None,
     help_behavior: str = "success",
+    original_settings_directory_modes: dict[str, int] | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -487,7 +495,11 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
-        real_argv = retain_settings_artifact_for_assertions(Path(env["HOME"]), read_lines(real_args_log))
+        real_argv = retain_settings_artifact_for_assertions(
+            Path(env["HOME"]),
+            read_lines(real_args_log),
+            original_settings_directory_modes,
+        )
         stderr = proc.stderr.strip()
         if timed_out:
             stderr = f"timed out after {process_timeout}s: {stderr}".strip()
@@ -1534,10 +1546,12 @@ def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
             ("merged", ["--settings", '{"effortLevel":"max"}', "hello"]),
         )
         for label, argv in cases:
+            original_directory_modes: dict[str, int] = {}
             code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
                 socket_state="live",
                 argv=argv,
                 tmpdir=str(session_tmpdir),
+                original_settings_directory_modes=original_directory_modes,
             )
             expect(code == 0, f"{label} settings purge: wrapper exited {code}: {stderr}", failures)
             if "--settings" not in real_argv:
@@ -1557,12 +1571,15 @@ def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
                 f"{label} settings purge: durable settings file is missing: {settings_path}",
                 failures,
             )
+            expect(
+                original_directory_modes == {"cmuxterm": 0o700, "claude-settings": 0o700},
+                f"{label} settings purge: wrapper-created durable cache directories must remain private, got {original_directory_modes}",
+                failures,
+            )
             if settings_path.is_file():
                 expect(
-                    settings_path.stat().st_mode & 0o777 == 0o600
-                    and settings_path.parent.stat().st_mode & 0o777 == 0o700
-                    and settings_path.parent.parent.stat().st_mode & 0o777 == 0o700,
-                    f"{label} settings purge: durable settings cache must remain private, got {settings_path}",
+                    settings_path.stat().st_mode & 0o777 == 0o600,
+                    f"{label} settings purge: durable settings file must remain private, got {settings_path}",
                     failures,
                 )
             expect(
