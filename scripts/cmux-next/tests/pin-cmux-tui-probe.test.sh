@@ -115,4 +115,30 @@ set_runs "$failed_run"
 expect "push, published" push ready
 expect "pull request, published" pull_request ready
 
+# A pull request whose merge changes cmux-tui on both sides has a merge tree that nothing publishes:
+# GitHub runs pull_request_target workflows only from the default branch, so cmux-tui artifacts
+# never builds a PR merge commit (#18121, #18130). The PR head's tree, published from a
+# cmux-tui-pin-* push, is tested instead; with no published head tree the probe still fails.
+git_q -C "$TMP/src" checkout -b pr "$base_sha"
+echo head > "$TMP/src/cmux-tui/a"
+git_q -C "$TMP/src" commit -am head
+head_sha=$(git -C "$TMP/src" rev-parse HEAD)
+head_key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
+git_q -C "$TMP/src" checkout main
+echo base > "$TMP/src/cmux-tui/b"
+git_q -C "$TMP/src" add -A
+git_q -C "$TMP/src" commit -m base-tui
+git_q -C "$TMP/src" merge --no-ff -m merge pr
+key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
+[[ "$key" != "$head_key" ]] || { echo "fixture: the merge has the head's tree key" >&2; exit 1; }
+set_runs "$none"
+export CMUX_TUI_TREE_HEAD_SHA="$head_sha"
+expect "pull request, merge tree unpublished, head unpublished" pull_request failed "no cmux-tui artifacts run"
+mkdir -p "$TMP/cdn/cmux-tui/tree/$head_key"
+printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin.sha256"
+merge_key="$key"; key="$head_key"
+expect "pull request, merge tree unpublished, head published" pull_request ready "$merge_key"
+grep -qF "$head_sha" <<<"$reason" || fail "the reason names the PR head: $reason"
+unset CMUX_TUI_TREE_HEAD_SHA
+
 printf 'pin-cmux-tui probe tests: ok\n'
