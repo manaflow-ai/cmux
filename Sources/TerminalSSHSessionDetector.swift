@@ -472,9 +472,9 @@ struct DetectedSSHSession: Equatable, Sendable {
         ) ?? ""
 #if DEBUG
         cmuxDebugLog(
-            "terminal.remotePasteProcess.end " +
+                "terminal.remotePasteProcess.end " +
                 "executable=\(executable) status=\(process.terminationStatus) " +
-                "stdout=\(stdout.debugLogSnippet()) stderr=\(stderr.debugLogSnippet())"
+                "stdout=\(Self.processOutputSnippet(stdout)) stderr=\(Self.processOutputSnippet(stderr))"
         )
 #endif
         if operation?.isCancelled == true {
@@ -513,6 +513,13 @@ struct DetectedSSHSession: Equatable, Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return nil
+    }
+
+    private static func processOutputSnippet(_ output: String) -> String {
+        let normalized = output
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return String(normalized.prefix(240))
     }
 
     private static func scpRemoteDestination(_ destination: String) -> String {
