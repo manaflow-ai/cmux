@@ -100,27 +100,36 @@ impl Store for Host<'_> {
 
 /// A JS number as an id: a finite, non-negative integer within 2^53.
 fn id(x: f64) -> Result<u64, JsError> {
+    check_id(x).map_err(|e| JsError::new(&e))
+}
+
+fn check_id(x: f64) -> Result<u64, String> {
     if x.is_finite() && x >= 0.0 && x.fract() == 0.0 && x <= 9_007_199_254_740_991.0 {
         Ok(x as u64)
     } else {
-        Err(JsError::new(&format!(
-            "{x} is not a message id (a non-negative integer)"
-        )))
+        Err(format!("{x} is not a message id (a non-negative integer)"))
     }
 }
 
 /// Byte offsets into `text` as JavaScript string indices (UTF-16 code
 /// units), where a JS caller slices the text it got.
-fn js_offsets(_text: &str, marks: &[usize]) -> Vec<usize> {
-    marks.to_vec()
+fn js_offsets(text: &str, marks: &[usize]) -> Vec<usize> {
+    marks
+        .iter()
+        .map(|&m| text.get(..m).map_or(0, |head| head.encode_utf16().count()))
+        .collect()
 }
 
 /// A level: below 64, as every stored node has.
 fn level(l: u32) -> Result<u32, JsError> {
+    check_level(l).map_err(|e| JsError::new(&e))
+}
+
+fn check_level(l: u32) -> Result<u32, String> {
     if l < 64 {
         Ok(l)
     } else {
-        Err(JsError::new(&format!("{l} is not a tree level")))
+        Err(format!("{l} is not a tree level"))
     }
 }
 
@@ -273,7 +282,7 @@ impl OptChat {
         serde_json::to_string(&parts).unwrap_or_else(|_| "[]".into())
     }
 
-    /// The rendered view as JSON `{text, marks}` (marks are byte offsets into the UTF-8 text).
+    /// The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
     #[wasm_bindgen(js_name = renderView)]
     pub fn render_view(&self, store: &JsStore) -> Result<String, JsError> {
         #[derive(Serialize)]
@@ -305,7 +314,7 @@ impl OptChat {
     }
 
     /// The compactor call for node (l, i) as JSON `{system, context, marks,
-    /// step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+    /// step, cut, room}`: `marks` are JS string indices (UTF-16 code units) into the context
     /// where a cached piece ends (section 8); send each piece as its own
     /// block with a breakpoint. `cut` is null, or the prefix a too-long
     /// message's line starts with: run the size loop with `sizeCheck(tries,
@@ -405,14 +414,14 @@ mod tests {
     #[test]
     fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
         for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
-            assert!(id(bad).is_err(), "{bad} was taken as an id");
+            assert!(check_id(bad).is_err(), "{bad} was taken as an id");
         }
         assert_eq!(
-            id(9_007_199_254_740_991.0).ok(),
+            check_id(9_007_199_254_740_991.0).ok(),
             Some(9_007_199_254_740_991)
         );
-        assert!(level(64).is_err());
-        assert_eq!(level(63).ok(), Some(63));
+        assert!(check_level(64).is_err());
+        assert_eq!(check_level(63).ok(), Some(63));
     }
 
     /// Audit major 4: the marks a JS caller gets index its string (UTF-16

@@ -188,11 +188,12 @@ pub fn compact_request(
         node.end()
     };
     let mut context = String::from("<chat>\n");
+    // Rule 3: every view line before the node is built, so each must read;
+    // a missing one is lost data, never a shorter context.
     for part in memory.view().iter().filter(|p| p.start() < upto) {
-        if let Some(text) = store.node(*part) {
-            context.push_str(&flatten(&text));
-            context.push('\n');
-        }
+        let text = store.node(*part).ok_or(MissingNode(*part))?;
+        context.push_str(&flatten(&text));
+        context.push('\n');
     }
     context.push_str("</chat>");
     let scale = format!("For scale, this line is exactly {NODE} bytes:\n{SCALE}\n\n");
@@ -226,8 +227,8 @@ pub fn compact_request(
         }
         Some((a, b)) => format!(
             "{scale}Merge these two lines into one, in at most {NODE} bytes:\n{}\n{}",
-            flatten(&store.node(a).unwrap_or_default()),
-            flatten(&store.node(b).unwrap_or_default())
+            flatten(&store.node(a).ok_or(MissingNode(a))?),
+            flatten(&store.node(b).ok_or(MissingNode(b))?)
         ),
     };
     Ok(CompactRequest {

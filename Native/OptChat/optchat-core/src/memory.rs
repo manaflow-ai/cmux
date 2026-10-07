@@ -368,7 +368,12 @@ impl Memory {
         text: &str,
         store: &dyn Store,
     ) -> Result<(), NotRunning> {
-        self.busy.remove(&node);
+        // Only a call `pump` started and that is still running may build its
+        // node: a second complete, or one for a node nobody asked for, would
+        // count an unrelated text as that node's summary.
+        if !self.busy.remove(&node) {
+            return Err(NotRunning(node));
+        }
         self.build(node, text.len(), store);
         Ok(())
     }
