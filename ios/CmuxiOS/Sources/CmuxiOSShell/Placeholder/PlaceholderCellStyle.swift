@@ -24,6 +24,7 @@ enum PlaceholderCellStyle {
         if let badge = row.badge, badge > 0 {
             accessories.append(.label(text: String(badge), options: .init(font: ShellTypography.chip)))
         }
+        if row.opens { accessories.append(.disclosureIndicator()) }
         cell.accessories = accessories
         cell.accessibilityLabel = [row.title, row.subtitle, row.status.map(ShellText.status)]
             .compactMap { $0 }.joined(separator: ", ")
