@@ -183,7 +183,7 @@ describe("coderouter OpenCode Go proxy", () => {
         };
       },
     });
-    expect(result?.account.id).toBe("healthy");
+    expect(typeof result === "object" ? result?.account.id : undefined).toBe("healthy");
     expect(selected).toContain("busy");
   });
 });

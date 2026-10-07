@@ -264,38 +264,10 @@ export async function proxyOpenCodeRequest(
   recordCoderouterSpan({
     name: "account_selection",
     startedAt: selectStartedAt,
-    attributes: {
-      provider: "opencode-go",
-      attempts: resolved && resolved !== NO_ACCOUNT_CONFIGURED ? resolved.attempts : 0,
-      healthy: resolved !== null && resolved !== NO_ACCOUNT_CONFIGURED,
-    },
+    attributes: selectionAttributes(resolved),
   });
-  if (resolved === NO_ACCOUNT_CONFIGURED) {
-    captureOpenCodeHealth({
-      requestId,
-      identity: auth,
-      startedAt,
-      status: 403,
-      outcome: "no_usable_account",
-      failureStage: "provider_config",
-    });
-    return noOpenCodeAccountResponse();
-  }
-  if (!resolved) {
-    captureOpenCodeHealth({
-      requestId,
-      identity: auth,
-      startedAt,
-      status: 503,
-      outcome: "no_usable_account",
-      failureStage: "account_selection",
-    });
-    return apiError(
-      "no_usable_account",
-      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
-      503,
-      true,
-    );
+  if (!resolved || resolved === NO_ACCOUNT_CONFIGURED) {
+    return noUsableOpenCodeAccount(resolved, { requestId, identity: auth, startedAt });
   }
   let config: Record<string, unknown>;
   const configStartedAt = performance.now();
@@ -576,6 +548,44 @@ async function callerSeesOpenCodeAccount(
     throwIfAborted(signal);
     return true;
   }
+}
+
+function selectionAttributes(
+  resolved: Awaited<ReturnType<typeof openCodeAccount>>,
+): Record<string, string | number | boolean> {
+  const found = resolved !== null && resolved !== NO_ACCOUNT_CONFIGURED;
+  return { provider: "opencode-go", attempts: found ? resolved.attempts : 0, healthy: found };
+}
+
+/**
+ * The proxy's answer when no account served: a terminal 403 when the caller
+ * can see none at all, otherwise a retryable 503 while accounts recover.
+ */
+function noUsableOpenCodeAccount(
+  resolved: null | typeof NO_ACCOUNT_CONFIGURED,
+  health: { readonly requestId: string; readonly identity: RouteTokenIdentity; readonly startedAt: number },
+): Response {
+  if (resolved === NO_ACCOUNT_CONFIGURED) {
+    captureOpenCodeHealth({
+      ...health,
+      status: 403,
+      outcome: "no_usable_account",
+      failureStage: "provider_config",
+    });
+    return noOpenCodeAccountResponse();
+  }
+  captureOpenCodeHealth({
+    ...health,
+    status: 503,
+    outcome: "no_usable_account",
+    failureStage: "account_selection",
+  });
+  return apiError(
+    "no_usable_account",
+    "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
+    503,
+    true,
+  );
 }
 
 /**
