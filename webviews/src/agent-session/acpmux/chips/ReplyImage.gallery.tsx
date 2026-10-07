@@ -31,6 +31,12 @@ export default componentEntry<ReplyImageProps>({
   load: () => import("./ReplyImage").then((module) => module.ReplyImage),
   styles: () =>
     Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
+  checks: {
+    layoutShiftMax: {
+      value: 0.01,
+      reason: "Replacing the real remote placeholder with the host-provided image changes its intrinsic box once.",
+    },
+  },
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     "remote-placeholder": {

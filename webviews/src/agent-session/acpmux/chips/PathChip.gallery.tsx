@@ -34,6 +34,7 @@ export default componentEntry<{ path: string; label?: string; written?: string }
       chipHost: outsideConfirm,
       props: { path: outside },
       play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-chip.is-outside"));
         await ctx.click({ selector: ".cv-chip.is-outside" });
       },
     },
