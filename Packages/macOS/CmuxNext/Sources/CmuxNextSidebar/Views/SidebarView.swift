@@ -58,12 +58,9 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    /// The staged update card above the footer (`SidebarModel.updateCard`).
-    let updateCardView = SidebarUpdateCardView()
+    let updateCardView = SidebarUpdateCardView(), tipCardView = SidebarTipCardView() // SidebarBottomCards
     /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
     let backButton = SidebarBackButton()
-    /// The "Did you know" card in the same slot (`SidebarModel.tipCard`).
-    let tipCardView = SidebarTipCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -204,7 +201,7 @@ public final class SidebarView: NSView {
         addSubview(footer)
         installBackButton()
         footer.addSubview(profileBar)
-        installUpdateCard()
+        cardSlot.install(in: self)
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -255,13 +252,13 @@ public final class SidebarView: NSView {
         // its own unless the band is empty.
         updateBands()
         let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
+        let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
         layoutBack()
@@ -318,9 +315,8 @@ public final class SidebarView: NSView {
         var metrics: SidebarLayoutMetrics
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
-        var updateCard: SidebarUpdateCard?
         var showsBack: Bool
-        var tipCard: SidebarTipCard?
+        var cards: SidebarBottomCards
     }
 
     private func observe() {
@@ -345,9 +341,8 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updateCard: model.updateCard,
                     showsBack: model.showsBack,
-                    tipCard: model.tipCard
+                    cards: SidebarBottomCards(update: model.updateCard, tip: model.tipCard)
                 )
             }) {
                 self?.render(state)
@@ -382,11 +377,7 @@ public final class SidebarView: NSView {
                 list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
         }
-        if lastState?.updateCard != state.updateCard || lastState?.tipCard != state.tipCard {
-            updateCardView.configure(state.updateCard)
-            tipCardView.configure(state.tipCard)
-            needsLayout = true
-        }
+        if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
         lastState = state
     }

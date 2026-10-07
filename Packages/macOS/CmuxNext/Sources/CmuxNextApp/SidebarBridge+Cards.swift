@@ -54,6 +54,21 @@ enum SidebarCardFeed {
         }
     }
 
+    /// The bottom-left cards' intents (UPDATE-CARD, BOTTOM-LEFT-CARDS K1): the
+    /// update card's button installs and relaunches (the relaunch keeps every
+    /// session), its checkbox writes the setting, a popover link opens; the
+    /// tip card's Try It runs the feature, its x hides the tip.
+    static func handle(_ intent: SidebarIntent, services: AppServices) {
+        switch intent {
+        case .installUpdate: services.updater.installClicked()
+        case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
+        case .openUpdateLink(let url): openUpdateLink(url, services: services)
+        case .tryTip(let id): services.updater.tryTip(id)
+        case .dismissTip(let id): services.updater.dismissTip(id)
+        default: break
+        }
+    }
+
     /// A link in the update card's popover (a pull request, the release
     /// notes): a browser tab in the active window's focused pane, like a
     /// Cmd-click on a terminal link; with no window it waits for one.
@@ -80,7 +95,7 @@ enum SidebarCardFeed {
     /// The "Did you know" card (BOTTOM-LEFT-CARDS K1): today's tip with its
     /// action's shortcut; nil while the update card shows (one card at a time).
     static func tipCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarTipCard? {
-        guard updater.readyCard == nil, let tip = updater.tip, tip.id.isEmpty else { return nil }  // red
+        guard updater.readyCard == nil, let tip = updater.tip else { return nil }
         return SidebarTipCard(id: tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, benefit: tip.benefit,
                               shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)),
                               tryTitle: UpdaterService.announcementActionTitle, dismissLabel: UpdaterService.tipDismissLabel)

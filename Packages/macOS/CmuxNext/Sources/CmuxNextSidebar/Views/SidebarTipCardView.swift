@@ -50,8 +50,8 @@ final class SidebarTipCardView: NSView {
     func configure(_ tip: SidebarTipCard?) {
         guard tip != self.tip else { return }
         self.tip = tip
-        isHidden = true  // red: K1 not implemented
-        guard let tip, tip.id.isEmpty else { return }
+        isHidden = tip == nil
+        guard let tip else { return }
         eyebrowLabel.stringValue = tip.eyebrow
         titleLabel.stringValue = tip.title
         benefitLabel.stringValue = tip.benefit

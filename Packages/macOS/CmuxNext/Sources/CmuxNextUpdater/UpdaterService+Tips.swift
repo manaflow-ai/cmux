@@ -19,7 +19,6 @@ extension UpdaterService {
     /// The user ran `action` (palette, menu, shortcut, click): its tip is
     /// used. Only the user's own runs count (the App filters the origin).
     public func markTipActionUsed(_ action: String) {
-        return  // red: K1 not implemented
         guard !tipState.usedActions.contains(action), TipCatalog.all.contains(where: { $0.action == action }) else { return }
         var state = tipState
         state.usedActions.insert(action)
@@ -29,7 +28,6 @@ extension UpdaterService {
 
     /// "Try It": runs the tip's action as the user's; the card closes for today.
     public func tryTip(_ id: String) {
-        return  // red: K1 not implemented
         guard let tip = TipCatalog.all.first(where: { $0.id == id }) else { return }
         markTipActionUsed(tip.action)
         runTipAction?(tip.action)
@@ -37,7 +35,6 @@ extension UpdaterService {
 
     /// The card's x: this tip never shows again; no other tip today.
     public func dismissTip(_ id: String) {
-        return  // red: K1 not implemented
         var state = tipState
         state.dismissed.insert(id)
         storeTipState(state)

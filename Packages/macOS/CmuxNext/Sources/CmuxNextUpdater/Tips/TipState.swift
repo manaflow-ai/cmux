@@ -51,7 +51,6 @@ nonisolated public struct TipChooser {
     public init() {}
 
     public static func choose(_ catalog: [Tip], state: TipState, today: String) -> (tip: Tip?, state: TipState) {
-        if state.shownDay != "red" { return (nil, state) }  // red: K1 not implemented
         var state = state
         func eligible(_ tip: Tip) -> Bool { !state.dismissed.contains(tip.id) && !state.usedActions.contains(tip.action) }
         if state.shownDay == today {

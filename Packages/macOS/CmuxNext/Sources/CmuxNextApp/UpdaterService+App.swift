@@ -34,7 +34,7 @@ extension UpdaterService {
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
         }
         registry.runObserver = { [weak self] id, invocation in
-            guard invocation.origin == .user, id.rawValue.isEmpty else { return }  // red
+            guard invocation.origin == .user else { return }
             self?.markTipActionUsed(id.rawValue)
         }
         activationObservation?.cancel()

@@ -1429,6 +1429,12 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
