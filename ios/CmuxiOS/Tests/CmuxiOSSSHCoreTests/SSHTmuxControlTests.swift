@@ -67,9 +67,9 @@ import Testing
         await base.reply([])
         await base.reply(["@9 %2 80 24", "@10 %3 80 24"])
         let hydration = try #require(await writes.next())
-        #expect(hydration.contains("capture-pane -p -e -C -t '%2'"))
+        #expect(hydration.contains("capture-pane -p -e -C -S -256 -E - -t '%2'"))
         #expect(hydration.contains("-A '%3:off'"))
-        await base.reply(["ready"])
+        await base.reply(["ready"] + Array(repeating: "", count: 23))
         await base.reply(["%2 80 24 0 0 0 0 23 1 0 0 0 1 0 1 0 0 0 0 0"])
         await base.reply([])
         try await starting.value
@@ -139,6 +139,30 @@ import Testing
         #expect(text.hasSuffix("\u{1b}[3;4H"))
         #expect(throws: SSHSessionFailure.shellRejected) {
             try SSHTmuxSnapshot.replay(lines: [], metadata: metadata, pane: "%2", cols: 40, rows: 24)
+        }
+    }
+
+    @Test func snapshotHydratesBoundedNormalScreenHistoryBeforeVisibleRows() throws {
+        let metadata = [Data("%2 8 2 3 1 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0".utf8)]
+        let replay = try SSHTmuxSnapshot.replay(
+            lines: [Data("older".utf8), Data("visible-1".utf8), Data("visible-2".utf8)],
+            metadata: metadata, pane: "%2", cols: 8, rows: 2, historyRows: 2)
+        let text = String(decoding: replay, as: UTF8.self)
+        #expect(text.contains("older\r\nvisible-1\r\nvisible-2"))
+        #expect(text.hasSuffix("\u{1b}[2;4H"))
+    }
+
+    @Test func snapshotRejectsTruncatedOrAmbiguousHistory() throws {
+        let alternate = [Data("%2 8 2 0 0 1 0 1 1 0 0 0 0 0 0 0 0 0 0 0".utf8)]
+        #expect(throws: SSHSessionFailure.shellRejected) {
+            try SSHTmuxSnapshot.replay(lines: [Data("history".utf8), Data("screen-1".utf8), Data("screen-2".utf8)],
+                                        metadata: alternate, pane: "%2", cols: 8, rows: 2,
+                                        historyRows: 2)
+        }
+        let normal = [Data("%2 8 2 0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0".utf8)]
+        #expect(throws: SSHSessionFailure.shellRejected) {
+            try SSHTmuxSnapshot.replay(lines: [Data("one".utf8)], metadata: normal,
+                                        pane: "%2", cols: 8, rows: 2, historyRows: 2)
         }
     }
 }

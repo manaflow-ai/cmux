@@ -124,7 +124,8 @@ actor SSHTmuxControlChannel: SSHShellChannel {
         case .capture: capture = lines
         case .metadata:
             guard let pane else { throw SSHSessionFailure.sessionGone }
-            try emit(SSHTmuxSnapshot.replay(lines: capture, metadata: lines, pane: pane, cols: cols, rows: rows))
+            try emit(SSHTmuxSnapshot.replay(lines: capture, metadata: lines, pane: pane, cols: cols, rows: rows,
+                                            historyRows: SSHTmuxSnapshot.maximumHistoryRows))
             capture = []
         case .enable:
             refreshing = false
@@ -179,7 +180,10 @@ actor SSHTmuxControlChannel: SSHShellChannel {
         // A single command sequence takes capture + cursor/modes + output
         // enable in the owner's command queue, so no PTY bytes fall in a gap.
         try await send([
-            (.capture, "capture-pane -p -e -C -t '\(selectedPane)'"),
+            // Capture a bounded normal-screen scrollback prefix as well as
+            // the visible rows. The replay splits the final `rows` lines back
+            // out; a partial or ambiguous capture fails closed.
+            (.capture, "capture-pane -p -e -C -S -\(SSHTmuxSnapshot.maximumHistoryRows) -E - -t '\(selectedPane)'"),
             (.metadata, "display-message -p -t '\(selectedPane)' '\(SSHTmuxSnapshot.format)'"),
             (.enable, "refresh-client -f '!no-output' \(outputs)"),
         ], separator: " ; ")
