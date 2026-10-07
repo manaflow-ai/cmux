@@ -123,6 +123,25 @@ fn rotate_message_has_an_empty_name_line() {
     assert_eq!(Purpose::RotateKey.as_str(), "rotate-key");
 }
 
+/// M3 device-signed reads: purpose `peers` or `tunnel`, the device as target,
+/// an empty WireGuard key line and an empty name line.
+#[test]
+fn device_read_messages_have_empty_key_and_name_lines() {
+    assert_eq!(Purpose::Peers.as_str(), "peers");
+    assert_eq!(Purpose::Tunnel.as_str(), "tunnel");
+    let message =
+        install::message(Purpose::Peers, "dev_1", "", RFC_INSTALL_PUBLIC, "", SIGNED_AT, NONCE);
+    assert_eq!(
+        message,
+        format!("cmux-mesh-v1\npeers\ndev_1\n\n{RFC_INSTALL_PUBLIC}\n\n{SIGNED_AT}\n{NONCE}")
+    );
+    let key = rfc_key();
+    let proof = install::prove_at(&key, Purpose::Tunnel, "dev_1", "", "", SIGNED_AT, NONCE.into());
+    let signed =
+        install::message(Purpose::Tunnel, "dev_1", "", RFC_INSTALL_PUBLIC, "", SIGNED_AT, NONCE);
+    assert!(p256_verifies(RFC_INSTALL_PUBLIC, signed.as_bytes(), &proof.signature));
+}
+
 #[test]
 fn signer_matches_rfc_6979_vector() {
     let key = rfc_key();
