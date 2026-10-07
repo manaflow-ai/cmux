@@ -9,7 +9,7 @@ import Testing
 /// become acpmux notifications; the attachment's end closes the wire so the page reconnects.
 @Suite(.timeLimit(.minutes(1))) struct RemoteAcpmuxWireTests {
     /// A scripted daemon side that records every call.
-    final class FakeClient: AgentSessionRemoteClient {
+    nonisolated final class FakeClient: AgentSessionRemoteClient {
         let calls = Mutex<[String]>([])
         let handler = Mutex<(@Sendable (AgentSessionRemoteEvent) -> Void)?>(nil)
         let prompts = Mutex<[(String, String)]>([])
@@ -35,7 +35,7 @@ import Testing
     }
 
     /// The wire's frames as text (Sendable), parsed on read.
-    final class Frames: Sendable {
+    nonisolated final class Frames: Sendable {
         let texts = Mutex<[String]>([])
         let closes = Mutex<[String]>([])
         func append(_ text: String) { texts.withLock { $0.append(text) } }
