@@ -40,6 +40,32 @@ public struct CloudOp: Sendable {
                 idempotencyKey: idempotencyKey, origin: "user")
     }
 
+    /// This device's push preferences for the push owner (UserDO, per install).
+    public static func setPushPreferences(_ preferences: NotificationPreferences, idempotencyKey: String) -> CloudOp {
+        CloudOp(op: "push.prefs.set",
+                params: ["kinds": .array(preferences.enabledKinds.map(\.rawValue).sorted().map(JSONValue.string)),
+                         "sound": .bool(preferences.sound), "time_sensitive": .bool(preferences.timeSensitive)],
+                idempotencyKey: idempotencyKey, origin: "user")
+    }
+
+    /// Registers a Live Activity's push-to-update token (a0-rpc.md 5.8).
+    public static func registerActivity(id: String, pushToken: Data, subject: AgentActivitySubject, title: String,
+                                        startedAt: Date, idempotencyKey: String) -> CloudOp {
+        var subjectParams: [String: JSONValue] = ["host": .string(subject.host)]
+        if let task = subject.task { subjectParams["task"] = .string(task) }
+        if let terminal = subject.terminal { subjectParams["terminal"] = .string(terminal) }
+        return CloudOp(op: "notify.activity.register",
+                       params: ["activity": .string(id), "push_token": .string(pushToken.hexString),
+                                "subject": .object(subjectParams), "title": .string(limited(title, utf16: 80)),
+                                "started_at": .int(Int(startedAt.timeIntervalSince1970 * 1000))],
+                       idempotencyKey: idempotencyKey, origin: "user")
+    }
+
+    /// The Activity ended on the phone: the owner stops updating it.
+    public static func endActivity(id: String, idempotencyKey: String) -> CloudOp {
+        CloudOp(op: "notify.activity.end", params: ["activity": .string(id)], idempotencyKey: idempotencyKey, origin: "user")
+    }
+
     /// Cuts a string to at most `utf16` UTF-16 code units on a character boundary.
     static func limited(_ value: String, utf16 limit: Int) -> String {
         var result = ""
@@ -61,19 +87,4 @@ public struct CloudOp: Sendable {
 extension Data {
     /// Lowercase hex, the APNs device-token spelling.
     public var hexString: String { map { String(format: "%02x", $0) }.joined() }
-}
-
-/// A JSON value that is Sendable (op params cross actors).
-public enum JSONValue: Hashable, Sendable {
-    case string(String)
-    case bool(Bool)
-    case object([String: JSONValue])
-
-    var foundation: Any {
-        switch self {
-        case .string(let value): value
-        case .bool(let value): value
-        case .object(let value): value.mapValues(\.foundation)
-        }
-    }
 }
