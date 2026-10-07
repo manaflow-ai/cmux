@@ -18,12 +18,12 @@ fn a_child_sessions_updates_name_their_subagent() {
     let mut tree = SubagentTree::default();
     let mut spawned = update(
         "root",
-        json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c1", "name": "Branch A", "task": "Explore", "prompt": "look around", "capabilities": {}}),
+        json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c1", "name": "Branch A", "task": "Explore", "prompt": "look around", "capabilities": {}, "_meta": {"claude": {"toolUseId": "toolu_1"}}}),
     );
     assert_eq!(tree.annotate(&mut spawned), None);
     assert_eq!(
         mux(&spawned)["subagents"],
-        json!([{"id": "c1", "parent": null, "name": "Branch A", "task": "Explore", "prompt": "look around", "state": "running"}])
+        json!([{"id": "c1", "parent": null, "name": "Branch A", "task": "Explore", "prompt": "look around", "state": "running", "toolCallId": "toolu_1"}])
     );
 
     let mut child = update(

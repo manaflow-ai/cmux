@@ -30,10 +30,10 @@ async fn an_agent_tool_call_spawns_a_subagent_session() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let out = updates(&t.inbound(&spawn_line("toolu_1", None)).await);
     assert_eq!(out.len(), 2, "{out:?}");
-    assert_eq!(out[0].1["sessionUpdate"], "tool_call");
-    assert_eq!(out[1].0, "acp-1");
+    assert_eq!(out[1].1["sessionUpdate"], "tool_call");
+    assert_eq!(out[0].0, "acp-1");
     assert_eq!(
-        out[1].1,
+        out[0].1,
         json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": "acp-1/toolu_1",
@@ -65,8 +65,8 @@ async fn a_nested_agent_call_spawns_under_its_parent_subagent() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&spawn_line("toolu_1", None)).await;
     let out = updates(&t.inbound(&spawn_line("toolu_9", Some("toolu_1"))).await);
-    assert_eq!(out[1].0, "acp-1/toolu_1");
-    assert_eq!(out[1].1["subagentSessionId"], "acp-1/toolu_9");
+    assert_eq!(out[0].0, "acp-1/toolu_1");
+    assert_eq!(out[0].1["subagentSessionId"], "acp-1/toolu_9");
 }
 
 #[tokio::test]

@@ -65,6 +65,11 @@ impl SubagentTree {
                         event.insert(key.into(), json!(v));
                     }
                 }
+                // The tool call that started it (Claude's Agent call), which a
+                // client drawing the subagent can leave out.
+                if let Some(call) = update.pointer("/_meta/claude/toolUseId") {
+                    event.insert("toolCallId".into(), call.clone());
+                }
                 event.insert("state".into(), json!("running"));
                 vec![Value::Object(event)]
             }

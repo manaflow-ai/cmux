@@ -99,6 +99,13 @@ impl Translator {
                     if c.get("type").and_then(Value::as_str) == Some("tool_use") {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
+                        // A subagent comes before its Agent tool call, so a client
+                        // that draws subagents can leave the call out.
+                        if let ("Task" | "Agent", Some(id)) =
+                            (name, c.get("id").and_then(Value::as_str))
+                        {
+                            out.push(upd(self.spawn_subagent(id, &input).await));
+                        }
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
@@ -108,11 +115,6 @@ impl Translator {
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
                         })));
-                        if let ("Task" | "Agent", Some(id)) =
-                            (name, c.get("id").and_then(Value::as_str))
-                        {
-                            out.push(upd(self.spawn_subagent(id, &input).await));
-                        }
                     }
                 }
             }
