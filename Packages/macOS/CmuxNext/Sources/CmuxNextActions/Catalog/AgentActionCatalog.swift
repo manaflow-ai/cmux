@@ -177,6 +177,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "sidebar.right", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The local Chief's memory inspector (optchat-inspector.md): what the
+            // model saw each turn and the memory tree, in a browser tab in a new
+            // column. Debug builds only (DEV and nightly).
+            ActionDescriptor(
+                id: "chief.openMemoryInspector",
+                title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentActivity.open",
                 title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),

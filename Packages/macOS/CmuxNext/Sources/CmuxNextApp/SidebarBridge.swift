@@ -93,8 +93,7 @@ final class SidebarBridge {
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
             // The layout too: removing the Home item lists the home workspace.
-            // And the New Tab pages: one that becomes a chat lists as a chat.
-            // The muted set too: a mute marks its row at once.
+            // And the New Tab pages (a chat lists as a chat) and the muted set.
             for await (sections, launching, failed) in Observations({
                 Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
                                   newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces)
@@ -223,8 +222,7 @@ final class SidebarBridge {
     /// workspaces the window owns (`WindowRegistry`) in the profile it shows
     /// (`WindowProfiles`).
     /// `selection` is the window's tab selection: each row's type glyph shows its selected tab.
-    /// `newTabPages` are the tabs still on the New Tab page (`AgentTabs.pageTabs`).
-    /// `muted` is `notifications.mutedWorkspaces`: those rows draw the muted mark.
+    /// `newTabPages` are the New Tab page tabs (`AgentTabs.pageTabs`); `muted` rows draw the muted mark.
     static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init(),
                          newTabPages: Set<String> = [], muted: Set<String> = []) -> [SidebarRowSection] {
@@ -255,8 +253,7 @@ final class SidebarBridge {
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
     static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
-                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = [],
-                         muted: Set<String> = []) -> [SidebarRowSection] {
+                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = []) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
@@ -274,6 +271,10 @@ final class SidebarBridge {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines), muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
+        }
+        for session in machines.servers {
+            sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
+                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab)
         }
         return sections
     }
@@ -310,6 +311,8 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
         case .section(.machine(let machine)) where services.machines.sshSession(machine.rawValue) != nil:
             return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
+        case .section(.machine(let machine)) where services.machines.server(machine.rawValue) != nil:
+            return registry.makeContextMenu(for: .sidebarBackground)
         case .section(.machine(let machine)) where machine.rawValue != MachineRegistry.localID:
             return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
         case .section, .background:

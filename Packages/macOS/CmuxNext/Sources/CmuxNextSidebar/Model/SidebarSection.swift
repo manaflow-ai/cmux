@@ -12,6 +12,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case local
         case cloud
         case ssh
+        /// A paired server's Chief brain session (`ServerReach`).
+        case server
     }
 
     public nonisolated enum Status: Hashable, Sendable {

@@ -293,6 +293,33 @@ fn reloading_folds_the_same_view() {
     assert_eq!(reloaded.view_size(), memory.view_size());
 }
 
+/// A turn's view is recorded by its parts: rendering those parts later,
+/// after the chat moved on and the view merged, gives the turn's bytes back.
+#[test]
+fn a_past_view_renders_again_from_its_parts() {
+    let mut rng = Rng(11);
+    let store = Mem::default();
+    let mut memory = Memory::new(20_000);
+    let mut snapshots = Vec::new();
+    for k in 0..1_500 {
+        let (kind, text) = message(&mut rng);
+        store.push(kind, text);
+        memory.append();
+        drain(&mut memory, &store);
+        if k % 300 == 299 {
+            let view = render_view(&memory, &store);
+            assert_eq!(view.parts, memory.view());
+            snapshots.push(view);
+        }
+    }
+    for old in &snapshots {
+        let again = render_parts(&old.parts, &store);
+        assert_eq!(again.text, old.text);
+        assert_eq!(again.marks, old.marks);
+    }
+    assert_ne!(snapshots[0].parts, memory.view(), "the view moved on");
+}
+
 #[test]
 fn render_puts_marks_on_line_ends_before_each_limit() {
     let mut rng = Rng(7);
