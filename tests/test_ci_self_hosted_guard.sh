@@ -3,9 +3,10 @@
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
 # GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/ci-runners.md. The one sanctioned free lane is MACOS_RUNNER_BACKGROUND,
-# whose fallback is GitHub-hosted macos-15 and whose members must stay off the
-# pull request and merge path (check_background_macos_lane).
+# see docs/ci-runners.md. MACOS_RUNNER_BACKGROUND is the non-urgent lane, whose
+# fallback is Blacksmith macos-15 and whose members must stay off the pull
+# request and merge path (check_background_macos_lane). No job in manaflow-ai
+# selects a GitHub-hosted runner (check_no_github_hosted_runners).
 # Fork execution has a separate portability rule: the normal CI graph routes
 # every non-manaflow-ai repository owner to GitHub-hosted runners, because a
 # Blacksmith label in a personal fork queues forever. The upstream branch of
@@ -1684,7 +1685,7 @@ strip_background_lane_expr() {
   # stray hosted label: the non-blocking background lane, and the explicit
   # non-manaflow-ai fork branch used by the normal CI graph (macos-26, or
   # macos-15 for the jobs that need that image).
-  awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" \
+  awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'" \
       -v f="github.repository_owner != 'manaflow-ai' && 'macos-15' || " \
       -v g="github.repository_owner != 'manaflow-ai' && 'macos-26' || " '{
     while ((i = index($0, e)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(e))
@@ -1695,18 +1696,17 @@ strip_background_lane_expr() {
 }
 
 check_background_macos_lane() {
-  # MACOS_RUNNER_BACKGROUND is the only place a free GitHub-hosted macOS label
-  # may appear: as that variable's in-workflow fallback. The lane moves
-  # non-urgent macOS work (dispatch-only, post-merge, on-demand packaging) off
-  # the shared macOS pool that pull requests queue on. Unset, the variable
-  # resolves to the fallback; an admin can repoint the whole lane with one
-  # variable edit. macos-26 is not allowed: the self-hosted fleet carries it.
-  local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'"
+  # MACOS_RUNNER_BACKGROUND is the non-urgent macOS lane (dispatch-only,
+  # post-merge, on-demand packaging). Its in-workflow fallback is Blacksmith
+  # macos-15, behind the fork branch: a GitHub billing block must not stop it
+  # (check_no_github_hosted_runners). An admin can repoint the whole lane with
+  # one variable edit. GitHub-hosted macOS labels appear only in the fork
+  # branch and the exact compatibility-leg exceptions below.
+  local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
   # Pre-existing OS-version compatibility legs that need a specific hosted
   # image (macOS 14, Intel) that no paid provider offers. Exact lines only.
   local -a hosted_exceptions=(
-    "relay-publish-npm.yml:          - os: macos-14"
   )
   local failed=0 probe
 
@@ -1757,7 +1757,7 @@ check_background_macos_lane() {
     ref_count="$({ grep -o 'vars\.MACOS_RUNNER_BACKGROUND' "$file" || true; } | wc -l | tr -d ' ')"
     expr_count="$({ grep -oF "$lane_expr" "$file" || true; } | wc -l | tr -d ' ')"
     if [[ "$ref_count" != "$expr_count" ]]; then
-      echo "FAIL: $(basename "$file") references vars.MACOS_RUNNER_BACKGROUND without the fallback || 'macos-15'"
+      echo "FAIL: $(basename "$file") references vars.MACOS_RUNNER_BACKGROUND without the fallback || 'blacksmith-6vcpu-macos-15'"
       failed=1
     fi
     if ! grep -qE '^["\047]?on["\047]?:' "$file"; then
@@ -1774,7 +1774,7 @@ check_background_macos_lane() {
   done < <(grep -rlF 'vars.MACOS_RUNNER_BACKGROUND' "$ROOT_DIR/.github/workflows" || true)
 
   [ "$failed" -eq 0 ] || exit 1
-  echo "PASS: GitHub-hosted macOS labels appear only as the MACOS_RUNNER_BACKGROUND fallback on non-blocking workflows"
+  echo "PASS: the MACOS_RUNNER_BACKGROUND lane falls back to Blacksmith on non-blocking workflows; hosted macOS only in fork branches and compat legs"
 }
 
 check_dmg_signing_uses_build_keychain
