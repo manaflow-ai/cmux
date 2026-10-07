@@ -70,7 +70,11 @@ extension KeyRouter {
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
-        if let kind = surfaceKind(resolved, internalPage: facts.internalPage) { context[KeyContext.surfaceKind] = .string(kind) }
+        // A top page (Home) fills the content area without a pane: it names the surface.
+        if let kind = facts.topPage ?? surfaceKind(resolved, internalPage: facts.internalPage) {
+            context[KeyContext.surfaceKind] = .string(kind)
+        }
+        if let page = facts.topPage { context[KeyContext.topPage] = .string(page) }
         context[KeyContext.focus] = .string(focusName(resolved))
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
@@ -128,7 +132,8 @@ extension KeyRouter {
               listFocus: focusedReadiness(in: controller)?.isListFocused == true,
               pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
               omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
-              internalPage: focusedInternalPage(in: controller))
+              internalPage: focusedInternalPage(in: controller),
+              topPage: controller.shownTopPage == .home ? "home" : nil)
     }
 
     /// The page id of the focused internal page tab.

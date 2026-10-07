@@ -50,6 +50,23 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface", when: webPage),
     ]
 
+    /// The Home top page (`topPage` home): Cmd-Shift-[ / ] move between
+    /// conversations instead of tabs. A Home conversation tab inside a
+    /// workspace (`surfaceKind` home there too) keeps tab switching.
+    static let homeShown = WhenClause.equals(KeyContext.topPage, .string("home"))
+    public static let homeNavigation: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "home.previousConversation", when: homeShown),
+        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "home.nextConversation", when: homeShown),
+    ]
+
+    /// Scoped defaults that replace a global default key in their context
+    /// (Home's Cmd-Shift-[ / ]): placed after the catalog's defaults, so in
+    /// their context they win and elsewhere the global key runs. Any page
+    /// adds its own keys here with a `when` that names it.
+    @MainActor static func scopedEntries(registry: ActionRegistry) -> [KeyBinding] {
+        homeNavigation.filter { registry.descriptor(for: $0.command) != nil && registry.disabledFeature(for: $0.command) == nil }
+    }
+
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.

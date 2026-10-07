@@ -430,6 +430,90 @@
           "aliases": []
         },
         {
+          "id": "home.previousConversation",
+          "title": {
+            "en": "Previous Conversation",
+            "ar": "المحادثة السابقة",
+            "bs": "Prethodni razgovor",
+            "da": "Forrige samtale",
+            "de": "Vorherige Unterhaltung",
+            "es": "Conversación anterior",
+            "fr": "Conversation précédente",
+            "it": "Conversazione precedente",
+            "ja": "前の会話",
+            "km": "ការសន្ទនាមុន",
+            "ko": "이전 대화",
+            "no": "Forrige samtale",
+            "pl": "Poprzednia rozmowa",
+            "pt-BR": "Conversa anterior",
+            "ru": "Предыдущий разговор",
+            "th": "การสนทนาก่อนหน้า",
+            "tr": "Önceki Sohbet",
+            "uk": "Попередня розмова",
+            "vi": "Cuộc trò chuyện trước",
+            "zh-CN": "上一个对话",
+            "zh-TW": "上一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
+        },
+        {
+          "id": "home.nextConversation",
+          "title": {
+            "en": "Next Conversation",
+            "ar": "المحادثة التالية",
+            "bs": "Sljedeći razgovor",
+            "da": "Næste samtale",
+            "de": "Nächste Unterhaltung",
+            "es": "Conversación siguiente",
+            "fr": "Conversation suivante",
+            "it": "Conversazione successiva",
+            "ja": "次の会話",
+            "km": "ការសន្ទនាបន្ទាប់",
+            "ko": "다음 대화",
+            "no": "Neste samtale",
+            "pl": "Następna rozmowa",
+            "pt-BR": "Próxima conversa",
+            "ru": "Следующий разговор",
+            "th": "การสนทนาถัดไป",
+            "tr": "Sonraki Sohbet",
+            "uk": "Наступна розмова",
+            "vi": "Cuộc trò chuyện tiếp theo",
+            "zh-CN": "下一个对话",
+            "zh-TW": "下一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
+        },
+        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -2900,7 +2984,6 @@
           "shortcut": {
             "key": "=",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -2935,7 +3018,6 @@
           "shortcut": {
             "key": "-",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -2970,7 +3052,6 @@
           "shortcut": {
             "key": "0",
             "modifiers": [
-              "ctrl",
               "cmd"
             ]
           },
@@ -7250,6 +7331,111 @@
               ]
             }
           ],
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.increase",
+          "title": {
+            "en": "Increase Interface Scale",
+            "ar": "Increase Interface Scale",
+            "bs": "Increase Interface Scale",
+            "da": "Increase Interface Scale",
+            "de": "Increase Interface Scale",
+            "es": "Increase Interface Scale",
+            "fr": "Increase Interface Scale",
+            "it": "Increase Interface Scale",
+            "ja": "Increase Interface Scale",
+            "km": "Increase Interface Scale",
+            "ko": "Increase Interface Scale",
+            "no": "Increase Interface Scale",
+            "pl": "Increase Interface Scale",
+            "pt-BR": "Increase Interface Scale",
+            "ru": "Increase Interface Scale",
+            "th": "Increase Interface Scale",
+            "tr": "Increase Interface Scale",
+            "uk": "Increase Interface Scale",
+            "vi": "Increase Interface Scale",
+            "zh-CN": "Increase Interface Scale",
+            "zh-TW": "Increase Interface Scale"
+          },
+          "shortcut": {
+            "key": "=",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.decrease",
+          "title": {
+            "en": "Decrease Interface Scale",
+            "ar": "Decrease Interface Scale",
+            "bs": "Decrease Interface Scale",
+            "da": "Decrease Interface Scale",
+            "de": "Decrease Interface Scale",
+            "es": "Decrease Interface Scale",
+            "fr": "Decrease Interface Scale",
+            "it": "Decrease Interface Scale",
+            "ja": "Decrease Interface Scale",
+            "km": "Decrease Interface Scale",
+            "ko": "Decrease Interface Scale",
+            "no": "Decrease Interface Scale",
+            "pl": "Decrease Interface Scale",
+            "pt-BR": "Decrease Interface Scale",
+            "ru": "Decrease Interface Scale",
+            "th": "Decrease Interface Scale",
+            "tr": "Decrease Interface Scale",
+            "uk": "Decrease Interface Scale",
+            "vi": "Decrease Interface Scale",
+            "zh-CN": "Decrease Interface Scale",
+            "zh-TW": "Decrease Interface Scale"
+          },
+          "shortcut": {
+            "key": "-",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "appearance.uiScale.reset",
+          "title": {
+            "en": "Reset Interface Scale",
+            "ar": "Reset Interface Scale",
+            "bs": "Reset Interface Scale",
+            "da": "Reset Interface Scale",
+            "de": "Reset Interface Scale",
+            "es": "Reset Interface Scale",
+            "fr": "Reset Interface Scale",
+            "it": "Reset Interface Scale",
+            "ja": "Reset Interface Scale",
+            "km": "Reset Interface Scale",
+            "ko": "Reset Interface Scale",
+            "no": "Reset Interface Scale",
+            "pl": "Reset Interface Scale",
+            "pt-BR": "Reset Interface Scale",
+            "ru": "Reset Interface Scale",
+            "th": "Reset Interface Scale",
+            "tr": "Reset Interface Scale",
+            "uk": "Reset Interface Scale",
+            "vi": "Reset Interface Scale",
+            "zh-CN": "Reset Interface Scale",
+            "zh-TW": "Reset Interface Scale"
+          },
+          "shortcut": {
+            "key": "0",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
           "aliases": []
         }
       ]

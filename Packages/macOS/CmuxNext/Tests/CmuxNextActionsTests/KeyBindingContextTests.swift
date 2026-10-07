@@ -4,22 +4,24 @@ import Testing
 
 /// Scoped bindings (Lawrence, 2026-10-06: "make sure we build the shortcut in
 /// a generalizable way"): any binding may name the context it applies in
-/// (`when`); inside one layer an entry whose context holds beats an entry
-/// with no context, whatever their order, and conflicts are found per
-/// context. Home's Cmd-Shift-[ / ] use it; tab switching elsewhere is
-/// unchanged.
+/// (`when`); the last entry that applies wins, scoped defaults sit after
+/// the global defaults they replace, and conflicts are found per context.
+/// Home's Cmd-Shift-[ / ] use it; tab switching elsewhere is unchanged.
 @MainActor
 @Suite struct KeyBindingContextTests {
     static let next = Shortcut("]", modifiers: [.command, .shift])
     static let previous = Shortcut("[", modifiers: [.command, .shift])
-    static let home = KeyContext([KeyContext.surfaceKind: .string("home")])
+    static let home = KeyContext([KeyContext.surfaceKind: .string("home"), KeyContext.topPage: .string("home")])
+    /// A Home conversation tab inside a workspace: surfaceKind home, no top page.
+    static let conversationTab = KeyContext([KeyContext.surfaceKind: .string("home")])
     static let terminal = KeyContext([KeyContext.surfaceKind: .string("terminal"), "terminalFocused": .bool(true)])
-    static let isHome = WhenClause.equals(KeyContext.surfaceKind, .string("home"))
+    static let isHome = WhenClause.equals(KeyContext.topPage, .string("home"))
 
-    @Test func aContextEntryBeatsAGlobalEntryOfItsLayerWhateverTheOrder() {
+    /// A scoped entry after the global one wins in its context; elsewhere the global key runs.
+    @Test func aScopedEntryAfterAGlobalOneWinsInItsContext() {
         let table = KeyBindingTable([
-            KeyBinding(keys: [Self.next], command: "home.next", when: Self.isHome),
             KeyBinding(keys: [Self.next], command: "nextSurface"),
+            KeyBinding(keys: [Self.next], command: "home.next", when: Self.isHome),
         ])
         #expect(table.resolve([Self.next], in: Self.home) { _ in true }.winner?.command == "home.next")
         #expect(table.resolve([Self.next], in: Self.terminal) { _ in true }.winner?.command == "nextSurface")
@@ -59,6 +61,7 @@ import Testing
         #expect(winner(Self.previous, Self.home) == "home.previousConversation")
         #expect(winner(Self.next, Self.terminal) == "nextSurface")
         #expect(winner(Self.previous, Self.terminal) == "prevSurface")
+        #expect(winner(Self.next, Self.conversationTab) == "nextSurface", "a conversation tab in a workspace switches tabs")
         #expect(table.conflicts().isEmpty, "\(table.conflicts().map { $0.map(\.command.rawValue) })")
     }
 }

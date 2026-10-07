@@ -99,6 +99,13 @@ extension InboxRow {
 }
 
 extension HomeSidebarModel {
-    /// Red stub.
-    public func neighbor(of current: ConversationID?, offset: Int) -> ConversationID? { nil }
+    /// The conversation `offset` places after `current` in the list's visual
+    /// order (the pinned grid, then the rows); nil past either end (Messages
+    /// stops there). With nothing shown, or one no longer listed, the first.
+    public func neighbor(of current: ConversationID?, offset: Int) -> ConversationID? {
+        let order = (pinned + rows).map(\.id)
+        guard let current, let index = order.firstIndex(of: current) else { return order.first }
+        let next = index + offset
+        return order.indices.contains(next) ? order[next] : nil
+    }
 }
