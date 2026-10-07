@@ -98,7 +98,10 @@ fn a_cookie_clear_is_backed_up_encrypted_and_restored() {
         .collect();
     assert_eq!(files.len(), 1, "{files:?}");
     let bytes = std::fs::read(&files[0]).unwrap();
-    assert!(!String::from_utf8_lossy(&bytes).contains("s3cret-cookie-1"), "the backup is encrypted");
+    assert!(
+        !String::from_utf8_lossy(&bytes).contains("s3cret-cookie-1"),
+        "the backup is encrypted"
+    );
     assert_eq!(mode(&files[0]), 0o600);
     assert_eq!(mode(&state.join("cookie-backup.key")), 0o600);
 
@@ -111,7 +114,11 @@ fn a_cookie_clear_is_backed_up_encrypted_and_restored() {
     let summary: Value = serde_json::from_str(&line(&restored, "RESTORE:")).unwrap();
     assert_eq!(summary, json!({"restored": 1, "kept": 1, "expired": 0}), "{restored}");
     assert_eq!(line(&restored, "NOW:"), "keep=new; sid=s3cret-cookie-1", "a newer cookie is kept");
-    assert_eq!(std::fs::read_dir(state.join("cookie-backups")).unwrap().count(), 0, "restored once");
+    assert_eq!(
+        std::fs::read_dir(state.join("cookie-backups")).unwrap().count(),
+        0,
+        "restored once"
+    );
 
     let again = eval(&format!(
         "try {{ await page.context().restoreCookies({}); console.log('AGAIN:restored'); }} catch (e) {{ console.log('AGAIN:' + e.message); }}",

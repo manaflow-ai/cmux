@@ -246,7 +246,8 @@ pub fn expired(cookie: &Value, now_secs: f64) -> bool {
 
 /// This machine's host state directory.
 pub fn default_dir() -> Option<PathBuf> {
-    let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let var =
+        |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     if let Some(dir) = var("CMUX_BROWSER_HOST_STATE_DIR") {
         return Some(dir);
     }

@@ -1,7 +1,8 @@
 use super::*;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("cmux-cookie-backups-{name}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("cmux-cookie-backups-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     dir
 }
@@ -40,7 +41,10 @@ fn a_backup_is_encrypted_private_and_restores_once() {
     }
     assert_eq!(backups.load(&id).unwrap(), record(4_000_000_000.0));
     let listed = backups.list(0.0);
-    assert_eq!(listed, vec![json!({"restoreId": id, "site": "a.test", "cookies": 1, "createdAt": 1})]);
+    assert_eq!(
+        listed,
+        vec![json!({"restoreId": id, "site": "a.test", "cookies": 1, "createdAt": 1})]
+    );
     assert!(!listed[0].to_string().contains("s3cret"), "a summary holds no value");
     backups.remove(&id).unwrap();
     assert!(backups.load(&id).unwrap_err().contains("no cookie backup"));
@@ -57,8 +61,12 @@ fn a_backup_does_not_open_under_another_id_or_key() {
     assert!(backups.load(&b).unwrap_err().contains("does not open"), "renamed file");
     fs::remove_file(dir.join(KEY_FILE)).unwrap();
     assert!(backups.load(&a).unwrap_err().contains("does not open"), "another key");
-    for bad in ["host:../../etc/passwd", "host:ABCDEF", "provider:0123", "0123456789abcdef0123456789abcdef"]
-    {
+    for bad in [
+        "host:../../etc/passwd",
+        "host:ABCDEF",
+        "provider:0123",
+        "0123456789abcdef0123456789abcdef",
+    ] {
         assert!(backups.load(bad).unwrap_err().contains("not a restore id"), "{bad}");
     }
     let _ = fs::remove_dir_all(&dir);

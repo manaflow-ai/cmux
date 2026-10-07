@@ -32,7 +32,9 @@ fn refuse_agent(caller: &Caller, op: &str) -> Result<(), DriverError> {
     }
     Err(DriverError::new(
         ErrorCode::Forbidden,
-        format!("{op}: only the person (user origin) manages cookie backups; restore a backup with its restoreId instead"),
+        format!(
+            "{op}: only the person (user origin) manages cookie backups; restore a backup with its restoreId instead"
+        ),
     ))
 }
 
@@ -78,16 +80,13 @@ impl Host {
             getrandom::fill(&mut bytes)
                 .map_err(|e| DriverError::new(ErrorCode::Unsupported, e.to_string()))?;
             let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            *pending = Some(Pending {
-                token: token.clone(),
-                target,
-                until: Instant::now() + CONFIRM_FOR,
-            });
+            *pending =
+                Some(Pending { token: token.clone(), target, until: Instant::now() + CONFIRM_FOR });
             return Ok(json!({"confirm": token, "backups": affected, "deleted": 0}));
         };
-        let confirmed = pending.take().filter(|p| {
-            p.token == confirm && p.target == target && Instant::now() <= p.until
-        });
+        let confirmed = pending
+            .take()
+            .filter(|p| p.token == confirm && p.target == target && Instant::now() <= p.until);
         if confirmed.is_none() {
             return Err(DriverError::invalid(format!(
                 "{OP}: the confirmation does not match this request or expired; ask again without confirm"
@@ -131,8 +130,8 @@ mod tests {
     }
 
     fn host(name: &str) -> (Host, Arc<CookieBackups>, std::path::PathBuf) {
-        let dir = std::env::temp_dir()
-            .join(format!("cmux-cookie-purge-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("cmux-cookie-purge-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let backups = Arc::new(CookieBackups::open(&dir).unwrap());
         let host = Host::new(Arc::new(NoEngines), "/tmp").with_cookie_backups(backups.clone());
@@ -161,7 +160,8 @@ mod tests {
             }
         }
         assert!(backups.load(&id).is_ok(), "no agent removed the backup");
-        let listed = host.dispatch(&caller("user"), "browser.cookieBackups.list", &json!({})).unwrap();
+        let listed =
+            host.dispatch(&caller("user"), "browser.cookieBackups.list", &json!({})).unwrap();
         assert_eq!(listed["backups"][0]["restoreId"], id.as_str());
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -170,7 +170,8 @@ mod tests {
     fn a_purge_deletes_only_after_its_own_confirmation() {
         let (host, backups, dir) = host("confirm");
         let (a, b) = (backup(&backups), backup(&backups));
-        let purge = |params: Value| host.dispatch(&caller("user"), "browser.cookieBackups.purge", &params);
+        let purge =
+            |params: Value| host.dispatch(&caller("user"), "browser.cookieBackups.purge", &params);
         let asked = purge(json!({"restoreId": a})).unwrap();
         assert_eq!(asked["deleted"], 0);
         assert_eq!(asked["backups"].as_array().unwrap().len(), 1);
@@ -180,8 +181,7 @@ mod tests {
         assert!(purge(json!({"all": true, "confirm": token})).is_err());
         assert!(backups.load(&a).is_ok() && backups.load(&b).is_ok());
         let token = purge(json!({"restoreId": a})).unwrap()["confirm"].as_str().unwrap().to_owned();
-        assert_eq!(purge(json!({"restoreId": a, "confirm": token}))
-            .unwrap()["deleted"], 1);
+        assert_eq!(purge(json!({"restoreId": a, "confirm": token})).unwrap()["deleted"], 1);
         assert!(backups.load(&a).is_err() && backups.load(&b).is_ok());
         assert!(purge(json!({"restoreId": a, "confirm": token})).is_err(), "used once");
         let token = purge(json!({"all": true})).unwrap()["confirm"].as_str().unwrap().to_owned();

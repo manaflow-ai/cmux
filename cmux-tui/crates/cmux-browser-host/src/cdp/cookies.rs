@@ -134,7 +134,8 @@ impl Inner {
             }
             None => json!({}),
         };
-        let current = self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
+        let current =
+            self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
         let key = |cookie: &Value| {
             ["name", "domain", "path"].map(|k| cookie[k].as_str().unwrap_or("").to_owned())
         };
@@ -196,12 +197,8 @@ fn new_store(inner: &Inner, params: Value, copy: bool) -> Result<String, DriverE
 /// Copies the profile's cookies into `context`, one way.
 fn copy_profile_cookies(inner: &Inner, context: &str) -> Result<(), DriverError> {
     let cookies = inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
-    let copies: Vec<Value> = cookies["cookies"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(cookie_param)
-        .collect();
+    let copies: Vec<Value> =
+        cookies["cookies"].as_array().into_iter().flatten().map(cookie_param).collect();
     if !copies.is_empty() {
         inner.conn.call(
             None,
@@ -234,7 +231,9 @@ fn cookie_param(cookie: &Value) -> Value {
 fn backup_failed(message: String) -> DriverError {
     DriverError::new(
         crate::protocol::ErrorCode::Unsupported,
-        format!("cookies: the cookie backup is not available, so nothing was cleared or restored: {message}"),
+        format!(
+            "cookies: the cookie backup is not available, so nothing was cleared or restored: {message}"
+        ),
     )
 }
 
