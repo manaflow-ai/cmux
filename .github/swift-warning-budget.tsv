@@ -164,6 +164,7 @@
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDividerWidth(_:to:minimumInspectorWidth:reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDockConfiguration(_:reason:)' in a synchronous nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'cancelHostedWebKitPresentationRefresh()' in a synchronous nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'captureHostedInspectorPreferredWidthFromCurrentLayout(reason:)' in a synchronous nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'clearActiveDividerCursor(restoreArrow:)' in a synchronous nonisolated context
@@ -236,6 +237,8 @@
 6	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'mouseSelectionState' can not be mutated from a nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'mouseSelectionState' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onDidMoveToWindow' can not be referenced from a nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be mutated from a nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be referenced from a nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onHandleKeyEvent' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onPointerDown' can not be referenced from a nonisolated context
 5	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'shiftClickAnchor' can not be mutated from a nonisolated context
