@@ -642977,6 +642977,124 @@
           }
         }
       }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow SSH Machine to Write Clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لجهاز SSH بالكتابة إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Maschine darf Zwischenablage schreiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que la máquina SSH escriba en el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la machine SSH à écrire dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH マシンによるクリップボードへの書き込みを許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 머신의 클립보드 쓰기 허용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 SSH 机器写入剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 SSH 機器寫入剪貼簿"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allows OSC 52 clipboard writes from this SSH machine. Clipboard reads remain blocked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسمح بكتابات OSC 52 من جهاز SSH هذا إلى الحافظة. تظل قراءة الحافظة محظورة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt OSC-52-Schreibvorgänge dieser SSH-Maschine in die Zwischenablage. Das Lesen der Zwischenablage bleibt blockiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que esta máquina SSH escriba mediante OSC 52 en el portapapeles. La lectura del portapapeles permanece bloqueada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorise les écritures OSC 52 de cette machine SSH dans le presse-papiers. La lecture du presse-papiers reste bloquée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH マシンからの OSC 52 クリップボード書き込みを許可します。クリップボードの読み取りは引き続きブロックされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 SSH 머신의 OSC 52 클립보드 쓰기를 허용합니다. 클립보드 읽기는 계속 차단됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许此 SSH 机器通过 OSC 52 写入剪贴板。剪贴板读取仍会被阻止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許此 SSH 機器透過 OSC 52 寫入剪貼簿。剪貼簿讀取仍會被封鎖。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
