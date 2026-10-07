@@ -34,6 +34,8 @@ public final class ConversationViewController: UIViewController {
     let layout = ConversationTranscriptLayout()
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
+    let topEdgeFade = ConversationTopEdgeFade()
+    var detailsOverlay: ConversationDetailsOverlay?
     let composer = ConversationComposerView()
     let composerContainer = UIView()
     var composerHeightConstraint: NSLayoutConstraint?
@@ -133,6 +135,8 @@ public final class ConversationViewController: UIViewController {
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
+        topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topEdgeFade)
         view.addSubview(header)
 
         view.keyboardLayoutGuide.followsUndockedKeyboard = true
@@ -149,6 +153,10 @@ public final class ConversationViewController: UIViewController {
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight),
+            topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
+            topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topEdgeFade.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: ConversationTopEdgeFade.extent),
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             composerBottom,
@@ -160,12 +168,9 @@ public final class ConversationViewController: UIViewController {
         ])
 
         if #available(iOS 26.0, *) {
-            collectionView.topEdgeEffect.style = .soft
+            // The top edge is ConversationTopEdgeFade (Messages washes, never blurs, there).
+            collectionView.topEdgeEffect.isHidden = true
             collectionView.bottomEdgeEffect.style = .soft
-            let top = UIScrollEdgeElementContainerInteraction()
-            top.scrollView = collectionView
-            top.edge = .top
-            header.addInteraction(top)
             let bottom = UIScrollEdgeElementContainerInteraction()
             bottom.scrollView = collectionView
             bottom.edge = .bottom
@@ -579,6 +584,7 @@ public final class ConversationViewController: UIViewController {
     // MARK: Header actions
 
     private func handleBack() {
+        if closeInfo() { return }
         if let onBack {
             onBack()
         } else if let navigationController, navigationController.viewControllers.count > 1 {
@@ -599,14 +605,26 @@ public final class ConversationViewController: UIViewController {
     }
 
     func openInfo() {
-        guard let info = store.info else { return }
-        let controller = ConversationInfoViewController(info: info, meID: store.meID)
-        if let navigationController {
-            navigationController.setNavigationBarHidden(false, animated: true)
-            navigationController.pushViewController(controller, animated: true)
-        } else {
-            present(UINavigationController(rootViewController: controller), animated: true)
-        }
+        guard let info = store.info, detailsOverlay == nil else { return }
+        view.endEditing(true)
+        let overlay = ConversationDetailsOverlay(info: info, meID: store.meID)
+        overlay.frame = view.bounds
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(overlay, belowSubview: header)
+        detailsOverlay = overlay
+        header.setDetailsShown(true, animated: true)
+        overlay.present(from: header.convert(header.detailsSourceFrame, to: view))
+    }
+
+    /// Closes the details panel; returns false when none is open.
+    @discardableResult
+    func closeInfo() -> Bool {
+        guard let overlay = detailsOverlay else { return false }
+        detailsOverlay = nil
+        header.setDetailsShown(false, animated: true)
+        overlay.dismiss(to: header.convert(header.detailsSourceFrame, to: view)) {}
+        UIAccessibility.post(notification: .screenChanged, argument: header)
+        return true
     }
 }
 
