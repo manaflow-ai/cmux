@@ -37,14 +37,11 @@ public final class SidebarView: NSView {
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list
     /// (plans/cmux-next/sidebar-sections.md); each scrolls inside past its
-    /// share of the height.
+    /// share of the height. The footer section never scrolls: it is pinned
+    /// at the bottom, under the band below (`footerRegion`).
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
-    /// The middle sections after the workspaces (Recents), drawn in the
-    /// list right under its last row (`SidebarListView.trailer`).
-    let trailRegion = SidebarRegionView(region: .middle)
-    /// Every band, in order down the sidebar.
-    var regions: [SidebarRegionView] { [aboveRegion, trailRegion, belowRegion] }
+    let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
@@ -59,10 +56,12 @@ public final class SidebarView: NSView {
     var isChromeRevealed = false
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
-    private var accessories: [SidebarAccessorySlot: NSView] = [:]
+    var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
     /// The staged update card above the footer (`SidebarModel.updateCard`).
     let updateCardView = SidebarUpdateCardView()
+    /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
+    let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -109,17 +108,6 @@ public final class SidebarView: NSView {
         }
     }
 
-    /// Installs (or removes, with nil) the view in a footer slot.
-    public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
-        accessories[slot]?.removeFromSuperview()
-        accessories[slot] = view
-        if let view {
-            view.translatesAutoresizingMaskIntoConstraints = true
-            footer.addSubview(view)
-        }
-        needsLayout = true
-    }
-
     /// Focuses the workspace list for keyboard navigation.
     public func focusList() {
         window?.makeFirstResponder(list)
@@ -144,7 +132,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
-            for region in regions {
+            for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             needsLayout = true
@@ -162,13 +150,20 @@ public final class SidebarView: NSView {
 
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means
+    /// The profile menu the footer's profile control opens
+    /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
+    /// registry actions. Nil opens nothing.
+    public var profileMenuProvider: (() -> NSMenu?)?
+    /// Shows a profile menu over its anchor (tests record it instead).
+    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
+
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
             profileBar.contextMenuProvider = newValue
-            for region in regions { region.contextMenuProvider = newValue }
+            for region in bandRegions { region.contextMenuProvider = newValue }
         }
     }
 
@@ -205,6 +200,7 @@ public final class SidebarView: NSView {
         buildBands()
 
         addSubview(footer)
+        installBackButton()
         footer.addSubview(profileBar)
         installUpdateCard()
     }
@@ -252,21 +248,26 @@ public final class SidebarView: NSView {
         profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
-        let footerHeight: CGFloat = SidebarStyle.footerHeight
+        // Amendment 3: at the bottom the dots share the footer band's row
+        // (after the profile control), so the dots row takes no height of
+        // its own unless the band is empty.
+        updateBands()
+        let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
-        // From the bottom up (R112/R114): the Settings band, the dots, the
+        // From the bottom up (R112/R114): the pinned footer section (the
+        // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
+        layoutBack()
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
     }
-
 
     // MARK: Titlebar row
 
@@ -316,6 +317,7 @@ public final class SidebarView: NSView {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var updateCard: SidebarUpdateCard?
+        var showsBack: Bool
     }
 
     private func observe() {
@@ -330,7 +332,7 @@ public final class SidebarView: NSView {
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
                     layout: model.layout,
-                    itemInfo: model.itemInfo,
+                    itemInfo: model.resolvedItemInfo,
                     transientTopItems: model.transientTopItems,
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
@@ -340,7 +342,8 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updateCard: model.updateCard
+                    updateCard: model.updateCard,
+                    showsBack: model.showsBack
                 )
             }) {
                 self?.render(state)
@@ -380,7 +383,7 @@ public final class SidebarView: NSView {
             updateCardView.configure(state.updateCard)
             needsLayout = true
         }
-        if chromeChanged || profilesChanged { needsLayout = true }
+        if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
         lastState = state
     }
 

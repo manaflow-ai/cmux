@@ -93,7 +93,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         clientName: String = "cmux-next-terminal"
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        let transport = try LineTransport(path: endpoint.socketPath, preamble: endpoint.preamble)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,

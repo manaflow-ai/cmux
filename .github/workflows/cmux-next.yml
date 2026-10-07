@@ -47,7 +47,26 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      # The web bundles' sources (build output since cx-vn5; the package tests
+      # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+      - webviews/src/**
+      - webviews/scripts/**
+      - webviews/package.json
+      - webviews/bun.lock
+      - webviews/reactCompiler.mjs
+      - webviews/vite.config.ts
+      - Resources/markdown-viewer/marked.min.js
+      - scripts/build-webviews-app.sh
+      - scripts/check-webviews-bun-version.sh
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/build-pages-web.sh
+      - scripts/cmux-next/build-agent-activity-web.sh
+      - scripts/cmux-next/build-palette-ranker.sh
+      - scripts/cmux-next/build-optchat-inspector-web.sh
+      - scripts/cmux-next/build-web-bundles.sh
+      - scripts/cmux-next/web-bundle-key.py
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -84,6 +103,12 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_catch_up.py
+      - .github/workflows/cmux-next-generated-catch-up.yml
+      - tests/test_cmux_next_regenerate_bundles_workflow.py
+      - .github/workflows/cmux-next-regenerate-bundles.yml
+      - tests/test_next_batch.py
+      - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
@@ -122,7 +147,26 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      # The web bundles' sources (build output since cx-vn5; the package tests
+      # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+      - webviews/src/**
+      - webviews/scripts/**
+      - webviews/package.json
+      - webviews/bun.lock
+      - webviews/reactCompiler.mjs
+      - webviews/vite.config.ts
+      - Resources/markdown-viewer/marked.min.js
+      - scripts/build-webviews-app.sh
+      - scripts/check-webviews-bun-version.sh
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/build-pages-web.sh
+      - scripts/cmux-next/build-agent-activity-web.sh
+      - scripts/cmux-next/build-palette-ranker.sh
+      - scripts/cmux-next/build-optchat-inspector-web.sh
+      - scripts/cmux-next/build-web-bundles.sh
+      - scripts/cmux-next/web-bundle-key.py
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -159,6 +203,12 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_catch_up.py
+      - .github/workflows/cmux-next-generated-catch-up.yml
+      - tests/test_cmux_next_regenerate_bundles_workflow.py
+      - .github/workflows/cmux-next-regenerate-bundles.yml
+      - tests/test_next_batch.py
+      - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
@@ -637,6 +687,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
@@ -706,6 +757,16 @@ jobs:
           python3 tests/test_cmux_next_route.py
           python3 tests/test_cmux_next_route_replay.py
 
+      # The companion workflows' structure: generated-files catch-up, the bundle
+      # regeneration dispatch and the next-batch landing queue.
+      - name: Companion workflows
+        id: companion-workflows
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_generated_catch_up.py
+          python3 tests/test_cmux_next_regenerate_bundles_workflow.py
+          python3 tests/test_next_batch.py
+
       # A pull request that changes the router replays the last 30 merged PRs' changed files
       # through the base router (the merge commit's HEAD^1) and its own: a tier the new router
       # adds, or drops without naming a fast tier, fails (scripts/ci/cmux_next_route_replay.py).
@@ -765,6 +826,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
@@ -793,6 +855,57 @@ jobs:
   # an artifacts run that ended without publishing it dispatched same-tree mode
   # with same_tree_state=failed. A later publication of the key still starts
   # the tree jobs (the marker stays) and posts their statuses.
+  # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source: every
+  # input file and the pinned bun) on Linux and caches them under that key. The Mac jobs
+  # restore them by the same key instead of running bun and Vite+ themselves; a push to
+  # feat-cmux-next fills the cache every pull request can read.
+  web-bundles:
+    if: ${{ inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    name: cmux-next web bundles (source-keyed cache)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the cached web bundles
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          lookup-only: true
+
+      - name: Build the web bundles for this source key
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --out-root "$GITHUB_WORKSPACE/web-bundles-out"
+
+      - name: Cache the web bundles under this source key
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
+        run: bash tests/test_build_web_bundles_from.sh
+
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
     # A superseded push reports nothing: its newer head is tested.
@@ -930,6 +1043,23 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.11.1"
+
+      # The Linux web-bundles job builds the bundles once per source key and caches them; a
+      # hit installs them here instead of building, and a miss builds them in the next step.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the web bundles built for this source key
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Install the restored web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
@@ -1115,6 +1245,23 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      # The Linux web-bundles job builds the bundles once per source key and caches them; a
+      # hit installs them here instead of building, and a miss builds them in the next step.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the web bundles built for this source key
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Install the restored web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
 
@@ -1263,6 +1410,23 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.11.1"
+
+      # The Linux web-bundles job builds the bundles once per source key and caches them; a
+      # hit installs them here instead of building, and a miss builds them in the next step.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the web bundles built for this source key
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Install the restored web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
@@ -1500,8 +1664,15 @@ jobs:
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
   # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
-  # promote this commit to the protected `nightly-next` branch (debounced to
-  # one build per 2 h there). Only main's job, in the `release` environment,
+  # promote this commit to the protected `nightly-next` branch. Main's promote
+  # job refuses a head whose push run has no successful Release compile, so the
+  # request waits for that job and for nothing else: an unrelated red job never
+  # holds the promotion. (Requested after the Linux checks instead, it ran
+  # before the Release compile finished and every promotion was refused.)
+  # Every green head is promoted, with no debounce: nightly.yml's concurrency
+  # group lets the running nightly-next build finish and replaces only the
+  # pending one, so the feed rolls forward to the newest green head without
+  # dropping the last one. Only main's job, in the `release` environment,
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   request-nightly-next:
@@ -1519,7 +1690,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
-        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
+        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA"
 
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]
@@ -1601,6 +1772,24 @@ jobs:
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      # The app's web bundles are build output (cx-vn5); the "Verify web
+      # bundles" phase refuses an app built without them, and this job's app is
+      # the dogfood artifact.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
         run: |

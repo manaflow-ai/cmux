@@ -7,6 +7,10 @@ import Foundation
 /// actor) can prove it agrees with Swift on every row.
 nonisolated enum SettingsSchemaSamples {
     static func samples(for descriptor: SettingDescriptor) -> (accept: [JSONValue], refuse: [JSONValue]) {
+        if descriptor.path == ChatSettings.rootsPath {
+            return ([.array([]), .array([.string("/opt/cmux-chat-data")])],
+                    [.string("/opt/cmux-chat-data"), .array([.string("~/chats")]), .array([.string("/")]), .array([.string("/Volumes/chats")]), .array([.number(1)])])
+        }
         switch descriptor.kind {
         case .toggle:
             return ([.bool(true), .bool(false)], [.string("true"), .number(1), .null])

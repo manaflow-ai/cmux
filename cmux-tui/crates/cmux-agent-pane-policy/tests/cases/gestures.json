@@ -1,0 +1,257 @@
+[
+ {
+  "name": "prompt always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "set_mode always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_mode",
+   "params": {
+    "sessionId": "s",
+    "modeId": "m"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "set_config_option always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/set_config_option",
+   "params": {}
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "trust trusted",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": "trusted"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "trust untrusted",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": "untrusted"
+   }
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
+  "name": "trust unknown",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": "unknown"
+   }
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
+  "name": "trust no level",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "trust level not a string",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": 1
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "trust odd level",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/a",
+    "level": "Untrusted"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "permission known deny",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "no"
+   }
+  },
+  "denies": [
+   [
+    "p",
+    "no"
+   ]
+  ],
+  "needs": false
+ },
+ {
+  "name": "permission unknown option",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "yes"
+   }
+  },
+  "denies": [
+   [
+    "p",
+    "no"
+   ]
+  ],
+  "needs": true
+ },
+ {
+  "name": "permission missing option",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p"
+   }
+  },
+  "denies": [
+   [
+    "p",
+    "no"
+   ]
+  ],
+  "needs": true
+ },
+ {
+  "name": "group deny",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_group_respond",
+   "params": {
+    "decision": "deny"
+   }
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
+  "name": "group allow",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_group_respond",
+   "params": {
+    "decision": "allow_once"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "group no decision",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_group_respond",
+   "params": {}
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "revoke needs none",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_chat_revoke",
+   "params": {
+    "sessionId": "s"
+   }
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
+  "name": "status needs none",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/status",
+   "params": {}
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
+  "name": "enabling a folder harness always needs a gesture",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1"
+   }
+  },
+  "denies": [],
+  "needs": true
+ }
+]
