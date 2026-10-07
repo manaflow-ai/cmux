@@ -141,6 +141,17 @@ describe("api key store", () => {
     expect(Option.isNone(await find(expired.hash))).toBe(true);
     expect(Option.isSome(await find(future.hash))).toBe(true);
   });
+
+  it("finds a live key by tenant and id, and ignores revoked, expired and other tenants' keys (M3 code and device checks)", async () => {
+    const live = await insertKey({ scopes: ["mesh:join"] });
+    const revoked = await insertKey({ scopes: ["mesh:join"], revoked: true });
+    const expired = await insertKey({ scopes: ["mesh:join"], expiresAt: "2026-10-06T00:00:00Z" });
+    const find = (tenant: string, id: typeof live.id) => run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveById(TenantId.make(tenant), id, now)));
+    expect(Option.map(await find("team_a", live.id), (key) => [key.id, key.tenantId])).toEqual(Option.some([live.id, "team_a"]));
+    expect(Option.isNone(await find("team_b", live.id))).toBe(true);
+    expect(Option.isNone(await find("team_a", revoked.id))).toBe(true);
+    expect(Option.isNone(await find("team_a", expired.id))).toBe(true);
+  });
 });
 
 describe("S2 ownership queries", () => {

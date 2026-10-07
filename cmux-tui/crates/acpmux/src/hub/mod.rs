@@ -318,6 +318,8 @@ pub struct Hub {
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
+    /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
+    pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
 }
 
@@ -392,6 +394,7 @@ impl Hub {
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
+            chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {

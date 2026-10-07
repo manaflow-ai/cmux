@@ -42,12 +42,12 @@ export function editedPaths(tool: Tool): string[] {
 /// A short row label that describes a call without ever falling back to its raw JSON input.
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
 /// precedes `file_path` still reads as `Write gen.py`.
-export function toolLabel(tool: Tool, fallback: string): string {
+export function toolLabel(tool: Tool, fallback: string, commandLabel: (command: string) => string): string {
   const title = readableName(tool.title);
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
-  if (tool.kind === "execute" && command) return `Ran ${command}`;
+  if (tool.kind === "execute" && command) return commandLabel(command);
   if (paths.length) {
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${paths[0]}`;
