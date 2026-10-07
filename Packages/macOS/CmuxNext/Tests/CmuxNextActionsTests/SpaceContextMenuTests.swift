@@ -12,9 +12,14 @@ import Testing
     static let space = ActionTargetRef(kind: .profile, id: "p1")
     static let profiles = [ActionEnumCase(value: "default", title: "Personal"), ActionEnumCase(value: "work", title: "Work")]
 
-    /// A registry with every space-menu action bound to a recorder.
+    /// A registry with every space-menu action bound to a recorder. A row
+    /// that still needs an argument (an icon) or a confirmation (Delete)
+    /// reaches the collector or the presenter, which record the run too.
     private func registry(_ ran: @escaping (ActionID, ActionInvocation) -> Void) -> ActionRegistry {
         let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        registry.argumentCollector = { ran($0, $1) }
+        registry.confirmationPresenter = { id, invocation, _ in ran(id, invocation) }
         for id in ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .profile)) {
             registry.bind(id, invoke: { ran(id, $0) })
         }
@@ -44,7 +49,11 @@ import Testing
     /// Each top-level row runs its own shared action on the clicked space.
     @Test func everyRowRunsItsActionOnTheClickedSpace() throws {
         var ran: [(ActionID, ActionInvocation)] = []
-        let menu = registry { ran.append(($0, $1)) }.makeContextMenu(for: .profile, target: Self.space)
+        // `ActionMenuTarget` holds the registry weakly, as the app's long-lived
+        // registry is the owner; the test keeps it alive past every click.
+        let owner = registry { ran.append(($0, $1)) }
+        defer { withExtendedLifetime(owner) {} }
+        let menu = owner.makeContextMenu(for: .profile, target: Self.space)
         for item in menu.items where !item.isSeparatorItem && item.submenu == nil { click(item) }
         #expect(ran.map(\.0) == ["space.setIcon", "space.rename", "space.newGroup", "space.delete"])
         #expect(ran.allSatisfy { $0.1.target == Self.space })
@@ -54,7 +63,11 @@ import Testing
     /// current one, and a click sets it for the clicked space.
     @Test func setBrowserProfileListsTheProfiles() throws {
         var ran: [(ActionID, ActionInvocation)] = []
-        let menu = registry { ran.append(($0, $1)) }.makeContextMenu(for: .profile, target: Self.space)
+        // `ActionMenuTarget` holds the registry weakly, as the app's long-lived
+        // registry is the owner; the test keeps it alive past every click.
+        let owner = registry { ran.append(($0, $1)) }
+        defer { withExtendedLifetime(owner) {} }
+        let menu = owner.makeContextMenu(for: .profile, target: Self.space)
         let submenu = try #require(menu.items.first { $0.title == "Set Browser Profile" }?.submenu)
         #expect(submenu.items.map(\.title) == ["Personal", "Work"])
         #expect(submenu.items.filter { $0.state == .on }.map(\.title) == ["Work"])
@@ -67,7 +80,11 @@ import Testing
     /// Edit Theme Color holds the space colors and the Ghostty theme.
     @Test func editThemeColorHoldsColorsAndTheTheme() throws {
         var ran: [(ActionID, ActionInvocation)] = []
-        let menu = registry { ran.append(($0, $1)) }.makeContextMenu(for: .profile, target: Self.space)
+        // `ActionMenuTarget` holds the registry weakly, as the app's long-lived
+        // registry is the owner; the test keeps it alive past every click.
+        let owner = registry { ran.append(($0, $1)) }
+        defer { withExtendedLifetime(owner) {} }
+        let menu = owner.makeContextMenu(for: .profile, target: Self.space)
         let submenu = try #require(menu.items.first { $0.title == "Edit Theme Color" }?.submenu)
         let green = try #require(submenu.items.first { $0.title == "Space Color: Green" })
         click(green)
