@@ -44,6 +44,12 @@
       }
     },
     "workspace.tab.create:result": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" } } },
-    "workspace.tab.close": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" } } }
+    "workspace.tab.close": { "type": "object", "additionalProperties": false, "required": ["tab"], "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" } } },
+    "workspace.preview.set": {
+      "type": "object", "additionalProperties": false, "required": ["tab", "preview"],
+      "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "preview": { "type": "string", "maxLength": 400 } }
+    },
+    "workspace.close": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.read": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } }
   }
 }

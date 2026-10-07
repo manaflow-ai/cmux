@@ -15,6 +15,8 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSWorkspaces
+import CmuxiOSWorkspacesCore
 import Foundation
 import OSLog
 import UIKit
@@ -75,6 +77,9 @@ final class AppContainer {
     /// B5/D1 fill this with the live path badge per device once they hold a
     /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
     var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
+    /// Lane C1 sets the cmux session host's byte sources (`.host` over
+    /// `CmuxLink`); nil keeps A2's mock host behind workspace terminals.
+    var terminalSources: (any WorkspaceTerminalSourceFactory)?
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
@@ -132,6 +137,15 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
+        // Lane C5: workspaces of the account's paired Macs over the control
+        // plane. B1 replaces the channel factory with its ControlPlaneClient
+        // adapter (c5-workspaces.md section 4); until then each Mac shows as
+        // unreachable with this reason.
+        let unavailable = WorkspacesFeature.controlPlaneUnavailable
+        factories.workspaces = { devices in
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices),
+                                        channels: UnavailableWorkspaceChannelFactory(reason: unavailable))
+        }
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
