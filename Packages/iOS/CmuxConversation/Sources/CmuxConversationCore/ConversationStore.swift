@@ -1214,8 +1214,15 @@ public final class ConversationStore {
     /// captures the catch-up target and reads everything.
     private func refreshReadState() {
         let before = (lastReadSeq, unreadCount, catchUpMarker)
-        unreadCount = computeUnread()
-        if isViewing, hasLoadedNewest {
+        // Counting walks the whole window; while viewing it is counted once,
+        // after reading, unless the catch-up capture needs the count before.
+        let marksRead = isViewing && hasLoadedNewest
+        var counted = false
+        if !marksRead || (!catchUpCaptured && serverRead != nil) {
+            unreadCount = computeUnread()
+            counted = true
+        }
+        if marksRead {
             if !catchUpCaptured, serverRead != nil {
                 catchUpCaptured = true
                 // An earlier target still pending stays: it is the older one.
@@ -1229,7 +1236,9 @@ public final class ConversationStore {
                 pendingReadSeq = max(pendingReadSeq, newest)
                 Task { [backend] in await backend.markRead(upToSeq: newest) }
                 unreadCount = computeUnread()
+                counted = true
             }
+            if !counted { unreadCount = computeUnread() }
         }
         if before != (lastReadSeq, unreadCount, catchUpMarker) { notify(.readState) }
     }
