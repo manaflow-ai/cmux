@@ -62,7 +62,8 @@ enum ConversationTheme {
     static let emojiOnlyFontSize: CGFloat = 48
     static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? singleEmojiFontSize : emojiOnlyFontSize }
     static let maxImageWidthFraction: CGFloat = 0.63
-    static let maxImageHeight: CGFloat = 340
+    /// Measured: a 9:16 photo in Messages (iPhone 17 Pro) stops at 337 pt.
+    static let maxImageHeight: CGFloat = 337
 
     /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
     /// from the bubble's leading edge.

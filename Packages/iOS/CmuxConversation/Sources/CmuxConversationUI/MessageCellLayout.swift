@@ -154,19 +154,19 @@ extension MessageCellLayout {
 
         if hasReactions { y += 18 }
 
+        // Messages stacks each photo at the full image width, 4 pt apart; a
+        // tall photo is capped in height and aspect-fills (it never narrows).
         var imageFrames: [CGRect] = []
+        let imageSpacing: CGFloat = 4
         for attachment in message.attachments {
-            let maxW = floor(width * t.maxImageWidthFraction)
-            var w = maxW
-            var h = w / CGFloat(attachment.aspectRatio)
-            if h > t.maxImageHeight {
-                h = t.maxImageHeight
-                w = max(120, h * CGFloat(attachment.aspectRatio))
-            }
+            let w = floor(width * t.maxImageWidthFraction)
+            let h = min(w / CGFloat(attachment.aspectRatio), t.maxImageHeight)
             imageFrames.append(bubbleRect(bodyWidth: round(w), y: y, height: round(h)))
-            y += round(h) + t.groupedSpacing
+            y += round(h) + imageSpacing
         }
-        if !imageFrames.isEmpty, message.text.isEmpty { y -= t.groupedSpacing }
+        if !imageFrames.isEmpty {
+            y += message.text.isEmpty ? -imageSpacing : t.groupedSpacing - imageSpacing
+        }
 
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
@@ -287,6 +287,8 @@ extension MessageCellLayout {
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
+        // A photo-only row (no text bubble, no emoji) tails its last photo; the
+        // tail hangs below the full-height photo (Messages), so reserve it.
         let tailedImage = bubbleFrame == nil && emojiFrame == nil && !imageFrames.isEmpty
         var tailOverhang: CGFloat = 0
         if model.showsTail, bubbleFrame != nil || tailedImage {

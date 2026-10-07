@@ -434,8 +434,18 @@ final class MacMessageRowView: MacFlippedView {
         saveButton.isHidden = true
     }
 
+    /// Opens the photo under `point` (row coordinates) in Quick Look.
+    func quickLookPhoto(at point: CGPoint) -> Bool {
+        guard let model,
+              let index = imageViews.indices.first(where: { !imageViews[$0].isHidden && imageViews[$0].frame.contains(point) }),
+              index < model.message.attachments.count, let image = imageViews[index].image else { return false }
+        MacPhotoQuickLook.shared.show(model.message.attachments[index], image: image, from: self, rect: imageViews[index].frame)
+        return true
+    }
+
     @objc private func saveImage() {
-        guard let attachment = model?.message.attachments.first(where: { $0.kind == .image }) else { return }
+        // The button sits beside the last photo; save that one.
+        guard let attachment = model?.message.attachments.last(where: { $0.kind == .image }) else { return }
         Task { @MainActor in
             guard let image = await MacImageLoader.shared.image(for: attachment),
                   let tiff = image.tiffRepresentation,

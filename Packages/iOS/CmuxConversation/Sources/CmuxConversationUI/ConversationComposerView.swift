@@ -34,6 +34,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []
     private(set) var attachments: [ComposerAttachment] = []
+    /// A preview's remove button was tapped (after the attachment is dropped).
+    var onRemoveAttachment: ((UUID) -> Void)?
 
     /// Set by the controller: the field may grow until it reaches the header.
     var maximumFieldHeight: CGFloat = 600 { didSet { if oldValue != maximumFieldHeight { updateHeight() } } }
@@ -53,8 +55,17 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
     }
 
+    /// Edge inset of the + button and field. Messages pulls both to 16 pt
+    /// while the Photos drawer is open (27 pt otherwise).
+    var sideInset: CGFloat = ConversationTheme.composerSideInset { didSet { setNeedsLayout() } }
+
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
-    private let attachmentHeight: CGFloat = 120
+    // Messages' attachment card: 154 pt previews inset 6 pt, 6 pt apart, then a
+    // separator inset 16 pt that sits 7 pt below them.
+    private let attachmentHeight: CGFloat = 154
+    private let attachmentInset: CGFloat = 6
+    private let attachmentGap: CGFloat = 6
+    private var attachmentBand: CGFloat { attachmentInset + attachmentHeight + 7 }
     private let verticalPadding: CGFloat = 9
     private let fieldTextInset: CGFloat = 14.5
     private let sendSize = CGSize(width: 37, height: 28)
@@ -147,16 +158,16 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         super.layoutSubviews()
         let t = ConversationTheme.self
         let plusSize = t.plusButtonSize
-        plusGlass.frame = CGRect(x: t.composerSideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
+        plusGlass.frame = CGRect(x: sideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
         plusButton.frame = plusGlass.bounds
         let fieldX = plusGlass.frame.maxX + t.composerFieldGap
-        fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - t.composerSideInset + 1, height: fieldHeight)
+        fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - sideInset + 1, height: fieldHeight)
         let field = fieldGlass.bounds
         var textTop: CGFloat = 0
         if !attachments.isEmpty {
-            attachmentStrip.frame = CGRect(x: 0, y: 8, width: field.width, height: attachmentHeight)
-            attachmentSeparator.frame = CGRect(x: 0, y: attachmentHeight + 16, width: field.width, height: 0.5)
-            textTop = attachmentHeight + 16
+            attachmentStrip.frame = CGRect(x: 0, y: attachmentInset, width: field.width, height: attachmentHeight)
+            attachmentSeparator.frame = CGRect(x: 16, y: attachmentBand, width: field.width - 32, height: 0.5)
+            textTop = attachmentBand
             layoutAttachments()
         }
         let trailing = sendSize.width + 10
@@ -210,7 +221,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
-        if !attachments.isEmpty { natural += attachmentHeight + 16 }
+        if !attachments.isEmpty { natural += attachmentBand }
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
         guard height != fieldHeight else { return }
@@ -247,11 +258,25 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             imageView.layer.cornerRadius = 12
             imageView.layer.cornerCurve = .continuous
             container.addSubview(imageView)
+            // A 19 pt neutral gray disc with a white cross (Messages), inside a
+            // 32 pt hit target.
             let close = UIButton(type: .custom)
-            close.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(paletteColors: [.white, UIColor.black.withAlphaComponent(0.55)])), for: .normal)
+            let disc = UIView(frame: CGRect(x: 6.5, y: 6.5, width: 19, height: 19))
+            disc.backgroundColor = UIColor(white: 0.46, alpha: 1)
+            disc.layer.cornerRadius = 9.5
+            disc.isUserInteractionEnabled = false
+            let cross = UIImageView(image: UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)))
+            cross.tintColor = .white
+            cross.contentMode = .center
+            cross.frame = disc.bounds
+            disc.addSubview(cross)
+            close.addSubview(disc)
             close.accessibilityLabel = String(localized: "conversation.composer.removeAttachment", defaultValue: "Remove attachment", bundle: .module)
             let id = attachment.id
-            close.addAction(UIAction { [weak self] _ in self?.removeAttachment(id: id) }, for: .touchUpInside)
+            close.addAction(UIAction { [weak self] _ in
+                self?.removeAttachment(id: id)
+                self?.onRemoveAttachment?(id)
+            }, for: .touchUpInside)
             container.addSubview(close)
             attachmentStrip.addSubview(container)
             return container
@@ -263,20 +288,25 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         setNeedsLayout()
         updateHeight()
         layoutIfNeeded()
+        // The newest pick scrolls into view; earlier ones clip at the card edge.
+        let maxX = max(0, attachmentStrip.contentSize.width - attachmentStrip.bounds.width)
+        attachmentStrip.setContentOffset(CGPoint(x: maxX, y: 0), animated: false)
     }
 
     private func layoutAttachments() {
-        var x: CGFloat = 12
+        var x = attachmentInset
+        let maxWidth = max(1, attachmentStrip.bounds.width - 2 * attachmentInset)
         for (index, view) in attachmentViews.enumerated() {
             let image = attachments[index].image
             let aspect = image.size.width / max(image.size.height, 1)
-            let width = min(220, max(70, attachmentHeight * aspect))
+            let width = min(maxWidth, max(60, (attachmentHeight * aspect).rounded()))
             view.frame = CGRect(x: x, y: 0, width: width, height: attachmentHeight)
             view.subviews.first?.frame = view.bounds
-            view.subviews.last?.frame = CGRect(x: width - 30, y: 4, width: 26, height: 26)
-            x += width + 8
+            // The cross centers 13.3 pt in from the preview's top-right corner.
+            view.subviews.last?.frame = CGRect(x: width - 13.3 - 16, y: 13.3 - 16, width: 32, height: 32)
+            x += width + attachmentGap
         }
-        attachmentStrip.contentSize = CGSize(width: x + 4, height: attachmentHeight)
+        attachmentStrip.contentSize = CGSize(width: x - attachmentGap + attachmentInset, height: attachmentHeight)
     }
 
     func clearAfterSend() {

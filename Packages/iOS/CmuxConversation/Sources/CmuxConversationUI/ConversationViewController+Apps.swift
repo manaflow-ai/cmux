@@ -118,6 +118,26 @@ extension ConversationViewController {
         overlay.present()
     }
 
+    /// Opens a photo full screen. On iOS 18+ it zooms out of its bubble and
+    /// back, and swiping down dismisses interactively, as in Messages.
+    func presentPhotoViewer(from imageView: UIImageView) {
+        guard let image = imageView.image else { return }
+        dismissPhotoDrawer()
+        view.endEditing(true)
+        let viewer = ConversationPhotoViewerController(image: image)
+        viewer.modalPresentationStyle = .fullScreen
+        if #available(iOS 18.0, *) {
+            let options = UIViewController.Transition.ZoomOptions()
+            options.interactiveDismissShouldBegin = { [weak viewer] _ in viewer?.allowsInteractiveDismiss ?? true }
+            options.alignmentRectProvider = { [weak viewer] context in
+                guard let viewer else { return .zero }
+                return viewer.photoView.convert(viewer.photoView.bounds, to: context.zoomedViewController.view)
+            }
+            viewer.preferredTransition = .zoom(options: options) { [weak imageView] _ in imageView }
+        }
+        present(viewer, animated: true)
+    }
+
     func presentPhotoDrawer() {
         guard photoDrawer == nil else { return }
         view.endEditing(true)
@@ -125,13 +145,28 @@ extension ConversationViewController {
         drawer.onToggle = { [weak self] asset, selected in
             self?.photoSelectionChanged(asset: asset, selected: selected)
         }
-        let height: CGFloat = 330 + view.safeAreaInsets.bottom
-        drawer.frame = CGRect(x: 6, y: view.bounds.height, width: view.bounds.width - 12, height: height - 6)
+        // Removing a preview from the card deselects its photo in the drawer.
+        composer.onRemoveAttachment = { [weak self] attachmentID in
+            guard let self, let assetID = self.pickedAssets.first(where: { $0.value == attachmentID })?.key else { return }
+            self.pickedAssets[assetID] = nil
+            self.photoDrawer?.deselect(assetID: assetID)
+        }
+        // Measured on iOS 26 Messages (iPhone 17 Pro): a card inset 8 pt from
+        // the sides and bottom, as tall as the keyboard area (336 pt plus the
+        // home-indicator inset), with the field 24 pt above its top edge.
+        let inset: CGFloat = 8
+        let height: CGFloat = 336 + view.safeAreaInsets.bottom
+        let top = view.bounds.height - inset - height
+        drawer.frame = CGRect(x: inset, y: view.bounds.height, width: view.bounds.width - 2 * inset, height: height)
         view.addSubview(drawer)
         photoDrawer = drawer
+        // The composer's field sits 4 pt above its container's bottom.
+        let composerBottom = top - 20 - (view.bounds.height - view.safeAreaInsets.bottom)
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            drawer.frame.origin.y = self.view.bounds.height - height
-            self.composerBottomConstraintConstant(-(height - self.view.safeAreaInsets.bottom) - 4)
+            drawer.frame.origin.y = top
+            self.composer.sideInset = 16
+            self.composer.layoutIfNeeded()
+            self.composerBottomConstraintConstant(composerBottom)
             self.view.layoutIfNeeded()
         }
     }
@@ -142,6 +177,8 @@ extension ConversationViewController {
         pickedAssets = [:]
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             drawer.frame.origin.y = self.view.bounds.height
+            self.composer.sideInset = ConversationTheme.composerSideInset
+            self.composer.layoutIfNeeded()
             self.composerBottomConstraintConstant(-4)
             self.view.layoutIfNeeded()
         } completion: { _ in
@@ -160,7 +197,10 @@ extension ConversationViewController {
         options.deliveryMode = .highQualityFormat
         PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { [weak self] data, uti, _, _ in
             Task { @MainActor in
-                guard let self, let data, let image = UIImage(data: data) else { return }
+                // The photo loads asynchronously; drop it if it was deselected
+                // or already cleared by a send while it loaded.
+                guard let self, let data, let image = UIImage(data: data),
+                      self.photoDrawer?.isSelected(assetID: id) == true, self.pickedAssets[id] == nil else { return }
                 let isPNG = uti == UTType.png.identifier
                 let attachment = ComposerAttachment(image: image, data: data, mimeType: isPNG ? "image/png" : "image/jpeg")
                 self.pickedAssets[id] = attachment.id

@@ -3,7 +3,7 @@ import Photos
 import UIKit
 
 /// Messages' inline Photos drawer: a 3-column grid of recent library photos
-/// with 2 pt gutters; selected photos show a blue count badge.
+/// with hairline gutters; selected photos lighten and show a blue count badge.
 @MainActor
 final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
     var onToggle: ((PHAsset, Bool) -> Void)?
@@ -12,8 +12,6 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
     private let imageManager = PHCachingImageManager()
     private lazy var grid: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 2
-        layout.minimumLineSpacing = 2
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
         view.backgroundColor = .clear
         view.dataSource = self
@@ -23,14 +21,24 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         return view
     }()
     private let message = UILabel()
+    /// The sheet grabber Messages draws over the first row of photos.
+    private let grabber = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemBackground
         accessibilityIdentifier = "conversation.photoDrawer"
-        // A card inset from the screen edges, matching the device's corner curve.
-        layer.cornerRadius = 34
-        layer.cornerCurve = .continuous
+        // A card inset from the screen edges: 38 pt top corners and bottom
+        // corners concentric with the display's (measured ~57 pt on iPhone 17 Pro).
+        if #available(iOS 26.0, *) {
+            cornerConfiguration = .corners(
+                topLeftRadius: .fixed(38), topRightRadius: .fixed(38),
+                bottomLeftRadius: .containerConcentric(minimum: 38), bottomRightRadius: .containerConcentric(minimum: 38)
+            )
+        } else {
+            layer.cornerRadius = 38
+            layer.cornerCurve = .continuous
+        }
         clipsToBounds = true
         addSubview(grid)
         message.textAlignment = .center
@@ -38,6 +46,10 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         message.textColor = .secondaryLabel
         message.font = .systemFont(ofSize: 15)
         addSubview(message)
+        grabber.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        grabber.layer.cornerRadius = 2.5
+        grabber.isUserInteractionEnabled = false
+        addSubview(grabber)
         load()
     }
 
@@ -48,8 +60,15 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         super.layoutSubviews()
         grid.frame = bounds
         message.frame = bounds.insetBy(dx: 32, dy: 0)
+        grabber.frame = CGRect(x: (bounds.width - 35) / 2, y: 4.7, width: 35, height: 5)
         if let layout = grid.collectionViewLayout as? UICollectionViewFlowLayout {
-            let side = floor((bounds.width - 4) / 3)
+            // Messages: three square columns with a 5 px (1.67 pt at 3x) gutter
+            // and no slack, so the outer columns run to the card's edges.
+            let scale = window?.screen.scale ?? traitCollection.displayScale
+            let gutter = round(1.67 * scale) / scale
+            let side = (bounds.width - 2 * gutter) / 3 - 0.001
+            layout.minimumInteritemSpacing = gutter
+            layout.minimumLineSpacing = gutter
             layout.itemSize = CGSize(width: side, height: side)
         }
     }
@@ -108,9 +127,23 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         onToggle?(asset, selected)
     }
 
+    func isSelected(assetID: String) -> Bool { selection.contains(assetID) }
+
+    /// Drops one photo from the selection (its card preview was removed),
+    /// renumbering the remaining badges as Messages does.
+    func deselect(assetID: String) {
+        guard let index = selection.firstIndex(of: assetID) else { return }
+        selection.remove(at: index)
+        for case let cell as Cell in grid.visibleCells {
+            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 }, animated: true)
+        }
+    }
+
+    /// After a send: badges drop in place. Reloading the grid blanked every
+    /// thumbnail for a frame while images re-requested.
     func clearSelection() {
         selection = []
-        grid.reloadData()
+        for case let cell as Cell in grid.visibleCells { cell.setBadge(nil, animated: true) }
     }
 
     private final class Cell: UICollectionViewCell {
@@ -123,12 +156,12 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             imageView.contentMode = .scaleAspectFill
             imageView.clipsToBounds = true
             contentView.addSubview(imageView)
-            badge.backgroundColor = .systemBlue
+            badge.backgroundColor = UIColor(red: 0, green: 136 / 255, blue: 1, alpha: 1)
             badge.textColor = .white
-            badge.font = .systemFont(ofSize: 14, weight: .semibold)
+            badge.font = .systemFont(ofSize: 13, weight: .semibold)
             badge.textAlignment = .center
-            badge.layer.cornerRadius = 12
-            badge.layer.borderWidth = 1.5
+            badge.layer.cornerRadius = 11
+            badge.layer.borderWidth = 1
             badge.layer.borderColor = UIColor.white.cgColor
             badge.clipsToBounds = true
             contentView.addSubview(badge)
@@ -147,7 +180,9 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         override func layoutSubviews() {
             super.layoutSubviews()
             imageView.frame = contentView.bounds
-            badge.frame = CGRect(x: contentView.bounds.width - 30, y: 6, width: 24, height: 24)
+            // Messages: a 22 pt badge centered 15 pt in from the bottom-right corner.
+            let b = contentView.bounds
+            badge.frame = CGRect(x: b.width - 15 - 11, y: b.height - 15 - 11, width: 22, height: 22)
         }
 
         func setBadge(_ number: Int?, animated: Bool = false) {
@@ -155,14 +190,14 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             let show = number != nil
             guard animated, badge.isHidden == show else {
                 badge.isHidden = !show
-                imageView.alpha = show ? 0.82 : 1
+                imageView.alpha = show ? 0.75 : 1
                 return
             }
             badge.isHidden = false
             badge.transform = show ? CGAffineTransform(scaleX: 0.3, y: 0.3) : .identity
             UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0) {
                 self.badge.transform = show ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
-                self.imageView.alpha = show ? 0.82 : 1
+                self.imageView.alpha = show ? 0.75 : 1
             } completion: { _ in
                 self.badge.isHidden = !show
                 self.badge.transform = .identity
