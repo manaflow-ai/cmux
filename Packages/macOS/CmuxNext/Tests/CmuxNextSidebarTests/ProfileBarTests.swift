@@ -17,6 +17,21 @@ import Testing
         #expect(ProfileBarLogic.isVisible(profileCount: 2))
     }
 
+    /// Coordinator (2026-10-06): one space drew a stray dot above the footer. The bar stays
+    /// mounted (stable chrome), but a lone dot switches nothing, so it draws only with the "+"
+    /// while the pointer is over the bar.
+    @MainActor @Test func aLoneSpaceDrawsNoDotAtRest() {
+        let model = SidebarModel()
+        model.profiles = [SidebarProfile(id: a, name: "Default")]
+        let bar = ProfileBarView(model: model)
+        #expect(bar.drawnDotCount == 0)
+        bar.setPointerInside(true)
+        #expect(bar.drawnDotCount == 1, "hover shows it with the + for a new space")
+        bar.setPointerInside(false)
+        model.profiles.append(SidebarProfile(id: b, name: "Work"))
+        #expect(bar.drawnDotCount == 2)
+    }
+
     @Test func stepClampsAtTheEnds() {
         #expect(ProfileBarLogic.step(from: a, by: 1, in: [a, b, c]) == b)
         #expect(ProfileBarLogic.step(from: c, by: 1, in: [a, b, c]) == nil)

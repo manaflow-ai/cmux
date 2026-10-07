@@ -15,8 +15,11 @@ final class AgentRecentsFeed {
     static let limit = 8
 
     private(set) var chats: [AcpmuxRecentChat] = []
+    /// The chats' projects (folders), newest first.
+    var projects: [String] { recents.projects }
     private let socket: String
     private var recents = AcpmuxRecentChats()
+    private var notified = AcpmuxRecentChats()
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -34,6 +37,9 @@ final class AgentRecentsFeed {
         subscription?.cancel()
         directoryWatch?.cancel()
     }
+
+    /// At most `limit` chats in `project` (every project for nil), newest first.
+    func newest(in project: String?) -> [AcpmuxRecentChat] { recents.newest(Self.limit, in: project) }
 
     /// Calls `changed` after each change while `owner` lives; the first
     /// observer starts the watch.
@@ -84,9 +90,10 @@ final class AgentRecentsFeed {
         } else {
             return
         }
-        let next = recents.newest(Self.limit)
-        guard next != chats else { return }
-        chats = next
+        // Any change notifies: a project filter shows chats beyond the overall newest.
+        guard recents != notified else { return }
+        notified = recents
+        chats = recents.newest(Self.limit)
         observers.removeAll { $0.owner() == nil }
         for observer in observers { observer.changed() }
     }

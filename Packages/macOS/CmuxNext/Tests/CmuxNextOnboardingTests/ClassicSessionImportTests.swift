@@ -54,6 +54,65 @@ import Testing
         #expect(pane.selectedTab == 1)
     }
 
+    /// Classic titles a home-folder shell "~": a name that is only a path
+    /// gives way to the first tab's title, else the folder's name.
+    @Test func aPathTitleGivesWayToTheTabOrTheFolder() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[
+          {"customTitle":"Mine","processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"vim","terminal":{"workingDirectory":"/Users/me"}}]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"npm run dev","terminal":{"workingDirectory":"/Users/me"}}]},
+          {"processTitle":"~/code/app","currentDirectory":"/Users/me/code/app",
+           "panels":[{"id":"a","title":"~/code/app","terminal":{"workingDirectory":"/Users/me/code/app"}}]},
+          {"processTitle":"/tmp","currentDirectory":"/tmp","panels":[]},
+          {"processTitle":"codex","currentDirectory":"/Users/me/x","panels":[]}
+        ]}}]}
+        """.data(using: .utf8)!
+        let names = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json).map(\.name)
+        #expect(names == ["Mine", "npm run dev", "app", "tmp", "codex"])
+    }
+
+    /// Workspaces that share a folder are told apart by what ran in them,
+    /// then their branch; a number is the last resort.
+    @Test func workspacesInOneFolderGetNamesThatTellThemApart() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~"},{"id":"b","title":"nvim"}]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~","terminal":{"agent":{"kind":"claude","sessionId":"s"}}}]},
+          {"processTitle":"ssh big-red","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","gitBranch":{"branch":"main","isDirty":false},"panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~","gitBranch":{"branch":"fix-names","isDirty":true}}]},
+          {"customTitle":"api","processTitle":"~","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","panels":[]}
+        ]}}]}
+        """.data(using: .utf8)!
+        let names = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json).map(\.name)
+        #expect(names == ["nvim", "claude", "ssh big-red", "me · main", "me · fix-names", "api", "me", "me 2"])
+    }
+
+    /// The Claude Code and Codex chats classic had open in its terminals,
+    /// as chat ids; other agents and terminals without one are left out.
+    @Test func openChatsAreTheAgentsClassicTerminalsRan() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[{
+          "customTitle":"Agents","currentDirectory":"/work",
+          "panels":[
+            {"id":"a","terminal":{"workingDirectory":"/work","agent":{"kind":"claude","sessionId":"c-1"}}},
+            {"id":"b","terminal":{"workingDirectory":"/work","agent":{"kind":"codex","sessionId":"x-2"}}},
+            {"id":"c","terminal":{"workingDirectory":"/work","agent":{"kind":"gemini","sessionId":"g-3"}}},
+            {"id":"d","terminal":{"workingDirectory":"/work"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let chats = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).openChats(json)
+        #expect(chats == ["claudeCode:c-1", "codex:x-2"])
+    }
+
     /// Classic stable and classic NIGHTLY each keep their own snapshot; the
     /// one saved last is the session to bring over.
     @Test func readsTheNewestOfStableAndNightly() throws {

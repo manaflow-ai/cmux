@@ -42,6 +42,9 @@ export interface PasswordsStoreOptions {
   newKey?: () => string;
 }
 
+/** The host's native op that runs one of the page's registry actions. */
+const ACTION_RUN = "cmux.app.action.run";
+
 const NO_SECTIONS: Sections = { passwords: false, passkeys: false, exceptions: false, export: false };
 
 export class PasswordsStore {
@@ -231,6 +234,32 @@ export class PasswordsStore {
 
   async exportAll(): Promise<void> {
     if (await this.write(PasswordOps.export, {}, false)) this.set({ notice: { kind: "exported" } });
+  }
+
+  // Import. The page runs the app's two person-only import actions (`cmux.app.action.run`); the
+  // app opens its import window or its CSV source sheet and file picker, and refuses a run that
+  // no click or key in the page started. Imported sign-ins come back through
+  // `cmux.passwords.changed`; the page never sees a password.
+
+  /** Import from Browser…: the app's import window (Chrome, Arc, Edge, Firefox and others). */
+  async importFromBrowser(): Promise<void> {
+    await this.runAction({ action: "importFromBrowser" });
+  }
+
+  /** Import CSV…: the app's guided CSV import into the profile the page shows. */
+  async importCSV(): Promise<void> {
+    await this.runAction({ action: "password.importCSV", args: { profile: this.snapshot.profile } });
+  }
+
+  private async runAction(params: Record<string, unknown>): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(ACTION_RUN, params);
+    } catch (error) {
+      this.report(error);
+      return;
+    }
+    if (this.snapshot.notice?.kind === "failed") this.set({ notice: undefined });
   }
 
   /** A native step that changes nothing (reveal, copy): no idempotency key, no reload. */
