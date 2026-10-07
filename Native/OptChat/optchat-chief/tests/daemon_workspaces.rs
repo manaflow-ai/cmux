@@ -40,6 +40,16 @@ fn serve(
                         );
                         continue;
                     }
+                    // The real daemon (server.rs workspace_mutation) refuses
+                    // one of origin and mutation_id without the other.
+                    if req.get("origin").is_some() != req.get("mutation_id").is_some() {
+                        let _ = writeln!(
+                            out,
+                            "{}",
+                            json!({"id": req["id"], "ok": false, "error": {"code": "invalid_params", "message": "origin and mutation_id must be provided together"}})
+                        );
+                        continue;
+                    }
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => {
                             json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities,
