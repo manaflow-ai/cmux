@@ -204,6 +204,10 @@ pub enum Command {
     /// Remote daemons: add, ls, rm.
     #[command(subcommand, alias = "hosts")]
     Host(PeerCmd),
+    /// Bring your own harness: list, add, doctor and reload harness profile
+    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    #[command(subcommand)]
+    Harness(HarnessCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -280,7 +284,11 @@ pub enum Command {
     #[command(hide = true)]
     DaemonStart,
     #[command(hide = true, alias = "kill-server")]
-    Shutdown,
+    Shutdown {
+        /// Leave hosted agents running for the next daemon to adopt.
+        #[arg(long)]
+        keep_agents: bool,
+    },
     #[command(hide = true)]
     Config,
     #[command(subcommand, hide = true)]
@@ -313,6 +321,46 @@ pub enum Command {
         #[arg(long)]
         dev: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum HarnessCmd {
+    /// Every harness with its kind, source file and problems.
+    #[command(alias = "ls")]
+    List,
+    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    Add {
+        /// Profile id (file name); default: the example's id or the command's name.
+        id: Option<String>,
+        /// The program to run: a name on PATH or an absolute path.
+        #[arg(long)]
+        command: Option<String>,
+        /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
+        #[arg(long, default_value = "acp")]
+        protocol: String,
+        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider.
+        #[arg(long)]
+        example: Option<String>,
+        /// Replace an existing file.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Start the harness in a temp folder, run the ACP handshake and one
+    /// prompt, and print each step with an exact fix. Never prints env values.
+    Doctor {
+        id: String,
+        /// Stop after session/new: send no prompt (no model call).
+        #[arg(long)]
+        no_prompt: bool,
+        /// Seconds each step may wait for the harness.
+        #[arg(long, default_value_t = 120)]
+        timeout: u64,
+    },
+    /// Tell the running daemon to read the profile files again.
+    Reload,
+    /// Print the guide an agent follows to integrate a harness (schema,
+    /// doctor loop, examples, security rules).
+    Guide,
 }
 
 #[derive(Subcommand)]
@@ -426,9 +474,16 @@ pub enum DaemonCmd {
     Status,
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start,
-    /// Stop the daemon and every agent process; returns once it exited.
+    /// Stop the daemon and every agent process, agent hosts included;
+    /// returns once they all exited, and fails naming any host left.
+    /// `--keep-agents` leaves hosted agents running for the next daemon to
+    /// adopt (a restart); pooled hosts end anyway.
     #[command(alias = "kill-server")]
-    Shutdown,
+    Shutdown {
+        /// Leave hosted agents running for the next daemon to adopt.
+        #[arg(long)]
+        keep_agents: bool,
+    },
     /// Print the config path and contents.
     Config,
     /// Show configured harnesses with their family and defaults.
@@ -561,7 +616,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start => Command::DaemonStart,
-            DaemonCmd::Shutdown => Command::Shutdown,
+            DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
