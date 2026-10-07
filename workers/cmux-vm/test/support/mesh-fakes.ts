@@ -47,8 +47,9 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
+  const state: { mintKey: boolean; tunnelCreateStatus: number | null; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
     mintKey: false,
+    tunnelCreateStatus: null,
     ruleCreateStatus: null,
     ruleCreates: 0,
     rotations: 0,
@@ -116,6 +117,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return new Response(null, { status: 204 });
     }
     if (path === "/v5/tunnels" && method === "POST") {
+      if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
@@ -224,6 +226,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     /** The provider mints a private key on the next tunnel creates, even with a client key. */
     mintKeys(on: boolean) {
       state.mintKey = on;
+    },
+    /** Tunnel creates answer `status` (null: normal). */
+    failTunnelCreates(status: number | null) {
+      state.tunnelCreateStatus = status;
     },
     /** Rule creates answer `status` (null: normal). */
     failRuleCreates(status: number | null) {
