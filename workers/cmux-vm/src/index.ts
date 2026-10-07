@@ -2,9 +2,10 @@
  * Cloudflare Worker entry. Secrets arrive as Worker secrets and are wrapped in
  * Redacted immediately; they are never logged or returned.
  */
-import { Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
+import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -118,7 +119,9 @@ const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
       perWebhook: withRequestConnection,
       ...(secret === undefined || secret.length === 0 ? {} : { stackWebhookSecret: Redacted.make(secret) }),
     });
-    return (incoming) => handler(incoming);
+    // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
+    const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));
+    return makeSchemaGate(check, (incoming) => handler(incoming));
   } catch {
     console.error("cmux-vm configuration invalid");
     return notConfigured;
