@@ -170,7 +170,10 @@ impl RecordingRunner {
     /// The next command whose display contains `needle` gets `output`
     /// (each rule answers once).
     pub fn answer(&self, needle: &str, output: Output) {
-        self.rules.lock().unwrap_or_else(PoisonError::into_inner).push_back((needle.to_owned(), output));
+        self.rules
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push_back((needle.to_owned(), output));
     }
 
     pub fn commands(&self) -> Vec<Cmd> {

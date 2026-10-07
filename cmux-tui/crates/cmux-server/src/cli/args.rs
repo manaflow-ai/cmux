@@ -172,9 +172,7 @@ pub fn parse(args: &[String]) -> Result<Args> {
         };
         // A value for a flag that takes one may be the following word.
         let inline = match inline {
-            None if takes_value_anywhere(&name) => {
-                iter.next_if(|n| !n.starts_with("--")).cloned()
-            }
+            None if takes_value_anywhere(&name) => iter.next_if(|n| !n.starts_with("--")).cloned(),
             inline => inline,
         };
         raw_flags.push((name, inline));
