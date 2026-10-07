@@ -13,6 +13,47 @@ import WebKit
 @Suite(.serialized)
 struct BrowserViewportRuntimeTests {
     @Test
+    func frameworkLayoutCallbackCanEnterViewportHostThroughMainThreadDispatch() async {
+        let host = BrowserViewportHostView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let hostPointer = Unmanaged.passUnretained(host).toOpaque()
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            Thread.detachNewThread {
+                let host = Unmanaged<BrowserViewportHostView>
+                    .fromOpaque(hostPointer)
+                    .takeUnretainedValue()
+                host.performSelector(
+                    onMainThread: #selector(NSView.layout),
+                    with: nil,
+                    waitUntilDone: true
+                )
+                continuation.resume()
+            }
+        }
+
+        #expect(host.frame.size == NSSize(width: 320, height: 240))
+    }
+
+    @Test
+    func frameworkGeometryNotificationEntersMainActorAfterCallbackReturns() async {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        var callbackCount = 0
+        invalidator.observe(geometryViews: [view], structureViews: []) {
+            callbackCount += 1
+        }
+        defer { invalidator.invalidate() }
+
+        NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: view)
+        #expect(callbackCount == 0)
+
+        await Task.yield()
+        #expect(callbackCount == 1)
+    }
+
+    @Test
     func nativePortalLayoutDoesNotRewriteStableWebViewGeometry() {
         let slot = WindowBrowserSlotView(
             frame: NSRect(x: 0, y: 0, width: 380, height: 610)
