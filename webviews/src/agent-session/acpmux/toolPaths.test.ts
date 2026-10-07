@@ -75,12 +75,9 @@ describe("toolLabel", () => {
   });
 
   test("labels commands and reads, then falls back to the tool name", () => {
-    expect(
-      toolLabel(
-        call("", { command: "bun test" }, { kind: "execute", command: "bun test" }),
-        "Run",
-      ),
-    ).toBe("Ran bun test");
+    expect(toolLabel(call("", { command: "bun test" }, { kind: "execute", command: "bun test" }), "Run")).toBe(
+      "Ran bun test",
+    );
     expect(toolLabel(call("", { file_path: "src/main.ts" }, { kind: "read" }), "Read")).toBe("Read src/main.ts");
     expect(toolLabel(call("mcp.cua_repl", { apps: [] }, { kind: "execute" }), "mcp.cua_repl")).toBe("mcp.cua_repl");
   });

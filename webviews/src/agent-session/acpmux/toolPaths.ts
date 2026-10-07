@@ -39,6 +39,31 @@ export function editedPaths(tool: Tool): string[] {
   return found;
 }
 
+/// A short row label that describes a call without ever falling back to its raw JSON input.
+/// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
+/// precedes `file_path` still reads as `Write gen.py`.
+export function toolLabel(tool: Tool, fallback: string): string {
+  const title = readableName(tool.title);
+  const fallbackName = readableName(fallback, tool.kind) || "Tool";
+  const paths = editedPaths(tool);
+  const command = tool.command?.trim();
+  if (tool.kind === "execute" && command) return `Ran ${command}`;
+  if (paths.length) {
+    const action = firstWord(title || fallbackName);
+    return title.includes(paths[0]!) ? title : `${action} ${paths[0]}`;
+  }
+  return title || fallbackName;
+}
+
+function firstWord(value: string): string {
+  return value.trim().split(/\s+/, 1)[0] ?? value.trim();
+}
+
+function readableName(value: string | undefined, kind?: string): string {
+  const name = value?.trim() ?? "";
+  return name && !name.startsWith("{") && !name.startsWith("[") ? name : (kind?.trim() ?? "");
+}
+
 function fromInput(input: Record<string, unknown>, add: (value: unknown) => void) {
   for (const key of PATH_KEYS) add(input[key]);
   for (const key of PATCH_KEYS) if (typeof input[key] === "string") patchPaths(input[key] as string, add);
