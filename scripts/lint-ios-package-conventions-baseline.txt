@@ -26,3 +26,71 @@ namespace-type	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTermi
 namespace-type	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileWorkspaceMetadataLimits.swift	MobileWorkspaceMetadataLimits
 namespace-type	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohTCPFirstActivation.swift	CmxIrohTCPFirstActivation
 namespace-type	Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryScrubbing/ScrubberDenylists.swift	ScrubberDenylists
+# cmux-next iOS tree (ios/CmuxiOS and scripts/cmux-next/mobile-scan-roots.txt),
+# present when E2 widened the lint to it (2026-10-07). Shrink only.
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Transport/DirectTransportCore.swift	private let state: OSAllocatedUnfairLock<State>
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Transport/DirectTransportCore.swift	state = OSAllocatedUnfairLock(initialState: State(path: path))
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Transport/DirectSocket.swift	private let readyGate = OSAllocatedUnfairLock<CheckedContinuation<Void, any Error>?>(initi
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Discovery/DirectBrowser.swift	private let started = OSAllocatedUnfairLock(initialState: false)
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Testing/DirectFaultInjector.swift	private let state = OSAllocatedUnfairLock(initialState: State())
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Reachability/DirectReachabilityMonitor.swift	private let state = OSAllocatedUnfairLock(initialState: State())
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Acceptor/DirectAcceptor.swift	private let state = OSAllocatedUnfairLock(initialState: State())
+lock	Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Acceptor/DirectAcceptor.swift	let gate = OSAllocatedUnfairLock<CheckedContinuation<UInt16, any Error>?>(initialState: ni
+lock	Packages/Shared/CmuxMobileConnect/Sources/CmuxMobileConnect/MobileCarrierPlan.swift	state = OSAllocatedUnfairLock(initialState: State(endpoints: endpoints, snapshot: snapshot
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Settings/SettingsLinks.swift	SettingsLinks
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Settings/SettingsText.swift	SettingsText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Adapters/ComposePlaceholder.swift	ComposePlaceholder
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Adapters/FeedPlaceholder.swift	FeedPlaceholder
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Adapters/HostsPlaceholder.swift	HostsPlaceholder
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Adapters/WorkspacesPlaceholder.swift	WorkspacesPlaceholder
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Support/ShellText.swift	ShellText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/Placeholder/PlaceholderCellStyle.swift	PlaceholderCellStyle
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSShell/DirectAddress/DirectAddressText.swift	DirectAddressText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/BrowserComposition.swift	BrowserComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/CloudComposition.swift	CloudComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/CmuxiOSApplication.swift	CmuxiOSApplication
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/DebugLaunchTasks.swift	DebugLaunchTasks
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/DevMenu.swift	DevMenu
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/GalleryRunner.swift	GalleryRunner
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/PlatformComposition.swift	PlatformComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/ShellComposition.swift	ShellComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/WebComposition.swift	WebComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/Search/SearchComposition.swift	SearchComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/Onboarding/OnboardingComposition.swift	OnboardingComposition
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/Onboarding/UIViewControllerPlaceholder.swift	UIViewControllerPlaceholder
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/Debug/DevTerminal.swift	DevTerminal
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSApp/Debug/DevTextConfirm.swift	DevTextConfirm
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/HomeMetrics.swift	HomeMetrics
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/HomeMotion.swift	HomeMotion
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/HomePalette.swift	HomePalette
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/ShellMetrics.swift	ShellMetrics
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/ShellPalette.swift	ShellPalette
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSDesign/ShellTypography.swift	ShellTypography
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSWorkspaces/Support/WorkspacesText.swift	WorkspacesText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSWorkspaces/List/WorkspaceEmptyContent.swift	WorkspaceEmptyContent
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSWorkspaces/List/WorkspaceRowContent.swift	WorkspaceRowContent
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSWorkspaces/List/WorkspaceSectionHeader.swift	WorkspaceSectionHeader
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockFixtures.swift	MockFixtures
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSFeed/Cards/FeedGlyph.swift	FeedGlyph
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSFeed/Support/FeedText.swift	FeedText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSFeed/Screen/FeedAccessibility.swift	FeedAccessibility
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSWeb/Support/WebText.swift	WebText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSBrowser/Support/BrowserText.swift	BrowserText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSPlatformUI/Support/PlatformText.swift	PlatformText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift	DogfoodReadinessReceipt
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSAuth/SignInScreen.swift	SignInScreen
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSViewers/Support/ViewersText.swift	ViewersText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSOnboarding/Support/CloudStepText.swift	CloudStepText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSOnboarding/Support/OnboardingColors.swift	OnboardingColors
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSOnboarding/Support/OnboardingMotion.swift	OnboardingMotion
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSOnboarding/Support/OnboardingText.swift	OnboardingText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSOnboarding/Model/OnboardingDemoDevices.swift	OnboardingDemoDevices
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSSSH/Support/SSHText.swift	SSHText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSTerminal/Input/TerminalKeyEvent.swift	TerminalHIDUsage
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSTerminal/Input/TerminalText.swift	TerminalText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSTerminal/Screen/TerminalCommandText.swift	TerminalCommandText
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSViewersCore/Syntax/SyntaxKeywords.swift	SyntaxKeywords
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSCloud/Support/CloudText.swift	CloudText
+namespace-enum	ios/CmuxiOS/Sources/CmuxHomeUI/Transcript/HomeFieldSpring.swift	HomeFieldSpring
+namespace-enum	ios/CmuxiOS/Sources/CmuxHomeUI/Transcript/HomeRenderTheme.swift	HomeRenderTheme
+namespace-enum	ios/CmuxiOS/Sources/CmuxiOSComposer/Support/ComposerText.swift	ComposerText

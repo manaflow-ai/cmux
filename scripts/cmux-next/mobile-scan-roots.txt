@@ -1,0 +1,24 @@
+# The cmux-next iOS tree (plans/cmux-next/ios-next/PLAN.md): the rewritten app
+# package and every package the rewrite added. One package root per line.
+# The static checks (l10n, concurrency, crash safety, iOS package lint) scan
+# these roots, and cmux-next-ios.yml runs `swift test` for the Packages/ ones.
+# A lane that adds a mobile package adds its root here in the same change.
+ios/CmuxiOS
+Packages/iOS/CmuxMobileSSH
+Packages/Shared/CmuxBrowserStream
+Packages/Shared/CmuxControlPlane
+Packages/Shared/CmuxFeedPushCore
+Packages/Shared/CmuxLink
+Packages/Shared/CmuxLinkBench
+Packages/Shared/CmuxLinkDirect
+Packages/Shared/CmuxLinkWebRTC
+Packages/Shared/CmuxLinkWG
+Packages/Shared/CmuxMobileConnect
+Packages/Shared/CmuxMobileFiles
+Packages/Shared/CmuxMobileHost
+Packages/Shared/CmuxMobileLink
+Packages/Shared/CmuxMobileWire
+Packages/Shared/CmuxPairing
+Packages/Shared/CmuxRemoteDesktop
+Packages/Shared/CmuxTerminalLink
+Packages/Shared/CmuxTerminalRenderCore

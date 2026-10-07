@@ -4,10 +4,34 @@
     "rd.auth.message": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يطلب %@ كلمة مرور."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ fordert ein Passwort an."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ asks for a password."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ solicita una contraseña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ demande un mot de passe."
           }
         },
         "ja": {
@@ -15,16 +39,58 @@
             "state": "translated",
             "value": "%@ はパスワードを求めています。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 암호를 요청합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 要求输入密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 要求輸入密碼。"
+          }
         }
       }
     },
     "rd.auth.password": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passwort"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mot de passe"
           }
         },
         "ja": {
@@ -32,16 +98,58 @@
             "state": "translated",
             "value": "パスワード"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "암호"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密碼"
+          }
         }
       }
     },
     "rd.auth.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلمة مرور VNC"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC-Passwort"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "VNC Password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraseña de VNC"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mot de passe VNC"
           }
         },
         "ja": {
@@ -49,16 +157,58 @@
             "state": "translated",
             "value": "VNCパスワード"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 암호"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 密碼"
+          }
         }
       }
     },
     "rd.cancel": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abbrechen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Cancel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler"
           }
         },
         "ja": {
@@ -66,16 +216,58 @@
             "state": "translated",
             "value": "キャンセル"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消"
+          }
         }
       }
     },
     "rd.clipboard": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwischenablage"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Presse-papiers"
           }
         },
         "ja": {
@@ -83,16 +275,58 @@
             "state": "translated",
             "value": "クリップボード"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클립보드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "剪貼板"
+          }
         }
       }
     },
     "rd.clipboard.copied": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم النسخ من الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vom Mac kopiert"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Copied from the Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiado desde el Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copié depuis le Mac"
           }
         },
         "ja": {
@@ -100,16 +334,58 @@
             "state": "translated",
             "value": "Macからコピーしました"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 복사됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已从 Mac 拷贝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已從 Mac 拷貝"
+          }
         }
       }
     },
     "rd.clipboard.copy": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ من الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vom Mac kopieren"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Copy from Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar desde el Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier depuis le Mac"
           }
         },
         "ja": {
@@ -117,16 +393,58 @@
             "state": "translated",
             "value": "Macからコピー"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从 Mac 拷贝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從 Mac 拷貝"
+          }
         }
       }
     },
     "rd.clipboard.paste": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لصق في الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dem Mac einsetzen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Paste to Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pegar en el Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coller sur le Mac"
           }
         },
         "ja": {
@@ -134,16 +452,58 @@
             "state": "translated",
             "value": "Macにペースト"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "粘贴到 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "貼到 Mac"
+          }
         }
       }
     },
     "rd.close": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schließen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer"
           }
         },
         "ja": {
@@ -151,16 +511,58 @@
             "state": "translated",
             "value": "閉じる"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
         }
       }
     },
     "rd.displays": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشاشات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Displays"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Displays"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pantallas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écrans"
           }
         },
         "ja": {
@@ -168,16 +570,58 @@
             "state": "translated",
             "value": "ディスプレイ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "디스플레이"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示器"
+          }
         }
       }
     },
     "rd.done": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fertig"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Done"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "OK"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "OK"
           }
         },
         "ja": {
@@ -185,16 +629,58 @@
             "state": "translated",
             "value": "完了"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "완료"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成"
+          }
         }
       }
     },
     "rd.entry.message": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يبث الـ Mac شاشته، أو خادم VNC يمكنه الوصول إليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Mac streamt seinen Bildschirm oder einen VNC-Server, den er erreichen kann."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Your Mac streams its screen, or a VNC server it can reach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu Mac transmite su pantalla o un servidor VNC al que puede acceder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre Mac diffuse son écran, ou un serveur VNC qu’il peut joindre."
           }
         },
         "ja": {
@@ -202,16 +688,58 @@
             "state": "translated",
             "value": "Macの画面、またはMacから接続できるVNCサーバを表示します。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac이 화면 또는 접근할 수 있는 VNC 서버를 스트리밍합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Mac 会串流它的屏幕，或它能访问的 VNC 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Mac 會串流它的螢幕，或它能連線的 VNC 伺服器。"
+          }
         }
       }
     },
     "rd.entry.screen": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض الشاشة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirm zeigen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher l’écran"
           }
         },
         "ja": {
@@ -219,16 +747,58 @@
             "state": "translated",
             "value": "画面を表示"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示螢幕"
+          }
         }
       }
     },
     "rd.entry.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سطح المكتب البعيد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernter Schreibtisch"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remote Desktop"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escritorio remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bureau à distance"
           }
         },
         "ja": {
@@ -236,16 +806,58 @@
             "state": "translated",
             "value": "リモートデスクトップ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 데스크톱"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端桌面"
+          }
         }
       }
     },
     "rd.entry.vnc": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاتصال بخادم VNC…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit VNC-Server verbinden …"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connect to VNC Server…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar a un servidor VNC…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter à un serveur VNC…"
           }
         },
         "ja": {
@@ -253,16 +865,58 @@
             "state": "translated",
             "value": "VNCサーバに接続…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 서버에 연결…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接到 VNC 服务器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線到 VNC 伺服器…"
+          }
         }
       }
     },
     "rd.failure.consent-denied": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الرفض على الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dem Mac abgelehnt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Denied on the Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechazado en el Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Refusé sur le Mac."
           }
         },
         "ja": {
@@ -270,16 +924,58 @@
             "state": "translated",
             "value": "Macで拒否されました。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 거부되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 Mac 上拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 Mac 上拒絕。"
+          }
         }
       }
     },
     "rd.failure.display": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تعد هذه الشاشة متصلة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Display ist nicht mehr verbunden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "That display is no longer connected."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa pantalla ya no está conectada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet écran n’est plus connecté."
           }
         },
         "ja": {
@@ -287,16 +983,58 @@
             "state": "translated",
             "value": "このディスプレイは接続されていません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 디스플레이가 더 이상 연결되어 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该显示器已断开连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該顯示器已中斷連接。"
+          }
         }
       }
     },
     "rd.failure.ended": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت الجلسة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Sitzung wurde beendet."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The session ended."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión terminó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La session est terminée."
           }
         },
         "ja": {
@@ -304,16 +1042,58 @@
             "state": "translated",
             "value": "セッションが終了しました。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션이 종료되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话已结束。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段已結束。"
+          }
         }
       }
     },
     "rd.failure.other": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سطح المكتب البعيد غير متاح (%@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernter Schreibtisch ist nicht verfügbar (%@)."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remote desktop isn't available (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El escritorio remoto no está disponible (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bureau à distance n’est pas disponible (%@)."
           }
         },
         "ja": {
@@ -321,16 +1101,58 @@
             "state": "translated",
             "value": "リモートデスクトップを利用できません（%@）。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 데스크톱을 사용할 수 없습니다(%@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程桌面不可用（%@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端桌面無法使用（%@）。"
+          }
         }
       }
     },
     "rd.failure.permission-revoked": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إيقاف تسجيل الشاشة على الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Bildschirmaufnahme wurde auf dem Mac deaktiviert."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Screen Recording was turned off on the Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se desactivó la grabación de pantalla en el Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistrement de l’écran a été désactivé sur le Mac."
           }
         },
         "ja": {
@@ -338,16 +1160,58 @@
             "state": "translated",
             "value": "Macで画面収録がオフになりました。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 화면 기록이 꺼졌습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 上的屏幕录制已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 上的螢幕錄製已關閉。"
+          }
         }
       }
     },
     "rd.failure.revoked": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد هذا الجهاز مقترنًا بالـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Gerät ist nicht mehr mit dem Mac gekoppelt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This device is no longer paired with the Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este dispositivo ya no está enlazado con el Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet appareil n’est plus jumelé avec le Mac."
           }
         },
         "ja": {
@@ -355,16 +1219,58 @@
             "state": "translated",
             "value": "このデバイスはMacとペアリングされていません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기기는 더 이상 Mac과 페어링되어 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此设备不再与该 Mac 配对。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此裝置不再與該 Mac 配對。"
+          }
         }
       }
     },
     "rd.failure.screen-recording": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسمح بتسجيل الشاشة لـ cmux في إعدادات النظام على الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaube die Bildschirmaufnahme für cmux in den Systemeinstellungen deines Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Allow Screen Recording for cmux in System Settings on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite la grabación de pantalla para cmux en Ajustes del Sistema de tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autorisez l’enregistrement de l’écran pour cmux dans Réglages Système sur votre Mac."
           }
         },
         "ja": {
@@ -372,16 +1278,58 @@
             "state": "translated",
             "value": "Macのシステム設定でcmuxの画面収録を許可してください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac의 시스템 설정에서 cmux의 화면 기록을 허용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在 Mac 的“系统设置”中允许 cmux 进行屏幕录制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在 Mac 的「系統設定」中允許 cmux 進行螢幕錄製。"
+          }
         }
       }
     },
     "rd.failure.stopped": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الإيقاف على الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dem Mac gestoppt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Stopped on the Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detenido en el Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêté sur le Mac."
           }
         },
         "ja": {
@@ -389,16 +1337,58 @@
             "state": "translated",
             "value": "Macで停止されました。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 중지되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 Mac 上停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 Mac 上停止。"
+          }
         }
       }
     },
     "rd.failure.unreachable": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر الوصول إلى هذا الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac ist nicht erreichbar."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Can't reach this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede acceder a este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de joindre ce Mac."
           }
         },
         "ja": {
@@ -406,16 +1396,58 @@
             "state": "translated",
             "value": "このMacに接続できません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에 연결할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法连接到此 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連線到此 Mac。"
+          }
         }
       }
     },
     "rd.failure.vnc-auth-failed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلمة مرور VNC غير صحيحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falsches VNC-Passwort."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Wrong VNC password."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraseña de VNC incorrecta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mot de passe VNC incorrect."
           }
         },
         "ja": {
@@ -423,16 +1455,58 @@
             "state": "translated",
             "value": "VNCパスワードが正しくありません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 암호가 올바르지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 密码错误。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 密碼錯誤。"
+          }
         }
       }
     },
     "rd.failure.vnc-auth-unsupported": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب خادم VNC هذا تسجيل دخول لا يدعمه الـ Mac. شغّل الوصول بكلمة مرور VNC على الخادم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser VNC-Server verlangt eine Anmeldung, die der Mac nicht unterstützt. Aktiviere den Zugriff per VNC-Passwort auf dem Server."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This VNC server needs a sign-in the Mac doesn't support. Turn on VNC password access on the server."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este servidor VNC requiere un inicio de sesión que el Mac no admite. Activa el acceso con contraseña de VNC en el servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce serveur VNC exige une connexion que le Mac ne prend pas en charge. Activez l’accès par mot de passe VNC sur le serveur."
           }
         },
         "ja": {
@@ -440,16 +1514,58 @@
             "state": "translated",
             "value": "このVNCサーバはMacが対応していないサインインを求めています。サーバでVNCパスワードによるアクセスをオンにしてください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 VNC 서버는 Mac이 지원하지 않는 로그인을 요구합니다. 서버에서 VNC 암호 접근을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 VNC 服务器需要 Mac 不支持的登录方式。请在服务器上打开 VNC 密码访问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 VNC 伺服器需要 Mac 不支援的登入方式。請在伺服器上開啟 VNC 密碼存取。"
+          }
         }
       }
     },
     "rd.failure.vnc-not-allowed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتصل هذا الـ Mac بخادم VNC هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac verbindet sich nicht mit diesem VNC-Server."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This Mac doesn't connect to that VNC server."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac no se conecta a ese servidor VNC."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac ne se connecte pas à ce serveur VNC."
           }
         },
         "ja": {
@@ -457,16 +1573,58 @@
             "state": "translated",
             "value": "このMacはそのVNCサーバに接続しません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac은 해당 VNC 서버에 연결하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 不会连接到该 VNC 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 不會連線到該 VNC 伺服器。"
+          }
         }
       }
     },
     "rd.failure.vnc-unreachable": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب خادم VNC."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der VNC-Server hat nicht geantwortet."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The VNC server didn't answer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servidor VNC no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le serveur VNC n’a pas répondu."
           }
         },
         "ja": {
@@ -474,16 +1632,58 @@
             "state": "translated",
             "value": "VNCサーバが応答しません。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 서버가 응답하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 服务器没有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 伺服器沒有回應。"
+          }
         }
       }
     },
     "rd.failure.window": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إغلاق هذه النافذة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Fenster ist geschlossen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "That window is closed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa ventana está cerrada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette fenêtre est fermée."
           }
         },
         "ja": {
@@ -491,16 +1691,58 @@
             "state": "translated",
             "value": "このウインドウは閉じられています。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 윈도우가 닫혔습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该窗口已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該視窗已關閉。"
+          }
         }
       }
     },
     "rd.input.direct": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لمس مباشر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte Berührung"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Direct Touch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toque directo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toucher direct"
           }
         },
         "ja": {
@@ -508,16 +1750,58 @@
             "state": "translated",
             "value": "ダイレクトタッチ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접 터치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直接触控"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直接觸控"
+          }
         }
       }
     },
     "rd.input.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المؤشر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeiger"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Pointer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pointeur"
           }
         },
         "ja": {
@@ -525,15 +1809,57 @@
             "state": "translated",
             "value": "ポインタ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포인터"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "指针"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "指標"
+          }
         }
       }
     },
     "rd.input.trackpad": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة التتبع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trackpad"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Trackpad"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trackpad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Trackpad"
           }
         },
@@ -542,16 +1868,58 @@
             "state": "translated",
             "value": "トラックパッド"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "트랙패드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "触控板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "觸控式軌跡板"
+          }
         }
       }
     },
     "rd.key.command": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehl"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Command"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande"
           }
         },
         "ja": {
@@ -559,16 +1927,58 @@
             "state": "translated",
             "value": "コマンド"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command"
+          }
         }
       }
     },
     "rd.key.control": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Control"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contrôle"
           }
         },
         "ja": {
@@ -576,16 +1986,58 @@
             "state": "translated",
             "value": "コントロール"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control"
+          }
         }
       }
     },
     "rd.key.down": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سهم لأسفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pfeil nach unten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Down Arrow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flecha abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flèche vers le bas"
           }
         },
         "ja": {
@@ -593,16 +2045,58 @@
             "state": "translated",
             "value": "下矢印"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아래쪽 화살표"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下箭头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下箭頭"
+          }
         }
       }
     },
     "rd.key.escape": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escape"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escape"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Escape"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escape"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échap"
           }
         },
         "ja": {
@@ -610,16 +2104,58 @@
             "state": "translated",
             "value": "エスケープ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escape"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc"
+          }
         }
       }
     },
     "rd.key.left": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سهم لليسار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pfeil nach links"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Left Arrow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flecha izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flèche vers la gauche"
           }
         },
         "ja": {
@@ -627,15 +2163,57 @@
             "state": "translated",
             "value": "左矢印"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "왼쪽 화살표"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左箭头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "左箭頭"
+          }
         }
       }
     },
     "rd.key.option": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Option"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wahl"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Option"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Option"
           }
         },
@@ -644,16 +2222,58 @@
             "state": "translated",
             "value": "オプション"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Option"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Option"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Option"
+          }
         }
       }
     },
     "rd.key.right": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سهم لليمين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pfeil nach rechts"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Right Arrow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flecha derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flèche vers la droite"
           }
         },
         "ja": {
@@ -661,16 +2281,58 @@
             "state": "translated",
             "value": "右矢印"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽 화살표"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右箭头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右箭頭"
+          }
         }
       }
     },
     "rd.key.shift": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shift"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umschalt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Shift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mayúsculas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maj"
           }
         },
         "ja": {
@@ -678,15 +2340,57 @@
             "state": "translated",
             "value": "シフト"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shift"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shift"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Shift"
+          }
         }
       }
     },
     "rd.key.tab": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabulador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Tab"
           }
         },
@@ -695,16 +2399,58 @@
             "state": "translated",
             "value": "タブ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab"
+          }
         }
       }
     },
     "rd.key.up": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سهم لأعلى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pfeil nach oben"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Up Arrow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flecha arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flèche vers le haut"
           }
         },
         "ja": {
@@ -712,16 +2458,58 @@
             "state": "translated",
             "value": "上矢印"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "위쪽 화살표"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上箭头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上箭頭"
+          }
         }
       }
     },
     "rd.keyboard": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة المفاتيح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastatur"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Keyboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clavier"
           }
         },
         "ja": {
@@ -729,16 +2517,58 @@
             "state": "translated",
             "value": "キーボード"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키보드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "键盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鍵盤"
+          }
         }
       }
     },
     "rd.mode.accessibility": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسمح بإمكانية الوصول لـ cmux على الـ Mac للتحكم فيه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaube Bedienungshilfen für cmux auf deinem Mac, um ihn zu steuern."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Allow Accessibility for cmux on your Mac to control it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite la accesibilidad para cmux en tu Mac para controlarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autorisez l’accessibilité pour cmux sur votre Mac afin de le contrôler."
           }
         },
         "ja": {
@@ -746,16 +2576,58 @@
             "state": "translated",
             "value": "操作するにはMacでcmuxのアクセシビリティを許可してください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac을 제어하려면 Mac에서 cmux의 손쉬운 사용을 허용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要控制 Mac，请在 Mac 上允许 cmux 使用辅助功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要控制 Mac，請在 Mac 上允許 cmux 使用輔助使用功能。"
+          }
         }
       }
     },
     "rd.mode.control": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحكم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Steuern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Control"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controlar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contrôler"
           }
         },
         "ja": {
@@ -763,16 +2635,58 @@
             "state": "translated",
             "value": "操作"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제어"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "控制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "控制"
+          }
         }
       }
     },
     "rd.mode.view": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض فقط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur ansehen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "View Only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo ver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage seul"
           }
         },
         "ja": {
@@ -780,16 +2694,58 @@
             "state": "translated",
             "value": "表示のみ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보기 전용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅檢視"
+          }
         }
       }
     },
     "rd.screen.label": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشاشة البعيدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernter Bildschirm"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remote screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pantalla remota"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écran distant"
           }
         },
         "ja": {
@@ -797,16 +2753,58 @@
             "state": "translated",
             "value": "リモート画面"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 화면"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端螢幕"
+          }
         }
       }
     },
     "rd.status.connecting": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ الاتصال…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden …"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connecting…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connexion…"
           }
         },
         "ja": {
@@ -814,16 +2812,58 @@
             "state": "translated",
             "value": "接続中…"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在连接…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在連線…"
+          }
         }
       }
     },
     "rd.status.paused": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متوقف مؤقتًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausiert"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Paused"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En pausa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En pause"
           }
         },
         "ja": {
@@ -831,16 +2871,58 @@
             "state": "translated",
             "value": "一時停止中"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일시 정지됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已暂停"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已暫停"
+          }
         }
       }
     },
     "rd.status.waiting": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وافق على الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dem Mac bestätigen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Approve on your Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprueba en tu Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approuvez sur votre Mac"
           }
         },
         "ja": {
@@ -848,16 +2930,58 @@
             "state": "translated",
             "value": "Macで許可してください"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 승인하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在 Mac 上批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在 Mac 上核准"
+          }
         }
       }
     },
     "rd.status.waiting.detail": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسمح لهذا الجهاز في اللوحة على %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaube dieses Gerät im Fenster auf %@."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Allow this device in the panel on %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite este dispositivo en el panel de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autorisez cet appareil dans le panneau sur %@."
           }
         },
         "ja": {
@@ -865,16 +2989,58 @@
             "state": "translated",
             "value": "%@ に表示されたパネルでこのデバイスを許可してください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 패널에서 이 기기를 허용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在 %@ 上的面板中允许此设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在 %@ 上的面板中允許此裝置。"
+          }
         }
       }
     },
     "rd.vnc.connect": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connect"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter"
           }
         },
         "ja": {
@@ -882,16 +3048,58 @@
             "state": "translated",
             "value": "接続"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線"
+          }
         }
       }
     },
     "rd.vnc.host": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المضيف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Host"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hôte"
           }
         },
         "ja": {
@@ -899,16 +3107,58 @@
             "state": "translated",
             "value": "ホスト"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機"
+          }
         }
       }
     },
     "rd.vnc.invalid": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أدخل اسم مضيف أو عنوان IP ومنفذًا من 1 إلى 65535."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib einen Hostnamen oder eine IP-Adresse und einen Port von 1 bis 65535 ein."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Enter a hostname or IP address and a port from 1 to 65535."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Introduce un nombre de host o una dirección IP y un puerto del 1 al 65535."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saisissez un nom d’hôte ou une adresse IP et un port de 1 à 65535."
           }
         },
         "ja": {
@@ -916,16 +3166,58 @@
             "state": "translated",
             "value": "ホスト名またはIPアドレスと、1から65535のポートを入力してください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트 이름 또는 IP 주소와 1에서 65535 사이의 포트를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请输入主机名或 IP 地址，以及 1 到 65535 之间的端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請輸入主機名稱或 IP 位址，以及 1 到 65535 之間的連接埠。"
+          }
         }
       }
     },
     "rd.vnc.message": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتصل الـ Mac بهذا الخادم نيابةً عنك. أدخل اسم مضيف أو عنوان IP ومنفذًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Mac verbindet sich für dich mit diesem Server. Gib einen Hostnamen oder eine IP-Adresse und einen Port ein."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Your Mac connects to this server for you. Enter a hostname or IP address and a port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu Mac se conecta a este servidor por ti. Introduce un nombre de host o una dirección IP y un puerto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre Mac se connecte à ce serveur pour vous. Saisissez un nom d’hôte ou une adresse IP et un port."
           }
         },
         "ja": {
@@ -933,15 +3225,57 @@
             "state": "translated",
             "value": "Macがこのサーバに接続します。ホスト名またはIPアドレスとポートを入力してください。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac이 대신 이 서버에 연결합니다. 호스트 이름 또는 IP 주소와 포트를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Mac 会替你连接到此服务器。请输入主机名或 IP 地址以及端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Mac 會替你連線到此伺服器。請輸入主機名稱或 IP 位址以及連接埠。"
+          }
         }
       }
     },
     "rd.vnc.port": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المنفذ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Port"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puerto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
             "value": "Port"
           }
         },
@@ -950,22 +3284,82 @@
             "state": "translated",
             "value": "ポート"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "端口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連接埠"
+          }
         }
       }
     },
     "rd.vnc.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خادم VNC"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC-Server"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "VNC Server"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidor VNC"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveur VNC"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "VNCサーバ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 서버"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VNC 伺服器"
           }
         }
       }

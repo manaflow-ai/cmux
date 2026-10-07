@@ -6,15 +6,28 @@
 # (the only one with plural variations). States `translated` and `needs_review`
 # (machine translation awaiting human review) both count as present; the
 # review backlog is printed per language.
-# Usage: scripts/cmux-next/check-l10n.sh [repo-root]
+# --mobile checks the cmux-next iOS tree instead: every .xcstrings under ios/
+# (the app shell, its extensions and ios/CmuxiOS) and under the packages listed
+# in scripts/cmux-next/mobile-scan-roots.txt, for the nine languages the iOS
+# app ships (ios/LOCALIZATION.md).
+# Usage: scripts/cmux-next/check-l10n.sh [--mobile] [repo-root]
 set -euo pipefail
+scope=macos
+if [[ "${1:-}" == --mobile ]]; then
+  scope=mobile
+  shift
+fi
 root="${1:-$(git rev-parse --show-toplevel)}"
-exec python3 - "$root" <<'PY'
+exec python3 - "$root" "$scope" <<'PY'
 import collections, json, pathlib, re, sys
 
 # The languages the legacy app shipped (Apple codes; README.no.md is nb).
 LANGS = ("en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
          "pl", "pt-BR", "ru", "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant")
+# The languages the iOS app ships (ios/LOCALIZATION.md); --mobile requires these.
+MOBILE_LANGS = ("en", "ar", "de", "es", "fr", "ja", "ko", "zh-Hans", "zh-Hant")
+if sys.argv[2] == "mobile":
+    LANGS = MOBILE_LANGS
 STATES = {"translated", "needs_review"}
 FORMAT = re.compile(
     r"%%|%(?:\d+\$)?[-+ #0']*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|ll|[hlLqjzt])?[diouxXfFeEgGaAcCsSp@]")
@@ -32,8 +45,20 @@ def signature(value):
     return sorted(out)
 
 root = pathlib.Path(sys.argv[1])
-tables = sorted((root / "Packages/macOS/CmuxNext/Sources").rglob("*.xcstrings"))
-tables.append(root / "Resources/InfoPlist.xcstrings")
+SKIP_DIRS = {".build", "DerivedData", "build", "node_modules"}
+def catalogs(directory):
+    return [path for path in directory.rglob("*.xcstrings")
+            if not SKIP_DIRS.intersection(path.relative_to(directory).parts)]
+if sys.argv[2] == "mobile":
+    scan = [root / "ios"]
+    for raw in (root / "scripts/cmux-next/mobile-scan-roots.txt").read_text(encoding="utf-8").splitlines():
+        entry = raw.strip()
+        if entry and not entry.startswith("#") and not entry.startswith("ios/"):
+            scan.append(root / entry)
+    tables = sorted({path for directory in scan for path in catalogs(directory)})
+else:
+    tables = sorted(catalogs(root / "Packages/macOS/CmuxNext/Sources"))
+    tables.append(root / "Resources/InfoPlist.xcstrings")
 def forms(localization):
     """{"": unit} for a plain value, {category: unit} for plural variations, else None."""
     if "stringUnit" in localization:

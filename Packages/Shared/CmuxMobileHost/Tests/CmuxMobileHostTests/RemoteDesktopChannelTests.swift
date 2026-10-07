@@ -44,9 +44,10 @@ struct RemoteDesktopChannelTests {
 
     static func fixture(target: DesktopTarget = .display(nil), mode: DesktopMode = .control, consent: Bool? = true,
                         permissions: FakePermissions = FakePermissions(), policy: RemoteDesktopPolicy = RemoteDesktopPolicy(),
-                        clock: LinkClock = .continuous, lane: Bool = false) async throws -> Fixture {
+                        clock: LinkClock = .continuous, lane: Bool = false,
+                        consentIgnoresCancellation: Bool = false) async throws -> Fixture {
         let sources = FakeDesktopSources()
-        let fakeConsent = FakeConsent(answer: consent)
+        let fakeConsent = FakeConsent(answer: consent, ignoresCancellation: consentIgnoresCancellation)
         let indicator = FakeIndicator()
         let handler = RemoteDesktopChannelHandler(sources: sources, permissions: permissions, consent: fakeConsent,
                                                   indicator: indicator, policy: policy, clock: clock)
@@ -122,6 +123,20 @@ struct RemoteDesktopChannelTests {
         try await f.waitFor { $0 == .ended(reason: "consent_denied") }
         #expect(await f.sources.opens.isEmpty)
         try await within { while await f.consent.cancelled == 0 { await Task.yield() } }
+    }
+
+    @Test func aConsentPanelThatIgnoresCancellationStillTimesOut() async throws {
+        let clock = ManualClock()
+        let f = try await Self.fixture(consent: nil, clock: LinkClock(clock), consentIgnoresCancellation: true)
+        defer { Task { await f.consent.release(); await f.shutdown() } }
+        try await f.client.open()
+        try await f.waitFor { $0 == .state(.waitingConsent, reason: nil) }
+        try await within {
+            while clock.sleeperCount == 0 { await Task.yield() }
+        }
+        clock.advance(by: .seconds(30))
+        try await f.waitFor { $0 == .ended(reason: "consent_denied") }
+        #expect(await f.sources.opens.isEmpty)
     }
 
     @Test func withoutScreenRecordingTheChannelIsRefusedAndNobodyIsAsked() async throws {

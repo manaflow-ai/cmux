@@ -1,0 +1,156 @@
+{
+ "Packages/Shared/CmuxBrowserStream/Sources/CmuxBrowserStream/Client/BrowserStreamClient.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxControlPlane/Sources/CmuxControlPlane/ControlPlaneClient.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 3
+ },
+ "Packages/Shared/CmuxLink/Sources/CmuxLink/Selection/PathSelector.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLink/Sources/CmuxLinkSignaling/InMemorySignalingHub.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLink/Sources/CmuxLinkSignaling/SignalRouter.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/Shared/CmuxLink/Sources/CmuxLinkTesting/Loopback/LoopbackAcceptor.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLink/Sources/CmuxLinkTesting/Loopback/LoopbackNetwork.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Acceptor/DirectAcceptor.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkDirect/Sources/CmuxLinkDirect/Transport/DirectTransport.swift": {
+  "deadline raced in a task group (it waits for a loser that ignores cancellation; race with a continuation, as ControlDeadline does)": 1,
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWG/Sources/CmuxLinkWG/Acceptor/WireGuardOverWebRTCAcceptor.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWG/Sources/CmuxLinkWG/Transport/WireGuardLinkTransport.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWG/Sources/CmuxLinkWGTesting/InMemoryUnderlayNetwork.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 3
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Carrier/WebRTCAcceptor.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Carrier/WebRTCCarrier.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Datagram/WebRTCDatagramChannel.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Datagram/WebRTCDatagramDialer.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Datagram/WebRTCDatagramListener.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Peer/WebRTCPeer.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Signaling/ControlPlaneSignaling.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTC/Signaling/SignalFrameChannel.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTCUnderlay/WebRTCUnderlay.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxLinkWebRTC/Sources/CmuxLinkWebRTCUnderlay/WebRTCUnderlayListener.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileConnect/Sources/CmuxMobileConnectHost/MergedLinkAcceptor.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileConnect/Sources/CmuxMobileConnectHost/TrustStoreMobileDevices.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/Auth/StaticTrustStore.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/RemoteDesktop/Screen/ScreenDesktopTarget.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/RemoteDesktop/Vnc/NWRfbTransport.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/RemoteDesktop/Vnc/RfbDesktopTarget.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/Simulator/SimulatorPageAttachment.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/Shared/CmuxMobileLink/Sources/CmuxMobileLink/Binding/MobileChannel.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/Shared/CmuxRemoteDesktop/Sources/CmuxRemoteDesktop/Client/RemoteDesktopClient.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUIControl.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHConnection.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSBrowserCore/Link/LinkBrowserStreamSession.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSBrowserCore/Link/LinkSimulatorStreamSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSCloudCore/Source/WireCloudMachineSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockBrowserStreamSession.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockBrowserStreamSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockFileTransfer.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSFeatureKit/Mock/MockTaskComposerSink.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSFeedCloud/CloudFeedSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSOnboarding/Model/LocalNetworkProbe.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSPairingCore/ControlPlaneHostPresence.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSPlatform/Diagnostics/DiagnosticLogSink.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSSSHCore/Session/SSHTerminalByteSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSTerminal/Bench/FixtureByteSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSTerminal/Session/SessionTerminalByteSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSTerminal/Session/TerminalSession.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSTerminalLink/DirectoryTerminalByteSource.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSWorkspacesCore/Channel/UnavailableWorkspaceChannel.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 2
+ },
+ "ios/CmuxiOS/Sources/CmuxiOSWorkspacesCore/ControlPlane/ControlPlaneWorkspaceChannel.swift": {
+  "unbounded AsyncStream buffer (give it a cap and an overflow policy)": 1
+ }
+}
