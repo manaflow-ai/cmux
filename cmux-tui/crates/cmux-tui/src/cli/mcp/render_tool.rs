@@ -22,7 +22,8 @@ const DESCRIPTION: &str = "Show the user a live HTML page in the cmux thread: a 
     cdn.jsdelivr.net, unpkg.com or cdnjs.cloudflare.com. Nothing else on the network is \
     reachable: no fetch, no remote images, no forms. Match the thread with the CSS variables \
     --cmux-text, --cmux-muted, --cmux-bg, --cmux-border, --cmux-font and --cmux-mono. Send one \
-    self-contained page per call.";
+    self-contained page per call. To offer options, render each as its own call in the same \
+    turn (they show side by side) and set recommended on the one you suggest.";
 
 pub(super) fn descriptor_json() -> Value {
     json!({
@@ -38,6 +39,10 @@ pub(super) fn descriptor_json() -> Value {
                 "title": {
                     "type": "string",
                     "description": "A short heading for the page, shown over it.",
+                },
+                "recommended": {
+                    "type": "boolean",
+                    "description": "Marks the option you suggest among several renders in one turn.",
                 },
             },
             "required": ["html"],
@@ -58,7 +63,9 @@ pub(super) fn call(arguments: &Map<String, Value>) -> Value {
 }
 
 fn check(arguments: &Map<String, Value>) -> Result<usize, String> {
-    if let Some(name) = arguments.keys().find(|name| !matches!(name.as_str(), "html" | "title")) {
+    if let Some(name) =
+        arguments.keys().find(|name| !matches!(name.as_str(), "html" | "title" | "recommended"))
+    {
         return Err(format!("render has no argument {name:?}"));
     }
     let html = match arguments.get("html") {
@@ -76,6 +83,9 @@ fn check(arguments: &Map<String, Value>) -> Result<usize, String> {
             return Err(format!("title is longer than {MAX_TITLE_CHARS} characters"));
         }
         Some(_) => return Err("title must be a string".into()),
+    }
+    if arguments.get("recommended").is_some_and(|value| !value.is_boolean()) {
+        return Err("recommended must be true or false".into());
     }
     Ok(html.len())
 }

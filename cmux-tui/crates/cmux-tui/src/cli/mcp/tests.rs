@@ -723,6 +723,10 @@ fn render_checks_the_page_and_is_offered_by_the_full_server() {
     assert_eq!(tool["inputSchema"]["required"], json!(["html"]));
     assert_eq!(tool["annotations"]["readOnlyHint"], true);
     assert_eq!(call(&mut server, "render", json!({"html": "<p>x</p>"}))["isError"], false);
+    assert_eq!(
+        call(&mut server, "render", json!({"html": "<p>x</p>", "recommended": true}))["isError"],
+        false
+    );
     let refused = |server: &mut Server<Fake>, arguments: Value| {
         let result = call(server, "render", arguments);
         assert_eq!(result["isError"], true, "{result}");
@@ -732,6 +736,7 @@ fn render_checks_the_page_and_is_offered_by_the_full_server() {
     refused(&mut server, json!({"html": "  "}));
     refused(&mut server, json!({"html": 3}));
     refused(&mut server, json!({"html": "<p>x</p>", "title": 4}));
+    refused(&mut server, json!({"html": "<p>x</p>", "recommended": "yes"}));
     refused(&mut server, json!({"html": "<p>x</p>", "title": "t".repeat(121)}));
     refused(&mut server, json!({"html": "<p>x</p>", "url": "https://example.com"}));
     refused(&mut server, json!({"html": "x".repeat(render_tool::MAX_HTML_BYTES + 1)}));
