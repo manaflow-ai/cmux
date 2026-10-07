@@ -9,6 +9,16 @@ import Testing
 @Suite struct SidebarLayoutMigrationTests {
     private let rail = SidebarLayoutDocument.railDefaults
 
+    /// The defaults with R53's grid bottom row in place of the footer, found
+    /// by id: the defaults' section count changes (SIDEBAR-NO-RECENTS dropped
+    /// Recents), and a fixed index past the end traps the whole test process.
+    private func defaultsWithGridBottom() throws -> SidebarLayoutDocument {
+        var stored = SidebarLayoutDocument.defaults
+        let bottom = try #require(stored.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID })
+        stored.sections[bottom] = SidebarLayoutDocument.gridBottomSection
+        return stored
+    }
+
     private func apply(_ ops: [SidebarLayoutOp], to document: SidebarLayoutDocument) throws -> SidebarLayoutDocument {
         try ops.reduce(document) { try SidebarLayoutReducer.reduce($0, $1).get() }
     }
@@ -88,9 +98,8 @@ import Testing
     /// R53's grid bottom row, stored untouched, becomes the minimal footer
     /// whatever the top holds; the item ids stay.
     @Test func theGridBottomRowBecomesTheMinimalFooter() throws {
-        var stored = SidebarLayoutDocument.defaults
+        var stored = try defaultsWithGridBottom()
         stored.revision = 9
-        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
         stored.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
         let migrated = stored.layoutMigration
         #expect(migrated.section(SidebarLayoutDocument.bottomSectionID) == SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
@@ -100,8 +109,7 @@ import Testing
     }
 
     @Test func aCustomizedGridBottomIsKept() throws {
-        var stored = SidebarLayoutDocument.defaults
-        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
+        let stored = try defaultsWithGridBottom()
         let custom = try SidebarLayoutReducer.reduce(stored, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true)).get()
         #expect(custom.sectionsMigrationOps.isEmpty)
     }
