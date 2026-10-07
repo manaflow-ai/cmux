@@ -63,13 +63,15 @@ public enum CheckoutAttribution: Sendable {
     /// - Parameters:
     ///   - source: The surface that started the upgrade.
     ///   - plan: The subscription to check out; Pro sends no `plan` parameter.
+    ///   - interval: The billing period; only a yearly Pro checkout sends `interval=year`.
     ///   - base: The checkout endpoint; defaults to this build's billing checkout URL.
-    /// - Returns: `base` with the plan and attribution query items applied.
+    /// - Returns: `base` with the plan, interval, and attribution query items applied.
     public nonisolated static func checkoutURL(
         source: ProUpgradeSource,
         plan: CheckoutPlan = .pro,
+        interval: CheckoutInterval = .month,
         base: URL = AuthEnvironment.billingCheckoutURL
     ) -> URL {
-        applying(to: plan.applying(to: base), source: source)
+        applying(to: interval.applying(to: plan.applying(to: base), plan: plan), source: source)
     }
 }

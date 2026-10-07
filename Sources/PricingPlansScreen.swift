@@ -61,9 +61,15 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentCheckout(source: ProUpgradeSource, plan: CheckoutPlan = .pro) {
-        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
-        NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
+    static func presentCheckout(
+        source: ProUpgradeSource,
+        plan: CheckoutPlan = .pro,
+        interval: CheckoutInterval = .month
+    ) {
+        var properties = CheckoutAttribution.intentProperties(source: source, plan: plan)
+        properties["interval"] = interval.rawValue
+        PostHogAnalytics.shared.capture(intentEvent, properties: properties)
+        NSWorkspace.shared.open(checkoutURL(source: source, plan: plan, interval: interval))
     }
 
     /// The checkout URL a surface opens: the billing origin's checkout route,
@@ -71,9 +77,10 @@ enum ProUpgradePresenter {
     nonisolated static func checkoutURL(
         source: ProUpgradeSource,
         plan: CheckoutPlan = .pro,
+        interval: CheckoutInterval = .month,
         base: URL = AuthEnvironment.billingCheckoutURL
     ) -> URL {
-        CheckoutAttribution.checkoutURL(source: source, plan: plan, base: base)
+        CheckoutAttribution.checkoutURL(source: source, plan: plan, interval: interval, base: base)
     }
 
     @MainActor
@@ -331,6 +338,8 @@ enum NativePricingPlanRefresh {
 
 private struct NativePricingPlansView: View {
     @StateObject private var store = NativePricingPlanStore()
+    /// Pro is the only plan sold yearly; yearly is the default offer.
+    @State private var proInterval: CheckoutInterval = .year
 
     var body: some View {
         ScrollView([.vertical, .horizontal]) {
@@ -467,12 +476,20 @@ private struct NativePricingPlansView: View {
             }
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"),
-                price: String(localized: "pricing.native.pro.price", defaultValue: "$50"),
+                price: proShownInterval == .year
+                    ? String(localized: "pricing.native.pro.priceYearly", defaultValue: "$40")
+                    : String(localized: "pricing.native.pro.price", defaultValue: "$50"),
                 period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
                 isCurrent: snapshot.isPro && !snapshot.isMax && !snapshot.isGo,
                 actionTitle: proActionTitle,
                 action: proAction,
                 isProminent: !snapshot.isMax && !snapshot.isGo,
+                headerAccessory: proOffersInterval
+                    ? AnyView(NativePricingIntervalToggle(selection: $proInterval))
+                    : nil,
+                footnote: proOffersInterval
+                    ? (proInterval == .year ? Self.proBilledYearlyNote : "")
+                    : nil,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
                     String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"),
@@ -543,6 +560,25 @@ private struct NativePricingPlansView: View {
         return String(localized: "pricing.native.signInToUpgrade", defaultValue: "Get Pro")
     }
 
+    /// The Pro card offers a billing period only when its button starts a
+    /// new checkout. A Go subscriber's upgrade goes to the Stripe portal plan
+    /// switch, which sells monthly prices only.
+    private var proOffersInterval: Bool {
+        !snapshot.isPro && !snapshot.isGo
+    }
+
+    private var proShownInterval: CheckoutInterval {
+        proOffersInterval ? proInterval : .month
+    }
+
+    private static var proBilledYearlyNote: String {
+        String(
+            format: String(localized: "pricing.native.pro.billedYearly", defaultValue: "$%lld billed yearly, save %lld%%"),
+            Int64(480),
+            Int64(20)
+        )
+    }
+
     /// A Max subscriber already has everything Pro sells, so the Pro card
     /// opens the billing portal instead of a second checkout.
     private var proAction: (() -> Void)? {
@@ -552,7 +588,8 @@ private struct NativePricingPlansView: View {
         if snapshot.isPro && !snapshot.isGo {
             return nil
         }
-        return { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview) }
+        let interval = proShownInterval
+        return { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, interval: interval) }
     }
 
     private var maxActionTitle: String {
@@ -572,6 +609,11 @@ private struct NativePricingPlanCard: View {
     let actionTitle: String
     let action: (() -> Void)?
     var isProminent = false
+    /// Trailing content in the name row, such as the Pro billing-period toggle.
+    var headerAccessory: AnyView? = nil
+    /// A line under the button. An empty string keeps the line's height so
+    /// the card does not jump when the text comes and goes.
+    var footnote: String? = nil
     let features: [String]
 
     var body: some View {
@@ -580,6 +622,9 @@ private struct NativePricingPlanCard: View {
                 Text(name)
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
+                if let headerAccessory {
+                    headerAccessory
+                }
                 if isCurrent {
                     Text(String(localized: "pricing.native.currentPlan", defaultValue: "Current plan"))
                         .font(.system(size: 11, weight: .medium))
@@ -604,6 +649,13 @@ private struct NativePricingPlanCard: View {
             .disabled(action == nil)
             .controlSize(.large)
             .frame(maxWidth: .infinity)
+            if let footnote {
+                Text(footnote.isEmpty ? " " : footnote)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, -8)
+                    .accessibilityHidden(footnote.isEmpty)
+            }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(features, id: \.self) { feature in
                     HStack(alignment: .top, spacing: 8) {
@@ -627,6 +679,41 @@ private struct NativePricingPlanCard: View {
             Rectangle()
                 .stroke(isProminent ? Color.primary.opacity(0.42) : Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
+    }
+}
+
+/// A quiet "Yearly · Monthly" text toggle for the Pro card header.
+private struct NativePricingIntervalToggle: View {
+    @Binding var selection: CheckoutInterval
+
+    var body: some View {
+        HStack(spacing: 5) {
+            option(.year, title: String(localized: "pricing.native.interval.yearly", defaultValue: "Yearly"))
+            Text(verbatim: "·")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            option(.month, title: String(localized: "pricing.native.interval.monthly", defaultValue: "Monthly"))
+        }
+        .font(.system(size: 12))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "pricing.native.interval.label", defaultValue: "Billing period"))
+    }
+
+    private func option(_ interval: CheckoutInterval, title: String) -> some View {
+        let isSelected = selection == interval
+        return Button(title) {
+            guard selection != interval else { return }
+            selection = interval
+            PostHogAnalytics.shared.capture("cmuxterm_pricing_interval_selected", properties: [
+                "surface": "native_pricing",
+                "plan": CheckoutPlan.pro.rawValue,
+                "interval": interval.rawValue,
+            ])
+        }
+        .buttonStyle(.plain)
+        .fontWeight(isSelected ? .semibold : .regular)
+        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
