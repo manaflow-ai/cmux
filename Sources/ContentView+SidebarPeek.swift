@@ -102,9 +102,8 @@ extension ContentView {
     /// (floating, or hidden with peek on), which is before the edge dwell
     /// or the titlebar hover can ask for a reveal, and unmounts on dock.
     var sidebarNeedsPeekPanel: Bool {
-        SidebarPeekPanelMount.isNeeded(
+        sidebarState.presentationMode.needsPeekPanel(
             sidebarVisible: sidebarState.isVisible,
-            presentationMode: sidebarState.presentationMode,
             peekEnabled: sidebarPeek.policy.isEnabled,
             peekPresenting: sidebarPeek.presentsPanel
         )
