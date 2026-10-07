@@ -2,7 +2,7 @@
 // the agent-pane reference prototype (src/conversation/markdown.test.ts).
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { Markdown, parseMarkdown } from "./Markdown";
 import { normalizeMath } from "./mathDelimiters";
 import specimen from "../../../../scripts/agent-pane/specimen.json";
@@ -15,6 +15,7 @@ const specimenAnswer =
     ? answerUpdate.content.text
     : "";
 const html = (source: string) => renderToStaticMarkup(createElement(Markdown, null, source));
+const TestMarkdown = Markdown as unknown as ComponentType<{ githubRepository?: string }>;
 
 describe("math delimiters", () => {
   test("\\[ … \\] display blocks, also across lines, become $$ … $$", () => {
@@ -121,7 +122,7 @@ describe("links", () => {
     (githubRepository) => {
       const out = renderToStaticMarkup(
         createElement(
-          Markdown,
+          TestMarkdown,
           {
             githubRepository,
           },
@@ -136,7 +137,7 @@ describe("links", () => {
   test("linkifies bare and qualified GitHub references in prose", () => {
     const out = renderToStaticMarkup(
       createElement(
-        Markdown,
+        TestMarkdown,
         {
           githubRepository: "manaflow-ai/cmux",
         },
