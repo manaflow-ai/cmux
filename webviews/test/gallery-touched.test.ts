@@ -19,8 +19,18 @@ const files: Record<string, string> = {
 };
 const read = (file: string) => files[file];
 const entries: EntryRoots[] = [
-  { id: "agent-pane.composer", host: "agent-pane", file: `${SRC}/pane/composer.gallery.ts`, covers: ["pane/Composer.tsx#Composer"] },
-  { id: "pages.markdown", host: "markdown-page", file: `${SRC}/pages/markdown.gallery.ts`, covers: ["pages/markdown/Page.tsx"] },
+  {
+    id: "agent-pane.composer",
+    host: "agent-pane",
+    file: `${SRC}/pane/composer.gallery.ts`,
+    covers: ["pane/Composer.tsx#Composer"],
+  },
+  {
+    id: "pages.markdown",
+    host: "markdown-page",
+    file: `${SRC}/pages/markdown.gallery.ts`,
+    covers: ["pages/markdown/Page.tsx"],
+  },
 ];
 const paneStylesheets = () => [`${SRC}/pane/shipped.css`];
 const touched = (changed: string[]) =>

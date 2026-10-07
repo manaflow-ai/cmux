@@ -158,7 +158,11 @@ export async function loadEntryRoots(): Promise<EntryRoots[]> {
 if (import.meta.main) {
   const { values } = parseArgs({ options: { changed: { type: "string" }, out: { type: "string" } } });
   if (!values.changed) throw new Error("--changed <file with one repo path per line> is required");
-  const changed = fs.readFileSync(values.changed, "utf8").split("\n").map((line) => line.trim()).filter(Boolean);
+  const changed = fs
+    .readFileSync(values.changed, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const result = touchedEntries(await loadEntryRoots(), changed);
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
