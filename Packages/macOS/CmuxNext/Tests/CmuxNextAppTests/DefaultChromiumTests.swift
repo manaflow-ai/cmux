@@ -105,7 +105,7 @@ struct DefaultChromiumTests {
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { cef }
         var next: UInt64 = 20
-        browserTabs.create = { pane, url, engine in
+        browserTabs.create = { pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             next += 1
             return SurfaceID(rawValue: next)

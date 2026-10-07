@@ -7,7 +7,11 @@ extension AppServices {
     /// owns its explicit target (`ActionRouting`); otherwise the active
     /// window's machine (the local daemon, or its Cloud machine).
     var activeDaemon: DaemonService {
-        routedDaemon ?? windows?.active.flatMap { machines.daemon(machine: $0.state.machineID) } ?? daemon
+        if let routedDaemon { return routedDaemon }
+        guard let machine = windows?.active?.state.machineID else { return daemon }
+        // A window of a machine turned off by policy (DisabledFeatures) keeps
+        // its blocked daemon: commands fail there, never land on this Mac.
+        return machines.daemon(machine: machine) ?? machines.anyDaemon(machine: machine) ?? daemon
     }
 
     /// Publishes `signedIn` / `signedOut` / `cloudWorkspace` to the action

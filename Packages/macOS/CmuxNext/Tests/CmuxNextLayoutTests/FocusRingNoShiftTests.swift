@@ -6,7 +6,7 @@ import Testing
 /// The focus ring, its glow and the attention ring are overlay-only: moving
 /// focus, changing the ring's style, width or corners, and marking panes for
 /// attention never change a pane frame, its content rect or the hosted
-/// content's frame, in splits and in niri columns.
+/// content's frame, in splits and in strip columns.
 @MainActor
 struct FocusRingNoShiftTests {
     private func makeRoot(_ layout: ScreenLayout, style: LayoutStyle) -> (LayoutRootView, NSWindow, NoShiftProvider) {

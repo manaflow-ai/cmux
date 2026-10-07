@@ -1,4 +1,4 @@
-
+import CmuxNextActions
 
 public final class WorkspacePaletteProvider: PaletteProvider {
     public let id = "workspaces"
@@ -9,6 +9,11 @@ public final class WorkspacePaletteProvider: PaletteProvider {
         self.source = source
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
     }
+
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
 
     public static var section: PaletteSection {
         PaletteSection(id: "workspaces", title: PaletteStrings.sectionWorkspaces, order: 10)
@@ -21,7 +26,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
         let source = source
         return source.workspaces.map { workspace in
             let id = workspace.id
-            return PaletteItem(
+            var item = PaletteItem(
                 id: "workspace:\(id)",
                 title: workspace.title,
                 subtitle: workspace.directory.map(abbreviatePath),
@@ -39,6 +44,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                         title: PaletteStrings.renameWorkspace,
                         placeholder: PaletteStrings.workspaceNamePlaceholder,
                         initialText: workspace.title,
+                        skipsUnchangedText: true,
                         submitTitle: PaletteStrings.renameTo,
                         submit: { source.renameWorkspace(id: id, to: $0) }
                     ))),
@@ -52,6 +58,9 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 frecencyKey: "workspace:\(id)",
                 rankBias: workspace.isSelected ? -5 : 0
             )
+            item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],
+                                                title: PaletteStrings.switchToWorkspace)]
+            return item
         }
     }
 }

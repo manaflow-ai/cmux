@@ -3,9 +3,9 @@ import CmuxNextDesign
 import QuartzCore
 // Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
-    // MARK: - Model sync
+    // MARK: - Model sync (`animating: false`: Cmd-T's tab at full width now, one commit with its page)
 
-    func sync(fromModel: Bool) {
+    public func sync(fromModel: Bool, animating: Bool = true) {
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {
@@ -44,7 +44,7 @@ extension TabStripView {
             }
         }
 
-        let animated = hasSynced && !reduceMotion
+        let animated = hasSynced && !reduceMotion && animating
         let ids = Set(ordered.map(\.id))
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
@@ -89,7 +89,6 @@ extension TabStripView {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
-        syncButtonGroup()
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added)
 
@@ -108,12 +107,14 @@ extension TabStripView {
         cell.style = model.style
         cell.metrics = metrics
         cell.titleFont = Typography.body
-        cell.appearance = effectiveAppearance
+        cell.themeScope = themeScope
         cell.scale = window?.backingScaleFactor ?? 2
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
+        let element = ObjectIdentifier(cell.accessibility)
+        cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsClip.layer?.addSublayer(cell.layer)
         cells[id] = cell
         motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
@@ -123,18 +124,18 @@ extension TabStripView {
     func refreshHoverCard() {
         if let hoveredID {
             if let item = model.tab(hoveredID) {
-                hoverCard.refresh(.tab(item))
+                hoverCard.refresh(item.id)
             } else {
+                hoverCards.targetRemoved(TabHoverCardController.targetID(hoveredID))
                 setHovered(nil)
-                hoverCard.hide()
             }
         }
         if let chip = groups.hoveredChip {
             if let group = groups.byID[chip] {
-                hoverCard.refresh(groupHoverContent(group))
+                hoverCard.refresh(.groupChip(group.id))
             } else {
+                hoverCards.targetRemoved(TabHoverCardController.targetID(.groupChip(chip)))
                 setHoveredChip(nil)
-                hoverCard.hide()
             }
         }
         if let shown = groupEditor.shownGroupID {
@@ -148,6 +149,7 @@ extension TabStripView {
             return
         }
         cells[id]?.layer.removeFromSuperlayer()
+        if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
         motion[id] = nil
         dying.remove(id)

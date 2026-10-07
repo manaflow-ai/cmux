@@ -1,7 +1,10 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
@@ -13,10 +16,15 @@ enum WindowHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let keepAwake = KeepAwake()
+        // Settings and Debug Settings open as internal page tabs.
+        context.services.pages.register(context.services.settingsWindow)
+        context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
-            let section = invocation["section"]?.stringValue.flatMap(SettingsSection.init(rawValue:))
-            try context.services.settingsWindow.show(section: section)
+            let link = SettingsDeepLink(invocation)
+            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
         })
+        // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
+        registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
         registry.bind("about", run: { _ in
             context.activateApp()
             NSApp.orderFrontStandardAboutPanel(nil)
@@ -34,16 +42,23 @@ enum WindowHandlers {
             // Show Main Window (showMainWindow) restores it.
             context.activeWindow?.window?.miniaturize(nil)
         })
+        registry.bind("closeAllWindows", run: { _ in
+            // Each window's own close check (an incognito window asks), then close.
+            for window in context.services.windows.controllers.compactMap(\.window) { WindowTargeting.close(window) }
+        })
+        registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
+        registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
+        registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
+        // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
+        for id in PaletteKeyMap.paletteKeyActions {
+            guard let command = PaletteKeyMap.command(forAction: id) else { continue }
+            registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
+        }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
 
         let unbuilt: [(ActionID, String)] = [
-            ("globalSearch", "search-all-windows"),
-            ("focusHistoryBack", "focus-history"),
-            ("focusHistoryForward", "focus-history"),
-            ("focusHistoryLast", "focus-history"),
-            ("recentlyFocused", "focus-history"),
             ("palette.openTaskManager", "task-manager"),
             ("taskManager.killProcess", "task-manager"),
             ("palette.sleepyMode", "sleepy-mode"),
@@ -51,9 +66,6 @@ enum WindowHandlers {
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
         }
-        // Closed workspaces and tabs are gone from the daemon tree; reopening
-        // needs a daemon-side closed-item history.
-        registry.bindUnavailable(["recentlyClosed"], ActionFailure.needsDaemonCapability("closed-history-v1"))
     }
 
     private static func showMainWindow(_ context: AppActionContext) {
@@ -61,6 +73,16 @@ enum WindowHandlers {
             context.services.windows.reopenOrCreateWindow()
             return
         }
+        WindowActivation.show(window, .focus)
+    }
+
+    private static func targeting(_ context: AppActionContext) -> WindowTargeting {
+        WindowTargeting.current(context.services.windows.controllers.compactMap(\.window).filter(\.isVisible))
+    }
+
+    /// The cmux window `offset` places from the key or frontmost one, wrapping.
+    private static func selectWindow(offset: Int, _ context: AppActionContext) {
+        guard let window = targeting(context).cycled(offset) else { return }
         WindowActivation.show(window, .focus)
     }
 

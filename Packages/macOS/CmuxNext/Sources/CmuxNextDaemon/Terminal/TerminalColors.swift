@@ -54,7 +54,8 @@ public struct KittyImageAlias: Sendable, Hashable, Decodable {
     }
 }
 
-/// Kitty graphics sidecar for `ghostty_surface_restore_kitty_replay`.
+/// Kitty graphics sidecar of a daemon replay (the desktop fork restored it
+/// with a kitty replay API; GhosttyNextKit restores images through snapshots).
 public struct KittyGraphicsState: Sendable, Hashable, Decodable {
     public var imageBytes: UInt64
     public var inflightBytes: UInt64

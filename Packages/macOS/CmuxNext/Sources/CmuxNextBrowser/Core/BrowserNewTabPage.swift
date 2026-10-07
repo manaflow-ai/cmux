@@ -1,12 +1,12 @@
 public import Foundation
 
-/// The New Tab page (Chrome parity). A new Chromium tab opens
+/// The New Tab page. A new Chromium tab opens
 /// `chrome://newtab/`: an extension that overrides the New Tab page
 /// (Momentum, Infinity) shows there; without one the fork loads
 /// `CEFNewTabPage.fallbackURL`, a blank page in the Ghostty theme background
 /// (`PageBackground`), never Google's New Tab page. The address of either
 /// stays `chrome://newtab/` (the shim reports the entry's virtual URL), and
-/// the omnibar shows it as empty, as Chrome does. WebKit tabs open
+/// the omnibar shows it as empty. WebKit tabs open
 /// `about:blank`.
 public nonisolated enum BrowserNewTabPage {
     public static let chromiumURL = "chrome://newtab/"

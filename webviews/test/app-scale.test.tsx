@@ -1,61 +1,35 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  closeFileSearch,
-  FilesSidebarBackdrop,
-  JumpSelect,
-  shouldDismissFileSearch,
-} from "../src/App";
+import { closeFileSearch, FilesSidebarBackdrop, shouldDismissFileSearch } from "../src/App";
+import { JumpToFilePalette } from "../src/DiffToolbar";
+import { JUMP_ROW_CAP, jumpToFileRows } from "../src/toolbar-model";
 import type { DiffItem } from "../src/diff-stream";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
-test("large diff navigation keeps the rendered DOM bounded", () => {
+test("large diff jump-to-file rows stay bounded", () => {
   const items = Array.from({ length: 10_000 }, (_, index) => ({
     id: `src/file-${index}.ts`,
     type: "diff",
     fileDiff: { name: `src/file-${index}.ts`, hunks: [] },
     version: 0,
   })) as DiffItem[];
+  const { rows, hidden } = jumpToFileRows(items, "", "Untitled");
+  expect(rows).toHaveLength(JUMP_ROW_CAP);
+  expect(hidden).toBe(10_000 - JUMP_ROW_CAP);
   const markup = renderToStaticMarkup(
-    <JumpSelect
-      items={items}
-      label={createDiffViewerLabelResolver(undefined)}
-      onJump={() => {}}
-      onOpenSearch={() => {}}
-      searchOpen={false}
-      selectedItemId=""
-    />,
+    <JumpToFilePalette items={items} label={createDiffViewerLabelResolver(undefined)} onJump={() => {}} />,
   );
   const dom = new JSDOM(markup);
-  expect(dom.window.document.querySelectorAll("option")).toHaveLength(0);
-  const searchButton = dom.window.document.querySelector('[aria-label="Jump to file"]');
-  expect(searchButton?.tagName).toBe("BUTTON");
-  expect(searchButton?.getAttribute("aria-controls")).toBe("files-sidebar");
-  expect(searchButton?.getAttribute("aria-expanded")).toBe("false");
+  // Closed, the palette is one button; rows exist only while it is open.
   expect(dom.window.document.querySelectorAll("*").length).toBeLessThan(10);
+  expect(dom.window.document.querySelector('[aria-label="Jump to file"]')?.tagName).toBe("BUTTON");
   dom.window.close();
-
-  let openedSearch = false;
-  const control = JumpSelect({
-    items,
-    label: createDiffViewerLabelResolver(undefined),
-    onJump: () => {},
-    onOpenSearch: () => {
-      openedSearch = true;
-    },
-    searchOpen: false,
-    selectedItemId: "",
-  }) as any;
-  control.props.onClick();
-  expect(openedSearch).toBe(true);
 });
 
 test("mobile file drawer backdrop is an accessible close control", () => {
   const label = createDiffViewerLabelResolver(undefined);
-  const markup = renderToStaticMarkup(
-    <FilesSidebarBackdrop label={label} onClose={() => {}} open={true} />,
-  );
+  const markup = renderToStaticMarkup(<FilesSidebarBackdrop label={label} onClose={() => {}} open={true} />);
   const dom = new JSDOM(markup);
   const backdrop = dom.window.document.getElementById("files-sidebar-backdrop");
   expect(backdrop?.tagName).toBe("BUTTON");

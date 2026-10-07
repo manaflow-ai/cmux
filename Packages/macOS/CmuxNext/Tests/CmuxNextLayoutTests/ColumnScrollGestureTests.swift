@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// Trackpad and wheel scrolling of the strip (plans/cmux-next/niri.md,
+/// Trackpad and wheel scrolling of the strip (plans/cmux-next/column-scroll.md,
 /// "Trackpad and wheel").
 struct ColumnScrollGestureTests {
     private let four = makeStrip([400, 400, 400, 400])
@@ -50,7 +50,7 @@ struct ColumnScrollGestureTests {
         #expect(effects.reportOnSettle)
     }
 
-    @Test func scrollingTheFocusOffScreenMovesFocusTheNiriWay() {
+    @Test func scrollingTheFocusOffScreenFocusesAVisibleColumn() {
         var state = settledState(four, focused: "p0")
         let end = drag(&state, total: 640, steps: 20)
         let effects = state.reduce(.gestureEnded(time: end + 0.2, animated: false))

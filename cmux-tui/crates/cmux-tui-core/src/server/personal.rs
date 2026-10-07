@@ -58,7 +58,24 @@ pub(super) fn move_profile(mux: &Mux, id: &str, index: usize) -> anyhow::Result<
     Ok(json!({"profile": profile, "changed": changed}))
 }
 
+/// Delete a room. Without `move_to` this is Delete Space: the shared path
+/// closes its workspaces as one reopenable group (`closed_id`,
+/// SPACE-DELETE-CLOSES-ITS-WORKSPACES); with `move_to` its pins and groups
+/// move there.
 pub(super) fn delete_profile(mux: &Mux, id: &str, move_to: Option<&str>) -> anyhow::Result<Value> {
+    if move_to.is_none() {
+        let closed_id = crate::state::closed_history_store::new_closed_id();
+        let mutation = crate::WorkspaceMutation::local("delete-profile");
+        let fingerprint = json!({"operation": "delete-profile", "profile": id});
+        let deleted =
+            mux.state_room_delete(&mutation, "room.delete", &fingerprint, None, id, &closed_id)?;
+        return Ok(json!({
+            "profile": id,
+            "moved_to": null,
+            "unpinned": pairs(&deleted.unpinned),
+            "closed_id": closed_id,
+        }));
+    }
     let (deletion, _) =
         mux.personal_mutation(|registry| Ok((registry.delete_profile(id, move_to)?, true)))?;
     Ok(json!({"profile": id, "moved_to": deletion.moved_to, "unpinned": pairs(&deletion.unpinned)}))
@@ -208,4 +225,15 @@ pub(super) fn set_workspace(
     let (workspace, changed) =
         mux.personal_mutation(|registry| registry.set_personal_workspace(session, key, update))?;
     Ok(json!({"workspace": workspace, "changed": changed}))
+}
+
+pub(super) fn set_terminal(
+    mux: &Mux,
+    session: &str,
+    key: &str,
+    theme: Option<&str>,
+) -> anyhow::Result<Value> {
+    let (terminal, changed) =
+        mux.personal_mutation(|registry| registry.set_personal_terminal(session, key, theme))?;
+    Ok(json!({"terminal": terminal, "changed": changed}))
 }

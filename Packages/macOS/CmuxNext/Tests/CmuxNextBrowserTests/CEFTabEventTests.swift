@@ -28,6 +28,57 @@ import Testing
         #expect(tab.state.url?.host() == "a.example")
     }
 
+    /// Back reports the entry's title before the commit, and a page from
+    /// the back/forward cache never sets it again: the commit keeps it
+    /// rather than leaving the previous page's title in the record.
+    @Test func backKeepsTheTitleReportedBeforeCommit() {
+        let tab = makeTab()
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: false, canGoForward: false))
+        tab.handle(.loadStart(browser: 1, url: "https://a.example/"))
+        tab.handle(.title(browser: 1, title: "A"))
+        tab.handle(.loadingState(browser: 1, loading: false, canGoBack: false, canGoForward: false))
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.loadStart(browser: 1, url: "https://b.example/"))
+        tab.handle(.title(browser: 1, title: "B"))
+        tab.handle(.loadingState(browser: 1, loading: false, canGoBack: true, canGoForward: false))
+        #expect(tab.state.title == "B")
+
+        // Back to A: the title comes first, then the commit.
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.title(browser: 1, title: "A"))
+        tab.handle(.loadStart(browser: 1, url: "https://a.example/"))
+        tab.handle(.loadingState(browser: 1, loading: false, canGoBack: false, canGoForward: true))
+        #expect(tab.state.url?.host() == "a.example")
+        #expect(tab.state.title == "A")
+
+        // A new document that names itself only later starts untitled.
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: false, canGoForward: true))
+        tab.handle(.loadStart(browser: 1, url: "https://c.example/"))
+        #expect(tab.state.title == nil)
+    }
+
+    /// A title from a Back that never committed, or from the old page
+    /// while a typed URL loads, is not carried onto the next document.
+    @Test func aTitleBeforeCommitDoesNotLeakOntoAnotherNavigation() {
+        let tab = makeTab()
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.title(browser: 1, title: "Back entry"))
+        tab.stop()
+        tab.load(URL(string: "https://typed.example/")!)
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.title(browser: 1, title: "Old page unread (3)"))
+        tab.handle(.loadStart(browser: 1, url: "https://typed.example/"))
+        #expect(tab.state.title == nil)
+
+        tab.handle(.loadingState(browser: 1, loading: false, canGoBack: true, canGoForward: false))
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.title(browser: 1, title: "Failed entry"))
+        tab.handle(.loadError(browser: 1, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://gone.example/"))
+        tab.handle(.loadingState(browser: 1, loading: true, canGoBack: true, canGoForward: false))
+        tab.handle(.loadStart(browser: 1, url: "https://next.example/"))
+        #expect(tab.state.title == nil)
+    }
+
     @Test func pageInitiatedNavigationStartsFromLoadingState() {
         let tab = makeTab()
         tab.handle(.loadingState(browser: 1, loading: true, canGoBack: false, canGoForward: false))

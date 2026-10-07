@@ -9,9 +9,64 @@ use serde_json::{Value, json};
 use std::process::Command;
 use std::sync::Arc;
 
+/// An ssh destination given on the command line or taken from a peer URL,
+/// checked like a peer's (`peer::ssh_target`): never an ssh option.
+fn checked_host(host: &str) -> Result<&str> {
+    let t = crate::peer::ssh_target(&format!("ssh://{host}"))
+        .map_err(|why| anyhow!("refusing that ssh host: {why}"))?;
+    if t.destination != host {
+        return Err(anyhow!("refusing that ssh host: give the host without a port"));
+    }
+    Ok(host)
+}
+
+/// `ssh ... -- HOST SCRIPT`: `--` before the destination; the script is
+/// acpmux's own fixed text.
+fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
+    let host = checked_host(host)?;
+    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, script]
+        .iter()
+        .map(|s| s.to_string())
+        .collect())
+}
+
+/// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.
+fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
+    let host = checked_host(host)?;
+    Ok(vec![
+        "-q".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "--".into(),
+        local.to_owned(),
+        format!("{host}:{remote}"),
+    ])
+}
+
+/// `scp -rq -o BatchMode=yes -- HOST:REMOTE LOCAL` for a bundle an ssh peer
+/// made. `remote` comes from the peer's reply: only a plain absolute or
+/// home path is accepted (a remote scp may hand it to a shell).
+pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
+    let t =
+        crate::peer::ssh_target(peer_url).map_err(|why| anyhow!("refusing that peer: {why}"))?;
+    let plain = (remote.starts_with('/') || remote.starts_with("~/"))
+        && remote.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b));
+    if !plain {
+        return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
+    }
+    Ok(vec![
+        "-rq".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "--".into(),
+        format!("{}:{remote}", t.destination),
+        local.to_owned(),
+    ])
+}
+
 fn ssh(host: &str, script: &str) -> Result<String> {
     let out = Command::new("ssh")
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, script])
+        .args(ssh_argv(host, script)?)
         .output()
         .with_context(|| format!("ssh {host}"))?;
     if !out.status.success() {
@@ -26,13 +81,7 @@ fn push_binary(host: &str) -> Result<String> {
     let exe = std::env::current_exe()?;
     ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
     let status = Command::new("scp")
-        .args([
-            "-q",
-            "-o",
-            "BatchMode=yes",
-            &exe.to_string_lossy(),
-            &format!("{host}:.local/bin/acpmux.new"),
-        ])
+        .args(scp_push_argv(host, &exe.to_string_lossy(), ".local/bin/acpmux.new")?)
         .status()
         .context("scp")?;
     if !status.success() {
@@ -58,10 +107,50 @@ const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>
 "#;
 
-/// Restart the daemon away from launchd: `daemon shutdown` returns once the
+/// A remote script that runs `cmd` and keeps only the start of its output
+/// (`limit`, such as `head -3`), failing when `cmd` fails: a plain pipe into
+/// `head` would answer with head's exit status instead.
+fn capped(cmd: &str, limit: &str) -> String {
+    format!("out=$({cmd}); rc=$?; printf '%s\\n' \"$out\" | {limit}; exit $rc")
+}
+
+/// Restart the daemon away from launchd: `daemon shutdown --keep-agents`
+/// (hosted agents keep running for the new daemon to adopt) returns once the
 /// old daemon released its lock, and `daemon start` returns once the new one
 /// accepts clients (its readiness pipe), so no step waits on a timer.
-const RESTART_DETACHED: &str = "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux --json daemon start | head -c 400";
+fn restart_detached(json: bool) -> String {
+    let start = if json {
+        capped("~/.local/bin/acpmux --json daemon start", "head -c 400")
+    } else {
+        capped("~/.local/bin/acpmux daemon start", "head -3")
+    };
+    format!("{SHUTDOWN_KEEPING_AGENTS}; {start}")
+}
+
+/// `daemon shutdown --keep-agents` on the remote. A CLI older than the flag
+/// rejects it (clap's usage error names it); its plain `daemon shutdown`
+/// already keeps hosted agents, so only then it runs again without the flag.
+/// Any other failure (no daemon runs) is not retried.
+const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
+
+/// Read the daemon's status after launchd (re)started it; a daemon that is
+/// still not running is an error, not a status line.
+fn launchd_status(host: &str, json: bool) -> Result<String> {
+    let status = if json {
+        ssh(host, &capped("~/.local/bin/acpmux --json daemon status", "head -c 400"))?
+    } else {
+        ssh(host, &capped("~/.local/bin/acpmux daemon status", "head -3"))?
+    };
+    let stopped = status.starts_with("daemon not running")
+        || serde_json::from_str::<Value>(&status)
+            .ok()
+            .and_then(|v| v.get("running").and_then(Value::as_bool))
+            == Some(false);
+    if stopped {
+        return Err(anyhow!("the daemon on {host} did not start: {status}"));
+    }
+    Ok(status)
+}
 
 /// launchd starts the daemon on its own schedule and has no readiness
 /// callback, so a launchd host is given this long before its status is read.
@@ -71,18 +160,19 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 fn restart_daemon(host: &str) -> Result<String> {
     let os = ssh(host, "uname -s")?;
     if os != "Darwin" {
-        return ssh(host, RESTART_DETACHED);
+        return ssh(host, &restart_detached(true));
     }
     ssh(
         host,
         "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
-    ssh(host, "~/.local/bin/acpmux --json daemon status 2>/dev/null | head -c 400 || echo starting")
+    launchd_status(host, true)
 }
 
-/// Connect a peer now and answer once that attempt settled: add it, or, when
-/// it is known, reconnect it (its daemon was just restarted).
+/// Connect a peer now and answer once that attempt settled: add (or
+/// replace) it with `url`, or reconnect a known one at its configured url
+/// (its daemon was just restarted).
 async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<Value> {
     match url {
         Some(url) => {
@@ -108,15 +198,25 @@ pub(crate) async fn setup(
     // Config: keep an existing one, but make sure the websocket listener and token exist.
     let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
     let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let token =
-        cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(
-            || {
-                let mut b = [0u8; 24];
-                getrandom_fill(&mut b);
-                b.iter().map(|x| format!("{x:02x}")).collect()
-            },
-        );
-    cfg["websocket"] = json!({"listen": format!("127.0.0.1:{port}"), "token": token});
+    let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
+    let token = match kept.clone() {
+        Some(t) => t,
+        None => {
+            let mut b = [0u8; 24];
+            getrandom_fill(&mut b)?;
+            b.iter().map(|x| format!("{x:02x}")).collect()
+        }
+    };
+    // Keep the rest of the listener's settings (allowed origins and hosts,
+    // `tokenRotated`); a token made here is new, so it never rotates.
+    let mut websocket =
+        cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
+    websocket["token"] = json!(token);
+    if kept.is_none() {
+        websocket["tokenRotated"] = json!(1);
+    }
+    cfg["websocket"] = websocket;
     if cfg.get("store").is_none() {
         cfg["store"] = json!({"mode": "local"});
     }
@@ -124,7 +224,13 @@ pub(crate) async fn setup(
         cfg["permissionPolicy"] = json!("ask");
     }
     let cfg_text = serde_json::to_string_pretty(&cfg)?;
-    ssh(host, &format!("cat > ~/.acpmux/config.json <<'ACPMUX_CFG'\n{cfg_text}\nACPMUX_CFG"))?;
+    // The config holds the WebSocket token: owner-only, whatever the umask.
+    ssh(
+        host,
+        &format!(
+            "chmod 700 ~/.acpmux && umask 077 && cat > ~/.acpmux/config.json <<'ACPMUX_CFG' && chmod 600 ~/.acpmux/config.json\n{cfg_text}\nACPMUX_CFG"
+        ),
+    )?;
     let os = ssh(host, "uname -s")?;
     let status = if os == "Darwin" {
         let home = ssh(host, "echo $HOME")?;
@@ -136,22 +242,14 @@ pub(crate) async fn setup(
             ),
         )?;
         std::thread::sleep(LAUNCHD_START_GRACE);
-        ssh(host, "~/.local/bin/acpmux daemon status 2>/dev/null | head -3")?
+        launchd_status(host, false)?
     } else {
-        ssh(
-            host,
-            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux daemon start | head -3",
-        )?
+        ssh(host, &restart_detached(false))?
     };
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
-    let peers = client.request("_acpmux/peers", json!({})).await?;
-    let known = peers
-        .get("peers")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())))
-        .unwrap_or(false);
-    let peers = connect_peer(&client, &name, (!known).then_some(url.as_str())).await?;
+    // Always with the url: a known peer takes the host and port given now.
+    let peers = connect_peer(&client, &name, Some(url.as_str())).await?;
     if json_out {
         print_json(
             &json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}),
@@ -190,13 +288,8 @@ pub(crate) async fn update(
         .iter()
         .filter_map(|p| {
             let n = p.get("name").and_then(Value::as_str)?;
-            let url = p.get("url").and_then(Value::as_str)?;
-            let host = url
-                .strip_prefix("ssh://")?
-                .rsplit_once(':')
-                .map(|(h, _)| h)
-                .unwrap_or(url.strip_prefix("ssh://")?);
-            Some((n.to_owned(), host.to_owned()))
+            let host = ssh_host(p.get("url").and_then(Value::as_str)?)?;
+            Some((n.to_owned(), host))
         })
         .filter(|(n, _)| all || name.as_deref() == Some(n.as_str()))
         .collect();
@@ -251,10 +344,91 @@ pub(crate) async fn update(
     Ok(())
 }
 
-fn getrandom_fill(buf: &mut [u8]) {
-    // /dev/urandom is always there on the platforms acpmux runs on.
+/// The ssh host of an `ssh://host[:port]` peer url. As in `Peer::ssh_parts`,
+/// only a numeric suffix is a port, so a bracketed IPv6 host stays whole.
+fn ssh_host(url: &str) -> Option<String> {
+    crate::peer::ssh_target(url).ok().map(|t| t.destination)
+}
+
+/// Fill `buf` from /dev/urandom; a failure aborts setup rather than writing
+/// a weak token.
+fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
     use std::io::Read;
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = f.read_exact(buf);
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(buf))
+        .context("read /dev/urandom for the WebSocket token")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The remote's shutdown step against a fake `~/.local/bin/acpmux` that
+    /// logs its arguments and exits as `body` says; the calls it got.
+    fn remote_shutdown_calls(tag: &str, body: &str) -> Vec<String> {
+        let home = std::env::temp_dir().join(format!("acpmux-rs-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let fake = home.join(".local/bin/acpmux");
+        std::fs::write(&fake, format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"))
+            .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::process::Command::new("sh")
+            .args(["-c", SHUTDOWN_KEEPING_AGENTS])
+            .env("HOME", &home)
+            .status()
+            .unwrap();
+        let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&home);
+        calls.lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_restart_keeps_agents_and_falls_back_only_for_a_cli_without_the_flag() {
+        // A current CLI: one call, with the flag.
+        assert_eq!(remote_shutdown_calls("new", "exit 0"), ["daemon shutdown --keep-agents"]);
+        // A CLI older than the flag: clap refuses it; the plain call detaches.
+        let old = r#"case "$*" in *--keep-agents*) echo "error: unexpected argument '--keep-agents' found" >&2; exit 2;; esac"#;
+        assert_eq!(
+            remote_shutdown_calls("old", old),
+            ["daemon shutdown --keep-agents", "daemon shutdown"]
+        );
+        // Any other failure (no daemon answered) is not retried.
+        let down = "echo 'acpmux: runtime: daemon not running' >&2; exit 1";
+        assert_eq!(remote_shutdown_calls("down", down), ["daemon shutdown --keep-agents"]);
+    }
+
+    #[test]
+    fn every_ssh_and_scp_argv_puts_double_dash_before_the_destination() {
+        let check = |argv: Vec<String>, dest: &str| {
+            let dd = argv.iter().position(|a| a == "--").expect("a --");
+            assert!(argv[dd + 1..].iter().any(|a| a.starts_with(dest)), "{argv:?}");
+            assert!(argv[..dd].iter().all(|a| !a.contains(dest)), "{argv:?}");
+        };
+        check(super::ssh_argv("me@box", "true").unwrap(), "me@box");
+        check(super::scp_push_argv("box", "/bin/acpmux", ".local/x").unwrap(), "box");
+        check(super::scp_fetch_argv("ssh://box:2222", "/tmp/b.tar", "/l").unwrap(), "box:");
+    }
+
+    #[test]
+    fn option_shaped_hosts_and_odd_bundle_paths_are_refused() {
+        for bad in ["-oProxyCommand=touch /tmp/x", "-F", "-luser@box", "ho st", "box\n", "box:22"] {
+            assert!(super::ssh_argv(bad, "true").is_err(), "{bad:?}");
+            assert!(super::scp_push_argv(bad, "/x", "y").is_err(), "{bad:?}");
+        }
+        assert!(super::scp_fetch_argv("ssh://-oProxyCommand=x", "/b", "/l").is_err());
+        for path in ["/b; rm -rf ~", "$(id)", "relative", "/b c", "-oX"] {
+            assert!(super::scp_fetch_argv("ssh://box", path, "/l").is_err(), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn ssh_host_strips_only_a_numeric_port() {
+        assert_eq!(ssh_host("ssh://box").as_deref(), Some("box"));
+        assert_eq!(ssh_host("ssh://me@box:47812").as_deref(), Some("me@box"));
+        assert_eq!(ssh_host("ssh://[::1]").as_deref(), Some("[::1]"));
+        assert_eq!(ssh_host("ssh://[::1]:47812").as_deref(), Some("[::1]"));
+        assert_eq!(ssh_host("ws://box:1"), None);
     }
 }

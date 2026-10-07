@@ -32,4 +32,13 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     /// Daemon `split {pane, dir}`.
     case split(PaneID, axis: SplitAxis)
     case selectScreen(ScreenID)
+    /// Daemon `set-column-dock {pane, dock, edge, mode, transaction}`
+    /// (`dock-columns-v1`); nil makes the column scroll again.
+    case setColumnDock(ColumnID, anyPane: PaneID, dock: DockColumn?, transaction: LayoutTransactionID)
+    /// Daemon `set-row-heights {column, heights, fit}` (`rows-v1`): every
+    /// row of the column, sent once when a row divider drag ends. Never
+    /// applied locally: the App sends it through the store's intent log.
+    case setRowHeights(ColumnID, heights: [RowHeight], fit: Bool)
+    /// Daemon `new-row {pane, height_permille}` (`rows-v1`).
+    case newRow(below: PaneID, height: Int)
 }

@@ -38,7 +38,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
             if dropped == data.count {
                 droppedChunks += 1
                 let overCap = before.queuedInputBytes + data.count > Machine.maxQueuedInputBytes
-                if !before.isClosed, !overCap, before.liveLink == nil {
+                if !before.isClosed, before.phase != .exited, !overCap, before.liveLink == nil {
                     fail(.inputOrder, "dropped \(data.count) bytes while attaching under the queue cap")
                 }
                 if before.liveLink != nil { fail(.inputOrder, "dropped \(data.count) bytes on a live link") }
@@ -52,7 +52,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         }
         for effect in effects {
             switch effect {
-            case .open(let attempt, _):
+            case .open(let attempt, _), .openAfterBackoff(let attempt, _, _):
                 openAttempts.insert(attempt)
             case .send(let link, let data):
                 if after.isClosed { fail(.closedIsFinal, "sent after close") }
@@ -70,11 +70,11 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
                 let count = detaches[link, default: 0] + 1
                 detaches[link] = count
                 if count > 1 { fail(.detachOnce, "link detached \(count) times") }
-            case .finish:
+            case .finish, .status:
                 break
             }
         }
-        if after.isClosed {
+        if after.isClosed || after.phase == .exited {
             if !after.queuedInput.isEmpty { fail(.closedIsFinal, "closed with queued input") }
             // What was still unsent is dropped with the close.
             if !unsent.isEmpty {
@@ -102,6 +102,9 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         case .focused: "focused"
         case .gridAnnounced(_, let size): "grid(\(size.cols)x\(size.rows))"
         case .ended(_, let reason): "ended(\(reason))"
+        case .reconnect: "reconnect"
+        case .processExited: "processExited"
+        case .processRevived: "processRevived"
         case .close: "close"
         }
     }

@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 import os
@@ -94,6 +95,11 @@ final class InputInvariantMonitor {
         checks += 1
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
+        result.violations += Self.tabConservation(services)
+        result.violations += Self.mirrorWrites(services)
+        result.violations += services.hoverCards.singleCardViolations().map {
+            InputViolation(invariant: .hoverCardSingle, window: nil, detail: $0)
+        }
         lastResult = result
         return result
     }
@@ -108,6 +114,36 @@ final class InputInvariantMonitor {
             let (hosts, pages) = ChildPageGeometry.sample(controller)
             return ChildPageGeometry.mismatches(hosts: hosts, pages: pages).map {
                 InputViolation(invariant: .chromiumGeometry, window: controller.state.id, detail: $0)
+            }
+        }
+    }
+
+    /// DP1 (plans/cmux-next/layout-invariants.md): once no tab drag is in
+    /// flight, every strip shows exactly the tabs its pane holds, none
+    /// hidden (a drag's presentation that never ended) and none extra.
+    static func tabConservation(_ services: AppServices) -> [InputViolation] {
+        guard !services.dragSession.hasDragInFlight else { return [] }
+        return services.windows.controllers.flatMap { controller -> [InputViolation] in
+            (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                // A strip out of the window does not observe its model.
+                guard pane.view.stripView.window != nil else { return nil }
+                let shown = pane.view.stripView.presentedTabIDs.map(\.rawValue)
+                let held = pane.stripModel.orderedTabs.map(\.id.rawValue)
+                guard Set(shown) != Set(held) || shown.count != held.count else { return nil }
+                return InputViolation(invariant: .stripShowsPaneTabs, window: controller.state.id,
+                                      detail: "pane \(pane.paneKey) shows \(shown) but holds \(held)")
+            }
+        }
+    }
+
+    /// M1 (plans/cmux-next/ownership.md step 4): mirror writes outside
+    /// daemon apply and the intent overlay, found by each store's
+    /// debug-build check (DaemonStore+MirrorCheck.swift). Each stays
+    /// listed (and reported once) for the life of its store.
+    static func mirrorWrites(_ services: AppServices) -> [InputViolation] {
+        services.machines.daemons.flatMap { daemon in
+            daemon.store.mirrorViolations.map {
+                InputViolation(invariant: .mirrorSingleWriter, window: nil, detail: "\(daemon.machineID): \($0)")
             }
         }
     }
@@ -134,7 +170,17 @@ final class InputInvariantMonitor {
         )
         reports.append(report)
         if reports.count > Self.reportsKept { reports.removeFirst(reports.count - Self.reportsKept) }
-        if let data = Self.fileData(report, services: services) { store.write(data, for: report) }
+        // The UI snapshots are read here (main actor); encoding and pretty-printing them (about
+        // 30 ms per report, R81 trace) run off the main actor with the write.
+        let extras: [String: CmuxNextSettings.JSONValue] = [
+            "debug_focus": DebugFocus.report(services: services),
+            "debug_surfaces": SurfaceDiagnosticsReport.make(services),
+            "debug_layers": DebugLayers.report(services: services),
+        ]
+        let store = store
+        Task.detached(priority: .utility) {
+            if let data = Self.fileData(report, extras: extras) { store.write(data, for: report) }
+        }
         for line in report.summary {
             #if DEBUG
             logger.fault("input desync \(line, privacy: .public)")
@@ -145,13 +191,11 @@ final class InputInvariantMonitor {
         return report
     }
 
-    /// The report plus `debug.focus` and `debug.surfaces` at capture time.
-    private static func fileData(_ report: DesyncReport, services: AppServices) -> Data? {
-        guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? JSONValue.parse(encoded) else { return nil }
-        object["debug_focus"] = DebugFocus.report(services: services)
-        object["debug_surfaces"] = SurfaceDiagnosticsReport.make(services)
-        object["debug_layers"] = DebugLayers.report(services: services)
-        return Data(JSONValue.object(object).prettyText().utf8)
+    /// The report plus `debug.focus`, `debug.surfaces` and `debug.layers` captured with it.
+    nonisolated private static func fileData(_ report: DesyncReport, extras: [String: CmuxNextSettings.JSONValue]) -> Data? {
+        guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? CmuxNextSettings.JSONValue.parse(encoded) else { return nil }
+        object.merge(extras) { _, extra in extra }
+        return Data(CmuxNextSettings.JSONValue.object(object).prettyText().utf8)
     }
 
     func clear() {

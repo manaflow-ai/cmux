@@ -59,8 +59,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         let pid = forkpty(&master, nil, nil, &size)
         if pid == 0 {
             _ = chdir(directory)
-            // The app ignores SIGPIPE (CmuxNextApp.main) and an ignored
-            // signal stays ignored across exec: give the shell the default.
+            // The app catches SIGPIPE (exec resets that), but a host process
+            // that ignores it would pass SIG_IGN on: give the shell the default.
             _ = signal(SIGPIPE, SIG_DFL)
             execve(path, argv.pointer, envp.pointer)
             _exit(127)
@@ -175,7 +175,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     }
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
-    /// (`TerminalEnvironment.ghostty` in CmuxNextDaemon): `xterm-ghostty`
+    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-ghostty`
     /// with the bundled `TERMINFO` when that entry exists, else
     /// `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty` and its version.
     static func terminalEnvironment(

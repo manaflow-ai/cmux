@@ -80,19 +80,26 @@ func settle(_ rounds: Int = 20_000) async {
         let connection = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil),
                                           clock: clock) { DaemonEndpoint(socketPath: server.path) }
         try await connection.start()
+        var events = connection.events.makeAsyncIterator()
+        guard case .connected? = try await events.next()?.event else {
+            Issue.record("missing initial connection event")
+            return
+        }
         for _ in 0..<5 {
-            while !(await connection.isReady) { await Task.yield() }
-            // The daemon accepts the handshake and drops the connection at
-            // once. Repeat until the drop is seen: on a loaded machine the
-            // server can publish the new client's descriptor after the
-            // connection already reports ready, and one disconnect then
-            // closed nothing (the test hung).
-            while await connection.isReady {
-                server.disconnectClient()
-                await Task.yield()
+            // Drive each reconnect from the connection's lifecycle events.
+            // Polling `isReady` can miss a very short ready phase when the
+            // fake server replaces its client concurrently, leaving the test
+            // waiting forever for a state transition that already happened.
+            server.disconnectClient()
+            guard case .disconnected? = try await events.next()?.event else {
+                Issue.record("missing disconnect event")
+                return
+            }
+            guard case .connected? = try await events.next()?.event else {
+                Issue.record("missing reconnect event")
+                return
             }
         }
-        while !(await connection.isReady) { await Task.yield() }
         let spacing = clock.sleeps
         #expect(spacing.count >= 5)
         #expect(zip(spacing, spacing.dropFirst()).allSatisfy { $0 < $1 },
@@ -103,7 +110,7 @@ func settle(_ rounds: Int = 20_000) async {
     @Test func firstConnectStopsTimedRetriesAfterItsBudget() async {
         let attempts = Mutex(0)
         let task = Task {
-            await DaemonStartup.connect(clock: ImmediateClock()) {
+            await DaemonStartup.shared.connect(clock: ImmediateClock()) {
                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
                     attempts.withLock { $0 += 1 }
                     throw DaemonError.launchFailed("exit 1: the detached session owner did not become ready")

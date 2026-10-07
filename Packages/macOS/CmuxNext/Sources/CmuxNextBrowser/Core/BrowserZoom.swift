@@ -1,6 +1,6 @@
 import Foundation
 
-/// Chrome's page zoom ladder and stepping rules, shared by every engine.
+/// Chromium's page zoom ladder and stepping rules, shared by every engine.
 public nonisolated enum BrowserZoom {
     public static let levels: [Double] = [
         0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0,
@@ -16,7 +16,7 @@ public nonisolated enum BrowserZoom {
     }
 
     /// The next ladder level above `zoom`. A value between levels snaps to the
-    /// next level up, like Chrome.
+    /// next level up.
     public static func zoomIn(from zoom: Double) -> Double {
         levels.first { $0 > zoom + tolerance } ?? maximum
     }

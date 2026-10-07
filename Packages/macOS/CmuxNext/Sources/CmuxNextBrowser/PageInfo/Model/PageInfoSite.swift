@@ -16,7 +16,7 @@ public nonisolated enum PageInfoConnection: Hashable, Sendable {
     case dangerous
 }
 
-/// What kind of page the omnibar shows. Chrome's page info differs per kind:
+/// What kind of page the omnibar shows. Page info differs per kind:
 /// web pages get the connection row, permissions and cookies; local files,
 /// internal and extension pages get a single identity line.
 public nonisolated enum PageInfoSiteKind: Hashable, Sendable {
@@ -46,7 +46,7 @@ public nonisolated struct PageInfoSite: Hashable, Sendable {
     }
 
     /// Classifies a tab. A load that failed on a certificate error shows the
-    /// failing URL with a broken connection, as Chrome's interstitial does.
+    /// failing URL with a broken connection.
     public init(state: BrowserTabState) {
         if let error = state.loadError, Self.isCertificateError(error) {
             self.init(url: error.failingURL ?? state.url, kind: .web(.certificateError(code: error.code)))

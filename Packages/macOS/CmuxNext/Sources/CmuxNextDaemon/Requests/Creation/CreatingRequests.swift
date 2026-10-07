@@ -50,12 +50,6 @@ extension CreateWorkspaceRequest: DaemonCreatingRequest {
     }
 }
 
-extension CreateWorkspaceGroupRequest: DaemonCreatingRequest {
-    public func createdObjects(in response: WorkspaceGroupResult) -> [DaemonCreatedObject] {
-        [DaemonCreatedObject(.workspaceGroup, response.group.id.rawValue)]
-    }
-}
-
 extension CreateTabGroupRequest: DaemonCreatingRequest {
     public func createdObjects(in response: TabGroupResult) -> [DaemonCreatedObject] {
         (response.group?.id ?? response.groupID).map { [DaemonCreatedObject(.tabGroup, $0.rawValue)] } ?? []

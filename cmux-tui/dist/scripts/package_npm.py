@@ -46,6 +46,19 @@ TARGETS = [
     },
 ]
 
+# Every generated package ships the GPL text that the launcher template carries.
+LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
+# Every platform package ships the third-party notices of its binaries
+# (package_notices.py generate: <kind>-<rust target>.md).
+NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
+
+
+def copy_notice(notices_dir: Path, kind: str, rust_target: str, package_dir: Path) -> None:
+    source = notices_dir / f"{kind}-{rust_target}.md"
+    if not source.is_file():
+        raise SystemExit(f"missing third-party notice {source} (package_notices.py generate)")
+    shutil.copyfile(source, package_dir / NOTICE_FILE)
+
 RELAY_TARGETS = [
     {**target, "package": target["package"].replace("cmux-tui", "cmux-relay")}
     for target in TARGETS
@@ -99,6 +112,12 @@ def parse_args() -> argparse.Namespace:
             "Commit stamped into the binaries as CMUX_TUI_BUILD_COMMIT. The SSH "
             "bootstrap accepts the pinned digests only for this build."
         ),
+    )
+    parser.add_argument(
+        "--notices-dir",
+        required=True,
+        type=Path,
+        help="package_notices.py generate output: <kind>-<rust target>.md per platform package.",
     )
     parser.add_argument("--include-windows", action="store_true")
     return parser.parse_args()
@@ -154,6 +173,7 @@ def package_platforms(
     out_dir: Path,
     include_windows: bool,
     build_commit: str,
+    notices_dir: Path,
 ) -> None:
     manifest = ssh_manifest(binaries_dir, build_commit)
     targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
@@ -171,6 +191,8 @@ def package_platforms(
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
         copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
+        copy_notice(notices_dir, "cmux-tui", target["rust_target"], package_dir)
         manifest_path = package_dir / SSH_MANIFEST
         manifest_path.parent.mkdir(parents=True)
         write_json(manifest_path, manifest)
@@ -189,10 +211,10 @@ def package_platforms(
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST, NOTICE_FILE],
             },
         )
 
@@ -212,6 +234,8 @@ def package_platforms(
         # platform package. The launcher resolves this bundled binary from the
         # same platform package, so a separate TUI package is not needed.
         copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
+        copy_notice(notices_dir, "relay", target["rust_target"], package_dir)
         write_json(
             package_dir / "package.json",
             {
@@ -223,10 +247,10 @@ def package_platforms(
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}", NOTICE_FILE],
             },
         )
 
@@ -294,7 +318,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     package_platforms(
-        binaries_dir, args.version, out_dir, args.include_windows, args.build_commit
+        binaries_dir, args.version, out_dir, args.include_windows, args.build_commit,
+        args.notices_dir.resolve(),
     )
     package_launcher(args.version, out_dir, args.include_windows)
 

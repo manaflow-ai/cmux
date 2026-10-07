@@ -10,11 +10,21 @@
 
 mod agent_hooks;
 pub mod agent_message_prompt;
+mod apps;
 pub mod backoff;
 mod browser;
+pub mod browser_host;
 mod browser_provider;
+pub mod cloud_conversations;
+mod conversation_search;
+mod conversation_store;
+pub mod daemon_env;
+mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+pub mod fs_ops;
+mod git_ops;
 #[cfg(unix)]
 mod image_paste;
 #[cfg(unix)]
@@ -35,9 +45,12 @@ mod machine_name;
 mod model;
 mod mux;
 mod pairing;
+mod program_status;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod remote_relay_state;
+mod request_origin;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -46,11 +59,20 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod session_shutdown;
+mod shell_history;
+mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod state;
 mod stream_interrupt;
 mod surface;
+#[cfg(unix)]
+mod terminal_backend;
+mod terminal_end;
+#[cfg(unix)]
+mod terminal_loss_log;
 mod terminal_metadata;
 mod workspace_registry;
 
@@ -79,15 +101,19 @@ pub use layout::{
     exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
+pub use model::{
+    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
+};
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
-    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
+    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
+    ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
     TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
     TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
@@ -99,6 +125,10 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use remote_relay_state::{
+    BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RelayLock, RelayStateError, RevocationClock,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;

@@ -7,18 +7,15 @@ import QuartzCore
 extension TabCell {
     // MARK: - Lazy layers (z-order: icon, spinner, badge, title, close)
 
-    func makeSpinner() -> CAShapeLayer {
+    /// The shared status indicator in the icon slot, created while the tab
+    /// is busy (`StatusIndicatorLayer`, the same one sidebar rows draw).
+    func makeSpinner() -> StatusIndicatorLayer {
         if let spinnerLayer { return spinnerLayer }
-        let spinner = CAShapeLayer()
-        spinner.actions = Self.noActions
-        spinner.fillColor = nil
-        spinner.lineWidth = Metrics.space1 * 0.75
-        spinner.lineCap = .round
-        spinner.strokeStart = 0
-        spinner.strokeEnd = 0.72
+        let spinner = StatusIndicatorLayer()
+        spinner.hostIsFlipped = true // the strip's tab layers live in a FlippedView
         spinner.contentsScale = scale
-        appearance.performAsCurrentDrawingAppearance { spinner.strokeColor = Palette.textSecondary.cgColor }
-        layer.insertSublayer(spinner, above: iconLayer)
+        themeScope.perform { spinner.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color) }
+        layer.insertSublayer(spinner.layer, above: iconLayer)
         spinnerLayer = spinner
         return spinner
     }
@@ -35,7 +32,7 @@ extension TabCell {
 
     func applyBadgeColor() {
         guard let badgeLayer else { return }
-        appearance.performAsCurrentDrawingAppearance { badgeLayer.backgroundColor = badgeColor?.cgColor }
+        themeScope.perform { badgeLayer.backgroundColor = badgeColor?.cgColor }
     }
 
     func makeCloseLayers() -> (background: CALayer, glyph: CAShapeLayer) {
@@ -59,11 +56,9 @@ extension TabCell {
 
     func applyCloseColors() {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
             closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
-            closeBackgroundLayer.backgroundColor = isClosePressed
-                ? Palette.selectionFill.cgColor
-                : (isCloseHovered ? Palette.hoverFill.cgColor : nil)
+            closeBackgroundLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isCloseHovered, pressed: isClosePressed))?.cgColor
         }
     }
 

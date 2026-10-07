@@ -27,7 +27,8 @@ extension LayoutPaneContentProvider {
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
 /// drop. The pasteboard string is the `TabID` raw value. Put only this type
 /// on the pasteboard, or hosted views that accept strings take the drop.
-public enum LayoutTabDrag {
+public struct LayoutTabDrag {
+    public init() {}
     public static let pasteboardType = NSPasteboard.PasteboardType("com.cmuxterm.next.layout.tab")
 }
 
@@ -41,16 +42,24 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// The strip scrollbar's fade-out deadline clock.
+    let scrollbarClock: any Clock<Duration>
 
-    init(model: LayoutModel, provider: any LayoutPaneContentProvider) {
+    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
         self.provider = provider
+        self.scrollbarClock = scrollbarClock
     }
 
     var style: LayoutStyle { model.style }
 
+    /// Pins Reduce Motion for this view only (tests), instead of the
+    /// process-wide `Motion.reduceMotionOverride`, which leaks into every
+    /// test that runs while an async test is suspended.
+    var reduceMotionOverride: Bool?
+
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
-    var reduceMotion: Bool { !Motion.animatesMovement }
+    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.animatesMovement }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

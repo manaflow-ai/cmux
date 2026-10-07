@@ -2,24 +2,33 @@ import AppKit
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
-/// request or a JavaScript alert, confirm, or text input.
+/// request, a JavaScript alert, confirm, or text input, or HTTP
+/// authentication (user name and password).
 final class PromptBarView: NSView {
     private(set) var prompt: BrowserPrompt?
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let inputField = ChromeTextField()
+    /// HTTP authentication fields.
+    let userField = ChromeTextField()
+    let passwordField = ChromeSecureTextField()
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
+    /// The bar's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        messageLabel.textColor = Palette.textPrimary
         messageLabel.maximumNumberOfLines = 6
 
-        inputField.wantsLayer = true
-        inputField.delegate = self
+        for field in [inputField, userField, passwordField] as [NSTextField] {
+            field.wantsLayer = true
+            field.delegate = self
+        }
+        userField.setPlaceholder(Strings.authUserName)
+        passwordField.setPlaceholder(Strings.authPassword)
         applyColors()
 
         buttons.setHuggingPriority(.required, for: .horizontal)
@@ -29,12 +38,15 @@ final class PromptBarView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(messageLabel)
         stack.addArrangedSubview(inputField)
+        stack.addArrangedSubview(userField)
+        stack.addArrangedSubview(passwordField)
         stack.addArrangedSubview(buttons)
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
+        self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -47,14 +59,20 @@ final class PromptBarView: NSView {
             density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
             // Preferred minimum: a pane narrower than it narrows the bar.
             density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) { BrowserMetrics.promptMinWidth },
-            density.bind(inputField.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
-            density.bind(inputField.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
         ])
+        for field in [inputField, userField, passwordField] as [NSTextField] {
+            NSLayoutConstraint.activate([
+                density.bind(field.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
+                density.bind(field.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
+            ])
+        }
         density.update { [unowned self] in
             let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
-            inputField.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            for field in [inputField, userField, passwordField] as [NSTextField] {
+                field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            }
             buttons.spacing = BrowserMetrics.itemSpacing
             stack.spacing = padding
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
@@ -63,14 +81,39 @@ final class PromptBarView: NSView {
         density.start()
     }
 
+    /// Lines the message takes (tests).
+    var messageLineCount: Int {
+        let line = NSLayoutManager().defaultLineHeight(for: messageLabel.font ?? BrowserMetrics.bodyFont)
+        return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
+    }
+
+    /// The message wraps at the width the bar may take: `promptMaxWidth`,
+    /// or less in a narrower pane (its container, else the bar itself),
+    /// minus the padding. Never the label's own last width: a short earlier
+    /// message (or a narrow first pass) would stick, and a long question
+    /// would wrap one character per line.
+    override func layout() {
+        super.layout()
+        let room = superview.map { $0.bounds.width - BrowserMetrics.overlayInset * 2 } ?? bounds.width
+        let width = min(BrowserMetrics.promptMaxWidth, room) - BrowserMetrics.overlayPadding * 2
+        if width > 0, abs(messageLabel.preferredMaxLayoutWidth - width) > 0.5 {
+            messageLabel.preferredMaxLayoutWidth = width
+            needsLayout = true
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            inputField.layer?.backgroundColor = Palette.chromeBackground.cgColor
+        performWithTheme {
+            for field in [inputField, userField, passwordField] as [NSTextField] {
+                field.layer?.backgroundColor = Palette.chromeBackground.cgColor
+            }
+            messageLabel.textColor = Palette.textPrimary
+            glass?.applyTheme()
         }
     }
 
@@ -82,6 +125,8 @@ final class PromptBarView: NSView {
         self.prompt = prompt
         buttons.arrangedSubviews.forEach { $0.removeFromSuperview() }
         inputField.isHidden = true
+        userField.isHidden = true
+        passwordField.isHidden = true
 
         switch prompt.kind {
         case .permission(let kind):
@@ -89,11 +134,18 @@ final class PromptBarView: NSView {
             case .camera: Strings.permissionCamera(prompt.origin)
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
+            case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
             }
-            // Chrome's permission prompt: never, this time, while visiting.
-            addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
-            addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
-            addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            if kind == .automaticDownloads {
+                // Chrome's question: Block or Allow, remembered for the site.
+                addButton(PageInfoStrings.block, prominent: false, response: .deny)
+                addButton(PageInfoStrings.allow, prominent: true, response: .allow)
+            } else {
+                // Permission prompt answers: never, this time, while visiting.
+                addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
+                addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
+                addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            }
         case .alert(let message):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.ok, prominent: true, response: .accept)
@@ -107,9 +159,30 @@ final class PromptBarView: NSView {
             inputField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.ok, prominent: true, response: nil)
+        case .credentials(let host, let realm):
+            messageLabel.stringValue = realm.map { Strings.authPromptRealm(host: host, realm: $0) } ?? Strings.authPrompt(host: host)
+            userField.stringValue = ""
+            passwordField.stringValue = ""
+            userField.isHidden = false
+            passwordField.isHidden = false
+            addButton(Strings.cancel, prominent: false, response: .cancel)
+            addButton(Strings.authSignIn, prominent: true, response: nil)
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)
+        } else if !userField.isHidden {
+            window?.makeFirstResponder(userField)
+        }
+    }
+
+    /// The answer of the prompt's prominent button: the typed text, or the
+    /// typed user name and password.
+    func submit() {
+        guard let prompt else { return }
+        if case .credentials = prompt.kind {
+            prompt.respond(.credentials(user: userField.stringValue, password: passwordField.stringValue))
+        } else {
+            prompt.respond(.text(inputField.stringValue))
         }
     }
 
@@ -120,7 +193,7 @@ final class PromptBarView: NSView {
     }
 
     @objc private func respond(_ sender: PromptResponseButton) {
-        prompt?.respond(sender.response ?? .text(inputField.stringValue))
+        if let response = sender.response { prompt?.respond(response) } else { submit() }
     }
 }
 
@@ -128,7 +201,7 @@ extension PromptBarView: NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            prompt?.respond(.text(inputField.stringValue))
+            submit()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             prompt?.respond(.cancel)

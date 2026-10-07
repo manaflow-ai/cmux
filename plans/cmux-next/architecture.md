@@ -36,7 +36,7 @@ SwiftUI is allowed only for low-frequency, form-like surfaces: Settings, onboard
 | Surface | Implementation |
 | --- | --- |
 | Window, titlebar, toolbar | `NSWindow` full-size content, custom titlebar view |
-| Sidebar | custom layer-backed view, row view reuse (only visible rows exist), CALayer-based selection pill and drag gaps |
+| Sidebar | custom layer-backed view, row view reuse (only visible rows exist), selection painted in place by each row (no moving pill), CALayer-based drag gap |
 | Tab strip | one `NSView` per strip; tabs are CALayers (text via `CATextLayer` or pre-rendered glyph layers), not NSViews, so 100 tabs cost 100 layers, not 100 views with constraints |
 | Layout (splits, columns) | manual frame layout in `layout()`, no Auto Layout in panes, one `CADisplayLink` per window for animations |
 | Palette | `NSPanel` + custom list with row reuse; search runs off-main on a snapshot of the index, results delivered by generation number |
@@ -59,7 +59,7 @@ Targets for dogfood (measure against the old app on the same machine, same workl
 
 Mechanisms:
 - Terminal surfaces exist only for tabs that are visible (selected tab of on-screen panes) plus a small LRU sized by memory (`WarmSetBudget`, 4 to 12; shrunk under memory pressure) for fast switching, plus the panes of recently shown workspaces parked per window (tab-lifecycle.md). A hidden tab's surface is destroyed; showing it again attaches and replays from the daemon (replay is bounded by the daemon's replay budget; measure switch latency, target < 50 ms).
-- Offscreen niri columns keep surfaces alive while within one viewport width of the visible range, otherwise they are released like hidden tabs.
+- Offscreen strip columns keep surfaces alive while within one viewport width of the visible range, otherwise they are released like hidden tabs.
 - No per-tab timers, no per-tab observers of global notifications.
 
 ## 5. CPU budget

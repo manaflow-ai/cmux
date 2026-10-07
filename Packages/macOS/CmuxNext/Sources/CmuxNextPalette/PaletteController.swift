@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextDesign
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -56,20 +57,47 @@ public final class PaletteController {
         model.performer = { [registry] handler in registry.reportingRefusal(handler) }
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
         model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
+        model.onDropShortcutRecorder = { [weak self] in self?.shortcutRecorder.abandon() }
+        model.scopePage = { [weak self] scope, context in self?.page(forScope: scope, context: context) }
+        model.onAnnounce = { [weak self] text in
+            guard let element = self?.panel else { return }
+            NSAccessibility.post(element: element, notification: .announcementRequested,
+                                 userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
+
+    /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
+    /// Returns false for a scope the graph does not have.
+    @discardableResult
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+        configureScopes()
+        guard model.navigation.graph.contains(scope) else { return false }
+        openStarted = .now
+        captureContext()
+        model.open(scope: scope, query: query)
+        modelReady = .now
+        present(relativeTo: window)
+        return true
     }
 
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace, Go to Tab, and Search Keyboard Shortcuts.
+    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
+    /// Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
         if sources.workspaces != nil {
-            registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
-        }
-        if sources.tabs != nil {
-            registry.bind("palette.goToTab") { [weak self] in self?.show(.tabs) }
+            // With a workspace (a palette row's typed ref, `palette.run`,
+            // the CLI) it switches to it; without one it opens the page.
+            registry.bind("goToWorkspace", invoke: { [weak self] invocation in
+                if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
+                    self?.sources.workspaces?.selectWorkspace(id: workspace)
+                } else {
+                    self?.show(.workspaces)
+                }
+            })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
@@ -108,6 +136,7 @@ public final class PaletteController {
             return true
         case 1:
             guard let panel else { return false }
+            configureScopes()
             model.reset(to: commandsPage())
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
@@ -128,9 +157,21 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        configureScopes()
         openStarted = .now
         captureContext()
         model.reset(to: page(for: mode))
+        modelReady = .now
+        present(relativeTo: window)
+    }
+
+    /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
+    /// the palette serves as a page).
+    public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+        configureScopes()
+        openStarted = .now
+        captureContext()
+        model.reset(to: page)
         modelReady = .now
         present(relativeTo: window)
     }
@@ -142,13 +183,15 @@ public final class PaletteController {
         guard let descriptor = registry.descriptor(for: id) else { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
-                                       captured: capturedTargets)
+                                       captured: capturedTargets, preview: sources.argumentPreview,
+                                       swatches: sources.argumentSwatches)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
             handler()
             return
         }
+        configureScopes()
         openStarted = .now
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
@@ -170,7 +213,9 @@ public final class PaletteController {
         let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
-        var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        // `NSApplication.shared`: `NSApp` is nil in package-test processes.
+        let app = NSApplication.shared
+        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
         while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now
@@ -184,6 +229,8 @@ public final class PaletteController {
         isVisible = true
         onVisibilityChange?(true)
         parentWindow = parent
+        // The room (theme) of the window it opens over.
+        (parent?.themeScope ?? .app).adopt(panel)
         panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
@@ -240,8 +287,10 @@ public final class PaletteController {
         registry.context.remove(.paletteOpen)
         onVisibilityChange?(false)
         model.closeActionsMenu()
+        shortcutRecorder.abandon()
         model.shortcutRecorder = nil
         model.hover(nil)
+        model.didHide()
         presentationGeneration += 1
         let generation = presentationGeneration
         // Only a panel that has the keys gives them back.
@@ -275,11 +324,15 @@ public final class PaletteController {
         panel.contentView = content
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
+        panel.capturesKeyEquivalent = { [weak self] event in
+            guard let model = self?.model, PaletteKeyMap.isCloseItem(event) else { return false }
+            return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
+        }
         // Shown without the keys (app inactive): the keys going to another
         // window closes it like a click outside.
         panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
         panel.onResignKey = { [weak self] in
-            // Clicking elsewhere closes the palette, like Spotlight; the
+            // Clicking elsewhere closes the palette; the
             // clicked window keeps the keys.
             self?.hide(restoringKey: false)
         }
@@ -314,7 +367,11 @@ public final class PaletteController {
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
-            registry: registry
+            registry: registry,
+            hierarchical: model.currentPageIsHierarchical,
+            caretAtEnd: Self.caret(in: event.window).atEnd,
+            caretAtStart: Self.caret(in: event.window).atStart,
+            selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
     }

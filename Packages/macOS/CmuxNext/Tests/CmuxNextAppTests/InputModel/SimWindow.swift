@@ -185,6 +185,10 @@ final class SimWindow: FocusEffectApplying {
             guard presented[pane] == tab else { return }
             if responder != .windowOrNone { setResponder(.windowOrNone, reported: true, source: .programmatic) }
             childPage = nil
+        case .agentPage(let pane, let tab), .page(let pane, let tab), .conversation(let pane, let tab):
+            guard presented[pane] == tab else { return }
+            blurChildPage()
+            if responder != .content(pane: pane) { setResponder(.content(pane: pane), reported: true, source: .programmatic) }
         case .emptyPane:
             blurChildPage()
             if responder.pane != nil { setResponder(.windowOrNone, reported: true, source: .programmatic) }
@@ -202,6 +206,8 @@ final class SimWindow: FocusEffectApplying {
     /// (`reclaimKeyFromPageWindow`).
     private func blurChildPage() {
         childPage = nil
-        if case .childPage(index, _) = world.key { world.setKey(.window(index)) }
+        let facts = ChildWindowKeyRule.Facts(parent: world.keyPageParented ? .thisWindow : .none, isChromiumPage: true,
+                                             thisWindowIsActive: world.lastActive == index)
+        if case .childPage(index, _) = world.key, ChildWindowKeyRule.shouldReclaim(facts) { world.setKey(.window(index)) }
     }
 }

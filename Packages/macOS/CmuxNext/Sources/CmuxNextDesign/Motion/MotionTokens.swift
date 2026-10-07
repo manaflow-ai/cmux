@@ -38,9 +38,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Release after direct manipulation (drop, drag cancel, ghost landing).
     /// Slightly under-damped so the carried velocity reads as physical.
     case settle
-    /// Programmatic scroll: tab strip reveal, niri column reveal, wheel
-    /// notch, trackpad fling snap. niri's own default is stiffness 800
-    /// (response 0.222 s) at damping 1; 0.9 drops its slow sub-pixel tail.
+    /// Programmatic scroll: tab strip reveal, strip column reveal, wheel
+    /// notch, trackpad fling snap. Stiffness 800 (response 0.222 s); damping
+    /// 0.9 instead of 1 drops the slow sub-pixel tail.
     case scroll
     /// Screen switch slide.
     case screen
@@ -52,18 +52,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Floating panel open: palette scale-in, hover card slide.
     case panel
 
-    /// Values at `MotionSpeed.fast`.
+    /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
+    /// or its Debug Settings override in DEV and NIGHTLY builds.
     public var base: SpringParameters {
-        switch self {
-        case .move: SpringParameters(response: 0.2, dampingFraction: 0.9)
-        case .appear: SpringParameters(response: 0.18, dampingFraction: 0.9)
-        case .disappear: SpringParameters(response: 0.15, dampingFraction: 0.9)
-        case .settle: SpringParameters(response: 0.22, dampingFraction: 0.85)
-        case .scroll: SpringParameters(response: 0.22, dampingFraction: 0.9)
-        case .screen: SpringParameters(response: 0.22, dampingFraction: 0.9)
-        case .track: SpringParameters(response: 0.12, dampingFraction: 0.9)
-        case .selection: SpringParameters(response: 0.15, dampingFraction: 0.9)
-        case .panel: SpringParameters(response: 0.18, dampingFraction: 0.85)
-        }
+        MotionTunables.springs[self]?.value ?? SpringParameters(response: 0.2, dampingFraction: 0.9)
     }
 }

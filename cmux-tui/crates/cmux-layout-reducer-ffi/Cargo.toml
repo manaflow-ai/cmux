@@ -1,0 +1,28 @@
+[package]
+name = "cmux-layout-reducer-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "C ABI for the pure cmux sidebar drop resolver"
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cmux-layout-reducer = { path = "../cmux-layout-reducer" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug = false
+strip = "debuginfo"

@@ -11,7 +11,7 @@ import Testing
 
     @Test func featuresVariableMatchesGhostty() {
         func value(_ features: GhosttyShellIntegration.Features, blink: Bool? = nil) -> String? {
-            GhosttyShellIntegration(features: features, cursorBlink: blink, resourcesDirectory: nil, ghosttyBinary: nil).featuresValue
+            GhosttyShellIntegration(features: features, cursorBlink: blink, resourcesDirectory: nil, ghosttyBinary: binary).featuresValue
         }
         let all: GhosttyShellIntegration.Features = [.cursor, .sudo, .title, .sshEnv, .sshTerminfo, .path]
         #expect(value(all) == "cursor:blink,path,ssh-env,ssh-terminfo,sudo,title")
@@ -21,6 +21,26 @@ import Testing
         #expect(value(.ghosttyDefault) == "cursor:blink,path,title")
         // The C API's packed-struct bits: cursor, sudo, title, ssh-env, ssh-terminfo, path.
         #expect(GhosttyShellIntegration.Features(rawValue: 0b101101) == [.cursor, .title, .sshEnv, .path])
+    }
+
+    /// The ssh wrappers of Ghostty's scripts run `$GHOSTTY_BIN_DIR/ghostty
+    /// +ssh`. Without a Ghostty CLI the features would make `ssh` run a
+    /// missing program, so they are dropped and plain `ssh` runs.
+    @Test func sshFeaturesNeedAGhosttyCLI() {
+        let all: GhosttyShellIntegration.Features = [.cursor, .sudo, .title, .sshEnv, .sshTerminfo, .path]
+        for missing in [nil, ""] as [String?] {
+            let integration = GhosttyShellIntegration(features: all, resourcesDirectory: resources, ghosttyBinary: missing)
+            #expect(integration.featuresValue == "cursor:blink,path,sudo,title")
+            let env = integration.apply(to: ["SHELL": "/bin/zsh"], isDirectory: dirs)
+            #expect(env["GHOSTTY_SHELL_FEATURES"] == "cursor:blink,path,sudo,title")
+            #expect(env["GHOSTTY_BIN"] == nil && env["GHOSTTY_BIN_DIR"] == nil)
+            let onlySSH = GhosttyShellIntegration(features: [.sshEnv, .sshTerminfo], resourcesDirectory: resources, ghosttyBinary: missing)
+            #expect(onlySSH.featuresValue == nil)
+        }
+        let env = GhosttyShellIntegration(features: [.sshEnv], resourcesDirectory: resources, ghosttyBinary: binary)
+            .apply(to: ["SHELL": "/bin/zsh"], isDirectory: dirs)
+        #expect(env["GHOSTTY_SHELL_FEATURES"] == "ssh-env")
+        #expect(env["GHOSTTY_BIN_DIR"] == "/App/Contents/Resources/bin")
     }
 
     @Test func detectsShellsLikeGhostty() {
@@ -83,10 +103,57 @@ import Testing
         #expect(bare == ["SHELL": "/bin/zsh", "GHOSTTY_SHELL_FEATURES": "cursor:blink,path,title"])
     }
 
+    /// `setupBash`: POSIX mode reads the integration script from `ENV`; the
+    /// user's `ENV` and history file are kept for the script to restore.
+    @Test func bashWritesGhosttysPosixEnvironmentAndArguments() {
+        let integration = GhosttyShellIntegration(resourcesDirectory: resources, ghosttyBinary: nil)
+        let env = integration.apply(
+            to: ["SHELL": "/opt/homebrew/bin/bash", "ENV": "/Users/u/.shrc", "HOME": "/Users/u"], isDirectory: dirs)
+        #expect(env["ENV"] == "\(resources)/shell-integration/bash/ghostty.bash")
+        #expect(env["GHOSTTY_BASH_ENV"] == "/Users/u/.shrc")
+        #expect(env["GHOSTTY_BASH_INJECT"] == "1")
+        #expect(env["HISTFILE"] == "/Users/u/.bash_history")
+        #expect(env["GHOSTTY_BASH_UNEXPORT_HISTFILE"] == "1")
+        #expect(GhosttyShellIntegration.shellArguments(for: env) == ["--posix"])
+
+        let ownHistory = integration.apply(
+            to: ["SHELL": "/opt/homebrew/bin/bash", "HISTFILE": "/tmp/h", "HOME": "/Users/u"], isDirectory: dirs)
+        #expect(ownHistory["HISTFILE"] == "/tmp/h")
+        #expect(ownHistory["GHOSTTY_BASH_UNEXPORT_HISTFILE"] == nil)
+        #expect(ownHistory["GHOSTTY_BASH_ENV"] == nil)
+
+        // Apple's bash, a missing script and `shell-integration = none` get no arguments.
+        let apple = integration.apply(to: ["SHELL": "/bin/bash"], isDirectory: dirs)
+        #expect(apple["GHOSTTY_BASH_INJECT"] == nil)
+        #expect(GhosttyShellIntegration.shellArguments(for: apple) == nil)
+        let missing = integration.apply(to: ["SHELL": "/opt/homebrew/bin/bash"], isDirectory: { _ in false })
+        #expect(GhosttyShellIntegration.shellArguments(for: missing) == nil)
+        let off = GhosttyShellIntegration(mode: .none, resourcesDirectory: resources, ghosttyBinary: nil)
+            .apply(to: ["SHELL": "/opt/homebrew/bin/bash"], isDirectory: dirs)
+        #expect(GhosttyShellIntegration.shellArguments(for: off) == nil)
+    }
+
+    /// `setupNushell`: the module comes from `XDG_DATA_DIRS`, the `use` from
+    /// `--execute`.
+    @Test func nushellGetsTheUseArgument() {
+        let integration = GhosttyShellIntegration(resourcesDirectory: resources, ghosttyBinary: nil)
+        let env = integration.apply(to: ["SHELL": "/opt/homebrew/bin/nu"], isDirectory: dirs)
+        #expect(GhosttyShellIntegration.shellArguments(for: env) == ["--execute", "use ghostty *"])
+        // zsh, fish and elvish are integrated through the environment alone.
+        for shell in ["/bin/zsh", "/opt/homebrew/bin/fish", "elvish"] {
+            let other = integration.apply(to: ["SHELL": shell], isDirectory: dirs)
+            #expect(GhosttyShellIntegration.shellArguments(for: other) == nil, "\(shell)")
+        }
+        // A forced mode never gives another shell bash or nushell arguments.
+        let forced = GhosttyShellIntegration(mode: .bash, resourcesDirectory: resources, ghosttyBinary: nil)
+            .apply(to: ["SHELL": "/bin/zsh", "HOME": "/Users/u"], isDirectory: dirs)
+        #expect(GhosttyShellIntegration.shellArguments(for: forced) == nil)
+    }
+
     /// The terminal env provider applies the integration on top of the
     /// login environment, so it sees the login PATH and SHELL.
     @Test func sharedProviderAppliesTheIntegration() async {
-        let provider = TerminalEnvironment.shared(
+        let provider = TerminalEnvironment.instance.shared(
             base: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
             overrides: ["TERM": "xterm-ghostty"],
             login: { ["PATH": "/opt/homebrew/bin:/usr/bin", "SHELL": "/bin/zsh"] },

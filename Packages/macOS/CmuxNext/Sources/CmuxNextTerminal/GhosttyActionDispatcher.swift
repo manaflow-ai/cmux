@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {
@@ -19,6 +19,8 @@ enum GhosttyActionDispatcher {
             guard let runtime else { return false }
             if soft, let app = runtime.app, let config = runtime.config {
                 ghostty_app_update_config(app, config)
+                // Surfaces with their own theme take it back.
+                runtime.onConfigChange?()
             } else {
                 runtime.reloadConfig()
             }

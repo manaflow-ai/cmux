@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import AppKit
 import CmuxNextDesign
 
@@ -13,6 +14,7 @@ final class PaletteKeycapsView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {
         [.font: Typography.shortcut, .foregroundColor: Palette.textSecondary]
     }
@@ -32,15 +34,17 @@ final class PaletteKeycapsView: NSView {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
         let y = (bounds.height - size) / 2
-        for cap in keycaps {
-            let width = capWidth(cap)
-            let rect = NSRect(x: x, y: y, width: width, height: size)
-            Palette.hoverFill.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
-            let text = cap as NSString
-            let textSize = text.size(withAttributes: attributes)
-            text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
-            x += width + Metrics.space1
+        performWithTheme {
+            for cap in keycaps {
+                let width = capWidth(cap)
+                let rect = NSRect(x: x, y: y, width: width, height: size)
+                Palette.hoverFill.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
+                let text = cap as NSString
+                let textSize = text.size(withAttributes: attributes)
+                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                x += width + Metrics.space1
+            }
         }
     }
 }
@@ -57,11 +61,12 @@ final class PaletteTableRowView: NSTableRowView {
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
-        let color: NSColor? = isPaletteSelected ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
-        guard let color else { return }
-        color.setFill()
-        let rect = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
-        NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+        guard isPaletteSelected || isHovered else { return }
+        performWithTheme {
+            (isPaletteSelected ? Palette.selectionFill : Palette.hoverFill).setFill()
+            let rect = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+            NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+        }
     }
 
     override func drawSelection(in dirtyRect: NSRect) {}
@@ -73,18 +78,22 @@ final class PaletteRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.row")
 
     private let icon = NSImageView()
-    private let title = PaletteText.label(Typography.body)
-    private let subtitle = PaletteText.label(Typography.caption, color: Palette.textSecondary)
-    private let accessory = PaletteText.label(Typography.caption, color: Palette.textTertiary)
+    private let swatch = PaletteSwatchView()
+    private let title = PaletteText.label(Typography.body, tone: nil)
+    private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
+    private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keycaps = PaletteKeycapsView()
     private var symbolName: String?
+    private var titleText = ""
+    private var highlights: [Int] = []
+    private var isSelected = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
         subtitle.lineBreakMode = .byTruncatingMiddle
-        [icon, title, subtitle, accessory, keycaps].forEach(addSubview)
+        [icon, swatch, title, subtitle, accessory, keycaps].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -92,12 +101,20 @@ final class PaletteRowCell: NSTableCellView {
 
     func configure(_ row: PaletteRow, isSelected: Bool) {
         let item = row.item
-        if symbolName != item.symbol {
-            symbolName = item.symbol
-            icon.image = PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
+        let iconKey = item.brand.map { "brand:\($0)" } ?? item.symbol
+        if symbolName != iconKey {
+            symbolName = iconKey
+            // An agent row draws its brand mark as a template, tinted like the symbols.
+            icon.image = item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
+                ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
-        title.attributedStringValue = Self.highlighted(item.title, row.highlights)
+        swatch.colors = item.swatches
+        swatch.isHidden = item.swatches.isEmpty
+        icon.isHidden = !item.swatches.isEmpty
+        self.isSelected = isSelected
+        titleText = item.title
+        highlights = row.highlights
+        applyColors()
         subtitle.stringValue = item.subtitle ?? ""
         subtitle.isHidden = item.subtitle == nil
         accessory.stringValue = item.accessory ?? ""
@@ -110,7 +127,25 @@ final class PaletteRowCell: NSTableCellView {
     }
 
     func setSelected(_ selected: Bool) {
-        icon.contentTintColor = selected ? Palette.textPrimary : Palette.textSecondary
+        isSelected = selected
+        performWithTheme { icon.contentTintColor = selected ? Palette.textPrimary : Palette.textSecondary }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
+            title.attributedStringValue = Self.highlighted(titleText, highlights)
+        }
     }
 
     override func layout() {
@@ -119,6 +154,7 @@ final class PaletteRowCell: NSTableCellView {
         let midY = bounds.midY
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
+        swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
         var right = bounds.maxX - padding
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
@@ -149,6 +185,7 @@ final class PaletteRowCell: NSTableCellView {
 
     /// Matched characters in full label color and the emphasized weight; the
     /// rest slightly muted, so the match reads without a colored highlight.
+    /// theme-scoped: called inside `performWithTheme`.
     static func highlighted(_ text: String, _ positions: [Int]) -> NSAttributedString {
         let base: [NSAttributedString.Key: Any] = [
             .font: Typography.body,

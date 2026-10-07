@@ -10,7 +10,7 @@ import Testing
 @Suite struct UnavailableReasonTests {
     func router(for registry: ActionRegistry) -> ControlRouter {
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         return router
     }

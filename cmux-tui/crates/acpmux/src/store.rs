@@ -27,6 +27,10 @@ pub struct EventRecord {
     pub kind: String,
     /// Raw JSON-RPC message, or the acpmux payload.
     pub msg: Value,
+    /// The agent host entry this record logs (`hostSeq`), so a controller
+    /// that adopts the host resumes after it (agent hosts, durable sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -130,6 +134,29 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Created over a remote-origin connection (the WebSocket listener):
+    /// its harness never spawns with a preset's args or system prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_origin: bool,
+    /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
+    /// socket on session/new or session/fork, applied over the preset env at
+    /// every spawn. Never copied to a fork or a handoff.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_env: BTreeMap<String, String>,
+    /// Chat store roots the harness's launch env named at its last spawn
+    /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harness_roots: Vec<HarnessRoot>,
+}
+
+/// One chat store root a spawn's env named: `harness` is a chat index
+/// adapter id (`claude-code`, `codex`, ...) or, for a profile's own `sessions`
+/// roots, the profile id. Never carries other env values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRoot {
+    pub harness: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +197,11 @@ pub trait Store: Send + Sync {
     }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Where handoff records live: `handoffs/` beside `sessions/`, or none
+    /// (in memory) for the memory store.
+    fn handoff_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -412,6 +444,10 @@ impl Store for LocalStore {
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
         Some(self.dir(id))
     }
+
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("handoffs"))
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +488,9 @@ mod tests {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            remote_origin: false,
+            session_env: Default::default(),
+            harness_roots: vec![],
         }
     }
 
@@ -462,6 +501,7 @@ mod tests {
             dir: "mux".into(),
             kind: "status".into(),
             msg: serde_json::json!({"seq": seq}),
+            host_seq: None,
         }
     }
 

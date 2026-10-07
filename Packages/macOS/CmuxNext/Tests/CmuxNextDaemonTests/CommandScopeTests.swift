@@ -24,6 +24,24 @@ import Testing
         #expect(first.begin() == nil)
     }
 
+    /// cmux-tui accepts a caller-chosen `terminal_id` only as a lowercase
+    /// UUIDv4 (32 hex digits, version nibble 4, RFC 4122 variant), so an
+    /// id derived inside an action run must have that shape too, or every
+    /// terminal the CLI asks the app to create is refused.
+    @Test func derivedTerminalIDsAreUUIDv4() {
+        for key in ["k", "mutation_c0a68eeaaa94d039b434805f6b19d870", "cmux-next-new-tab-1"] {
+            let scope = DaemonCommandScope(idempotencyKey: key)
+            for _ in 0..<4 {
+                let id = DaemonCommandScope.$current.withValue(scope) { TerminalID.generate() }.rawValue
+                let bytes = Array(id.utf8)
+                #expect(bytes.count == 32, "\(id)")
+                #expect(id.allSatisfy { $0.isHexDigit && !$0.isUppercase }, "\(id)")
+                #expect(bytes[12] == UInt8(ascii: "4"), "\(id) version")
+                #expect("89ab".utf8.contains(bytes[16]), "\(id) variant")
+            }
+        }
+    }
+
     @Test func idleWaitsForEveryTicketAndKeepsTheFirstFailure() async {
         let scope = DaemonCommandScope()
         let one = scope.begin()

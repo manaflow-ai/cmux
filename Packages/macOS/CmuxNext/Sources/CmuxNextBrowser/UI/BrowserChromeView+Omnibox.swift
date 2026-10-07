@@ -27,11 +27,14 @@ extension BrowserChromeView {
         case .didBeginEditing:
             break
         case .didEndEditing(.commit(let url)):
+            if loadOverride?(url) == true { return }
             tab.load(url)
         case .didEndEditing(.open(let url, let disposition)):
             onOpenURL.map { $0(url, disposition) } ?? tab.load(url)
         case .didEndEditing(.keyword(let extensionID, let text, let disposition)):
             provider?.omniboxKeywordEntered(extensionID, text: text, disposition: disposition)
+        case .didEndEditing(.switchToTab(let key)):
+            addressBar.suggestionEngine.revealTab(key)
         case .didEndEditing(.cancel), .didEndEditing(.blur):
             break
         }

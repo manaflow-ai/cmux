@@ -134,7 +134,6 @@ pub struct App {
     pub(super) skill_prefix: String,
     pub(super) keymap: keymap::Keymap,
     pub(super) skill_paths: Vec<String>,
-    pub(super) previous_directory: Option<String>,
     pub show_thoughts: bool,
     /// Show lifecycle events (stopped, resumed, renamed, model set…).
     pub show_system: bool,

@@ -13,7 +13,7 @@ extension DaemonService {
     /// `MachineRegistry.compatibility(of:)` to also drop the ones personal
     /// state moved to the local daemon.
     var compatibility: DaemonCompatibility? {
-        compatibility(notNeeded: isLocal ? [] : Set(DaemonCapabilities.homeOnly))
+        compatibility(notNeeded: isLocal ? [] : Set(DaemonCapabilities.shared.homeOnly))
     }
 
     func compatibility(notNeeded: Set<String>) -> DaemonCompatibility? {

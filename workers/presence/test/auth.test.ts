@@ -4,6 +4,7 @@ import {
   cacheDeadline,
   requestedTeamIdFromRequest,
   resolveTeamId,
+  stackHeaders,
   tokenExpiryMs,
   type AuthedUser,
 } from "../src/auth";
@@ -127,4 +128,50 @@ describe("verifyRequest negative cache", () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  // Durable mutations (device revocation, control-socket setup) must see a
+  // revoked bearer at once, not after the 60-second positive cache.
+  it("a fresh verification ignores a cached success", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    let revoked = false;
+    const token = "opaque-live-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      if (revoked) return new Response("unauthorized", { status: 401 });
+      const url = String(input);
+      return Response.json(url.includes("/teams") ? { items: [] } : { id: "user-1" });
+    }) as unknown as typeof fetch;
+    try {
+      const make = () =>
+        new Request("https://presence.test/v1/control/devices/revoke", {
+          headers: { authorization: `Bearer ${token}` },
+        });
+      expect((await verifyRequest(make(), env))?.id).toBe("user-1");
+      revoked = true;
+      expect((await verifyRequest(make(), env))?.id).toBe("user-1");
+      expect(await verifyRequest(make(), env, { fresh: true })).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 })
+
+describe("stackHeaders", () => {
+  // A project that does not require a publishable key accepts a request
+  // without one but rejects an empty or revoked key, so an unset key is
+  // never sent (as in the app and web clients).
+  it("omits the publishable key header when no key is configured", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p" }, "token");
+    expect("x-stack-publishable-client-key" in headers).toBe(false);
+    expect(headers["x-stack-access-token"]).toBe("token");
+  });
+
+  it("omits it for an empty or blank key too", () => {
+    expect("x-stack-publishable-client-key" in stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "  " }, "t")).toBe(false);
+  });
+
+  it("sends a configured key", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "pck_x" }, "t");
+    expect(headers["x-stack-publishable-client-key"]).toBe("pck_x");
+  });
+});

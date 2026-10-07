@@ -2,6 +2,7 @@
 """Adopting main's DerivedData must rebuild exactly the inputs that changed."""
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest

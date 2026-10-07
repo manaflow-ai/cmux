@@ -155,20 +155,16 @@ function rowScrollTop(row: Element, container: HTMLElement): number {
   return rowRect.top - containerRect.top + container.scrollTop;
 }
 
-function findActiveRow(
-  container: HTMLElement,
-  rows: Element[],
-  snapshot: FindPaintSnapshot,
-): Element | null {
+function findActiveRow(container: HTMLElement, rows: Element[], snapshot: FindPaintSnapshot): Element | null {
   const active = snapshot.active;
   if (active == null) {
     return null;
   }
   const lineNumber = String(active.lineNumber);
-  const candidates = rows.filter((row) =>
-    (row.getAttribute("data-line") === lineNumber ||
-      row.getAttribute("data-alt-line") === lineNumber) &&
-    rowMatchesSide(row, active.side),
+  const candidates = rows.filter(
+    (row) =>
+      (row.getAttribute("data-line") === lineNumber || row.getAttribute("data-alt-line") === lineNumber) &&
+      rowMatchesSide(row, active.side),
   );
   if (candidates.length === 0) {
     return null;
@@ -257,11 +253,7 @@ export function collectFindPaintRanges(
  * and never depends on what happens to be rendered. Highlight ranges are
  * not DOM mutations, so painting never re-triggers the mutation observers.
  */
-function paint(
-  container: HTMLElement,
-  snapshot: FindPaintSnapshot,
-  shadowRoots: ShadowRoot[],
-): void {
+function paint(container: HTMLElement, snapshot: FindPaintSnapshot, shadowRoots: ShadowRoot[]): void {
   if (!supportsFindHighlights()) {
     return;
   }

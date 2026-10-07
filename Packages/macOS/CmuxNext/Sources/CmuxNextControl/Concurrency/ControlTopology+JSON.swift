@@ -27,7 +27,15 @@ extension ControlTopology {
             }),
             "workspace_groups": .array(workspaceGroups.map(\.json)),
             "workspaces": .array(workspaces.map(\.json)),
+            "sessions": .array(sessions.map(\.json)),
         ]
+    }
+}
+
+extension ControlSessionInfo {
+    public var json: JSONValue {
+        ["id": .string(id), "qualifier": .string(qualifier), "machine": .string(machineID), "machine_name": .optional(machineName),
+         "session_name": .optional(sessionName), "home": .bool(isHome), "state": .string(state), "transport": .string(transport)]
     }
 }
 
@@ -41,7 +49,7 @@ extension ControlWorkspaceInfo {
     public var json: JSONValue {
         ["id": .string(publicID), "key": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title),
          "color": .optional(color), "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount),
-         "machine": .optional(machine), "screens": .array(screens.map(\.json))]
+         "machine": .optional(machine), "screens": .array(screens.map(\.json)), "session": .optional(sessionID)]
     }
 }
 
@@ -68,6 +76,7 @@ extension ControlTabInfo {
             "rows": rows.map { JSONValue($0) } ?? .null, "cwd": .optional(cwd), "url": .optional(url),
             "git_branch": .optional(gitBranch), "pinned": .bool(isPinned), "dead": .bool(isDead), "unread": .bool(hasUnread),
             "tab_group": .optional(tabGroupID), "agent_state": .optional(agentState),
+            "agent_session": .optional(agentSessionID),
         ]
     }
 }

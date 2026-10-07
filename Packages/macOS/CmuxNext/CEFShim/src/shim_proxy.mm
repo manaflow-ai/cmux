@@ -9,6 +9,7 @@
 #include <cctype>
 #include <mutex>
 
+#include "agent_url_policy.h"
 #include "include/cef_parser.h"
 #include "shim_internal.h"
 
@@ -114,13 +115,24 @@ static bool WebURL(const std::string& url, bool* loopback) {
   return true;
 }
 
+constexpr int kStoreGuardMask = 3;
+constexpr int kAgentGuardBit = 4;
+
 bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   auto it = guards().find(browser_id);
-  if (it == guards().end() || it->second == 0) return false;
+  if (it == guards().end()) return false;
+  int store = it->second & kStoreGuardMask;
+  if (store == 0) return false;
   bool loopback = false;
   // Non-web URLs (about:blank, data:, chrome://) never switch stores.
   if (!WebURL(url, &loopback)) return false;
-  return it->second == 1 ? !loopback : loopback;
+  return store == 1 ? !loopback : loopback;
+}
+
+bool NavigationRefusedForAgent(int browser_id, const std::string& url) {
+  auto it = guards().find(browser_id);
+  if (it == guards().end() || (it->second & kAgentGuardBit) == 0) return false;
+  return AgentRefusesURL(url);
 }
 
 void ForgetNavigationGuard(int browser_id) {

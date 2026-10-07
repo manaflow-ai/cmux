@@ -51,6 +51,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         }
     }
 
+    private let contextMenus = BrowserContextMenuBuilder.shared
+
     private init(tab: any BrowserTab, report: URL?, activate: Bool) {
         tabs = [tab]
         reportURL = report
@@ -63,7 +65,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.contentView = chrome
+        window.install(kind: .browserDebug, content: chrome, scope: .app)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)
@@ -88,8 +90,10 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
-        case .unhandledEscape:
+        case .unhandledEscape, .unhandledKey, .resizePopup:
             break
+        case .takeFocus:
+            chrome.perform(.focusAddressBar)
         case .openURL(let url, _):
             chrome.tab.load(url)
         case .close:
@@ -101,7 +105,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             chrome.tab = tab
             observe()
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.present(request, in: tab.contentView)
+            contextMenus.present(request, in: tab.contentView)
         case .notice(let text):
             chrome.showNotice(text)
         case .rerouteStore:

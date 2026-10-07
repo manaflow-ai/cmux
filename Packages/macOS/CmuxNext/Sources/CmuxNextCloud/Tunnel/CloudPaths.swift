@@ -65,12 +65,14 @@ public struct CloudPaths: Sendable {
     }
 
     /// `mac-<uuid>`, created once per installation.
-    func loadOrCreateDeviceID() throws -> String {
+    public func loadOrCreateDeviceID() throws -> String {
         if let text = try? String(contentsOf: deviceIDFile, encoding: .utf8) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }
         let id = "mac-\(UUID().uuidString.lowercased())"
+        // Read before any Cloud sign-in (agent tabs' install id): the directory may not exist yet.
+        try prepare()
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
     }

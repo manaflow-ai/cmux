@@ -15,6 +15,8 @@ use std::io::Write;
 use std::sync::Arc;
 
 pub(crate) const SKILL: &str = include_str!("../../skills/acpmux/SKILL.md");
+mod presets;
+pub(crate) use presets::{defaults, preset};
 
 /// The guide text: the skill file without its frontmatter.
 pub(crate) fn guide() -> &'static str {
@@ -105,7 +107,8 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
-        return wait_match(client, &ids, matcher, opts.timeout, opts.notify, json_out).await;
+        return wait_match(client, &ids, matcher, opts.timeout, opts.all, opts.notify, json_out)
+            .await;
     }
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
@@ -190,13 +193,15 @@ fn session_exit_code(s: &Value) -> i32 {
     }
 }
 
-/// Resolve when a session's transcript contains the text. Existing text
-/// matches at once; then live updates are followed.
+/// Resolve when a session's transcript contains the text (with `all`,
+/// when every session's does). Existing text matches at once; then live
+/// updates are followed.
 async fn wait_match(
     client: Arc<Client>,
     ids: &[(String, String)],
     matcher: &Matcher,
     timeout: Option<u64>,
+    all: bool,
     notify: bool,
     json_out: bool,
 ) -> Result<()> {
@@ -204,19 +209,30 @@ async fn wait_match(
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let mut transcripts: Vec<(String, String, Transcript)> = Vec::new();
     for (name, id) in ids {
-        let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+        // The whole history, oldest page first: a match can be old. The
+        // first attach subscribes, so nothing written meanwhile is lost.
         let mut t = Transcript::default();
-        for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
-            t.apply_event(&e);
+        let mut after = 0u64;
+        loop {
+            let page = json!({"sessionId": id, "afterSeq": after, "limit": 5000});
+            let v = client.request(method::MUX_ATTACH, page).await?;
+            let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+            for e in &events {
+                t.apply_event(e);
+            }
+            let last = events.last().and_then(|e| e.get("seq")).and_then(Value::as_u64);
+            match last {
+                Some(seq) if v.get("hasMore") == Some(&json!(true)) && seq > after => after = seq,
+                _ => break,
+            }
         }
         transcripts.push((name.clone(), id.clone(), t));
     }
+    let need = if all { transcripts.len() } else { 1 };
+    let mut matched = vec![false; transcripts.len()];
+    let mut rows: Vec<Value> = Vec::new();
     let report = |name: &str, id: &str, line: &str| {
-        if json_out {
-            print_json(
-                &json!({"sessions": [{"name": name, "sessionId": id, "matched": ["text"], "line": line}], "timedOut": false}),
-            );
-        } else {
+        if !json_out {
             println!("{name:<24} matched: {line}");
         }
         if notify {
@@ -225,15 +241,19 @@ async fn wait_match(
                 &format!("{name}: {}", line.chars().take(80).collect::<String>()),
             );
         }
+        json!({"name": name, "sessionId": id, "matched": ["text"], "line": line})
     };
-    for (name, id, t) in &transcripts {
+    for (i, (name, id, t)) in transcripts.iter().enumerate() {
+        if rows.len() >= need {
+            break;
+        }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            report(name, id, &line);
-            return Ok(());
+            matched[i] = true;
+            rows.push(report(name, id, &line));
         }
     }
     let deadline = timeout.map(|s| tokio::time::Instant::now() + std::time::Duration::from_secs(s));
-    loop {
+    while rows.len() < need {
         let next = async { notes.recv().await };
         let m = match deadline {
             Some(d) => match tokio::time::timeout_at(d, next).await {
@@ -252,19 +272,27 @@ async fn wait_match(
         }
         let p = params.unwrap_or(Value::Null);
         let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some((name, id, t)) = transcripts.iter_mut().find(|(_, id, _)| *id == sid) else {
+        let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
             continue;
         };
+        if matched[i] {
+            continue;
+        }
+        let (name, id, t) = &mut transcripts[i];
         match m.as_str() {
             method::SESSION_UPDATE => t.apply_update(&p),
             method::MUX_EVENT => t.apply_event(&p),
             _ => continue,
         }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            report(name, id, &line);
-            return Ok(());
+            matched[i] = true;
+            rows.push(report(name, id, &line));
         }
     }
+    if json_out {
+        print_json(&json!({"sessions": rows, "timedOut": false}));
+    }
+    Ok(())
 }
 
 /// `acpmux ensure NAME`: the session if it exists, else create it.
@@ -524,7 +552,11 @@ pub(crate) async fn compare(
             )
             .await;
         let row = match created {
-            Err(e) => json!({"harness": spec, "status": "error", "error": e.to_string()}),
+            Err(e) => {
+                let app = crate::cli::errors::classify(&e);
+                worst = worst.max(app.code as i32);
+                json!({"harness": spec, "status": "error", "error": e.to_string()})
+            }
             Ok(v) => {
                 let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
                 let outcome = collect_reply(
@@ -630,13 +662,15 @@ pub(crate) async fn tail(
     let events: Vec<Value> = match since {
         Some(cursor) => {
             let seq = parse_cursor(&cursor, &id)?;
+            // Subscribe before reading from the cursor, so an event written
+            // in between arrives live; the seq check below drops repeats.
+            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             let v = client
                 .request(
                     method::MUX_EVENTS,
                     json!({"sessionId": id, "afterSeq": seq, "limit": 100000}),
                 )
                 .await?;
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
         }
         None => {
@@ -648,7 +682,10 @@ pub(crate) async fn tail(
     let stdout = std::io::stdout();
     let mut sup = ReadSuppressor::default();
     let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
+    // The newest seq printed: a live event at or below it was in the page.
+    let mut printed_seq = 0u64;
     for e in events {
+        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
         let mut lock = stdout.lock();
         let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
     }
@@ -664,9 +701,19 @@ pub(crate) async fn tail(
             if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
                 continue;
             }
+            let seq = if m == method::MUX_EVENT {
+                p.get("seq").and_then(Value::as_u64)
+            } else {
+                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
+            };
+            if seq.is_some_and(|s| s <= printed_seq) {
+                continue;
+            }
             let mut lock = stdout.lock();
             let line = if m == method::MUX_EVENT {
                 with_cursor(&id, filter(&mut sup, p))
+            } else if m == method::SESSION_UPDATE && suppress_reads {
+                json!({"method": m, "params": sup.apply_update(p)})
             } else {
                 json!({"method": m, "params": p})
             };
@@ -762,300 +809,18 @@ impl ReadSuppressor {
         }
         e
     }
+
+    /// The same for the params of a live `session/update` notification,
+    /// which carry the update without the event envelope.
+    pub(crate) fn apply_update(&mut self, params: Value) -> Value {
+        let kind = params.pointer("/update/sessionUpdate").cloned().unwrap_or(Value::Null);
+        let mut e = self.apply(json!({"kind": kind, "msg": {"params": params}}));
+        e.pointer_mut("/msg/params").map(Value::take).unwrap_or(Value::Null)
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wait_exit_code_reports_permissions_then_failed_turns() {
-        assert_eq!(session_exit_code(&json!({"pendingPermissions": 1})), 2);
-        assert_eq!(
-            session_exit_code(&json!({"pendingPermissions": 1, "lastTurn": {"status": "failed"}})),
-            2
-        );
-        assert_eq!(session_exit_code(&json!({"lastTurn": {"status": "failed"}})), 1);
-        assert_eq!(session_exit_code(&json!({"lastTurn": {"status": "completed"}})), 0);
-        assert_eq!(session_exit_code(&json!({})), 0);
-    }
-
-    #[test]
-    fn cursor_parsing() {
-        assert_eq!(parse_cursor("abc:12", "abc").unwrap(), 12);
-        assert_eq!(parse_cursor("12", "abc").unwrap(), 12);
-        assert!(parse_cursor("other:12", "abc").is_err());
-        assert!(parse_cursor("abc:x", "abc").is_err());
-    }
-
-    #[test]
-    fn suppresses_read_payloads_only() {
-        let mut sup = ReadSuppressor::default();
-        let announce = json!({"kind": "tool_call", "msg": {"params": {"update": {"toolCallId": "t1", "kind": "read", "title": "Read a.txt"}}}});
-        sup.apply(announce);
-        let update = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t1", "content": [{"type": "content", "content": {"type": "text", "text": "secret"}}], "rawOutput": "secret"}}}});
-        let out = sup.apply(update);
-        assert_eq!(
-            out.pointer("/msg/params/update/rawOutput").unwrap(),
-            "[read output suppressed]"
-        );
-        assert!(
-            out.pointer("/msg/params/update/content/0/content/text")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .contains("suppressed")
-        );
-        let exec = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t2", "kind": "execute", "rawOutput": "kept"}}}});
-        assert_eq!(sup.apply(exec).pointer("/msg/params/update/rawOutput").unwrap(), "kept");
-        let raw = json!({"kind": "claude.user", "msg": {"tool_use_result": {"file": {"content": "secret"}}, "message": {"content": [{"type": "tool_result", "content": "secret"}]}}});
-        let out = sup.apply(raw);
-        assert_eq!(
-            out.pointer("/msg/tool_use_result/file/content").unwrap(),
-            "[read output suppressed]"
-        );
-        assert_eq!(
-            out.pointer("/msg/message/content/0/content").unwrap(),
-            "[read output suppressed]"
-        );
-    }
-
-    #[test]
-    fn matcher_hits_lines() {
-        let m = Matcher::Regex(regex::Regex::new(r"tests? pass").unwrap());
-        assert_eq!(m.hit("build ok\nall tests pass\n").as_deref(), Some("all tests pass"));
-        assert!(Matcher::Text("fail".into()).hit("ok").is_none());
-    }
-}
-
-/// `acpmux defaults [FAMILY [key=value…]] [--clear]`.
-pub(crate) async fn defaults(
-    client: Arc<Client>,
-    family: Option<String>,
-    pairs: Vec<String>,
-    clear: bool,
-    json_out: bool,
-) -> Result<()> {
-    let mut req = json!({});
-    if let Some(f) = &family {
-        req["family"] = json!(f);
-    }
-    if clear {
-        if family.is_none() {
-            return Err(AppError::usage("--clear needs a family").into());
-        }
-        req["clear"] = json!(true);
-    }
-    if !pairs.is_empty() {
-        if family.is_none() {
-            return Err(AppError::usage(
-                "key=value pairs need a family: acpmux defaults claude model=…",
-            )
-            .into());
-        }
-        let mut set = serde_json::Map::new();
-        let mut env = serde_json::Map::new();
-        for pair in &pairs {
-            let (k, v) = pair
-                .split_once('=')
-                .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
-            match k {
-                "model" | "effort" | "policy" => {
-                    set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
-                }
-                "prefer" => {
-                    set.insert(
-                        k.into(),
-                        if v.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(
-                                v.split(',')
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
-                                    .collect::<Vec<_>>()
-                            )
-                        },
-                    );
-                }
-                _ if k.starts_with("env.") => {
-                    env.insert(k[4..].into(), json!(v));
-                }
-                _ => {
-                    return Err(AppError::usage(format!(
-                        "unknown key {k:?}; use model, effort, policy, prefer, env.KEY"
-                    ))
-                    .into());
-                }
-            }
-        }
-        if !env.is_empty() {
-            set.insert("env".into(), Value::Object(env));
-        }
-        req["set"] = Value::Object(set);
-    }
-    let v = client.request(method::MUX_DEFAULTS, req).await?;
-    if json_out {
-        println!("{}", serde_json::to_string_pretty(&v)?);
-        return Ok(());
-    }
-    let row = |f: &str, d: &Value| {
-        let g = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
-        let prefer = d
-            .get("prefer")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "-".into());
-        let env = d
-            .get("env")
-            .and_then(Value::as_object)
-            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "-".into());
-        let profile = d
-            .get("profile")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| "? (ambiguous)".into());
-        println!(
-            "{f:<12} {:<14} {:<34} {:<8} {:<14} {:<20} {env}",
-            profile,
-            g("model"),
-            g("effort"),
-            g("policy"),
-            prefer
-        );
-    };
-    println!(
-        "{:<12} {:<14} {:<34} {:<8} {:<14} {:<20} ENV",
-        "FAMILY", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER"
-    );
-    match (&family, v.get("families").and_then(Value::as_object)) {
-        (Some(f), _) => row(f, &v),
-        (None, Some(fams)) => {
-            for (f, d) in fams {
-                row(f, d);
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-/// `acpmux preset [NAME [key=value…]] [--clear]`.
-pub(crate) async fn preset(
-    client: Arc<Client>,
-    name: Option<String>,
-    pairs: Vec<String>,
-    clear: bool,
-    json_out: bool,
-) -> Result<()> {
-    let mut req = json!({});
-    if let Some(n) = &name {
-        req["name"] = json!(n);
-    }
-    if clear {
-        if name.is_none() {
-            return Err(AppError::usage("--clear needs a preset name").into());
-        }
-        req["clear"] = json!(true);
-    }
-    if !pairs.is_empty() {
-        if name.is_none() {
-            return Err(AppError::usage(
-                "key=value pairs need a preset name: acpmux preset NAME harness=…",
-            )
-            .into());
-        }
-        let mut set = serde_json::Map::new();
-        let mut env = serde_json::Map::new();
-        for pair in &pairs {
-            let (k, v) = pair
-                .split_once('=')
-                .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
-            match k {
-                "harness" | "model" | "effort" | "policy" | "description" => {
-                    set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
-                }
-                _ if k.starts_with("env.") => {
-                    env.insert(k[4..].into(), if v.is_empty() { Value::Null } else { json!(v) });
-                }
-                "env" if v.is_empty() => {
-                    set.insert("env".into(), Value::Null);
-                }
-                _ => return Err(AppError::usage(format!(
-                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY"
-                ))
-                .into()),
-            }
-        }
-        if !env.is_empty() {
-            set.insert("env".into(), Value::Object(env));
-        }
-        req["set"] = Value::Object(set);
-    }
-    let v = client.request(method::MUX_PRESETS, req).await?;
-    if json_out {
-        println!("{}", serde_json::to_string_pretty(&v)?);
-        return Ok(());
-    }
-    let row = |p: &Value| {
-        let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
-        let env = p
-            .get("env")
-            .and_then(Value::as_object)
-            .map(|o| {
-                o.iter()
-                    .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or("")))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "-".into());
-        let profile =
-            p.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| {
-                format!("? ({})", p.get("error").and_then(Value::as_str).unwrap_or("unresolved"))
-            });
-        println!(
-            "{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} {env}",
-            g("name"),
-            g("harness"),
-            profile,
-            g("model"),
-            g("effort"),
-            g("policy")
-        );
-    };
-    println!(
-        "{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} ENV",
-        "PRESET", "HARNESS", "PROFILE", "MODEL", "EFFORT", "POLICY"
-    );
-    match v.get("presets").and_then(Value::as_array) {
-        Some(list) => {
-            for p in list {
-                row(p);
-            }
-        }
-        None => row(&v),
-    }
-    Ok(())
-}
+mod tests;
 
 #[cfg(test)]
-mod target_tests {
-    #[test]
-    fn splits_on_the_first_slash_only() {
-        assert_eq!(super::split_target("claude"), ("claude".into(), None));
-        assert_eq!(super::split_target("claude/opus"), ("claude".into(), Some("opus".into())));
-        assert_eq!(
-            super::split_target("opencode/zai/glm-5.1"),
-            ("opencode".into(), Some("zai/glm-5.1".into()))
-        );
-        assert_eq!(
-            super::split_target("pi/openrouter/deepseek/deepseek-v4"),
-            ("pi".into(), Some("openrouter/deepseek/deepseek-v4".into()))
-        );
-        assert_eq!(super::split_target("codex/"), ("codex".into(), None));
-    }
-}
+mod target_tests;

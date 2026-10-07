@@ -6,7 +6,7 @@
 //! later `cmux` reattaches through the same socket instead of racing to
 //! rebuild the mux and adopt the durable terminal hosts. `ensure_owner` is
 //! the single entrypoint shared by the interactive startup path and the
-//! `cmux server ensure` CLI verb.
+//! `cmux daemon ensure` CLI verb (`cmux-tui server ensure`).
 //!
 //! The owner is spawned with no controlling terminal and null stdio; its
 //! diagnostics go to the bounded client log at the session state root.
@@ -45,24 +45,68 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
-/// Takes the inherited readiness descriptor from argv and keeps it out of
-/// every process the owner starts before it is ready (terminal hosts), so
-/// only this owner's exit or signal can end the parent's wait.
-pub(crate) fn claim_ready_fd(value: &str) -> Result<i32, String> {
+/// Private startup option (P8 3b-2): the app's install key arrives on this
+/// inherited pipe (`cmuxik1 <install_id> <hex key>`), never in argv or the
+/// environment. The owner reads it once, closes the descriptor and keeps
+/// the key in memory only.
+pub(crate) const OWNER_INSTALL_KEY_FD_ARG: &str = "--owner-install-key-fd";
+
+/// Takes an inherited descriptor (`option` names it) from argv and keeps it
+/// out of every process the owner starts (terminal hosts): only this owner
+/// holds the readiness pipe's write end and the install key pipe.
+pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, String> {
     let fd: i32 = value
         .parse()
         .ok()
         .filter(|fd| *fd > 2)
-        .ok_or_else(|| format!("{OWNER_READY_FD_ARG} needs a descriptor number above 2"))?;
+        .ok_or_else(|| format!("{option} needs a descriptor number above 2"))?;
     #[cfg(unix)]
     {
         // SAFETY: fcntl on a descriptor number only changes its flags; an
         // invalid descriptor reports EBADF.
         if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-            return Err(format!("{OWNER_READY_FD_ARG} {fd}: {}", io::Error::last_os_error()));
+            return Err(format!("{option} {fd}: {}", io::Error::last_os_error()));
         }
     }
     Ok(fd)
+}
+
+/// Parses `OWNER_READY_FD_ARG` or `OWNER_INSTALL_KEY_FD_ARG` (each once).
+pub(crate) fn claim_fd_arg(
+    arg: &str,
+    value: Option<String>,
+    args: &mut crate::Args,
+) -> Result<(), String> {
+    let value = value.ok_or_else(|| format!("{arg} needs a value"))?;
+    let fd = claim_inherited_fd(arg, &value)?;
+    let slot = if arg == OWNER_READY_FD_ARG {
+        &mut args.owner_ready_fd
+    } else {
+        &mut args.owner_install_key_fd
+    };
+    if slot.replace(fd).is_some() {
+        return Err(format!("{arg} may be supplied only once"));
+    }
+    Ok(())
+}
+
+/// Reads the app's install key from the inherited pipe `fd`, closes it and
+/// gives the key to the session (`client-hello`). A bad or missing payload
+/// leaves the daemon without a key: no connection proves itself with one.
+pub(crate) fn install_key_from_fd(mux: &cmux_tui_core::Mux, fd: Option<i32>) {
+    let Some(fd) = fd else { return };
+    #[cfg(unix)]
+    {
+        use std::os::fd::FromRawFd;
+        // SAFETY: `claim_inherited_fd` validated this inherited descriptor,
+        // and this is its only use; the File closes it on drop.
+        let pipe = unsafe { std::fs::File::from_raw_fd(fd) };
+        if let Ok(key) = cmux_tui_core::server::read_frontend_key(pipe) {
+            cmux_tui_core::server::install_frontend_key(mux, key);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (mux, fd);
 }
 
 /// Tells the parent that spawned this owner that it accepts clients.
@@ -70,7 +114,7 @@ pub(crate) fn signal_ready(fd: i32) {
     #[cfg(unix)]
     {
         use std::os::fd::FromRawFd;
-        // SAFETY: `claim_ready_fd` validated this inherited descriptor, and
+        // SAFETY: `claim_inherited_fd` validated this inherited descriptor, and
         // this is its only use; the File closes it.
         let mut pipe = unsafe { std::fs::File::from_raw_fd(fd) };
         let _ = pipe.write_all(b"1");
@@ -90,6 +134,12 @@ pub(crate) struct OwnerSpec {
     /// owner has no terminal of its own, so the client passes these values
     /// through the private startup contract before it creates a PTY.
     pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
+    /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
+    /// `None` starts an owner that never reaps unplaced terminals.
+    pub terminal_reap_grace: Option<Duration>,
+    /// The app's install key for an owner this call spawns (`server ensure
+    /// --install-key-stdin`); a running owner never receives it.
+    pub install_key: Option<cmux_tui_core::server::FrontendKey>,
 }
 
 /// A validated, client-ready owner.
@@ -441,6 +491,34 @@ fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWrite
     Ok((std::fs::File::from(OwnedFd::from(reader)), writer))
 }
 
+/// The install key pipe: the whole payload is written now (it fits the
+/// pipe buffer) and the write end closes, so the owner reads to end of
+/// file. Only the owner gets the read end (`pre_exec` clears close-on-exec
+/// on its copy); the returned reader closes in this process after spawn.
+#[cfg(unix)]
+fn install_key_pipe(
+    command: &mut Command,
+    key: &cmux_tui_core::server::FrontendKey,
+) -> io::Result<io::PipeReader> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let (reader, mut writer) = io::pipe()?;
+    writer.write_all(key.to_payload().as_bytes())?;
+    drop(writer);
+    let read_fd = reader.as_raw_fd();
+    command.arg(OWNER_INSTALL_KEY_FD_ARG).arg(read_fd.to_string());
+    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(read_fd, libc::F_SETFD, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok(reader)
+}
+
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
@@ -452,6 +530,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
+    }
+    if let Some(grace) = spec.terminal_reap_grace {
+        command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     }
     if let Some(colors) = spec.initial_host_colors {
         if let Some(foreground) = colors.fg {
@@ -468,6 +549,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     configure_detached_owner_environment(&mut command);
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
+    #[cfg(unix)]
+    let _install_key_pipe = match &spec.install_key {
+        Some(key) => Some(install_key_pipe(&mut command, key)?),
+        None => None,
+    };
     #[cfg(not(unix))]
     let ready = None;
     // The owner reports through the bounded client log at its state root;
@@ -592,6 +678,8 @@ mod tests {
                 state: None,
                 term: None,
                 initial_host_colors: None,
+                terminal_reap_grace: None,
+                install_key: None,
             }
         }
 
@@ -599,7 +687,7 @@ mod tests {
         fn ready_descriptor_is_claimed_close_on_exec_and_signaled_once() {
             let (mut reader, writer) = io::pipe().unwrap();
             let fd = writer.into_raw_fd();
-            assert_eq!(claim_ready_fd(&fd.to_string()), Ok(fd));
+            assert_eq!(claim_inherited_fd(OWNER_READY_FD_ARG, &fd.to_string()), Ok(fd));
             // SAFETY: querying flags of a descriptor this test owns.
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
             assert_ne!(flags & libc::FD_CLOEXEC, 0);
@@ -608,7 +696,7 @@ mod tests {
             reader.read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, b"1");
             for invalid in ["0", "2", "-1", "x"] {
-                assert!(claim_ready_fd(invalid).is_err(), "{invalid}");
+                assert!(claim_inherited_fd(OWNER_READY_FD_ARG, invalid).is_err(), "{invalid}");
             }
         }
 

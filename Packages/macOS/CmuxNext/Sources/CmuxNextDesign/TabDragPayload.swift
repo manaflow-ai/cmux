@@ -23,6 +23,8 @@ public nonisolated enum TabDropKind: Hashable, Sendable {
     case strip(stripID: UUID, index: Int, groupID: String?)
     case newSplit(paneID: String, edge: TabDropEdge)
     case newColumn(screenID: String, afterColumnID: String?)
+    /// A new top or bottom dock on `screenID` (`edge` "top" or "bottom").
+    case newDock(screenID: String, edge: String)
     case newWorkspace(groupID: String?, index: Int)
     case workspace(id: String)
 }

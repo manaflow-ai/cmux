@@ -63,9 +63,23 @@ final class DesktopNotifier: NSObject {
         onOpen?(id, surface)
     }
 
+    /// CEF embeds the same executable in helper app bundles whose identifiers
+    /// contain a `.helper.*` component. Only the main cmux app may own the
+    /// macOS notification center and request authorization.
+    nonisolated static func isMainAppBundle(bundleIdentifier: String?, bundleURL: URL) -> Bool {
+        let root = "com.cmuxterm.app"
+        guard let bundleIdentifier,
+              (bundleIdentifier == root || bundleIdentifier.hasPrefix(root + ".")),
+              !bundleIdentifier.split(separator: ".").contains("helper"),
+              bundleURL.pathExtension == "app" else { return false }
+        return true
+    }
+
     private func resolvedCenter() -> UNUserNotificationCenter? {
         if let center { return center }
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return nil }
+        guard Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
+            return nil
+        }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         self.center = center

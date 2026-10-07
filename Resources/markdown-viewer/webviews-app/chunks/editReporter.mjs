@@ -1,0 +1,1 @@
+function e(e,t){let n=null,r=!1,i=()=>{n=t(()=>{n=null,r&&(r=!1,e(),i())},500)};return{edited(){if(n){r=!0;return}e(),i()},dispose(){n?.(),n=null,r=!1}}}export{e as t};
