@@ -9,8 +9,11 @@ use std::time::{Duration, Instant};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
-use cmux_mesh_agent::api::{self, ApiError};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use cmux_mesh_agent::api::{self, ApiError, EnrollAuth, Enrollment};
 use cmux_mesh_agent::config::{self, AgentConfig};
+use cmux_mesh_agent::install::{self, Purpose};
 use cmux_mesh_agent::key;
 use cmux_mesh_agent::ops::{self, PingOptions, ProbeOptions};
 use cmux_mesh_agent::tunnel::{self, Tunnel, TunnelParams};
@@ -29,16 +32,45 @@ enum Command {
         #[arg(long)]
         key_file: PathBuf,
     },
+    /// Make a P-256 install key in a new 0600 file; print its public key.
+    InstallKeygen {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Register the public key with a mesh and save the returned tunnel config.
     Enroll {
         #[arg(long)]
         key_file: PathBuf,
+        /// The install key that signs the enrollment.
+        #[arg(long)]
+        install_key: PathBuf,
         #[arg(long)]
         mesh: String,
         #[arg(long)]
         name: String,
         #[arg(long)]
         out: PathBuf,
+        /// One-time enroll code (mec_…); default $CMUX_MESH_ENROLL_CODE. With a
+        /// code no API key is needed or sent.
+        #[arg(long)]
+        code: Option<String>,
+        /// API base URL; default $CMUX_VM_API_URL.
+        #[arg(long)]
+        api: Option<String>,
+    },
+    /// Make a new WireGuard key, register it, and update the config.
+    Rotate {
+        #[arg(long)]
+        config: PathBuf,
+        /// The current key; kept as it is.
+        #[arg(long)]
+        key_file: PathBuf,
+        /// The install key the device enrolled with.
+        #[arg(long)]
+        install_key: PathBuf,
+        /// Where the new key goes; must not exist.
+        #[arg(long)]
+        new_key_file: PathBuf,
         /// API base URL; default $CMUX_VM_API_URL.
         #[arg(long)]
         api: Option<String>,
@@ -173,7 +205,13 @@ fn run(command: Command) -> Result<bool, Fail> {
             writeln!(out, "{public}")?;
             Ok(true)
         }
-        Command::Enroll { key_file, mesh, name, out: config_path, api } => {
+        Command::InstallKeygen { out: path } => {
+            let public = install::install_keygen(&path)
+                .map_err(|error| Fail::new("KeyFile", format!("{}: {error}", path.display())))?;
+            writeln!(out, "{public}")?;
+            Ok(true)
+        }
+        Command::Enroll { key_file, install_key, mesh, name, out: config_path, code, api } => {
             if config_path.exists() {
                 return Err(Fail::new(
                     "ConfigExists",
@@ -181,12 +219,34 @@ fn run(command: Command) -> Result<bool, Fail> {
                 ));
             }
             api::check_id(&mesh, "mesh_")?;
-            let private = read_key(&key_file)?;
+            api::check_device_name(&name)?;
+            let code = code
+                .or_else(|| std::env::var("CMUX_MESH_ENROLL_CODE").ok())
+                .map(|code| code.trim().to_string());
+            if let Some(code) = &code {
+                api::check_enroll_code(code)?;
+            }
+            let wg_public_key = read_key(&key_file)?.public_key_base64();
+            let install = read_install_key(&install_key)?;
             let base = api::api_base(api.as_deref())?;
-            let token = api::api_key()?;
-            let body =
-                api::enroll_device(&base, &token, &mesh, &name, &private.public_key_base64())?;
-            drop(private);
+            let token;
+            let auth = match code.as_deref() {
+                Some(code) => EnrollAuth::Code(code),
+                None => {
+                    token = api::api_key()?;
+                    EnrollAuth::ApiKey(&token)
+                }
+            };
+            let install_public_key = install.public_key_base64();
+            let proof = install::prove(&install, Purpose::Enroll, &mesh, &wg_public_key, &name)?;
+            drop(install);
+            let enrollment = Enrollment {
+                name: &name,
+                wg_public_key: &wg_public_key,
+                install_public_key: &install_public_key,
+                proof: &proof,
+            };
+            let body = api::enroll_device(&base, auth, &mesh, &enrollment)?;
             write_new_private_file(&config_path, body.as_bytes())?;
             let saved = config::parse_agent_config(&body)?;
             writeln!(
@@ -197,6 +257,61 @@ fn run(command: Command) -> Result<bool, Fail> {
                     "meshId": saved.mesh_id,
                     "tunnelId": saved.tunnel.id,
                     "config": config_path.display().to_string(),
+                })
+            )?;
+            Ok(true)
+        }
+        Command::Rotate { config: config_path, key_file, install_key, new_key_file, api } => {
+            // Before any request: never overwrite a key, not even a dangling link.
+            if new_key_file.symlink_metadata().is_ok() {
+                return Err(Fail::new(
+                    "KeyExists",
+                    format!("{} exists; refusing to overwrite", new_key_file.display()),
+                ));
+            }
+            let saved_text = std::fs::read_to_string(&config_path).map_err(|error| {
+                Fail::new("Config", format!("read {}: {error}", config_path.display()))
+            })?;
+            let saved = config::parse_agent_config(&saved_text)?;
+            api::check_id(&saved.device_id, "dev_")?;
+            let current_public = read_key(&key_file)?.public_key_base64();
+            if let Some(enrolled) = &saved.wg_public_key
+                && enrolled.trim() != current_public
+            {
+                return Err(Fail::new(
+                    "KeyMismatch",
+                    "the key file is not the key this device enrolled",
+                ));
+            }
+            let install = read_install_key(&install_key)?;
+            let base = api::api_base(api.as_deref())?;
+            let token = api::api_key()?;
+            // The new key is on disk before the request: if the server
+            // switches and the response is lost, the key is not.
+            let new_key = key::PrivateKey::generate()?;
+            key::write_new_key_file(&new_key_file, &new_key).map_err(|error| {
+                Fail::new("KeyFile", format!("{}: {error}", new_key_file.display()))
+            })?;
+            let new_public = new_key.public_key_base64();
+            drop(new_key);
+            let proof =
+                install::prove(&install, Purpose::RotateKey, &saved.device_id, &new_public, "")?;
+            drop(install);
+            let sent_at = ops::wall_ms();
+            let body = api::rotate_key(&base, &token, &saved.device_id, &new_public, &proof)?;
+            let responded_at = ops::wall_ms();
+            let updated = config::rotated_config(&saved_text, &body, &new_public)?;
+            replace_private_file(&config_path, updated.as_bytes())?;
+            let rotated = config::parse_agent_config(&updated)?;
+            writeln!(
+                out,
+                "{}",
+                json!({
+                    "deviceId": rotated.device_id,
+                    "sentAtMs": sent_at,
+                    "respondedAtMs": responded_at,
+                    "serverPublicKey": STANDARD.encode(rotated.tunnel.server_public_key),
+                    "wgPublicKey": new_public,
                 })
             )?;
             Ok(true)
@@ -248,6 +363,38 @@ fn run(command: Command) -> Result<bool, Fail> {
 fn read_key(path: &Path) -> Result<key::PrivateKey, Fail> {
     key::read_key_file(path)
         .map_err(|error| Fail::new("KeyFile", format!("{}: {error}", path.display())))
+}
+
+fn read_install_key(path: &Path) -> Result<install::InstallKey, Fail> {
+    install::read_install_key_file(path)
+        .map_err(|error| Fail::new("InstallKeyFile", format!("{}: {error}", path.display())))
+}
+
+/// Replace `path` atomically: write a 0600 temp file next to it, sync, and
+/// rename over it.
+fn replace_private_file(path: &Path, contents: &[u8]) -> Result<(), Fail> {
+    let fail = |error: io::Error| Fail::new("ConfigWrite", format!("{}: {error}", path.display()));
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| Fail::new("ConfigWrite", format!("{}: not a file", path.display())))?;
+    let directory = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let temp =
+        directory.join(format!(".{}.{}.tmp", file_name.to_string_lossy(), std::process::id()));
+    let written = (|| {
+        let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+        file.write_all(contents)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)?;
+        std::fs::File::open(directory)?.sync_all()
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written.map_err(fail)
 }
 
 fn write_new_private_file(path: &Path, contents: &[u8]) -> Result<(), Fail> {
