@@ -139,6 +139,22 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$hea
 merge_key="$key"; key="$head_key"
 expect "pull request, merge tree unpublished, head published" pull_request ready "$merge_key"
 grep -qF "$head_sha" <<<"$reason" || fail "the reason names the PR head: $reason"
+# fetch takes the probe's key only when it is exactly the PR head's own tree key.
+echo binary > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin"
+sha256sum "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin" | awk '{print $1 "  cmux-tui-aarch64-apple-darwin"}' \
+  > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin.sha256"
+fetch_with() { # <CMUX_TUI_TREE_KEY> -> out, status
+  status=0
+  out=$(cd "$TMP/src" && env -u CI_JOB_DIR PATH="$TMP/bin:$PATH" GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+    GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" GH_TOKEN=test-token CMUX_TUI_TREE_KEY="$1" \
+    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 \
+    bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
+}
+fetch_with "$head_key"
+grep -qF "using the PR head's tree $head_key" <<<"$out" || fail "fetch did not take the PR head's tree"
+[[ -f "$TMP/src/cmux-tui/target/hosted/tree/$head_key/cmux-tui" ]] || fail "fetch did not place the head tree's binary"
+fetch_with "$newer"
+! grep -qF "using the PR head's tree" <<<"$out" || fail "fetch took a key that is not the PR head's"
 unset CMUX_TUI_TREE_HEAD_SHA
 
 printf 'pin-cmux-tui probe tests: ok\n'
