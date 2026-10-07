@@ -49,6 +49,19 @@ export function loadPlaywright() {
   }
 }
 
+// Playwright's AI snapshot of a page (refs `[ref=eN]` that `aria-ref=`
+// locators resolve, frames inlined) as { full, incremental }. The gate pins
+// Playwright 1.62.1 (README.md), where it is the public
+// page.ariaSnapshot({ mode: "ai" }) and has no incremental form (null);
+// older versions (1.57.0) have only the internal page._snapshotForAI({ track }).
+export async function aiSnapshot(page, track) {
+  if (typeof page._snapshotForAI === "function") {
+    const r = await page._snapshotForAI(track ? { track } : {});
+    return typeof r === "string" ? { full: r, incremental: null } : { full: r.full, incremental: r.incremental ?? null };
+  }
+  return { full: await page.ariaSnapshot({ mode: "ai" }), incremental: null };
+}
+
 // Builds the install script from the recipe in page-agent.js.
 export function agentInstallSource() {
   const injected = fs.readFileSync(path.join(runtimeDir, "vendor/playwright-injected.js"), "utf8");

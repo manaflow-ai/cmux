@@ -153,7 +153,9 @@ test("gmail.send: a composer that holds more than the drafted body sends nothing
   try {
     const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Signed note." })');
     assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
-    assert.match(env.state.gmailSent.at(-1).body, /^Signed note\.\s*-- Ada Lovelace$/);
+    // The mock reads the sent body with innerText, which ends with a newline
+    // on some Playwright browser builds (1.57.0); only the text is checked.
+    assert.match(env.state.gmailSent.at(-1).body, /^Signed note\.\s*-- Ada Lovelace\s*$/);
   } finally {
     env.state.gmailSignature = null;
   }
