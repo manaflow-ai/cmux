@@ -1,0 +1,20 @@
+{
+  "family": "terminal",
+  "cases": [
+    { "message": "terminal", "frame": { "t": "channel.open", "channel": 3, "kind": "terminal", "class": "interactive", "window": 262144, "params": { "terminal": "term_t01", "viewport": { "cols": 46, "rows": 38, "px_width": 1179, "px_height": 2100 }, "visible": true, "counts": true, "snapshot": { "format": "ghostsnp", "versions": [1] } } } },
+    { "message": "terminal", "phase": "opened", "frame": { "t": "channel.opened", "channel": 3, "window": 65536, "params": { "generation": 7, "cols": 46, "rows": 38, "snapshot_version": 1, "title": "zsh" }, "resumed": false } },
+    { "message": "terminal", "phase": "opened", "frame": { "t": "channel.opened", "channel": 5, "window": 65536, "params": { "generation": 2, "cols": 80, "rows": 24, "snapshot_version": null }, "resumed": false } },
+    { "message": "terminal.viewport", "frame": { "t": "terminal.viewport", "viewport": { "cols": 98, "rows": 18, "px_width": 2556, "px_height": 1179 } } },
+    { "message": "terminal.presence", "frame": { "t": "terminal.presence", "visible": false, "counts": true } },
+    { "message": "terminal.snapshot_request", "frame": { "t": "terminal.snapshot_request", "terminal": "term_t01", "reason": "gap", "have": { "generation": 7, "offset": 81920, "snapshot_version": 1 }, "request_id": "sr-3" } },
+    { "message": "terminal.snapshot_request", "frame": { "t": "terminal.snapshot_request", "terminal": "term_t01", "reason": "attach", "have": null, "request_id": "sr-1" } },
+    { "message": "terminal.history", "frame": { "t": "terminal.history", "before": "row:1:5012", "max_bytes": 262144 } },
+    { "message": "terminal.read_range", "frame": { "t": "terminal.read_range", "request_id": "rr-1", "from": "row:1:4000", "to": "row:1:4100" } },
+    { "message": "terminal.read_range.result", "frame": { "t": "terminal.read_range.result", "request_id": "rr-1", "text": "$ make test\nok\n", "truncated": false } },
+    { "message": "terminal.size", "frame": { "t": "terminal.size", "generation": 8, "cols": 98, "rows": 18 } },
+    { "message": "terminal.title", "frame": { "t": "terminal.title", "title": "vim README.md", "cwd": "/Users/me/src/cmux" } },
+    { "message": "terminal.exited", "frame": { "t": "terminal.exited", "code": null, "signal": "SIGHUP" } },
+    { "message": "terminal.kick", "frame": { "t": "terminal.kick", "viewer": "in_mac01" } },
+    { "message": "terminal.kicked", "frame": { "t": "terminal.kicked", "by": "in_mac01", "by_name": "Studio" } }
+  ]
+}

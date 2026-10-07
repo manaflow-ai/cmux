@@ -1,5 +1,4 @@
 public import CmuxiOSFeatureKit
-public import CmuxiOSFeed
 public import UIKit
 import SwiftUI
 
@@ -10,31 +9,28 @@ public struct ShellContent {
     private let sources: FeatureSources
     private let home: UIViewController
     private let settings: ShellSettingsModel
-    private let feedNavigator: FeedNavigator?
-    private let deviceName: String?
+    private let screens: [ShellTab: @MainActor () -> UIViewController]
 
     /// `home` is the existing Home screen in its navigation controller.
-    /// `feedNavigator` opens feed items from push taps; `deviceName` is
-    /// stamped on answers sent from this device.
+    /// `screens` are feature lanes' tab roots, injected by the composition
+    /// root so the shell never imports a feature module; a tab without one
+    /// shows its placeholder.
     public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel,
-                feedNavigator: FeedNavigator? = nil, deviceName: String? = nil) {
+                screens: [ShellTab: @MainActor () -> UIViewController] = [:]) {
         self.sources = sources
         self.home = home
         self.settings = settings
-        self.feedNavigator = feedNavigator
-        self.deviceName = deviceName
+        self.screens = screens
     }
 
     public func controller(for tab: ShellTab) -> UIViewController {
+        if let screen = screens[tab] { return screen() }
         switch tab {
         case .home:
             return home
         case .feed:
-            let feed = FeedViewController(source: sources.feed, navigator: feedNavigator,
-                                          isMock: isMock(.feed), device: deviceName)
-            let navigation = UINavigationController(rootViewController: feed)
-            navigation.navigationBar.prefersLargeTitles = true
-            return navigation
+            return placeholder(tab, seam: .feed, summary: ShellText.feedSummary,
+                               FeedPlaceholder.stream(sources.feed, isMock: isMock(.feed)))
         case .workspaces:
             return placeholder(tab, seam: .workspaces, summary: ShellText.workspacesSummary,
                                WorkspacesPlaceholder.stream(sources.workspaces, isMock: isMock(.workspaces)))

@@ -16,7 +16,7 @@ public final class MockHostsStore: HostsStore {
     public func add(_ draft: HostDraft, key: IntentKey) async throws -> IntentReceipt {
         try await hub.receipt(for: key) { hosts in
             guard draft.kind != .pairedMac else { throw MockRefusal("Pair Macs from Devices") }
-            hosts.append(HostRecord(id: HostID("host-" + key.rawValue.prefix(8)), name: draft.name,
+            hosts.append(HostRecord(id: .added(by: key), name: draft.name,
                                     kind: draft.kind, reachability: .unknown))
         }
     }

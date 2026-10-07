@@ -26,6 +26,18 @@ struct ShellSettingsView: View {
                     Text(SettingsText.devicesOffline)
                 }
             }
+            if !model.links.isEmpty {
+                Section {
+                    ForEach(model.links) { link in
+                        NavigationLink {
+                            link.destination()
+                        } label: {
+                            Label(link.title, systemImage: link.systemImage)
+                        }
+                        .accessibilityIdentifier("shell.settings." + link.id)
+                    }
+                }
+            }
             if let developer = model.developer {
                 Section {
                     NavigationLink(SettingsText.developer) {
@@ -35,6 +47,11 @@ struct ShellSettingsView: View {
                 }
             }
             Section(SettingsText.about) {
+                if let replayTour = model.replayTour {
+                    Button(SettingsText.replayTour) { replayTour() }
+                        .foregroundStyle(.primary)
+                        .accessibilityIdentifier("shell.settings.replayTour")
+                }
                 LabeledContent(SettingsText.version, value: model.about.summary)
             }
             Section {

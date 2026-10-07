@@ -1,0 +1,7 @@
+{
+  "family": "browser",
+  "cases": [
+    { "message": "browser", "frame": { "t": "channel.open", "channel": 7, "kind": "browser", "class": "interactive", "window": 1048576, "params": { "tab": "tab_b01", "service": "rb/1", "screen": { "css_width": 393, "css_height": 852, "scale": 3.0, "refresh_hz": 120 } } } },
+    { "message": "browser", "phase": "opened", "frame": { "t": "channel.opened", "channel": 7, "window": 1048576, "params": { "media": "rd_datagrams", "datagram_channel": 8 }, "resumed": false } }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "family": "task",
+  "cases": [
+    { "message": "task.dispatch", "frame": { "t": "op", "op": "task.dispatch", "params": { "host": "h_mac1A2b", "workspace": "ws_main01", "agent": "claude", "model": "opus", "effort": "high", "prompt": "Fix the failing sizing tests", "attachments": ["up_7Hq2"] }, "idempotency_key": "01JB7Q2W8M0000TASK0001", "origin": "user", "stream": "task:h_mac1A2b" } },
+    { "message": "task.dispatch", "phase": "result", "frame": { "t": "result", "tx": "tx_30", "idempotency_key": "01JB7Q2W8M0000TASK0001", "value": { "task": "task_k01", "workspace": "ws_main01", "tab": "tab_a02" }, "revision": "9", "replayed": false } },
+    { "message": "task.cancel", "frame": { "t": "op", "op": "task.cancel", "params": { "task": "task_k01" }, "idempotency_key": "01JB7Q2W8M0000TASKCAN1", "origin": "user" } },
+    { "message": "task.list", "frame": { "t": "read", "id": 3, "op": "task.list", "params": { "host": "h_mac1A2b", "limit": 20 } } },
+    { "message": "task.list", "phase": "result", "frame": { "t": "read.result", "id": 3, "revision": "10", "value": { "tasks": [{ "id": "task_k01", "host": "h_mac1A2b", "workspace": "ws_main01", "tab": "tab_a02", "agent": "claude", "state": "running", "title": "Fix the failing sizing tests", "created_at": 1791331208000 }] } } },
+    { "message": "task.state.set", "frame": { "t": "event", "stream": "task:h_mac1A2b", "seq": 11, "tx": "tx_31", "op": "task.state.set", "params": { "task": "task_k01", "state": "needs_input", "tab": "tab_a02", "message": "Approve the plan", "at": 1791331209000 }, "actor": { "identity": "host:h_mac1A2b" }, "origin": "remote", "at": 1791331209000 } },
+    { "message": "task.dispatch", "phase": "reject", "frame": { "t": "reject", "tx": "tx_32", "idempotency_key": "01JB7Q2W8M0000TASK0002", "code": "task.agent_unavailable", "message": "agent codex is not installed on Studio", "details": { "agent": "codex" }, "retryable": false, "replayed": false } }
+  ]
+}

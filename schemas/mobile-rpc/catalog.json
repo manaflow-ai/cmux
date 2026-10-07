@@ -1,0 +1,169 @@
+{
+  "description": "Every cmux.mobile/1 message (plans/cmux-next/ios-next/a0-rpc.md section 4). kind: op (client mutation, echoed as event), read, owner (committed by the owner only, seen as event), channel (a channel.open kind), message (JSON record on a channel), record (binary record), signal (ephemeral relayed frame). The Swift (CmuxMobileWire MobileCatalog) and TS (@cmux/protocol mobileCatalog) codecs embed this table and their tests assert equality.",
+  "proto": "cmux.mobile/1",
+  "version": 1,
+  "families": [
+    {
+      "name": "session",
+      "plane": "stream",
+      "owner": "mac-host",
+      "messages": [
+        { "name": "rpc", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "interactive" }
+      ]
+    },
+    {
+      "name": "host",
+      "plane": "control",
+      "owner": "HostDO",
+      "stream": "host:<host>",
+      "messages": [
+        { "name": "host.list", "kind": "read", "plane": "control", "dir": "c2s", "owner": "TeamDO" },
+        { "name": "host.presence.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" },
+        { "name": "host.caps.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" },
+        { "name": "host.wake", "kind": "op", "plane": "control", "dir": "c2s", "owner": "HostDO", "errors": ["host.not_wakeable"] }
+      ]
+    },
+    {
+      "name": "workspace",
+      "plane": "control",
+      "owner": "mac-workspace-store",
+      "stream": "workspace:<host>",
+      "messages": [
+        { "name": "workspace.upsert", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.tab.upsert", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.tab.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.status.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.create", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store" },
+        { "name": "workspace.rename", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] },
+        { "name": "workspace.tab.create", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] },
+        { "name": "workspace.tab.close", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.tab_not_found"] }
+      ]
+    },
+    {
+      "name": "terminal",
+      "plane": "stream",
+      "owner": "mac-session-host",
+      "messages": [
+        { "name": "terminal", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-session-host", "class": "interactive", "errors": ["terminal.not_found", "terminal.exited"] },
+        { "name": "terminal.output", "kind": "record", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" },
+        { "name": "terminal.input", "kind": "record", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.viewport", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.presence", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.snapshot_request", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.history", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.read_range", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.read_range.result", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" },
+        { "name": "terminal.size", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" },
+        { "name": "terminal.title", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" },
+        { "name": "terminal.exited", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" },
+        { "name": "terminal.kick", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-session-host" },
+        { "name": "terminal.kicked", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-session-host" }
+      ]
+    },
+    {
+      "name": "browser",
+      "plane": "stream",
+      "owner": "mac-browser-host",
+      "messages": [
+        { "name": "browser", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-browser-host", "class": "interactive", "errors": ["browser.tab_not_found"] },
+        { "name": "browser.rd", "kind": "record", "plane": "stream", "dir": "both", "owner": "mac-browser-host" }
+      ]
+    },
+    {
+      "name": "rd",
+      "plane": "stream",
+      "owner": "mac-rd-host",
+      "messages": [
+        { "name": "rd", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-rd-host", "class": "interactive", "errors": ["rd.display_not_found"] },
+        { "name": "rd.frame", "kind": "record", "plane": "stream", "dir": "both", "owner": "mac-rd-host" }
+      ]
+    },
+    {
+      "name": "files",
+      "plane": "stream",
+      "owner": "mac-host",
+      "messages": [
+        { "name": "files.upload", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.too_large", "files.dest_invalid"] },
+        { "name": "files.download", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.not_found"] },
+        { "name": "files.chunk", "kind": "record", "plane": "stream", "dir": "both", "owner": "mac-host" },
+        { "name": "files.upload.end", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-host" },
+        { "name": "files.upload.done", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-host", "errors": ["files.digest_mismatch"] },
+        { "name": "files.list", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host", "errors": ["files.not_found"] }
+      ]
+    },
+    {
+      "name": "feed",
+      "plane": "control",
+      "owner": "FeedDO",
+      "stream": "feed:<user>",
+      "messages": [
+        { "name": "feed.list", "kind": "read", "plane": "control", "dir": "c2s", "owner": "FeedDO", "existing": true },
+        { "name": "feed.answer", "kind": "op", "plane": "control", "dir": "c2s", "owner": "FeedDO", "existing": true },
+        { "name": "feed.read", "kind": "op", "plane": "control", "dir": "c2s", "owner": "FeedDO", "existing": true },
+        { "name": "feed.archive", "kind": "op", "plane": "control", "dir": "c2s", "owner": "FeedDO", "existing": true },
+        { "name": "feed.post", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "FeedDO", "existing": true }
+      ]
+    },
+    {
+      "name": "notify",
+      "plane": "control",
+      "owner": "UserDO",
+      "messages": [
+        { "name": "push.target.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "push.target.remove", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "notify.activity.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "notify.activity.end", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "notify.badge.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" }
+      ]
+    },
+    {
+      "name": "task",
+      "plane": "control",
+      "owner": "mac-task-runner",
+      "stream": "task:<host>",
+      "messages": [
+        { "name": "task.dispatch", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-task-runner", "errors": ["task.agent_unavailable", "task.attachment_missing"] },
+        { "name": "task.cancel", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-task-runner", "errors": ["task.not_found"] },
+        { "name": "task.list", "kind": "read", "plane": "control", "dir": "c2s", "owner": "mac-task-runner" },
+        { "name": "task.state.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-task-runner" }
+      ]
+    },
+    {
+      "name": "ssh",
+      "plane": "control",
+      "owner": "UserDO",
+      "stream": "ssh:<user>",
+      "messages": [
+        { "name": "ssh.host.upsert", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "ssh.host.remove", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["ssh.host_not_found"] },
+        { "name": "ssh.known_host.add", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["ssh.host_not_found"] }
+      ]
+    },
+    {
+      "name": "pairing",
+      "plane": "control",
+      "owner": "PairingDO",
+      "messages": [
+        { "name": "pairing.hosts", "kind": "read", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "pairing.offer", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO" },
+        { "name": "pairing.claim", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO", "errors": ["pairing.code_invalid", "pairing.code_expired", "pairing.account_mismatch"] },
+        { "name": "pairing.trust.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "pairing.revoke", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["pairing.device_not_found"] }
+      ]
+    },
+    {
+      "name": "signal",
+      "plane": "control",
+      "owner": "HostDO",
+      "messages": [
+        { "name": "signal.turn_credentials", "kind": "read", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "signal.offer", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
+        { "name": "signal.answer", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
+        { "name": "signal.ice", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
+        { "name": "signal.ice.end", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
+        { "name": "signal.bye", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" }
+      ]
+    }
+  ]
+}

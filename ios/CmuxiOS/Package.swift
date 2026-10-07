@@ -23,10 +23,16 @@ let package = Package(
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
+        .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
+        .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
+        .package(path: "../../Packages/iOS/CmuxMobileSSH"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        .package(path: "../../Packages/Shared/CmuxSentryTelemetry"),
+        // Same range as CmuxSentryTelemetry; ios/cmux.xcworkspace pins the version.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
     ],
     targets: [
         .target(
@@ -35,6 +41,7 @@ let package = Package(
                 "CmuxiOSAuth",
                 "CmuxHomeUI",
                 "CmuxiOSTerminal",
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
@@ -42,6 +49,14 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
+                "CmuxiOSPlatform",
+                "CmuxiOSPlatformUI",
+                "CmuxiOSCrashReporting",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                "CmuxiOSOnboarding",
+                "CmuxiOSOnboardingCore",
+                "CmuxiOSSSH",
+                "CmuxiOSSSHCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -91,6 +106,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)],
@@ -101,7 +118,11 @@ let package = Package(
         // pin the Mac and iOS apps share (plans/cmux-next/ghostty-next-switch.md).
         .testTarget(
             name: "CmuxiOSTerminalTests",
-            dependencies: ["CmuxiOSTerminal"],
+            dependencies: [
+                "CmuxiOSTerminal",
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
@@ -142,6 +163,62 @@ let package = Package(
             dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // First-run onboarding (plans/cmux-next/ios-next/c10-onboarding.md):
+        // the platform-neutral flow, persistence and pairing projection...
+        .target(
+            name: "CmuxiOSOnboardingCore",
+            dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSOnboardingCoreTests",
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // ...and its screens.
+        .target(
+            name: "CmuxiOSOnboarding",
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C9 (plans/cmux-next/ios-next/c9-ssh.md): SSH hosts store,
+        // config import, known_hosts and TOFU, and the `.local` byte source.
+        // No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSSSHCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSSHCoreTests",
+            dependencies: [
+                "CmuxiOSSSHCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Hosts tab, host editor, keys, trust prompts and SSH terminal screen.
+        .target(
+            name: "CmuxiOSSSH",
+            dependencies: [
+                "CmuxiOSSSHCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                "CmuxiOSTerminal",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Lane C6 (plans/cmux-next/ios-next/c6-feed.md): the Feed tab's
         // model (mirror + intent log, filters, sections; Foundation only),
         // the FeedDO wire source, and the UIKit screen.
@@ -174,13 +251,48 @@ let package = Package(
         // Root navigation, placeholder screens, feature flags, DEV sources.
         .target(
             name: "CmuxiOSShell",
-            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSFeed"],
+            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CmuxiOSShellTests",
             dependencies: ["CmuxiOSShell", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // App-wide services: router, toasts, remote flags, diagnostics,
+        // What's New, Mac gate, demo mode, keep-awake and billing seams
+        // (plans/cmux-next/ios-next/c16-platform.md). No UIKit, so its tests
+        // also run on macOS.
+        .target(
+            name: "CmuxiOSPlatform",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSPlatformTests",
+            dependencies: ["CmuxiOSPlatform", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The platform services' screens: toast overlay, diagnostics, What's
+        // New, Mac update gate, keep-awake row, plans stub.
+        .target(
+            name: "CmuxiOSPlatformUI",
+            dependencies: ["CmuxiOSPlatform", "CmuxiOSDesign", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Sentry under the shared telemetry consent, scrubbed last-mile.
+        .target(
+            name: "CmuxiOSCrashReporting",
+            dependencies: [
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "Sentry", package: "sentry-cocoa"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

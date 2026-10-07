@@ -49,12 +49,15 @@ public actor SSHConnection {
     /// - Parameters:
     ///   - via: an already-open connection to tunnel through (jump host).
     ///   - connectTimeout: TCP + handshake budget.
+    ///   - keepalive: kernel TCP keepalive for a direct transport; ignored
+    ///     when tunneling through `via` (the jump's transport carries it).
     public static func connect(
         to endpoint: SSHEndpoint,
         credentials: [SSHCredential],
         hostKeyVerifier: any SSHHostKeyVerifier,
         via jump: SSHConnection? = nil,
-        connectTimeout: TimeAmount = .seconds(15)
+        connectTimeout: TimeAmount = .seconds(15),
+        keepalive: SSHKeepalive? = nil
     ) async throws -> SSHConnection {
         let authDelegate = SSHCredentialAuthDelegate(username: endpoint.username, credentials: credentials)
 
@@ -91,9 +94,17 @@ public actor SSHConnection {
                     child.pipeline.addHandler(SSHChannelDataUnwrapper()).flatMap { installSSH(child) }
                 }
             } else {
-                channel = try await NIOTSConnectionBootstrap(group: eventLoop)
+                var bootstrap = NIOTSConnectionBootstrap(group: eventLoop)
                     .connectTimeout(connectTimeout)
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
+                if let keepalive {
+                    bootstrap = bootstrap
+                        .channelOption(ChannelOptions.socketOption(.so_keepalive), value: 1)
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPALIVE), value: Int32(keepalive.idleSeconds))
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPINTVL), value: Int32(keepalive.intervalSeconds))
+                        .channelOption(ChannelOptions.Types.SocketOption(level: IPPROTO_TCP, name: TCP_KEEPCNT), value: Int32(keepalive.probeCount))
+                }
+                channel = try await bootstrap
                     .channelInitializer(installSSH)
                     .connect(host: endpoint.host, port: endpoint.port)
                     .get()

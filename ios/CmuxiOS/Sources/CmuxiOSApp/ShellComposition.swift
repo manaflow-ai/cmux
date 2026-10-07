@@ -1,23 +1,45 @@
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
+import CmuxiOSFeed
 import CmuxiOSShell
+import CmuxiOSSSH
 import UIKit
 
 /// Builds the signed-in shell from the container: Home in its navigation
 /// controller, the feature tabs over the account's seams, and Settings.
 @MainActor
 enum ShellComposition {
-    static func makeShell(container: AppContainer, account: SignedInAccount, home: UIViewController) -> ShellRootController {
+    static func makeShell(
+        container: AppContainer, account: SignedInAccount, home: UIViewController,
+        replayTour: @escaping @MainActor () -> Void
+    ) -> ShellRootController {
         let sources = container.featureSources(for: account)
         let settings = ShellSettingsModel(
             account: ShellAccount(displayName: account.displayName, email: account.email),
             about: ShellAbout.current(),
             registry: sources.devices,
             developer: developerScreen(container: container),
+            links: PlatformComposition.settingsLinks(container: container),
+            replayTour: replayTour,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
-        let content = ShellContent(sources: sources, home: home, settings: settings,
-                                   feedNavigator: container.feedNavigator, deviceName: UIDevice.current.name)
+        // Lane C9: the Hosts tab over this account's host records and the
+        // device's SSH logins, keys and pinned host keys.
+        let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice)
+        // Lane C6: the Feed tab over the account's feed seam.
+        let feedSource = sources.feed
+        let feedIsMock = sources.resolved[.feed] != .real
+        let feedNavigator = container.feedNavigator
+        let deviceName = UIDevice.current.name
+        let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
+            .hosts: { ssh.makeHostsScreen() },
+            .feed: {
+                let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
+                let navigation = UINavigationController(rootViewController: feed)
+                navigation.navigationBar.prefersLargeTitles = true
+                return navigation
+            },
+        ])
         return ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),

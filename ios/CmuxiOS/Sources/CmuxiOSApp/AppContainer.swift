@@ -1,13 +1,19 @@
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
+import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSFeedCloud
 import CmuxiOSIdentity
+import CmuxiOSPlatform
+import CmuxiOSOnboarding
+import CmuxiOSOnboardingCore
 import CmuxiOSPush
 import CmuxiOSShell
+import CmuxiOSSSHCore
 import Foundation
 import OSLog
 import UIKit
@@ -19,6 +25,33 @@ import UserNotifications
 final class AppContainer {
     let auth: StackAuthGate
     let devOptions: DevOptions
+    /// The scrubbed diagnostic log (c16-platform.md section 3).
+    let diagnostics: DiagnosticLogSink
+    /// Sentry under the shared telemetry consent.
+    let crashReporter: CrashReporter
+    /// Delivers links and notification taps, deferred until signed in.
+    let router: ShellRouter
+    /// The one toast owner; feature screens get it from here.
+    let toasts = ToastCenter()
+    /// B1 fills this when the control plane serves `config.snapshot`; nil
+    /// keeps the mock (an empty config).
+    var remoteConfigFactory: (@Sendable () -> any RemoteConfigSource)?
+    private let remoteConfigCache = RemoteConfigCache()
+    private var remoteConfigTask: Task<Void, Never>?
+    /// The account's remote config (flags, Mac floor, demo content).
+    private(set) var remoteConfig = RemoteConfig.empty
+    /// App Review demo content: every seam on its mock's canned fixtures.
+    let demo: DemoModePolicy
+    var isDemo: Bool { demo.isActive(remote: remoteConfig) }
+    /// Fires when demo mode turns on or off (the shell rebuilds its seams).
+    var onDemoChange: (() -> Void)?
+    /// B5 fills this from capability negotiation; nil keeps the mock.
+    var macCapabilitiesFactory: (@Sendable () -> any MacCapabilitiesSource)?
+    /// B5 fills this with the Mac's power assertion; nil keeps the mock.
+    var keepAwakeFactory: (@Sendable () -> any KeepAwakeControl)?
+    /// The StoreKit store once plans are decided (C12); nil keeps the mock.
+    var billingFactory: (@Sendable () -> any BillingStore)?
+    private var featuresDemo = false
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).
@@ -28,11 +61,18 @@ final class AppContainer {
     let realFactories: RealFeatureFactories
     /// Opens feed items from push taps (lane C6).
     let feedNavigator = FeedNavigator()
+    /// SSH state that stays on this device (lane C9): logins, keys, pins.
+    let sshDevice: SSHDeviceState
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.
     private(set) var mockOffline = false
     let push: PushRegistration
+    /// Onboarding (plans/cmux-next/ios-next/c10-onboarding.md): whether this
+    /// launch runs it, where its progress lives, and the system prompts.
+    let onboardingPolicy: OnboardingLaunchPolicy
+    let onboardingStore: any OnboardingProgressPersisting
+    let permissions: SystemPermissionCenter
     /// The install principal (nil when no API origin is configured).
     let identity: InstallIdentity?
     /// Account changes apply in order (sign-in, sign-out, switch).
@@ -53,6 +93,18 @@ final class AppContainer {
             environment: environment,
             reachability: PathReachability()
         )
+        diagnostics = DiagnosticLogSink(directory: Self.diagnosticsDirectory())
+        crashReporter = CrashReporter(consent: UserDefaultsAnalyticsConsentProvider(defaults: .standard),
+                                      environment: environment)
+        crashReporter.activate()
+        let sink = diagnostics
+        Task {
+            await sink.setTap { line in
+                CrashReporter.breadcrumb(level: line.level.rawValue, category: line.category, message: line.message)
+            }
+        }
+        diagnostics.info("app", "launch")
+        router = ShellRouter(parser: ShellRouteParser(bundleScheme: Self.bundleURLScheme()), log: diagnostics)
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
         #if DEBUG
@@ -61,7 +113,20 @@ final class AppContainer {
         let isDebug = false
         #endif
         flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        // Lane C9: SSH and direct host records live on this device until B1
+        // syncs them; one owner instance per process, shared by every shell.
+        let sshDirectory = Self.sshDirectory()
+        sshDevice = SSHDeviceState(directory: sshDirectory)
+        let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
+        var factories = RealFeatureFactories()
+        factories.hosts = { localHosts }
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
+        demo = DemoModePolicy(environment: environment, isDebug: isDebug)
+        onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
+        switch onboardingPolicy.decision {
+        case .stored: onboardingStore = OnboardingProgressStore(defaults: .standard)
+        case .fresh, .skip: onboardingStore = InMemoryProgressStore()
+        }
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -69,7 +134,7 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
-        realFactories = Self.makeRealFactories(base: base, identity: madeIdentity)
+        realFactories = Self.addingFeed(to: factories, base: base, identity: madeIdentity)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -82,8 +147,12 @@ final class AppContainer {
         let environment: CloudOp.APNsEnvironment = .production
         #endif
         push = PushRegistration(ops: ops, topic: Bundle.main.bundleIdentifier ?? "", environment: environment)
+        let pushForPermissions = push
+        permissions = SystemPermissionCenter(defaults: .standard, clock: ContinuousClock()) {
+            Task { await pushForPermissions.authorizationChanged() }
+        }
         feedResponder = FeedNotificationResponder(ops: ops)
-        notificationDelegate = NotificationDelegate(responder: feedResponder)
+        notificationDelegate = NotificationDelegate(responder: feedResponder, router: router)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):
         // bind the last user now; minting needs only its record and the key.
@@ -106,6 +175,8 @@ final class AppContainer {
                 Logger(subsystem: "dev.cmux.ios", category: "identity").error("install revoke failed")
             }
         }
+        // The last account's config applies before auth restores; sign-out clears it.
+        if let cached = remoteConfigCache.load() { applyRemoteConfig(cached) }
         feedResponder.openItem = { item in
             // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
@@ -115,8 +186,9 @@ final class AppContainer {
     /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
     /// authenticated as this install. Without an API origin the slot stays
     /// empty and the DEV screen shows the seam on its mock.
-    private static func makeRealFactories(base: URL?, identity: InstallIdentity?) -> RealFeatureFactories {
-        var factories = RealFeatureFactories()
+    private static func addingFeed(to factories: RealFeatureFactories, base: URL?,
+                                   identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = factories
         if let base, let identity {
             let device = UIDevice.current.name
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -129,8 +201,78 @@ final class AppContainer {
         return factories
     }
 
+    /// Follows the account's remote config until sign-out.
+    private func startRemoteConfig() {
+        remoteConfigTask?.cancel()
+        let source = remoteConfigFactory?() ?? MockRemoteConfigSource(remoteConfigCache.load() ?? .empty)
+        remoteConfigTask = Task { [weak self] in
+            for await snapshot in await source.updates() {
+                guard !Task.isCancelled else { return }
+                self?.applyRemoteConfig(snapshot.value)
+            }
+        }
+    }
+
+    private func applyRemoteConfig(_ config: RemoteConfig) {
+        guard config != remoteConfig else { return }
+        let wasDemo = isDemo
+        remoteConfig = config
+        remoteConfigCache.save(config)
+        flags.applyRemote(config)
+        if isDemo != wasDemo {
+            diagnostics.info("demo", isDemo ? "demo content on" : "demo content off")
+            onDemoChange?()
+        }
+    }
+
+    private func stopRemoteConfig() {
+        remoteConfigTask?.cancel()
+        remoteConfigTask = nil
+        remoteConfigCache.clear()
+        let wasDemo = isDemo
+        remoteConfig = .empty
+        flags.applyRemote(.empty)
+        if isDemo != wasDemo { onDemoChange?() }
+    }
+
+    /// The Mac compatibility rules, with the account's remote floor.
+    var macCompatibility: MacCompatibilityPolicy {
+        MacCompatibilityPolicy(remoteMinimum: remoteConfig.minimumMacProtocol)
+    }
+
+    func makeMacCapabilitiesSource() -> any MacCapabilitiesSource {
+        macCapabilitiesFactory?() ?? MockMacCapabilitiesSource()
+    }
+
+    func makeKeepAwakeControl() -> any KeepAwakeControl {
+        keepAwakeFactory?() ?? MockKeepAwakeControl()
+    }
+
+    func makeBillingStore() -> any BillingStore {
+        billingFactory?() ?? MockBillingStore()
+    }
+
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
         updateRequired = requirement
+    }
+
+    /// Application Support/ssh: SSH records and device state (no secrets).
+    private static func sshDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("ssh", isDirectory: true)
+    }
+
+    /// The exact-bundle URL scheme registered in Info.plist (`cmux-ios-<bundle id>`).
+    private static func bundleURLScheme() -> String? {
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        return types.lazy.compactMap { ($0["CFBundleURLSchemes"] as? [String])?.first }.first
+    }
+
+    /// `Application Support/cmux-next`; nil keeps the log in memory.
+    private static func diagnosticsDirectory() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux-next", isDirectory: true)
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
@@ -159,9 +301,11 @@ final class AppContainer {
     /// The feature seams for the signed-in account, built once per account
     /// and per mode change. Feature screens get only the seams they use.
     func featureSources(for account: SignedInAccount) -> FeatureSources {
-        if let features, featuresAccount == account.userID { return features }
+        if let features, featuresAccount == account.userID, featuresDemo == isDemo { return features }
         featuresAccount = account.userID
-        let made = realFactories.resolve(sourceModes.modes)
+        featuresDemo = isDemo
+        // Demo mode resolves every seam to its mock (canned fixtures).
+        let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
@@ -178,8 +322,11 @@ final class AppContainer {
         await features?.setMockConnection(offline ? .offline(reason: nil) : .live(path: "mock"))
     }
 
-    /// Signing out drops the account's Home mirror.
-    func signedIn(account: SignedInAccount) {
+    /// Signing out drops the account's Home mirror. `requestPushPermission`
+    /// is false while onboarding will prime the notifications prompt.
+    func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
+        diagnostics.info("auth", "signed in")
+        startRemoteConfig()
         let coordinator = auth.coordinator
         let identity = self.identity
         let push = self.push
@@ -192,11 +339,13 @@ final class AppContainer {
                 await push.signOut(of: replaced)
                 await identity?.signedOut(of: replaced)
             }
-            await push.start(for: account.userID)
+            await push.start(for: account.userID, requestPermission: requestPushPermission)
         }
     }
 
     func signedOut() {
+        diagnostics.info("auth", "signed out")
+        stopRemoteConfig()
         let identity = self.identity
         let push = self.push
         let previous = accountChanges

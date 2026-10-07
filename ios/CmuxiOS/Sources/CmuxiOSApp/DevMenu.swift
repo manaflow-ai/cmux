@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxHomeUI
 import CmuxiOSDesign
+import CmuxiOSPlatform
 import CmuxiOSShell
 import SwiftUI
 import CmuxiOSTerminal
@@ -40,9 +41,31 @@ enum DevMenu {
             let terminal = UINavigationController(rootViewController: DevTerminal.make())
             presenter?.present(terminal, animated: true)
         })
+        // DEBUG-only: the renderer benchmark (fixture replay with frame timing).
+        sheet.addAction(UIAlertAction(title: "Terminal renderer benchmark", style: .default) { [weak presenter] _ in
+            presenter?.present(UINavigationController(rootViewController: DevTerminal.makeBench()), animated: true)
+        })
         // DEBUG-only: the text confirmation settings against the mock owner.
         sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
             presenter?.present(DevTextConfirm.make(), animated: true)
+        })
+        // DEBUG-only: one toast of each style through the toast center (C16).
+        sheet.addAction(UIAlertAction(title: "Toasts (samples)", style: .default) { _ in
+            container.toasts.show(Toast(.info, "Copied"))
+            container.toasts.show(Toast(.success, "Task started", title: "Compose"))
+            container.toasts.show(Toast(.warning, "Mac is asleep"))
+            container.toasts.show(Toast(.failure, "Send failed", action: ToastAction(label: "Retry") {}))
+        })
+        // DEBUG-only: the Mac update gate for the mock Mac that needs an update (C16).
+        sheet.addAction(UIAlertAction(title: "Mac update gate (mock)", style: .default) { [weak presenter] _ in
+            Task { @MainActor in
+                guard let gate = await PlatformComposition.macGatePreview(container: container) else { return }
+                presenter?.present(gate, animated: true)
+            }
+        })
+        // DEBUG-only: Keep Mac Awake rows over the mock Macs (C16 stub).
+        sheet.addAction(UIAlertAction(title: "Keep Mac Awake (mock)", style: .default) { [weak presenter] _ in
+            presenter?.present(PlatformComposition.keepAwakePreview(container: container), animated: true)
         })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in

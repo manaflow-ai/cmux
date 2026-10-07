@@ -52,6 +52,14 @@ enum ShellText {
         String(localized: "shell.host.unknown", defaultValue: "Not checked", bundle: .module)
     }
 
+    static var needsInput: String {
+        String(localized: "shell.feed.needsInput", defaultValue: "Needs Input", bundle: .module)
+    }
+
+    static var earlier: String {
+        String(localized: "shell.feed.earlier", defaultValue: "Earlier", bundle: .module)
+    }
+
     static var hostsSection: String {
         String(localized: "shell.compose.hosts", defaultValue: "Hosts", bundle: .module)
     }
@@ -70,6 +78,10 @@ enum ShellText {
 
     static var directHosts: String {
         String(localized: "shell.hosts.direct", defaultValue: "Direct Addresses", bundle: .module)
+    }
+
+    static var feedSummary: String {
+        String(localized: "shell.summary.feed", defaultValue: "Agent requests to answer inline: permissions, questions, plans.", bundle: .module)
     }
 
     static var workspacesSummary: String {
