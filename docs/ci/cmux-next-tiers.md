@@ -12,7 +12,7 @@ job's summary lists each tier and the reason for it.
 | native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
-| daemon | `wait for the same-tree cmux-tui` and `cmux-next daemon tests` | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | Linux wait, then a mini |
+| daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
 Every tier runs on:
 
@@ -42,6 +42,25 @@ changed, when the test target itself changed, or when a file it reads changed.
 
 The live-daemon suites skip without the same-tree cmux-tui binary. The daemon
 tier runs them against it. A UI change does not wait for the tree.
+
+### The same-tree cmux-tui is an event
+
+No runner waits for the tree. `cmux-next path routing` probes it once
+(`pin-cmux-tui.sh probe`) when the daemon or scheme tier runs:
+
+- published: `cmux-next daemon tests` and `cmux app scheme compile (Debug)`
+  run in the same run;
+- an artifacts run that can publish it is active: the run uploads a
+  `cmux-next-tree-wait-<key>` marker and skips the two jobs. When that
+  `cmux-tui artifacts` run publishes the key, it dispatches cmux-next's
+  same-tree mode (`scripts/ci/cmux_next_tree_notify.py`) for each run that is
+  still current. That run checks out the probed commit (a pull request's merge
+  commit), runs only the two jobs, and posts `... (same-tree)` commit statuses
+  on the push or the pull request head;
+- superseded push: the two jobs skip;
+- nothing will publish it: `same-tree cmux-tui` fails at once with the reason.
+  The marker stays, so a later publication of the key (a re-run, a
+  `cmux-tui-pin-*` push) still starts the jobs.
 
 ### What a UI-only PR no longer checks
 

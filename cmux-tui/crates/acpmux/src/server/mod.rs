@@ -563,9 +563,24 @@ pub async fn serve_connection_with(
         let hub = hub.clone();
         let conn = conn.clone();
         let mut rx = hub.subscribe();
+        let mut harnesses = hub.subscribe_harness_changes();
         tokio::spawn(async move {
             loop {
-                match rx.recv().await {
+                let ev = tokio::select! {
+                    ev = rx.recv() => ev,
+                    note = harnesses.recv() => {
+                        match note {
+                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
+                                &Message::notification(method::MUX_HARNESSES_CHANGED, note),
+                            ),
+                            // Lagged: a newer change follows with the full list.
+                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                        continue;
+                    }
+                };
+                match ev {
                     Ok(ev) => deliver(&hub, &conn, ev),
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
@@ -592,8 +607,7 @@ pub async fn serve_connection_with(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
-                    let result =
-                        handle_request(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                    let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(e) => Message::err(id, e),
@@ -801,13 +815,17 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod chats;
+mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;
+mod peer_forward;
 mod redact;
 mod remote_guard;
 mod requests;
+pub(crate) mod trust_gate;
 mod wait;
-use requests::{handle_notification, handle_request};
+use requests::handle_notification;
 
 #[cfg(test)]
 mod nodelay_tests {

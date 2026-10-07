@@ -95,15 +95,23 @@ extension TabStripView {
         startAnimating()
     }
 
-    /// Every tab in the row draws its subtle separator in the gap after its
-    /// pill, whatever is selected or hovered, across the pinned and group
-    /// edges, and after the last tab (the line between it and +). Only a tab
-    /// out of the row draws none: the lifted, dragged tab and a member
-    /// collapsed into its group chip.
+    /// Chrome's separator rule (`TabSeparatorVisibility`) over the tabs in the
+    /// row: the selected, hovered and dragged tabs hide the separators on
+    /// both sides, and the last tab's separator is the line before +. A drop
+    /// gap counts as the dragged tab. Members collapsed into a group chip are
+    /// out of the row and draw none; a chip is a neutral neighbor.
     func updateSeparators() {
+        let row = result.slots.filter { !$0.isCollapsed }
+        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
+        let visible = TabSeparatorVisibility.visibleSeparators(
+            tabCount: row.count,
+            selected: index(of: model.selectedID),
+            hovered: index(of: hoveredID),
+            dragged: index(of: drag?.id) ?? index(of: Self.placeholderID)
+        )
+        let shown = Set(visible.map { row[$0].id })
         for slot in result.slots {
-            guard let cell = cells[slot.id] else { continue }
-            cell.showsSeparator = slot.id != drag?.id && !slot.isCollapsed
+            cells[slot.id]?.showsSeparator = shown.contains(slot.id)
         }
     }
 

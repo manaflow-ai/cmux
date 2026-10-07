@@ -1,3 +1,5 @@
+import CmuxNextIcons
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -24,7 +26,7 @@ struct SidebarMappingTests {
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
         // The cwd never becomes a second line on its own.
         let plain = SidebarMapping.shared.sections(store.sidebarSections, machine: machine)
-        for ws in plain[0].workspaces { #expect(ws.liveDetail == nil && ws.progress == nil) }
+        for ws in plain[0].workspaces { #expect(ws.status == nil && ws.progress == nil) }
 
         let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
         let terminal = try #require(beta.screens.flatMap(\.panes).flatMap(\.tabs).first?.terminalResourceID)
@@ -37,14 +39,35 @@ struct SidebarMappingTests {
 
         let mapped = { try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" }) }
         #expect(try mapped().status == "Running")
-        #expect(try mapped().liveDetail == "Running")
         #expect(try mapped().progress == SidebarProgress(value: 0.5))
-        #expect(try mapped().subtitle == plain[0].workspaces.first { $0.title == "beta" }?.subtitle)
+        #expect(try mapped().directory == plain[0].workspaces.first { $0.title == "beta" }?.directory)
 
         // Without a reported progress, the terminal's parsed one shows.
         state.workspaceStatus[betaID]?.progress = nil
         store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
         #expect(try mapped().progress == SidebarProgress(value: 0.3, isError: true))
+    }
+
+    /// SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: each row fact comes apart, so a
+    /// setting can show one without another. Status entries `ports` and `pr`
+    /// feed their own elements and leave the status line.
+    @Test func statusEntriesFeedTheirOwnRowElements() throws {
+        let store = try BridgeFixture.store()
+        let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
+        let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let betaID = try #require(beta.resourceID)
+        var state = SessionStateMirror()
+        state.workspaceStatus[betaID] = WorkspaceStatus(workspaceID: betaID, entries: [
+            .init(key: "agent", text: "Running"), .init(key: "ports", text: ":3000"), .init(key: "pr", text: "#12 ✓"),
+        ])
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
+        let ws = try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" })
+        #expect(ws.status == "Running")
+        #expect(ws.ports == ":3000")
+        #expect(ws.pullRequest == "#12 ✓")
+        #expect(ws.directory?.contains(" · ") != true, "the folder holds no branch")
+        #expect(!ws.agentWorking)
+        #expect(SidebarMapping.shared.rowKind([]) == .terminal)
     }
 
     /// Workspace rows keep a visible type glyph even when the workspace has
@@ -90,6 +113,44 @@ struct SidebarMappingTests {
         let row = SidebarMapping.shared.row(beta, machine: .local)
         #expect(row.kind == .harness)
         #expect(row.kindBrand == "claude")
+    }
+
+    /// A tab still on the New Tab page lists as a new tab (the registry's
+    /// new-tab icon), not as an agent chat; the workspace row's own kind is
+    /// unchanged.
+    @Test func aNewTabPageTabListsAsANewTab() throws {
+        let store = try BridgeFixture.store()
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let front = try #require(beta.screens.flatMap(\.panes).max { $0.focusedAt < $1.focusedAt }?.tabs.first)
+        let line = """
+        {"surface":\(front.surface.rawValue),"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"install:mac-1","session":"s-1","harness":"claude"}}}
+        """
+        front.update(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+        let chat = SidebarMapping.shared.row(beta, machine: .local)
+        #expect(chat.tabs.first { $0.id == TabID(front.id) }?.kind == .agentChat)
+        let page = SidebarMapping.shared.row(beta, machine: .local, newTabPages: [front.id])
+        let listed = try #require(page.tabs.first { $0.id == TabID(front.id) })
+        #expect(listed.kind == .newTab)
+        #expect(listed.kind.icon == .tabNew)
+        #expect(page.kind == chat.kind)
+    }
+
+    /// A New Tab page tab is listed as "New Tab", like the tab strip, not by
+    /// its record's blank-page address.
+    @Test func aNewTabPageTabListsUnderTheNewTabTitle() throws {
+        let store = try BridgeFixture.store()
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let front = try #require(beta.screens.flatMap(\.panes).max { $0.focusedAt < $1.focusedAt }?.tabs.first)
+        let line = """
+        {"surface":\(front.surface.rawValue),"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"install:mac-1","session":"s-1","harness":"claude"}}}
+        """
+        front.update(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+        let page = SidebarMapping.shared.row(beta, machine: .local, newTabPages: [front.id], newTabTitle: "New Tab")
+        #expect(page.tabs.first { $0.id == TabID(front.id) }?.title == "New Tab")
+        let chat = SidebarMapping.shared.row(beta, machine: .local, newTabTitle: "New Tab")
+        #expect(chat.tabs.first { $0.id == TabID(front.id) }?.title == front.displayTitle)
     }
 
     /// The window's own tab selection picks the tab, over the daemon's default.

@@ -1,21 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readFolderTrust, type TrustLevel, type TrustSource } from "./folderTrust";
+import { readFolderTrust, sessionTrust, type TrustLevel, type TrustSource } from "./folderTrust";
+import type { StringKey } from "./i18n";
 
-/// The chat's trust question, asked without stopping anything: "ask" while acpmux reads the
-/// folder as unknown, then the user's answer with its Undo, or "failed" when saving it didn't.
+/// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
+/// the user's answer with its Undo, or "failed" when saving it didn't.
 export type FolderTrustAsk =
-  | { cwd: string; state: "ask" | "failed" }
+  | { cwd: string; state: "ask" | "failed" | "remote" }
   | { cwd: string; state: "decided"; level: Exclude<TrustLevel, "unknown"> };
 
-/// The trust question for the chat in `cwd`, once `started` (its first prompt went): the send is
-/// never held for it. Another chat or folder drops the question, and a decided one goes once
-/// the user sends their next prompt (`prompts` grows).
+/// Why Send is off; no `reason` while the folder's trust is still being read.
+export type SendBlock = { reason?: StringKey };
+
+/// The trust question for the chat in `cwd`, asked as soon as the folder is known (a new chat
+/// before its first prompt). No prompt goes while it is open or after Don't trust: `blocked`
+/// says why, and acpmux refuses the prompt too (`trust_gate.rs`). Another chat or folder asks
+/// again; Trust's answer goes once the user sends their next prompt (`prompts` grows), and
+/// Don't trust's stays with its Undo.
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; started: boolean; prompts: number },
+  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number },
+  canAnswer = true,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
-  const { sessionId, cwd, started, prompts } = chat;
+  const [reading, setReading] = useState(false);
+  /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
+  const [reads, setReads] = useState(0);
+  const { sessionId, cwd, family, prompts } = chat;
   // The chat a reply belongs to; a late reply for another one is dropped.
   const current = useRef({ sessionId, cwd });
   current.current = { sessionId, cwd };
@@ -26,18 +36,30 @@ export function useFolderTrustAsk(
   useEffect(() => {
     setAsk(undefined);
     decidedAt.current = undefined;
-    if (!cwd || !started) return;
+    setReading(Boolean(cwd));
+    if (!cwd) return;
     let live = true;
     void readFolderTrust(source, cwd).then((trust) => {
-      if (live && trust?.level === "unknown") setAsk({ cwd, state: "ask" });
+      if (!live) return;
+      setReading(false);
+      // A folder the pane can't read is not asked about; acpmux still refuses its prompts.
+      const level = trust && sessionTrust(trust, family);
+      if (level === "unknown") setAsk({ cwd, state: canAnswer ? "ask" : "remote" });
+      else if (level === "untrusted") setAsk({ cwd, state: "decided", level });
     });
     return () => {
       live = false;
     };
-  }, [source, sessionId, cwd, started]);
+  }, [source, sessionId, cwd, family, reads, canAnswer]);
 
   useEffect(() => {
-    if (ask?.state === "decided" && decidedAt.current !== undefined && prompts > decidedAt.current) setAsk(undefined);
+    if (
+      ask?.state === "decided" &&
+      ask.level === "trusted" &&
+      decidedAt.current !== undefined &&
+      prompts > decidedAt.current
+    )
+      setAsk(undefined);
   }, [ask, prompts]);
 
   const save = useCallback(
@@ -60,11 +82,24 @@ export function useFolderTrustAsk(
     [ask, source, sessionId, prompts],
   );
 
+  const blocked: SendBlock | undefined = reading
+    ? {}
+    : ask?.state === "ask" || ask?.state === "failed"
+      ? { reason: "trust.answerFirst" }
+      : ask?.state === "remote"
+        ? { reason: "trust.remote" }
+        : ask?.state === "decided" && ask.level === "untrusted"
+          ? { reason: "trust.untrustedNoPrompts" }
+          : undefined;
+
   return {
     ask,
+    blocked,
     trust: () => void save("trusted"),
     distrust: () => void save("untrusted"),
-    /// Back to unknown: acpmux forgets its record and each agent's own default applies.
+    /// Back to unknown: acpmux forgets its record and each agent's own level answers.
     undo: () => void save("unknown"),
+    /// Reads the folder again, after acpmux refused a prompt for its trust.
+    recheck: useCallback(() => setReads((count) => count + 1), []),
   };
 }

@@ -37,10 +37,25 @@
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
   // An agent-world function run inside the page agent's `reply`
-  // (page-agent.js), which settles the cuts the read made.
-  const sealAgentSource = (source) =>
+  // (page-agent.js), which settles the cuts the read made and cuts a reply
+  // past the reply budget (`limit`, default the agent's MAX_REPLY).
+  const sealAgentSource = (source, limit) =>
     `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
-    `return A.reply((${source})(...a)); }`;
+    `return A.reply((${source})(...a), ${typeof limit === "number" ? limit : "undefined"}); }`;
+  // The key of the page agent's cut marker (page-agent.js, `reply`).
+  const REPLY_CUT = "__cmuxReplyCut";
+  // A reply the page agent cut at its budget fails with core.readCutNote's
+  // words; `what` names the read in them.
+  // A whole-frame read the host's sensitive-field scan could not finish
+  // (frame.observe, `scope: "frame"`) can be read in parts.
+  const SCOPE_HINT = '; scope the read to a part of the page: snapshot(ref) or snapshot(locator), such as snapshot(page.locator("main"))';
+  function uncutReply(r, what) {
+    if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) {
+      const cut = r[REPLY_CUT];
+      throw new Error(`Error: ${readCutNote(what || "the page reply", cut)}${cut.scope === "frame" ? SCOPE_HINT : ""}`);
+    }
+    return r;
+  }
 
   // ---------------------------------------------------------------------------
   // Errors
@@ -920,9 +935,10 @@
     }
     emitTabCreated() {}
     // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
-    // that data store instead of the session's default one.
-    async newPage(url, { background, dataStore } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
+    // that data store instead of the session's default one; `incognito`
+    // opens it in a store that keeps nothing (driver-protocol.md).
+    async newPage(url, { background, dataStore, incognito } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }), ...(incognito === undefined ? {} : { incognito: !!incognito }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;
@@ -1005,11 +1021,11 @@
     // Every agent-world reply goes through the page agent's `reply`
     // (page-agent.js): the call's function runs inside it, so the cuts a
     // read made are settled before the reply leaves the page.
-    _call(world, source, args, handles) {
+    _call(world, source, args, handles, what) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
-      const sealed = world !== "agent" ? source : sealAgentSource(source);
-      return this._page._raceDialog(this._session.call("frame.evaluate", {
+      const sealed = world !== "agent" ? source : sealAgentSource(source, this._session._replyLimit);
+      const call = this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
@@ -1018,6 +1034,7 @@
         handles: handles || [],
         awaitPromise: true,
       }), true);
+      return world === "agent" ? call.then((r) => uncutReply(r, what)) : call;
     }
     // A user function in the page world. JSON has no undefined, so a function
     // that returns undefined sends a marker the result turns back into it,
@@ -1035,13 +1052,16 @@
     // the call's error.
     _agent(method, ...args) {
       if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
-      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
     }
+    // The host's observe script runs the read inside the agent's reply with
+    // the default reply budget.
     async _observe(method, args) {
       const blocked = this._page._blockedError();
       if (blocked) throw blocked;
+      let r;
       try {
-        return await this._page._raceDialog(this._session.call("frame.observe", {
+        r = await this._page._raceDialog(this._session.call("frame.observe", {
           targetId: this._page._targetId,
           frameId: this._id || undefined,
           method,
@@ -1050,8 +1070,9 @@
       } catch (e) {
         if (!e || e.code !== "unsupported") throw e;
         this._session._observeUnsupported = true;
-        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
       }
+      return uncutReply(r, method);
     }
     async _contentFrame(handle) {
       try {
@@ -2793,6 +2814,9 @@
         cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
         addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
         clearCookies: (options) => this._clearCookies(options),
+        // Undo of clearCookies: the restore ids it returned (driver
+        // cookies.restore). Cookies set since the clear are kept.
+        restoreCookies: (restoreIds) => this._restoreCookies(restoreIds),
       };
     }
     // Playwright's clearCookies({ name, domain, path }), scoped like
@@ -2816,18 +2840,28 @@
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.
+      // Every clear is undoable: the host backs up what it deletes and
+      // answers a restore id (an engine without backups answers none).
+      const restoreIds = [];
       const clear = async (params) => {
         try {
-          await this._session.call("cookies.clear", params);
+          const r = await this._session.call("cookies.clear", params);
+          if (r && typeof r.restoreId === "string") restoreIds.push(r.restoreId);
         } catch (e) {
-          if (driverErrorCode(e) !== "invalid") throw e;
+          // A clear of several cookies that stops part way (a full backup
+          // store) names the restore ids of what it already cleared.
+          const done = restoreIds.length ? ` (already cleared; undo with restoreCookies(${JSON.stringify(restoreIds)}))` : "";
+          if (driverErrorCode(e) !== "invalid") {
+            if (done && e && typeof e.message === "string") e.message += done;
+            throw e;
+          }
           const message = String(e.message || "").replace(/^cookies\.clear: /, "");
-          throw new Error(`${title}: ${message}`);
+          throw new Error(`${title}: ${message}${done}`);
         }
       };
       if (!Object.values(filters).some(isRegExp)) {
         await clear({ ...scope, ...filters });
-        return;
+        return { restoreIds };
       }
       const matches = (cookie, key) => {
         const v = filters[key];
@@ -2841,6 +2875,19 @@
         if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
         await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
       }
+      return { restoreIds };
+    }
+    async _restoreCookies(restoreIds) {
+      const ids = typeof restoreIds === "string" ? [restoreIds] : restoreIds && Array.isArray(restoreIds.restoreIds) ? restoreIds.restoreIds : restoreIds;
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+        throw new Error(`browserContext.restoreCookies: expected a restore id, a list of them, or clearCookies()'s result, got ${JSON.stringify(restoreIds)}`);
+      }
+      const out = { restored: 0, kept: 0, expired: 0 };
+      for (const restoreId of ids) {
+        const r = await this._session.call("cookies.restore", { restoreId });
+        for (const key of Object.keys(out)) out[key] += Number(r && r[key]) || 0;
+      }
+      return out;
     }
     opener() {
       return Promise.resolve(this._opener);

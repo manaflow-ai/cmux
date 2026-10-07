@@ -16,11 +16,34 @@ while (($#)); do
 done
 LA="$HOME/Library/LaunchAgents"
 P=ai.manaflow.chief-brain
-for domain in "gui/$(id -u)" "user/$(id -u)"; do
-  for l in host acpmux daemon; do
-    launchctl bootout "$domain/$P.$l" 2>/dev/null && echo "stopped $P.$l ($domain)" || true
+domains=("gui/$(id -u)" "user/$(id -u)")
+bootout() { # label
+  local domain
+  for domain in "${domains[@]}"; do
+    launchctl bootout "$domain/$P.$1" 2>/dev/null && echo "stopped $P.$1 ($domain)" || true
   done
-done
+}
+# The host first: no new turn starts. Then the supervised acpmux's own shutdown ends every
+# session and agent process it started (agent hosts, optchat-chief mcp); booting out its
+# LaunchAgent alone would leave them running. Then its LaunchAgent and the daemon.
+bootout host
+if [[ -x "$BRAIN/bin/acpmux" ]]; then
+  ACPMUX_HOME="$BRAIN/acpmux" ACPMUX_SOCKET="$BRAIN/acpmux/acpmux.sock" "$BRAIN/bin/acpmux" daemon shutdown 2>/dev/null \
+    && echo "acpmux: daemon shutdown ended its sessions" || echo "acpmux: no daemon answered (already stopped)"
+fi
+bootout acpmux
+bootout daemon
+# Verify: no process of this user runs from $BRAIN/bin. Only this user's processes, only that path.
+left="$(pgrep -U "$(id -u)" -f "$BRAIN/bin/" || true)"
+if [[ -n "$left" ]]; then
+  echo "rollback.sh: still running from $BRAIN/bin after shutdown; stopping them:" >&2
+  ps -o pid=,command= -p "$(echo $left | tr ' ' ',')" >&2 || true
+  kill $left 2>/dev/null || true
+  sleep 2
+  left="$(pgrep -U "$(id -u)" -f "$BRAIN/bin/" || true)"
+  [[ -z "$left" ]] || { echo "rollback.sh: processes still running from $BRAIN/bin: $left" >&2; exit 1; }
+fi
+echo "no brain process left under $BRAIN/bin"
 for l in host acpmux daemon; do rm -f "$LA/$P.$l.plist"; done
 ((PURGE)) && rm -rf "$BRAIN/bin"
 echo "removed the LaunchAgents; kept $BRAIN/mux (memory), $BRAIN/cloud (install key) and $BRAIN/logs"
