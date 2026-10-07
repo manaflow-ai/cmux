@@ -275,14 +275,27 @@ On `feat-cmux-next-browser-input` (browser group 4):
   decision 2026-10-07, bead cx-i3d): it moves to the browser host's trusted `input.key` at
   step e.
 
+On `feat-cmux-next-browser-tabs` (browser group 2):
+
+- `browser.page.tabs` (snapshot lane: the app browser tabs of the named tab's workspace,
+  the focused one, or `all`) and `browser.page.new_tab|switch|close`, which check that the tab
+  is an app browser tab and then run `openBrowser`, `tab.focus` or `closeTab` through
+  `action.run` (same work queue, wait, idempotency key, `sequence` and `created` ids as
+  the keyboard and `cmux tab …`). An app browser tab's creation is now reported in
+  `created` (`NewFrontendBrowserTabRequest` is a creating request). CLI: `cmux browser
+  <tab_…|page> tabs [--all] | new-tab [URL] | switch | close [--no-wait]`, the old
+  `cmux browser tab list|new|switch|close` (by tab id; the old index form is gone). Tab selection is `switch` and
+  `browser.page.switch`, not `select`: `select SELECTOR VALUE` and `browser.page.select` pick a
+  form option (browser group 4), so the two PRs' `select` would have collided in the router.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser tab verbs and downloads have no new-CLI equivalent yet (the compat layer had
-   partial ones). Waits, screenshots, cookies, storage and input verbs are done (above). Workspace status/log/progress are done. A screenshot of an app tab no
+4. Browser downloads have no new-CLI equivalent yet (the compat layer had a partial one).
+   Waits, screenshots, cookies, storage, input and tab verbs are done (above). Workspace status/log/progress are done. A screenshot of an app tab no
    window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.

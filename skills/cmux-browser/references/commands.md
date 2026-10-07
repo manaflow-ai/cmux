@@ -65,6 +65,11 @@ cmux browser "$TAB" uncheck "#newsletter"
 cmux browser "$TAB" scroll --dy 600
 cmux browser "$TAB" scroll "#results" --dy 300
 cmux browser "$TAB" scroll-into-view "#footer"
+cmux browser "$TAB" tabs
+cmux browser page tabs --all
+cmux browser "$TAB" new-tab https://example.com
+cmux browser "$TAB" switch
+cmux browser "$TAB" close
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
@@ -116,6 +121,14 @@ prints the new position. The old flag forms (`--selector`, `--value`, `--key`)
 and verb aliases (`key`, `scrollintoview`) still work.
 These act once and do not retry for an element that is still loading.
 
+`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
+workspace; `--all`: every workspace) with id, title, URL, pane and whether each
+is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
+and prints its id under `created`; `switch` shows and focuses the
+tab (`select` is the form verb above); `close` closes it. They run the same actions as the tab strip, wait for
+them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
+act on the tab you name; the old `tab switch|close <index>` has no equivalent.
+
 ## Daemon browsers (`browser_…`)
 
 A browser the cmux-tui daemon owns has its own verbs:
@@ -153,7 +166,7 @@ The old CLI's `state save|load`, `console`,
 `errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `dblclick`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`tab list|new|switch|close` inside a browser, `identify`, `profile`,
+`identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no per-tab command.
 Saved state, console, dialogs and downloads are in the
 browser REPL ([repl-guide.md](repl-guide.md)). Do not poll with

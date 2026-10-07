@@ -595,7 +595,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
-    let key = if method == "action.run" {
+    // Runs that may create or close something carry a key, so a retry is not a second run.
+    let key = if method == "action.run" || page::KEYED_METHODS.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),

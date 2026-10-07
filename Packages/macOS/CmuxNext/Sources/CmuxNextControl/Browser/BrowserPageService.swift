@@ -80,6 +80,7 @@ public struct BrowserPageService: Sendable {
         router.register(waitAndCaptureMethods())
         router.register(cookieAndStorageMethods())
         router.register(inputMethods())
+        router.register(tabMethods(router: router))
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.
