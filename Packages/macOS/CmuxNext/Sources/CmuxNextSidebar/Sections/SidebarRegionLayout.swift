@@ -19,10 +19,18 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     public var lineWidth: CGFloat
     /// Height of one large labeled tile (the tiles arrangement).
     public var favoriteHeight: CGFloat
+    /// Where the rows' glyphs sit, from a line's leading edge. When set, a
+    /// line of icon-only items (the footer's avatar and gear) is
+    /// row-height squares with no gap (unless the section sets one), the
+    /// first glyph on this column (SIDEBAR-FOOTER-AND-SPACE-MENU F1). Nil
+    /// keeps `iconButtonWidth` and `tileGap`.
+    public var glyphColumn: CGFloat?
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
-                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1, favoriteHeight: CGFloat? = nil) {
+                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1, favoriteHeight: CGFloat? = nil,
+                glyphColumn: CGFloat? = nil) {
+        self.glyphColumn = glyphColumn
         self.rowHeight = rowHeight
         self.headerHeight = headerHeight
         self.inset = inset
