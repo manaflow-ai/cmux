@@ -404,6 +404,19 @@ struct DetectedSSHSession: Equatable, Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        // cmux-tui carries the authenticated SSH agent as an explicit
+        // IdentityAgent option. App-launched subprocesses do not necessarily
+        // inherit the carrier's SSH_AUTH_SOCK, so mirror that route here.
+        var environment = ProcessInfo.processInfo.environment
+        if let identityAgent = Self.sshOptionValue(named: "IdentityAgent", in: arguments) {
+            if identityAgent.caseInsensitiveCompare("none") == .orderedSame {
+                environment.removeValue(forKey: "SSH_AUTH_SOCK")
+            } else if !identityAgent.isEmpty {
+                environment["SSH_AUTH_SOCK"] = identityAgent
+            }
+        }
+        process.environment = environment
+
 #if DEBUG
         cmuxDebugLog(
             "terminal.remotePasteProcess.start " +
@@ -483,6 +496,23 @@ struct DetectedSSHSession: Equatable, Sendable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    private static func sshOptionValue(named key: String, in arguments: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        guard arguments.count > 1 else { return nil }
+        for index in 0..<(arguments.count - 1) where arguments[index] == "-o" {
+            let option = arguments[index + 1]
+            guard optionKey(option) == loweredKey else { continue }
+            guard let separator = option.firstIndex(where: { $0 == "=" || $0.isWhitespace }) else {
+                return nil
+            }
+            let valueStart = option.index(after: separator)
+            guard valueStart < option.endIndex else { return "" }
+            return String(option[valueStart...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 
     private static func scpRemoteDestination(_ destination: String) -> String {
