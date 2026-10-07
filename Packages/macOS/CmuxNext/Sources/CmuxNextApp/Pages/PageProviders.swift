@@ -34,6 +34,11 @@ final class AppPageNativeProvider: PageProvider {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }
             let id = ActionID(rawValue: name)
+            // A person-only action (the import window, the CSV file picker) needs the person's own
+            // click or key in this page view: page script alone never starts one.
+            if services.registry.descriptor(for: id)?.isPersonOnly == true, !context.userGesture {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
             // `target` is the CLI form `kind:id` (a browser profile row: `browser-profile:<id>`).
             var target: ActionTargetRef?
             if let text = params["target"]?.stringValue {
