@@ -24,7 +24,8 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
-//   CmuxNextMobileLink -> Daemon, CmuxMobileHost (cmux.mobile/1 daemon adapter; no UI, not linked by the App yet)
+//   CmuxNextMobileLink -> Daemon, CmuxMobileHost (cmux.mobile/1 daemon adapter; no UI)
+//   CmuxNextMobileConnect -> MobileLink, Daemon, Wakeups, CmuxMobileConnect (phone link host run; no UI)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -131,6 +132,15 @@ let package = Package(
         .package(path: "../../Shared/CmuxIrxTransport"),
         // cmux.mobile/1 host (plans/cmux-next/ios-next/b5-mac-host.md) for CmuxNextMobileLink.
         .package(path: "../../Shared/CmuxMobileHost"),
+        // The phone link host composition (plans/cmux-next/ios-next/d1-terminal-ux.md):
+        // B4 direct, B2 WebRTC, B3 acceptors, B6 trust store, for CmuxNextMobileConnect.
+        .package(path: "../../Shared/CmuxMobileConnect"),
+        .package(path: "../../Shared/CmuxPairing"),
+        .package(path: "../../Shared/CmuxControlPlane"),
+        .package(path: "../../Shared/CmuxLink"),
+        .package(path: "../../Shared/CmuxLinkDirect"),
+        .package(path: "../../Shared/CmuxLinkWebRTC"),
+        .package(path: "../../Shared/CmuxLinkWG"),
         .package(path: "../../Shared/CmuxMobileWire"),
         .package(path: "../../Shared/CmuxTerminalStream"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
@@ -172,6 +182,7 @@ let package = Package(
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
+                "CmuxNextMobileConnect",
                 "CmuxNextUpdater",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
@@ -952,6 +963,28 @@ let package = Package(
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ],
             resources: [.copy("Fixtures")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The cmux.mobile/1 phone link host run (d1-terminal-ux.md, Mac wiring):
+        // MobileHostAssembly over the daemon adapter, the trust store mirror and
+        // the HostDO uplink. No UI; the App starts it per account.
+        .target(
+            name: "CmuxNextMobileConnect",
+            dependencies: [
+                "CmuxNextMobileLink",
+                "CmuxNextDaemon",
+                "CmuxNextWakeups",
+                .product(name: "CmuxMobileConnect", package: "CmuxMobileConnect"),
+                .product(name: "CmuxMobileConnectHost", package: "CmuxMobileConnect"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
+                .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+                .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

@@ -64,6 +64,16 @@ public final class DaemonMobileDaemon: MobileDaemon {
                 throw MobileDaemonError(code: "workspace.tab_not_found", message: "\(tab) is not on this Mac")
             }
             try await mapped { try await self.connection.closeTab(surface) }
+        case .closeWorkspace(let workspace):
+            guard let key = projection.workspaceKey(workspace, in: tree) else {
+                throw MobileDaemonError(code: "workspace.not_found", message: "\(workspace) is not on this Mac")
+            }
+            // Like the phone's tab close, the workspace's terminals end with it.
+            _ = try await mapped { try await self.connection.closeWorkspace(key, endTerminals: true) }
+        case .markWorkspaceRead:
+            // The daemon has no clear-unread command yet; the phone hides Mark
+            // as Read when the host answers this.
+            throw MobileDaemonError(code: "proto.unsupported", message: "marking a workspace read is not supported by this Mac")
         case .createWorkspace, .createTab:
             // The policy refuses spawning ops until a live verification
             // (b5-mac-host.md section 3); this adapter never spawns.
