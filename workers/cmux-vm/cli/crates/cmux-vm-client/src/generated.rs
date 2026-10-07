@@ -8,6 +8,312 @@ use progenitor_client::{ClientHooks, OperationInfo, RequestBuilderExt, encode_pa
 /// Types used as operation parameters and responses.
 #[allow(clippy::all)]
 pub mod types {
+    ///`Acl`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Acl {
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: AclMeshId,
+        ///an array of at most 200 item(s)
+        pub rules: ::std::vec::Vec<AclRule>,
+        #[serde(
+            rename = "updatedAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub updated_at: ::std::option::Option<::std::string::String>,
+        ///0 before the first apply.
+        pub version: i64,
+    }
+    ///`AclApplied`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct AclApplied {
+        #[serde(rename = "applyMs")]
+        pub apply_ms: Int,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: AclAppliedMeshId,
+        #[serde(rename = "ruleCount")]
+        pub rule_count: Int,
+        #[serde(rename = "rulesCreated")]
+        pub rules_created: Int,
+        #[serde(rename = "rulesDeleted")]
+        pub rules_deleted: Int,
+        pub version: Int,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AclAppliedMeshId(::std::string::String);
+    impl ::std::ops::Deref for AclAppliedMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AclAppliedMeshId> for ::std::string::String {
+        fn from(value: AclAppliedMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AclAppliedMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AclAppliedMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AclAppliedMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AclAppliedMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AclMeshId(::std::string::String);
+    impl ::std::ops::Deref for AclMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AclMeshId> for ::std::string::String {
+        fn from(value: AclMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AclMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AclMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AclMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AclMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`AclRule`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct AclRule {
+        ///tcp:<port>, udp:<port>, tcp:*, udp:*, icmp, or * (everything).
+        pub allow: ::std::vec::Vec<AclRuleAllowItem>,
+        ///VMs: vm_ ids or vm:* (every VM member of the mesh).
+        pub dst: ::std::vec::Vec<AclRuleDstItem>,
+        ///Devices: dev_ ids or device:* (every device of the mesh).
+        pub src: ::std::vec::Vec<AclRuleSrcItem>,
+    }
+    ///a string at most 16 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AclRuleAllowItem(::std::string::String);
+    impl ::std::ops::Deref for AclRuleAllowItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AclRuleAllowItem> for ::std::string::String {
+        fn from(value: AclRuleAllowItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AclRuleAllowItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 16usize {
+                return Err("longer than 16 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AclRuleAllowItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AclRuleAllowItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AclRuleAllowItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AclRuleDstItem(::std::string::String);
+    impl ::std::ops::Deref for AclRuleDstItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AclRuleDstItem> for ::std::string::String {
+        fn from(value: AclRuleDstItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AclRuleDstItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AclRuleDstItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AclRuleDstItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AclRuleDstItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AclRuleSrcItem(::std::string::String);
+    impl ::std::ops::Deref for AclRuleSrcItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AclRuleSrcItem> for ::std::string::String {
+        fn from(value: AclRuleSrcItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AclRuleSrcItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AclRuleSrcItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AclRuleSrcItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AclRuleSrcItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`ApiKey`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ApiKey {
@@ -352,6 +658,352 @@ pub mod types {
         #[serde(rename = "sessionId")]
         pub session_id: Int,
     }
+    ///Enroll with a one-time code instead of a credential. Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CodeEnrollDeviceRequest {
+        ///A one-time enrollment code. Shown once; the server stores only its SHA-256.
+        pub code: CodeEnrollDeviceRequestCode,
+        ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+        #[serde(rename = "installPublicKey")]
+        pub install_public_key: CodeEnrollDeviceRequestInstallPublicKey,
+        ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+        pub name: CodeEnrollDeviceRequestName,
+        ///16 random bytes, base64url without padding.
+        pub nonce: CodeEnrollDeviceRequestNonce,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: CodeEnrollDeviceRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: CodeEnrollDeviceRequestWgPublicKey,
+    }
+    ///A one-time enrollment code. Shown once; the server stores only its SHA-256.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestCode(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestCode {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestCode> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestCode) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestCode {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mec_[0-9a-hjkmnp-tv-z]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^mec_[0-9a-hjkmnp-tv-z]{26}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestCode {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestCode {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestCode {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestInstallPublicKey(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestInstallPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestInstallPublicKey> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestInstallPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestInstallPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^B[A-Za-z0-9+/]{86}=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^B[A-Za-z0-9+/]{86}=$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestInstallPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestName(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestName> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestNonce> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestSignature> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CodeEnrollDeviceRequestWgPublicKey(::std::string::String);
+    impl ::std::ops::Deref for CodeEnrollDeviceRequestWgPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CodeEnrollDeviceRequestWgPublicKey> for ::std::string::String {
+        fn from(value: CodeEnrollDeviceRequestWgPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CodeEnrollDeviceRequestWgPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CodeEnrollDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CodeEnrollDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CodeEnrollDeviceRequestWgPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`Conflict`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Conflict {
@@ -528,6 +1180,88 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreateApiKeyRequestResourceAllowlistItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreateEnrollmentCodeRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(untagged)]
+    pub enum CreateEnrollmentCodeRequest {
+        Object(::serde_json::Map<::std::string::String, ::serde_json::Value>),
+        Array(::std::vec::Vec<::serde_json::Value>),
+    }
+    impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+        for CreateEnrollmentCodeRequest
+    {
+        fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+            Self::Object(value)
+        }
+    }
+    impl ::std::convert::From<::std::vec::Vec<::serde_json::Value>> for CreateEnrollmentCodeRequest {
+        fn from(value: ::std::vec::Vec<::serde_json::Value>) -> Self {
+            Self::Array(value)
+        }
+    }
+    ///`CreateMeshRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct CreateMeshRequest {
+        ///a string at most 100 character(s) long
+        #[serde(
+            rename = "displayName",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub display_name: ::std::option::Option<CreateMeshRequestDisplayName>,
+    }
+    ///a string at most 100 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateMeshRequestDisplayName(::std::string::String);
+    impl ::std::ops::Deref for CreateMeshRequestDisplayName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateMeshRequestDisplayName> for ::std::string::String {
+        fn from(value: CreateMeshRequestDisplayName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateMeshRequestDisplayName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 100usize {
+                return Err("longer than 100 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateMeshRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateMeshRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateMeshRequestDisplayName {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -867,6 +1601,621 @@ pub mod types {
         type Err = ::std::convert::Infallible;
         fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
             Ok(Self(value.to_string()))
+        }
+    }
+    ///`Device`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Device {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: DeviceId,
+        ///The install key that signs this device's enroll and key rotation; null for a device enrolled before install keys.
+        #[serde(
+            rename = "installPublicKey",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub install_public_key: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: DeviceMeshId,
+        pub name: ::std::string::String,
+        ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "tunnelId")]
+        pub tunnel_id: DeviceTunnelId,
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: ::std::string::String,
+    }
+    ///`DeviceEnrollment`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DeviceEnrollment {
+        pub device: Device,
+        pub tunnel: TunnelConfig,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DeviceId(::std::string::String);
+    impl ::std::ops::Deref for DeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DeviceId> for ::std::string::String {
+        fn from(value: DeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`DeviceList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DeviceList {
+        pub items: ::std::vec::Vec<Device>,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DeviceMeshId(::std::string::String);
+    impl ::std::ops::Deref for DeviceMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DeviceMeshId> for ::std::string::String {
+        fn from(value: DeviceMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DeviceMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DeviceMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DeviceMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DeviceMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct DeviceTunnelId(::std::string::String);
+    impl ::std::ops::Deref for DeviceTunnelId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DeviceTunnelId> for ::std::string::String {
+        fn from(value: DeviceTunnelId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for DeviceTunnelId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for DeviceTunnelId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for DeviceTunnelId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for DeviceTunnelId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct EnrollDeviceRequest {
+        ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+        #[serde(rename = "installPublicKey")]
+        pub install_public_key: EnrollDeviceRequestInstallPublicKey,
+        ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+        pub name: EnrollDeviceRequestName,
+        ///16 random bytes, base64url without padding.
+        pub nonce: EnrollDeviceRequestNonce,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: EnrollDeviceRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: EnrollDeviceRequestWgPublicKey,
+    }
+    ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollDeviceRequestInstallPublicKey(::std::string::String);
+    impl ::std::ops::Deref for EnrollDeviceRequestInstallPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollDeviceRequestInstallPublicKey> for ::std::string::String {
+        fn from(value: EnrollDeviceRequestInstallPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollDeviceRequestInstallPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^B[A-Za-z0-9+/]{86}=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^B[A-Za-z0-9+/]{86}=$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestInstallPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollDeviceRequestName(::std::string::String);
+    impl ::std::ops::Deref for EnrollDeviceRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollDeviceRequestName> for ::std::string::String {
+        fn from(value: EnrollDeviceRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollDeviceRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollDeviceRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for EnrollDeviceRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollDeviceRequestNonce> for ::std::string::String {
+        fn from(value: EnrollDeviceRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollDeviceRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollDeviceRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for EnrollDeviceRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollDeviceRequestSignature> for ::std::string::String {
+        fn from(value: EnrollDeviceRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollDeviceRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollDeviceRequestWgPublicKey(::std::string::String);
+    impl ::std::ops::Deref for EnrollDeviceRequestWgPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollDeviceRequestWgPublicKey> for ::std::string::String {
+        fn from(value: EnrollDeviceRequestWgPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollDeviceRequestWgPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestWgPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Single use, valid for 10 minutes. A device enrolled with it belongs to the principal that created it.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct EnrollmentCode {
+        ///A one-time enrollment code. Shown once; the server stores only its SHA-256.
+        pub code: EnrollmentCodeCode,
+        #[serde(rename = "expiresAt")]
+        pub expires_at: ::std::string::String,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: EnrollmentCodeMeshId,
+    }
+    ///A one-time enrollment code. Shown once; the server stores only its SHA-256.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollmentCodeCode(::std::string::String);
+    impl ::std::ops::Deref for EnrollmentCodeCode {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollmentCodeCode> for ::std::string::String {
+        fn from(value: EnrollmentCodeCode) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollmentCodeCode {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mec_[0-9a-hjkmnp-tv-z]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^mec_[0-9a-hjkmnp-tv-z]{26}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollmentCodeCode {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollmentCodeCode {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollmentCodeCode {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollmentCodeMeshId(::std::string::String);
+    impl ::std::ops::Deref for EnrollmentCodeMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollmentCodeMeshId> for ::std::string::String {
+        fn from(value: EnrollmentCodeMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollmentCodeMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollmentCodeMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollmentCodeMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollmentCodeMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///a string at most 128 character(s) long
@@ -2057,6 +3406,1218 @@ pub mod types {
                 })
         }
     }
+    ///`Mesh`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Mesh {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(
+            rename = "displayName",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub display_name: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: MeshId,
+        ///The mesh's IPv4 block; VMs and devices get addresses inside it.
+        #[serde(rename = "ipv4Cidr")]
+        pub ipv4_cidr: ::std::string::String,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshAttachMeshVmXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshAttachMeshVmXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshAttachMeshVmXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshAttachMeshVmXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshAttachMeshVmXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshAttachMeshVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshAttachMeshVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshAttachMeshVmXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 255 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshCreateEnrollmentCodeIdempotencyKey(::std::string::String);
+    impl ::std::ops::Deref for MeshCreateEnrollmentCodeIdempotencyKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshCreateEnrollmentCodeIdempotencyKey> for ::std::string::String {
+        fn from(value: MeshCreateEnrollmentCodeIdempotencyKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshCreateEnrollmentCodeIdempotencyKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 255usize {
+                return Err("longer than 255 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshCreateEnrollmentCodeIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshCreateEnrollmentCodeIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshCreateEnrollmentCodeIdempotencyKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshCreateEnrollmentCodeXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshCreateEnrollmentCodeXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshCreateEnrollmentCodeXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshCreateEnrollmentCodeXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshCreateEnrollmentCodeXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshCreateEnrollmentCodeXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshCreateEnrollmentCodeXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshCreateEnrollmentCodeXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 255 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshCreateMeshIdempotencyKey(::std::string::String);
+    impl ::std::ops::Deref for MeshCreateMeshIdempotencyKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshCreateMeshIdempotencyKey> for ::std::string::String {
+        fn from(value: MeshCreateMeshIdempotencyKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshCreateMeshIdempotencyKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 255usize {
+                return Err("longer than 255 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshCreateMeshIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshCreateMeshIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshCreateMeshIdempotencyKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshCreateMeshXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshCreateMeshXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshCreateMeshXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshCreateMeshXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshCreateMeshXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshCreateMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshCreateMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshCreateMeshXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshDeleteDeviceXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshDeleteDeviceXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshDeleteDeviceXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshDeleteDeviceXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshDeleteDeviceXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshDeleteDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshDeleteDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshDeleteDeviceXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshDeleteMeshXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshDeleteMeshXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshDeleteMeshXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshDeleteMeshXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshDeleteMeshXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshDeleteMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshDeleteMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshDeleteMeshXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshDetachMeshVmXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshDetachMeshVmXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshDetachMeshVmXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshDetachMeshVmXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshDetachMeshVmXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshDetachMeshVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshDetachMeshVmXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshDetachMeshVmXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 255 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshEnrollDeviceIdempotencyKey(::std::string::String);
+    impl ::std::ops::Deref for MeshEnrollDeviceIdempotencyKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshEnrollDeviceIdempotencyKey> for ::std::string::String {
+        fn from(value: MeshEnrollDeviceIdempotencyKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshEnrollDeviceIdempotencyKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 255usize {
+                return Err("longer than 255 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshEnrollDeviceIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshEnrollDeviceIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshEnrollDeviceIdempotencyKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshEnrollDeviceXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshEnrollDeviceXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshEnrollDeviceXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshEnrollDeviceXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshEnrollDeviceXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshEnrollDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshEnrollDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshEnrollDeviceXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshGetDevicePeersXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetDevicePeersXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetDevicePeersXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetDevicePeersXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetDevicePeersXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetDevicePeersXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetDevicePeersXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetDevicePeersXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshGetDeviceXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetDeviceXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetDeviceXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetDeviceXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetDeviceXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetDeviceXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetDeviceXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshGetMeshAclXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetMeshAclXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetMeshAclXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetMeshAclXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetMeshAclXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetMeshAclXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshGetMeshXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetMeshXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetMeshXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetMeshXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetMeshXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetMeshXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetMeshXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshGetTunnelXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetTunnelXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetTunnelXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetTunnelXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetTunnelXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetTunnelXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetTunnelXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetTunnelXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshId> for ::std::string::String {
+        fn from(value: MeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`MeshList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshList {
+        pub items: ::std::vec::Vec<Mesh>,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshListDevicesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshListDevicesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshListDevicesXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshListDevicesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshListDevicesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshListDevicesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshListDevicesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshListDevicesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshListMeshesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshListMeshesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshListMeshesXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshListMeshesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshListMeshesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshListMeshesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshListMeshesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshListMeshesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`MeshMember`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct MeshMember {
+        #[serde(rename = "attachedAt")]
+        pub attached_at: ::std::string::String,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub ipv4: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: MeshMemberMeshId,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "vmId")]
+        pub vm_id: MeshMemberVmId,
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshMemberMeshId(::std::string::String);
+    impl ::std::ops::Deref for MeshMemberMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshMemberMeshId> for ::std::string::String {
+        fn from(value: MeshMemberMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshMemberMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshMemberMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshMemberMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshMemberMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshMemberVmId(::std::string::String);
+    impl ::std::ops::Deref for MeshMemberVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshMemberVmId> for ::std::string::String {
+        fn from(value: MeshMemberVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshMemberVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshMemberVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshMemberVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshMemberVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshPutMeshAclXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshPutMeshAclXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshPutMeshAclXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshPutMeshAclXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshPutMeshAclXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshPutMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshPutMeshAclXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshPutMeshAclXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshRotateDeviceKeyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshRotateDeviceKeyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshRotateDeviceKeyXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshRotateDeviceKeyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshRotateDeviceKeyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshRotateDeviceKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshRotateDeviceKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshRotateDeviceKeyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`NotFound`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct NotFound {
@@ -2218,6 +4779,252 @@ pub mod types {
             value.parse()
         }
     }
+    ///`Peer`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Peer {
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub address: ::std::option::Option<::std::string::String>,
+        pub allow: ::std::vec::Vec<PeerAllow>,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: PeerId,
+        pub kind: PeerKind,
+    }
+    ///`PeerAllow`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PeerAllow {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub port: ::std::option::Option<Int>,
+        pub protocol: ::std::string::String,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PeerId(::std::string::String);
+    impl ::std::ops::Deref for PeerId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PeerId> for ::std::string::String {
+        fn from(value: PeerId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PeerId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PeerId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PeerId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PeerId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`PeerKind`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum PeerKind {
+        #[serde(rename = "vm")]
+        Vm,
+    }
+    impl ::std::fmt::Display for PeerKind {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Vm => f.write_str("vm"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for PeerKind {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "vm" => Ok(Self::Vm),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PeerKind {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PeerKind {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///`PeerMap`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PeerMap {
+        #[serde(rename = "aclVersion")]
+        pub acl_version: Int,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: PeerMapDeviceId,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: PeerMapMeshId,
+        pub peers: ::std::vec::Vec<Peer>,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PeerMapDeviceId(::std::string::String);
+    impl ::std::ops::Deref for PeerMapDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PeerMapDeviceId> for ::std::string::String {
+        fn from(value: PeerMapDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PeerMapDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PeerMapDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PeerMapDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PeerMapDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct PeerMapMeshId(::std::string::String);
+    impl ::std::ops::Deref for PeerMapMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<PeerMapMeshId> for ::std::string::String {
+        fn from(value: PeerMapMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for PeerMapMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PeerMapMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for PeerMapMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for PeerMapMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`PropertyKey`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
@@ -2281,6 +5088,14 @@ pub mod types {
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
         }
+    }
+    ///Default deny: only what these rules allow is reachable.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PutAclRequest {
+        #[serde(rename = "expectedVersion")]
+        pub expected_version: u64,
+        ///an array of at most 200 item(s)
+        pub rules: ::std::vec::Vec<AclRule>,
     }
     ///`QuotaExceeded`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -2358,6 +5173,183 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub vcpus: ::std::option::Option<i64>,
     }
+    ///The device's new WireGuard public key. Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409. The install key must be the one the device enrolled with.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct RotateKeyRequest {
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "newPublicKey")]
+        pub new_public_key: RotateKeyRequestNewPublicKey,
+        ///16 random bytes, base64url without padding.
+        pub nonce: RotateKeyRequestNonce,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: RotateKeyRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct RotateKeyRequestNewPublicKey(::std::string::String);
+    impl ::std::ops::Deref for RotateKeyRequestNewPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<RotateKeyRequestNewPublicKey> for ::std::string::String {
+        fn from(value: RotateKeyRequestNewPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for RotateKeyRequestNewPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for RotateKeyRequestNewPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for RotateKeyRequestNewPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for RotateKeyRequestNewPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct RotateKeyRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for RotateKeyRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<RotateKeyRequestNonce> for ::std::string::String {
+        fn from(value: RotateKeyRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for RotateKeyRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for RotateKeyRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for RotateKeyRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for RotateKeyRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct RotateKeyRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for RotateKeyRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<RotateKeyRequestSignature> for ::std::string::String {
+        fn from(value: RotateKeyRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for RotateKeyRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for RotateKeyRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for RotateKeyRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for RotateKeyRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`ServiceUnavailable`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ServiceUnavailable {
@@ -2409,6 +5401,124 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct SignedDeviceRequest {
+        ///16 random bytes, base64url without padding.
+        pub nonce: SignedDeviceRequestNonce,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: SignedDeviceRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SignedDeviceRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for SignedDeviceRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SignedDeviceRequestNonce> for ::std::string::String {
+        fn from(value: SignedDeviceRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SignedDeviceRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SignedDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SignedDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SignedDeviceRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SignedDeviceRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for SignedDeviceRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SignedDeviceRequestSignature> for ::std::string::String {
+        fn from(value: SignedDeviceRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SignedDeviceRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SignedDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SignedDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SignedDeviceRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
@@ -3431,6 +6541,208 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for TerminalsListTerminalsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Everything a device needs to bring its tunnel up, except its own private key, which only the device has.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TunnelConfig {
+        #[serde(rename = "allowedIps")]
+        pub allowed_ips: ::std::vec::Vec<::std::string::String>,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: TunnelConfigDeviceId,
+        #[serde(rename = "endpointHost")]
+        pub endpoint_host: ::std::string::String,
+        #[serde(rename = "endpointPort")]
+        pub endpoint_port: Int,
+        ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: TunnelConfigId,
+        ///The WireGuard interface address inside the tunnel.
+        #[serde(rename = "interfaceAddress")]
+        pub interface_address: ::std::string::String,
+        ///The device's address as mesh members see it.
+        #[serde(
+            rename = "meshAddress",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub mesh_address: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: TunnelConfigMeshId,
+        pub mtu: Int,
+        ///Set it: the gateway forgets an idle session after 5 to 10 minutes.
+        #[serde(rename = "persistentKeepaliveSeconds")]
+        pub persistent_keepalive_seconds: i64,
+        #[serde(rename = "serverPublicKey")]
+        pub server_public_key: ::std::string::String,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelConfigDeviceId(::std::string::String);
+    impl ::std::ops::Deref for TunnelConfigDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelConfigDeviceId> for ::std::string::String {
+        fn from(value: TunnelConfigDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelConfigDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelConfigDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelConfigDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelConfigDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelConfigId(::std::string::String);
+    impl ::std::ops::Deref for TunnelConfigId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelConfigId> for ::std::string::String {
+        fn from(value: TunnelConfigId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelConfigId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^tun_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelConfigId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelConfigId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelConfigId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TunnelConfigMeshId(::std::string::String);
+    impl ::std::ops::Deref for TunnelConfigMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TunnelConfigMeshId> for ::std::string::String {
+        fn from(value: TunnelConfigMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TunnelConfigMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TunnelConfigMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TunnelConfigMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TunnelConfigMeshId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -4693,6 +8005,1058 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Get a device
+
+    Get a device. Requires the mesh:read scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/devices/{deviceId}`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_device<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetDeviceXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::Device>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_device",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Remove a device and its tunnel
+
+    Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `DELETE` request to `/v1/devices/{deviceId}`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_delete_device<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshDeleteDeviceXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_delete_device",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**What this device may reach
+
+    What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/devices/{deviceId}/peers`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_device_peers<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetDevicePeersXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::PeerMap>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/peers",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_device_peers",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Rotate a device's WireGuard key
+
+    Rotate a device's WireGuard key. Requires the mesh:join scope. The tunnel keeps its id and addresses; the server key changes too, so switch to the returned config at once. The old key stops working within about a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/rotate-key`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_rotate_device_key<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshRotateDeviceKeyXCmuxTeamId>,
+        body: &'a types::RotateKeyRequest,
+    ) -> Result<ResponseValue<types::TunnelConfig>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/rotate-key",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_rotate_device_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**A device reads its own peer map
+
+    What this device may reach, compiled from the current ACL; signed with purpose peers. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/signed/peers`
+
+    */
+    pub async fn mesh_device_signed_device_peers<'a>(
+        &'a self,
+        device_id: &'a str,
+        body: &'a types::SignedDeviceRequest,
+    ) -> Result<ResponseValue<types::PeerMap>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/signed/peers",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_device_signed_device_peers",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**A device rotates its own WireGuard key
+
+    The same signed body as POST /v1/devices/{deviceId}/rotate-key (purpose rotate-key), without a credential. Switch to the returned config at once. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/signed/rotate-key`
+
+    */
+    pub async fn mesh_device_signed_device_rotate_key<'a>(
+        &'a self,
+        device_id: &'a str,
+        body: &'a types::RotateKeyRequest,
+    ) -> Result<ResponseValue<types::TunnelConfig>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/signed/rotate-key",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_device_signed_device_rotate_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**A device reads its own tunnel config
+
+    Never includes a private key; signed with purpose tunnel. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/signed/tunnel`
+
+    */
+    pub async fn mesh_device_signed_device_tunnel<'a>(
+        &'a self,
+        device_id: &'a str,
+        body: &'a types::SignedDeviceRequest,
+    ) -> Result<ResponseValue<types::TunnelConfig>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/signed/tunnel",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_device_signed_device_tunnel",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the team's meshes
+
+    List the team's meshes. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_list_meshes<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::MeshListMeshesXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::MeshList>, Error<ByteStream>> {
+        let url = format!("{}/v1/meshes", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_list_meshes",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Create the team's mesh
+
+    Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes`
+
+    Arguments:
+    - `idempotency_key`: a string at most 255 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_create_mesh<'a>(
+        &'a self,
+        idempotency_key: Option<&'a types::MeshCreateMeshIdempotencyKey>,
+        x_cmux_team_id: Option<&'a types::MeshCreateMeshXCmuxTeamId>,
+        body: &'a types::CreateMeshRequest,
+    ) -> Result<ResponseValue<types::Mesh>, Error<ByteStream>> {
+        let url = format!("{}/v1/meshes", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = idempotency_key {
+            header_map.append("idempotency-key", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_create_mesh",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            402u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Get a mesh
+
+    Get a mesh. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_mesh<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetMeshXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::Mesh>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_mesh",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Delete a mesh
+
+    Delete a mesh. Requires the mesh:write scope. 409 while it has devices or VMs. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `DELETE` request to `/v1/meshes/{meshId}`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_delete_mesh<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshDeleteMeshXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_delete_mesh",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Get a mesh's ACL
+
+    Get a mesh's ACL. Requires the acl:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}/acl`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_mesh_acl<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetMeshAclXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::Acl>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/acl",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_mesh_acl",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Replace a mesh's ACL and apply it
+
+    Replace a mesh's ACL and apply it. Requires the acl:write scope. A session must be a team admin. New rules are created before old ones are deleted, so traffic both versions allow never stops. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `PUT` request to `/v1/meshes/{meshId}/acl`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_put_mesh_acl<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshPutMeshAclXCmuxTeamId>,
+        body: &'a types::PutAclRequest,
+    ) -> Result<ResponseValue<types::AclApplied>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/acl",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_put_mesh_acl",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Enroll a headless device with a one-time code
+
+    Enroll a headless device with a one-time code. No credential: the code is single use and valid for 10 minutes, and the device belongs to the principal that created the code. An unknown, used, expired or other mesh's code is 404, and so is a code whose creator left the team or whose API key was revoked. Any authentication failure (a forged or stale signature, a replayed request, another mesh's path) burns the code. A device budget or provider failure after the code was accepted gives it back, so the same code can be used again. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes/{meshId}/device-enrollments`
+
+    */
+    pub async fn mesh_enroll_code_enroll_device<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        body: &'a types::CodeEnrollDeviceRequest,
+    ) -> Result<ResponseValue<types::DeviceEnrollment>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/device-enrollments",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_enroll_code_enroll_device",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            402u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List a mesh's devices
+
+    List a mesh's devices. Requires the mesh:read scope. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/meshes/{meshId}/devices`
+
+    Arguments:
+    - `mesh_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_list_devices<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshListDevicesXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::DeviceList>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/devices",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_list_devices",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Enroll a device with its own WireGuard public key
+
+    Enroll a device with its own WireGuard public key. Requires the mesh:join scope. Creates the device's tunnel into the mesh and applies the current ACL before it answers. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes/{meshId}/devices`
+
+    Arguments:
+    - `mesh_id`
+    - `idempotency_key`: a string at most 255 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_enroll_device<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        idempotency_key: Option<&'a types::MeshEnrollDeviceIdempotencyKey>,
+        x_cmux_team_id: Option<&'a types::MeshEnrollDeviceXCmuxTeamId>,
+        body: &'a types::EnrollDeviceRequest,
+    ) -> Result<ResponseValue<types::DeviceEnrollment>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/devices",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = idempotency_key {
+            header_map.append("idempotency-key", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_enroll_device",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            402u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Create a one-time enrollment code for a headless machine
+
+    Create a one-time enrollment code for a headless machine. Requires the mesh:join scope. Single use, 10 minutes; at most 20 per mesh per hour. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes/{meshId}/enrollment-codes`
+
+    Arguments:
+    - `mesh_id`
+    - `idempotency_key`: a string at most 255 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn mesh_create_enrollment_code<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        idempotency_key: Option<&'a types::MeshCreateEnrollmentCodeIdempotencyKey>,
+        x_cmux_team_id: Option<&'a types::MeshCreateEnrollmentCodeXCmuxTeamId>,
+        body: &'a types::CreateEnrollmentCodeRequest,
+    ) -> Result<ResponseValue<types::EnrollmentCode>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/enrollment-codes",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = idempotency_key {
+            header_map.append("idempotency-key", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_create_enrollment_code",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Add a VM to a mesh
+
+    Add a VM to a mesh. Requires the mesh:write scope. Also needs vm:write. Live on a running, stopped or paused VM; a VM is in at most one mesh. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `PUT` request to `/v1/meshes/{meshId}/vms/{vmId}`
+
+    Arguments:
+    - `mesh_id`
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_attach_mesh_vm<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshAttachMeshVmXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::MeshMember>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/vms/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .put(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_attach_mesh_vm",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Remove a VM from a mesh
+
+    Remove a VM from a mesh. Requires the mesh:write scope. Also needs vm:write. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `DELETE` request to `/v1/meshes/{meshId}/vms/{vmId}`
+
+    Arguments:
+    - `mesh_id`
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_detach_mesh_vm<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshDetachMeshVmXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/vms/{}",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_detach_mesh_vm",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List the tenant's snapshots, newest first
 
     List the tenant's snapshots, newest first. Requires the snapshot:read scope.
@@ -4857,6 +9221,62 @@ impl Client {
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Get a device tunnel's config
+
+    Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/tunnels/{tunnelId}`
+
+    Arguments:
+    - `tunnel_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_tunnel<'a>(
+        &'a self,
+        tunnel_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetTunnelXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::TunnelConfig>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/tunnels/{}",
+            self.baseurl,
+            encode_path(&tunnel_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_tunnel",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

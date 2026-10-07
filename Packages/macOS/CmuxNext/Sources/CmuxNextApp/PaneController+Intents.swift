@@ -52,6 +52,10 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // A user's tab switch may end link-tab opener relations (Chrome's rule).
+        if source.isUserIntent, stripModel.selectedID != id {
+            services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+        }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
             return applySelection(id)

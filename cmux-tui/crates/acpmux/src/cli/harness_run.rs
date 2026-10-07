@@ -43,7 +43,7 @@ pub fn run_plan(
     let profile: HarnessProfile = match cfg.profile(id) {
         Some(p) => p.clone(),
         None => match folder_profiles::resolve_for_session(cfg, id, cwd, false) {
-            Some(found) => found.map_err(|e| anyhow!(e))?.0,
+            Some(found) => found.map_err(|e| anyhow!(e.message))?.0,
             None => bail!("unknown harness {id:?}; see `cmux harness list`"),
         },
     };

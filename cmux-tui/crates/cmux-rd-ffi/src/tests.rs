@@ -354,7 +354,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     let source = concat!(
         include_str!("lib.rs"),
         include_str!("input_ffi.rs"),
-        include_str!("session_ffi.rs")
+        include_str!("session_ffi.rs"),
+        include_str!("upstream_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -379,6 +380,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_FAILED", CMUX_RD_ERR_FAILED),
         ("CMUX_RD_ERR_PANIC", CMUX_RD_ERR_PANIC),
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
+        ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -396,6 +398,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
     assert_eq!(size_of::<CmuxRdStats>(), 24);
     assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
+    assert_eq!(size_of::<CmuxRdUpstreamStats>(), 32);
     for (name, value) in [
         ("CMUX_RD_INPUT_KEY", CMUX_RD_INPUT_KEY as usize),
         ("CMUX_RD_INPUT_POINTER", CMUX_RD_INPUT_POINTER as usize),
@@ -408,6 +411,14 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_INPUT_MAX_TEXT", CMUX_RD_INPUT_MAX_TEXT),
         ("CMUX_RD_INPUT_PACKET_MAX", CMUX_RD_INPUT_PACKET_MAX),
         ("CMUX_RD_SESSION_MAX_STREAMS", CMUX_RD_SESSION_MAX_STREAMS),
+        ("CMUX_RD_PATH_DIRECT_LAN", CMUX_RD_PATH_DIRECT_LAN as usize),
+        ("CMUX_RD_PATH_DIRECT_WAN", CMUX_RD_PATH_DIRECT_WAN as usize),
+        ("CMUX_RD_PATH_VIA_CLOUD_REGION", CMUX_RD_PATH_VIA_CLOUD_REGION as usize),
+        ("CMUX_RD_PATH_DO_RELAY", CMUX_RD_PATH_DO_RELAY as usize),
+        ("CMUX_RD_UPSTREAM_MAX_QUEUED", CMUX_RD_UPSTREAM_MAX_QUEUED),
+        ("CMUX_RD_MEDIA_MIC", CMUX_RD_MEDIA_MIC as usize),
+        ("CMUX_RD_MEDIA_CAMERA", CMUX_RD_MEDIA_CAMERA as usize),
+        ("CMUX_RD_MEDIA_SCREEN", CMUX_RD_MEDIA_SCREEN as usize),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }
