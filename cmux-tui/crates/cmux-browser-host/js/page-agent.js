@@ -937,11 +937,47 @@
   }
 
 
-  // Every reply this world sends to the session passes through `reply`:
-  // the runtime wraps each agent-world call in it (runtime-core.js,
-  // Frame._call) and the host's frame.observe script runs each read inside
-  // it, so a method or page function added here cannot reply around it.
-  // Sealing settles every cut the reply's strings hold (settleCuts).
+  // The reply budget. Every reply this world sends to the session passes
+  // through `reply`: the runtime wraps each agent-world call in it
+  // (runtime-core.js, Frame._call) and the host's frame.observe script runs
+  // each read inside it, so a method or page function added here cannot
+  // reply around it. Past `limit` characters of JSON (at most MAX_REPLY) the
+  // reply becomes a cut marker, which the runtime turns into an error worded
+  // by core.readCutNote, as every read cut at its budget. A caller can lower
+  // the limit, never raise it. The default is what a read within the
+  // page-read budget can return: MAX_SIZE characters of values and NODE_SIZE
+  // of keys for each of MAX_NODES nodes. Sealing also settles every cut the
+  // reply's strings hold (settleCuts).
+  const MAX_REPLY = MAX_SIZE + MAX_NODES * NODE_SIZE;
+  const REPLY_CUT = "__cmuxReplyCut";
+  // The reply of a method that stopped at its budget before it had all its
+  // answer: the runtime fails the call with core.readCutNote's words, as
+  // for a reply past the reply budget. `cut` is { truncated, maxNodes, maxSize }.
+  const cutReply = (cut) => ({ [REPLY_CUT]: cut });
+  // The characters of JSON `value` takes, counted until they pass `max`.
+  // Iterative, and it stops there, so measuring costs at most the limit.
+  function replySize(value, max) {
+    let size = 0;
+    const stack = [value];
+    while (stack.length && size <= max) {
+      const v = stack.pop();
+      if (typeof v === "string") size += v.length + 2;
+      else if (v === null || v === undefined || typeof v !== "object") size += typeof v === "function" ? 0 : 8;
+      else if (Array.isArray(v)) {
+        size += 2 + v.length;
+        for (let i = 0; i < v.length && size <= max; i++) stack.push(v[i]);
+      } else {
+        size += 2;
+        for (const key of Object.keys(v)) {
+          size += key.length + 4;
+          stack.push(v[key]);
+          if (size > max) break;
+        }
+      }
+    }
+    return size;
+  }
+  // Settles every cut in `value`'s strings (settleCuts), in place.
   function settleReply(value) {
     if (typeof value === "string") return settleCuts(value);
     const stack = [value];
@@ -957,8 +993,13 @@
     }
     return value;
   }
-  function reply(value) {
-    return value instanceof Promise ? value.then(settleReply) : settleReply(value);
+  function sealReply(value, limit) {
+    const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
+    if (replySize(value, max) <= max) return settleReply(value);
+    return cutReply({ truncated: "size", maxSize: max });
+  }
+  function reply(value, limit) {
+    return value instanceof Promise ? value.then((v) => sealReply(v, limit)) : sealReply(value, limit);
   }
 
   // The walk descends at most MAX_DEPTH elements, over the whole stitched
@@ -1361,11 +1402,16 @@
     return hops;
   }
 
-  function queryAll(selector, scopeHandle) {
+  // MAX_NODES handles (the page-read node budget): past that, a call
+  // without a limit is cut, and a limit above it keeps the first MAX_NODES.
+  function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
+    const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
+    const asked = Number.isInteger(limit) && limit >= 0;
+    if (!asked && found.length > MAX_NODES) return cutReply({ truncated: "nodes", maxNodes: MAX_NODES });
+    return found.slice(0, asked ? Math.min(limit, MAX_NODES) : MAX_NODES).map(handleFor);
   }
 
   function describe(id) {
