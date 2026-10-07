@@ -129,8 +129,13 @@ function parseEngineList(value: string): Engine[] {
 
 function queryUrl(pathOrUrl: string, params: Record<string, Scalar> | undefined): string {
   const url = new URL(pathOrUrl, "http://127.0.0.1");
-  for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, String(value));
-  return /^https?:\/\//.test(pathOrUrl) ? url.toString() : `${url.pathname}${url.search}`;
+  // A hash route (the gallery shell, `index.html#/entry/variant?...`) carries its own query, and a
+  // hash history reads the page's real query too: params there would leak into the route. Such a
+  // case's params only size the viewport.
+  if (!url.hash) for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, String(value));
+  // The hash stays as written: a hash route (the gallery shell's `#/entry/variant?...`) carries
+  // its own query, and the case's params go in the page's real query before it.
+  return /^https?:\/\//.test(pathOrUrl) ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
 function safeFilePart(value: string): string { return value.replace(/[^A-Za-z0-9._-]+/g, "_"); }
@@ -385,3 +390,6 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) await main();
+
+/** The URL a case opens (exported for the tests). */
+export const stageUrlForTest = queryUrl;
