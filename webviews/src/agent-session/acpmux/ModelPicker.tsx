@@ -412,41 +412,41 @@ export function ModelPicker(props: ModelPickerProps) {
                 <div className="acpmux-mp-harness-list-inner">
                   {harnesses.map((entry, index) => (
                     <button
-                    type="button"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                    role="option"
-                    key={entry.name}
-                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                    disabled={!entry.pickable}
-                    className="acpmux-mp-harness"
-                    tabIndex={index === activeHarness ? 0 : -1}
-                    onKeyDown={(event) => {
-                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                        event.preventDefault();
-                        const step = event.key === "ArrowDown" ? 1 : -1;
-                        const next = (index + step + harnesses.length) % harnesses.length;
-                        setActiveHarness(next);
-                        setSelectedHarness(harnesses[next]?.id);
+                      type="button"
+                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
+                      role="option"
+                      key={entry.name}
+                      aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                      disabled={!entry.pickable}
+                      className="acpmux-mp-harness"
+                      tabIndex={index === activeHarness ? 0 : -1}
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                          event.preventDefault();
+                          const step = event.key === "ArrowDown" ? 1 : -1;
+                          const next = (index + step + harnesses.length) % harnesses.length;
+                          setActiveHarness(next);
+                          setSelectedHarness(harnesses[next]?.id);
+                          setQuery("");
+                          event.currentTarget.parentElement
+                            ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
+                            [next]?.focus();
+                        } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                          event.preventDefault();
+                          search.current?.focus();
+                        }
+                      }}
+                      onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                      onClick={() => {
+                        setSelectedHarness(entry.id);
+                        setActiveHarness(index);
                         setQuery("");
-                        event.currentTarget.parentElement
-                          ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
-                          [next]?.focus();
-                      } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                        event.preventDefault();
-                        search.current?.focus();
-                      }
-                    }}
-                    onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                    onClick={() => {
-                      setSelectedHarness(entry.id);
-                      setActiveHarness(index);
-                      setQuery("");
-                      setActive(0);
-                    }}
-                  >
-                    <AgentMark agent={entry.id} size={16} />
-                    <span>{entry.name}</span>
-                    {entry.ids.includes(harness ?? "") && <CheckIcon />}
+                        setActive(0);
+                      }}
+                    >
+                      <AgentMark agent={entry.id} size={16} />
+                      <span>{entry.name}</span>
+                      {entry.ids.includes(harness ?? "") && <CheckIcon />}
                     </button>
                   ))}
                 </div>
