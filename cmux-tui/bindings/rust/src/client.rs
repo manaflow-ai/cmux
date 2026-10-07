@@ -1006,13 +1006,13 @@ mod tests {
     #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        let root = crate::test_roots::TempRoot::new(); // the probe also scans its cmux-tui-<uid>
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        let session = format!("raw-fallback-{}-{id}", std::process::id());
-        let dir = PathBuf::from("/tmp").join(private_runtime_dir_name());
+        let session = format!("rf{}-{id}", std::process::id());
+        let dir = root.path().join(private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
-        let hashed_dir =
-            PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{}", current_uid_component()));
+        let hashed_dir = root.path().join(format!("cmux-tui-hashed-{}", current_uid_component()));
         std::fs::create_dir_all(&hashed_dir).unwrap();
         let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));

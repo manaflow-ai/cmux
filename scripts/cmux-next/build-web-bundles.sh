@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
-# the agent pane, the React pages, Agent Activity, the palette ranker and the
-# webviews app (diff, markdown and editor pages). Every app build path runs it
+# the agent pane, the React pages, Agent Activity, the palette ranker, the
+# webviews app (diff, markdown and editor pages) and the Chief memory inspector.
+# Every app build path runs it
 # before it compiles (scripts/reload.sh, scripts/cmux-next/check-release-compile.sh,
 # the macOS jobs of cmux-next.yml, the nightly-next build, nx-remote Swift test
 # jobs), so a build never depends on a committed copy of the output (cx-vn5).
@@ -52,6 +53,7 @@ PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
 PALETTE="Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources"
 APP="Resources/markdown-viewer/webviews-app"
+INSPECTOR="Native/OptChat/optchat-chief/inspector"
 STAMP="$ROOT/.web-bundles.key"
 KEY="$ROOT/scripts/cmux-next/web-bundle-key.py"
 
@@ -92,8 +94,14 @@ current() {
   [ "$(python3 "$KEY" "$ROOT" --stamp)" = "$(cat "$STAMP")" ]
 }
 
+# --verify ignores the bun field: the Xcode phase's PATH may lack bun.
+verified() {
+  [ -f "$STAMP" ] || return 1
+  [ "$(python3 "$KEY" "$ROOT" --verify-stamp)" = "$(cut -d' ' -f1-2 "$STAMP")" ]
+}
+
 if [ "$MODE" = verify ]; then
-  if current; then
+  if verified; then
     echo "web bundles are current"
     exit 0
   fi
@@ -106,12 +114,15 @@ fi
 # and stamp it, so the build below and every later build path skip. The caller restores
 # it under that key, so the stamp's source key is the key it was built from.
 if [ "$MODE" = from ]; then
+  # The inspector page stays committed (optchat-chief compiles it in with
+  # include_str!, and the brain build runs no bundle step): never removed here.
   for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
     [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
   done
   rm -f "$STAMP"
   for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
     rm -rf "${ROOT:?}/$path"
+    mkdir -p "$(dirname "${ROOT:?}/$path")"
     cp -R "$FROM_ROOT/$path" "$ROOT/$path"
   done
   cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
@@ -146,6 +157,7 @@ rm -f "$STAMP"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
+"$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 
 if [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

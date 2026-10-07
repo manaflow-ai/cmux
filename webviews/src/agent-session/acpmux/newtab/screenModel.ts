@@ -3,7 +3,7 @@
 // cards. No React, no host: NewTabScreen renders what these return.
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
-import { matchScore, type OmnibarContext } from "../omnibar";
+import { omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
 import { sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
@@ -19,11 +19,16 @@ export type ScreenRow =
   | { type: "open"; url: string; text: string }
   | { type: "tab"; id: string; title: string; detail?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string };
+  | { type: "history"; url: string; title?: string }
+  | { type: "session"; id: string; title: string; detail?: string; harness?: string }
+  | { type: "folder"; path: string }
+  | { type: "command"; command: string }
+  | { type: "run"; text: string }
+  | { type: "ask"; text: string };
 
 /// Agents shown per query; more installed harnesses stay in the composer's picker.
 export const MAX_AGENT_ROWS = 4;
-/// Open tabs, workspaces and history matches shown under the typed rows.
+/// Open tabs, workspaces, chats, folders, commands and history matches shown under the typed rows.
 export const MAX_MATCH_ROWS = 4;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
@@ -63,30 +68,36 @@ export function screenRows(
 }
 
 function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
-  const rows: { row: ScreenRow; score: number }[] = [
-    ...omnibar.tabs.map((tab) => ({
-      row: { type: "tab", id: tab.id, title: tab.title, ...(tab.detail ? { detail: tab.detail } : {}) } as ScreenRow,
-      score: matchScore(query, tab.title, tab.detail) + 0.6,
-    })),
-    ...omnibar.workspaces.map((workspace) => ({
-      row: {
-        type: "workspace",
-        id: workspace.id,
-        title: workspace.name,
-        ...(workspace.detail ? { detail: workspace.detail } : {}),
-      } as ScreenRow,
-      score: matchScore(query, workspace.name, workspace.detail) + 0.5,
-    })),
-    ...omnibar.history.map((entry) => ({
-      row: { type: "history", url: entry.url, ...(entry.title ? { title: entry.title } : {}) } as ScreenRow,
-      score: matchScore(query, entry.title, entry.url.replace(/^https?:\/\/(www\.)?/, "")) + 0.1,
-    })),
-  ];
-  return rows
-    .filter((entry) => entry.score >= 1)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_MATCH_ROWS)
-    .map((entry) => entry.row);
+  return omnibarRows(query, "agent", omnibar)
+    .flatMap((row) => screenRow(row))
+    .slice(0, MAX_MATCH_ROWS);
+}
+
+function screenRow(row: OmnibarRow): ScreenRow[] {
+  switch (row.type) {
+    case "tab":
+      return [{ type: "tab", id: row.id, title: row.title, ...(row.detail ? { detail: row.detail } : {}) }];
+    case "workspace":
+      return [{ type: "workspace", id: row.id, title: row.title, ...(row.detail ? { detail: row.detail } : {}) }];
+    case "history":
+      return [{ type: "history", url: row.url, ...(row.title ? { title: row.title } : {}) }];
+    case "session":
+      return [
+        {
+          type: "session",
+          id: row.id,
+          title: row.title,
+          ...(row.harness ? { harness: row.harness } : {}),
+          ...(row.detail ? { detail: row.detail } : {}),
+        },
+      ];
+    case "folder":
+      return [{ type: "folder", path: row.path }];
+    case "command":
+      return [{ type: "command", command: row.command }];
+    default:
+      return [];
+  }
 }
 
 /// `!` typed into an empty field (or over a wholly selected one, a location the page put

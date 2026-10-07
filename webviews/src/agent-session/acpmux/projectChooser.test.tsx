@@ -110,7 +110,7 @@ test("renders the attached folder, computer and branch tray without context chip
     branchRow.textContent,
     branchRow.getAttribute("aria-checked"),
     branchRow.getAttribute("aria-disabled"),
-  ]).toEqual(["main", "true", "true"]);
+  ]).toEqual(["✓main", "true", "true"]);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -311,4 +311,43 @@ test("automation opens the Location and Computer menus by their labels, as a cli
   await render({ turnCount: 1 }, true);
   expect(pickerLabels()).not.toContain("Location");
   expect(openPicker("Location")).toBe(false);
+});
+
+// Lawrence (2026-10-06): "I cannot click on cmux Cloud SSH". A new chat's Computer menu ends
+// with SSH… and cmux Cloud…, which open the host's connect flows, even before any Cloud or
+// SSH computer exists and when the chat cannot pick a folder here.
+test("the Computer menu offers SSH and cmux Cloud, which open the connect flows", async () => {
+  const connects: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local" },
+        sessions: [],
+        onConnect: (kind: "ssh" | "cloud") => connects.push(kind),
+      }),
+    ),
+  );
+  const computer = doc.querySelector<HTMLButtonElement>('[aria-label="Computer"]')!;
+  expect(computer).not.toBeNull();
+  await act(async () => computer.click());
+  const rows = [...doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitem"]')];
+  expect(rows.map((row) => row.textContent)).toEqual(["SSH…", "cmux Cloud…"]);
+  await act(async () => rows[1]!.click());
+  await act(async () => computer.click());
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitem"]')[0]!.click());
+  expect(connects).toEqual(["cloud", "ssh"]);
+});
+
+test("a started chat's computer stays a label, with no connect rows", async () => {
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions: [],
+        started: true,
+        onConnect: () => undefined,
+      }),
+    ),
+  );
+  expect(doc.querySelector('[aria-label="Computer"]')).toBeNull();
 });

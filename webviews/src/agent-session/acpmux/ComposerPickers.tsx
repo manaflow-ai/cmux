@@ -95,6 +95,8 @@ type Props = {
   onHarness?(harness: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
   onHarnessHint?(harness: string | undefined): void;
+  /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
+  onHarnessEnable?(folder: string, id: string): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -120,6 +122,7 @@ export function ComposerPickers({
   onEffort,
   onHarness,
   onHarnessHint,
+  onHarnessEnable,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -130,14 +133,18 @@ export function ComposerPickers({
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
-  const pickerEntries = pickerCatalog
-    ? pickerCatalog.harnesses.map((entry) => ({
-        id: entry.acpmuxHarness ?? entry.id,
-        name: entry.name,
-        models: entry.models,
-        ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-        pickable: entry.pickable && entry.acpmuxHarness !== null,
-      }))
+  const pickerEntries: AcpmuxSnapshot["catalog"] = pickerCatalog
+    ? [
+        ...pickerCatalog.harnesses.map((entry) => ({
+          id: entry.acpmuxHarness ?? entry.id,
+          name: entry.name,
+          models: entry.models,
+          ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+          pickable: entry.pickable && entry.acpmuxHarness !== null,
+        })),
+        // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
+        ...snapshot.catalog.filter((entry) => entry.folder),
+      ]
     : snapshot.catalog;
   // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
   const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
@@ -280,6 +287,7 @@ export function ComposerPickers({
           }}
           onHarness={onHarness}
           onHarnessHint={onHarnessHint}
+          onHarnessEnable={onHarnessEnable}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={

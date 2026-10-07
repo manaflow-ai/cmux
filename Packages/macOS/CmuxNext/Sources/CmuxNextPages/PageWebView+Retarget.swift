@@ -8,8 +8,11 @@ extension PageWebView {
     /// Retargets a pooled view to another bundled React page.
     ///
     /// Rebinding resets the router before the new descriptor is admitted, so every subscription and
-    /// in-flight page operation owned by the old document is cancelled. A host already showing the
-    /// requested descriptor keeps its document and only changes its routes and fragment.
+    /// in-flight page operation owned by the old document is cancelled. The document always loads
+    /// again, also for the same descriptor: the old document already ran its first reads and
+    /// subscriptions against the old routes (a parked spare has none, so its reads failed), and it
+    /// would keep that state with no live subscription (cx-o9kv). A plain load of the same URL with
+    /// another fragment is only a fragment navigation in WebKit, so that case reloads from script.
     @discardableResult
     func retarget(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                   documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
@@ -17,7 +20,6 @@ extension PageWebView {
         guard isPooled, PageServedHosts.pooledDescriptors.contains(descriptor), PageWebView.servedRoot(for: descriptor) != nil else {
             return false
         }
-        let sameDocument = self.descriptor == descriptor && loaded
         router.rebind(descriptor: descriptor, routes: routes)
         self.descriptor = descriptor
         self.dynamicResources = dynamicResources
@@ -25,14 +27,27 @@ extension PageWebView {
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         touched = false
-        if !sameDocument {
-            reinstallPageScripts(documentAttributes: documentAttributes)
-            loaded = false
-            webView.load(URLRequest(url: descriptor.url(route: route)))
-        } else if let route {
-            open(route: route)
+        reinstallPageScripts(documentAttributes: documentAttributes)
+        installDocumentStartTheme()
+        loaded = false
+        let target = descriptor.url(route: route)
+        if let current = webView.url, Self.sameDocumentURL(current, target) {
+            let fragment = self.route ?? "/"
+            webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
+                                       completionHandler: nil)
+        } else {
+            webView.load(URLRequest(url: target))
         }
         return true
+    }
+
+    /// True when `a` and `b` differ at most in their fragment (a load would not replace the document).
+    nonisolated static func sameDocumentURL(_ a: URL, _ b: URL) -> Bool {
+        var left = URLComponents(url: a, resolvingAgainstBaseURL: false)
+        var right = URLComponents(url: b, resolvingAgainstBaseURL: false)
+        left?.fragment = nil
+        right?.fragment = nil
+        return left?.url == right?.url
     }
 
     /// Clears the router before an untouched host is parked for another claim.

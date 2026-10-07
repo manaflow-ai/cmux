@@ -211,12 +211,15 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
+    /// Serve the local CodeRouter in a separate process.
+    #[command(subcommand)]
+    Router(RouterCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -265,6 +268,12 @@ pub enum Command {
     Allow { session: String, option: Option<String> },
     #[command(hide = true)]
     Deny { session: String },
+    #[command(hide = true)]
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
     #[command(hide = true)]
     Export {
         session: String,
@@ -447,6 +456,15 @@ pub enum SessionCmd {
     Allow { session: String, option: Option<String> },
     /// Reject a pending permission request.
     Deny { session: String },
+    /// Answer a pending agent question: one --answer per question, keyed by
+    /// question text, id or header; the choice is option labels or ids
+    /// (comma-separated for multi-select) or your own text. With no
+    /// --answer, print the questions and the command.
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -651,6 +669,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
+            SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Tail { session, last, follow, since } => {
@@ -678,6 +697,13 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Peer(pc),
+        Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
+}
+
+#[derive(Subcommand)]
+pub enum RouterCmd {
+    /// Start the phase-one local router listeners.
+    Serve,
 }

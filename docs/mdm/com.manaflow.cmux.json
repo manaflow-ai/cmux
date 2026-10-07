@@ -138,6 +138,12 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
+    },
     "appearance.backdropArt" : {
       "default" : "none",
       "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
@@ -283,6 +289,18 @@
       "default" : true,
       "description" : "A status that asks for a style (cmux status set --style) uses it.",
       "title" : "Let Statuses Choose Their Style",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showAgentWorkingOnTabs" : {
+      "default" : true,
+      "description" : "Three dots take the tab's icon place while an agent works.",
+      "title" : "Show Agent Working on Tabs",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showPageLoading" : {
+      "default" : true,
+      "description" : "A spinner takes a browser tab's icon place while its page loads.",
+      "title" : "Show Page Loading on Tabs",
       "type" : "boolean"
     },
     "appearance.statusIndicator.size" : {
@@ -658,6 +676,12 @@
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
       "type" : "boolean"
     },
     "diff.diffIndicators" : {
@@ -1417,6 +1441,12 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -1945,6 +1975,12 @@
       ],
       "title" : "Tab Bar Position",
       "type" : "string"
+    },
+    "tabs.cmdWClosesPinnedTabs" : {
+      "default" : false,
+      "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
+      "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
     },
     "tabs.newTabKind" : {
       "default" : "page",

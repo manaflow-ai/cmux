@@ -20,7 +20,8 @@ use std::time::{Duration, Instant};
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
-    InputEvent, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, encode_stream_frame, flags,
+    DatagramHeader, DatagramKind, InputEvent, InputPacket, SERVICE_REMOTE_BROWSER, STREAM_CONTROL,
+    STREAM_DATAGRAM, encode_stream_frame, flags,
 };
 
 /// Probe settings.
@@ -35,6 +36,14 @@ pub struct Plan {
     /// cancel), then key `d` must show an rb dialog (answered with OK). Needs
     /// a page that opens an alert on `d` ([`UI_PAGE`]).
     pub ui: bool,
+    /// Then each picker of [`PICKER_PAGE`] (date, color, datalist): a click
+    /// opens it, which must show an rb surface with frames on its own
+    /// stream; a click inside the surface answers it, which must hide it.
+    pub pickers: bool,
+    /// Last: hold key `S`, then skip one input sequence number so the host
+    /// skips a gap and must release `S` ([`PICKER_PAGE`] turns green on the
+    /// release; the host logs `release_all`).
+    pub stuck_key: bool,
 }
 
 /// A page for `--ui`: key `d` opens an alert; a right-click opens the
@@ -42,6 +51,35 @@ pub struct Plan {
 pub const UI_PAGE: &str = "data:text/html,<html><body style='margin:0;background:%23203040'>\
 <script>addEventListener('keydown',e=>{if(e.key=='d')alert('hello from the host');});\
 document.title='ready';</script></body></html>";
+
+/// A page for `--pickers` and `--stuck-key`: a date input, a color input
+/// with suggestions and a text input with a datalist (each opens its
+/// picker on click), and a body that is red while `S` is held.
+pub const PICKER_PAGE: &str = "data:text/html,<html><body style='margin:0;background:%23203040'>\
+<input id=d type=date style='position:absolute;left:20px;top:20px;width:200px;height:30px'>\
+<input id=c type=color list=cl style='position:absolute;left:20px;top:80px;width:60px;height:30px'>\
+<datalist id=cl><option value=%23ff0000><option value=%2300ff00><option value=%230000ff></datalist>\
+<input id=t list=tl style='position:absolute;left:20px;top:140px;width:200px;height:30px'>\
+<datalist id=tl><option value=alpha><option value=beta><option value=gamma></datalist>\
+<script>for(const e of document.querySelectorAll('input')){\
+e.addEventListener('click',()=>{if(e.type!='color'){try{e.showPicker()}catch(x){document.title='err '+x}}});\
+e.addEventListener('input',()=>document.title=e.id+'='+e.value);}\
+addEventListener('keydown',e=>{if(e.code=='KeyS'){document.body.style.background='red';document.title='held KeyS'}});\
+addEventListener('keyup',e=>{if(e.code=='KeyS'){document.body.style.background='green';document.title='released KeyS'}});\
+document.title='ready';</script></body></html>";
+
+/// A picker of [`PICKER_PAGE`]: name, where to click on the page (DIP), and
+/// where to click inside the open surface as a fraction of its size.
+type Picker = (&'static str, (f64, f64), (f64, f64));
+
+const PICKERS: [Picker; 3] = [
+    // A day in the middle of the calendar grid.
+    ("date", (120.0, 35.0), (0.5, 0.6)),
+    // The first suggested swatch.
+    ("color", (50.0, 95.0), (0.115, 0.26)),
+    // The first option.
+    ("datalist", (120.0, 155.0), (0.5, 0.15)),
+];
 
 impl Default for Plan {
     fn default() -> Self {
@@ -52,6 +90,8 @@ impl Default for Plan {
             key_spacing_ms: 200,
             first_frame_timeout_ms: 30_000,
             ui: false,
+            pickers: false,
+            stuck_key: false,
         }
     }
 }
@@ -72,17 +112,135 @@ pub struct Report {
     pub menu_items: Option<usize>,
     /// `--ui`: the kind of the dialog the viewer was shown.
     pub dialog_kind: Option<String>,
+    /// `--pickers`: one entry per picker.
+    pub pickers: Vec<PickerResult>,
+    /// Complete frames per popup stream.
+    pub popup_frames: std::collections::BTreeMap<u16, u64>,
+    /// `--stuck-key`: frames after the sequence gap (the release repaints).
+    pub frames_after_gap: Option<u64>,
+}
+
+/// What one picker did.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct PickerResult {
+    pub name: String,
+    pub surface: Option<u64>,
+    pub stream: Option<u16>,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    /// Complete frames on its stream before the answer.
+    pub frames: u64,
+    /// `rb.surface.hide` came after the click inside it.
+    pub answered: bool,
 }
 
 #[derive(PartialEq)]
 enum Phase {
     WaitFirst,
-    Settle { until: Instant },
-    Idle { until: Instant, start_frames: u64 },
-    Keys { next: Instant },
-    Menu { until: Instant },
-    Dialog { until: Instant },
+    Settle {
+        until: Instant,
+    },
+    Idle {
+        until: Instant,
+        start_frames: u64,
+    },
+    Keys {
+        next: Instant,
+    },
+    Menu {
+        until: Instant,
+    },
+    Dialog {
+        until: Instant,
+    },
+    /// Click picker `index` open (past the last one: the next check).
+    PickerStart {
+        index: usize,
+    },
+    /// Picker `index` was clicked when `shows` surfaces had been shown:
+    /// waiting for its surface and a frame on its stream.
+    PickerOpen {
+        index: usize,
+        shows: usize,
+        until: Instant,
+    },
+    /// Picker `index`: answered, waiting for `rb.surface.hide`.
+    PickerAnswer {
+        index: usize,
+        surface: u64,
+        until: Instant,
+    },
+    /// A picker stayed open: Escape went out; picker `index` starts at `until`.
+    PickerPause {
+        index: usize,
+        until: Instant,
+    },
+    /// Press `S` (its release is the one the gap loses).
+    StuckStart,
+    /// `S` is down (sequence `seq`); the gap packet goes out at `at`.
+    StuckHold {
+        seq: u32,
+        at: Instant,
+    },
+    /// The gap packet went out; frames from `frames` on are after it.
+    StuckWait {
+        until: Instant,
+        frames: u64,
+    },
     Done,
+}
+
+fn click(surface: u64, x: f64, y: f64, down: bool) -> Vec<u8> {
+    serde_json::json!({"e": "pointer", "surface": surface, "kind": if down { "down" } else { "up" },
+        "x": x, "y": y, "button": 0, "buttons": u8::from(down),
+        "click_count": 1, "modifiers": 0, "pointer_type": "mouse"})
+    .to_string()
+    .into_bytes()
+}
+
+fn pointer_move(x: f64, y: f64) -> Vec<u8> {
+    serde_json::json!({"e": "pointer", "surface": 0, "kind": "move", "x": x, "y": y,
+        "button": 0, "buttons": 0, "click_count": 0, "modifiers": 0, "pointer_type": "mouse"})
+    .to_string()
+    .into_bytes()
+}
+
+/// The phase after the keys and the menu and dialog checks.
+fn after_ui(plan: &Plan) -> Phase {
+    if plan.pickers { Phase::PickerStart { index: 0 } } else { after_pickers(plan) }
+}
+
+fn after_pickers(plan: &Plan) -> Phase {
+    if plan.stuck_key { Phase::StuckStart } else { Phase::Done }
+}
+
+/// Every rb message `t` in `controls`.
+fn rb_messages<'a>(
+    controls: &'a [serde_json::Value],
+    t: &'a str,
+) -> impl Iterator<Item = &'a serde_json::Value> + 'a {
+    controls.iter().map(|c| &c["body"]).filter(move |b| b["t"] == t)
+}
+
+/// One stream-framed input datagram with `events` from sequence `first_seq`
+/// (the probe's own gap: the input channel never skips a number).
+fn raw_input(first_seq: u32, events: Vec<InputEvent>) -> Vec<u8> {
+    let mut datagram = Vec::new();
+    DatagramHeader {
+        flags: 0,
+        kind: DatagramKind::Input,
+        stream: 0,
+        frame: 0,
+        index: 0,
+        count: 0,
+        fec_count: 0,
+        transport_seq: 0,
+    }
+    .encode_into(&mut datagram);
+    datagram.extend_from_slice(&InputPacket { first_seq, events }.encode());
+    let mut out = Vec::new();
+    let _ = encode_stream_frame(STREAM_DATAGRAM, &datagram, &mut out);
+    out
 }
 
 fn key_event(down: bool) -> Vec<u8> {
@@ -90,7 +248,8 @@ fn key_event(down: bool) -> Vec<u8> {
 }
 
 fn key(down: bool, code: &str, key: &str) -> Vec<u8> {
-    let text = if down { key } else { "" };
+    // Named keys (Escape) carry no text.
+    let text = if down && key.chars().count() == 1 { key } else { "" };
     serde_json::json!({"e": "key", "surface": 0, "down": down, "code": code, "key": key,
         "text": text, "unmodified_text": text, "modifiers": 0, "repeat": false,
         "location": 0, "edit_commands": []})
@@ -183,13 +342,31 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
         while let Some(m) = core.pop_message() {
             if m.kind == STREAM_CONTROL {
                 if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&m.bytes) {
+                    // A surface's frames follow its show on the same carrier.
+                    let body = &v["body"];
+                    let stream = body["stream"].as_u64().and_then(|s| u16::try_from(s).ok());
+                    if let (true, Some(stream)) = (body["t"] == "rb.surface.show", stream) {
+                        let _ = core.open_stream(stream);
+                    }
                     r.controls.push(v);
                 }
             } else {
                 let _ = input.on_ack(&m.bytes);
             }
         }
-        while let Some((_, frame)) = core.pop_frame() {
+        while let Some((stream, frame)) = core.pop_frame() {
+            if stream != 0 {
+                *r.popup_frames.entry(stream).or_default() += 1;
+                // Each popup stream to its own file, for an offline decode.
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(out.join(format!("popup-{stream}.h264")))
+                {
+                    let _ = f.write_all(&frame.body.access_unit);
+                }
+                continue;
+            }
             r.frames += 1;
             r.bytes += frame.body.access_unit.len() as u64;
             r.keyframes += u64::from(frame.flags & flags::KEYFRAME != 0);
@@ -228,7 +405,7 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
                     });
                     Phase::Menu { until: at + Duration::from_secs(5) }
                 } else if r.keys_sent >= plan.keys {
-                    Phase::Done
+                    after_ui(&plan)
                 } else {
                     // A missed frame for the previous key counts as no sample.
                     key_sent_at = Some(at);
@@ -263,11 +440,101 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
                     let answer = serde_json::json!({"t": "rb.dialog.result",
                         "token": show["token"], "accept": true, "text": null});
                     sock.write_all(&service(answer)).map_err(|e| e.to_string())?;
-                    Phase::Done
+                    after_ui(&plan)
                 }
                 None if at >= until => return Err("no rb.dialog.show after key d".into()),
                 None => Phase::Dialog { until },
             },
+            Phase::PickerStart { index } => match PICKERS.get(index) {
+                None => after_pickers(&plan),
+                Some(&(name, (x, y), _)) => {
+                    r.pickers.push(PickerResult { name: name.into(), ..PickerResult::default() });
+                    for down in [true, false] {
+                        let bytes = click(0, x, y, down);
+                        input.push(InputEvent::Service { must_deliver: true, bytes });
+                    }
+                    let shows = rb_messages(&r.controls, "rb.surface.show").count();
+                    Phase::PickerOpen { index, shows, until: at + Duration::from_secs(8) }
+                }
+            },
+            Phase::PickerOpen { index, shows, until } => {
+                let name = PICKERS[index].0;
+                match rb_messages(&r.controls, "rb.surface.show").nth(shows).cloned() {
+                    None if at >= until => {
+                        return Err(format!("picker {name}: no rb.surface.show"));
+                    }
+                    None => Phase::PickerOpen { index, shows, until },
+                    Some(show) => {
+                        let stream = show["stream"].as_u64().and_then(|s| u16::try_from(s).ok());
+                        let frames =
+                            stream.and_then(|s| r.popup_frames.get(&s)).copied().unwrap_or(0);
+                        let surface = show["surface"].as_u64().unwrap_or(0);
+                        if let Some(p) = r.pickers.get_mut(index) {
+                            p.surface = Some(surface);
+                            p.stream = stream;
+                            p.width = show["width"].as_u64();
+                            p.height = show["height"].as_u64();
+                            p.frames = frames;
+                        }
+                        if frames > 0 {
+                            // Answer it: a click inside the surface (its DIP).
+                            let (fx, fy) = PICKERS[index].2;
+                            let w = show["anchor"]["width"].as_f64().unwrap_or(100.0);
+                            let h = show["anchor"]["height"].as_f64().unwrap_or(100.0);
+                            for down in [true, false] {
+                                let bytes = click(surface, w * fx, h * fy, down);
+                                input.push(InputEvent::Service { must_deliver: true, bytes });
+                            }
+                            let until = at + Duration::from_secs(5);
+                            Phase::PickerAnswer { index, surface, until }
+                        } else if at >= until {
+                            return Err(format!("picker {name}: no frame on its stream"));
+                        } else {
+                            Phase::PickerOpen { index, shows, until }
+                        }
+                    }
+                }
+            }
+            Phase::PickerAnswer { index, surface, until } => {
+                let hidden = rb_messages(&r.controls, "rb.surface.hide")
+                    .any(|b| b["surface"].as_u64() == Some(surface));
+                if hidden || at >= until {
+                    if let Some(p) = r.pickers.get_mut(index) {
+                        p.answered = hidden;
+                    }
+                    if hidden {
+                        Phase::PickerStart { index: index + 1 }
+                    } else {
+                        // Close it, so the next click opens the next picker.
+                        for down in [true, false] {
+                            let bytes = key(down, "Escape", "Escape");
+                            input.push(InputEvent::Service { must_deliver: true, bytes });
+                        }
+                        let until = at + Duration::from_millis(700);
+                        Phase::PickerPause { index: index + 1, until }
+                    }
+                } else {
+                    Phase::PickerAnswer { index, surface, until }
+                }
+            }
+            Phase::PickerPause { index, until } if at >= until => Phase::PickerStart { index },
+            Phase::StuckStart => {
+                let bytes = key(true, "KeyS", "s");
+                let seq = input.push(InputEvent::Service { must_deliver: true, bytes });
+                Phase::StuckHold { seq, at: at + Duration::from_millis(500) }
+            }
+            Phase::StuckHold { seq, at: due } if at >= due => {
+                // The key-up (seq + 1) is "lost": the next packet starts after it.
+                let bytes = pointer_move(5.0, 5.0);
+                let events = vec![InputEvent::Service { must_deliver: true, bytes }];
+                sock.write_all(&raw_input(seq.wrapping_add(2), events))
+                    .map_err(|e| e.to_string())?;
+                Phase::StuckWait { until: at + Duration::from_secs(2), frames: r.frames }
+            }
+            Phase::StuckWait { until, frames } if at >= until => {
+                r.frames_after_gap = Some(r.frames - frames);
+                Phase::Done
+            }
             other => other,
         };
         while let Some(packet) = input.packet(now()) {
@@ -299,6 +566,9 @@ fn result_json(r: &Report) -> String {
         "controls": r.controls.iter().map(|c| c["t"].clone()).collect::<Vec<_>>(),
         "menu_items": r.menu_items,
         "dialog_kind": r.dialog_kind,
+        "pickers": r.pickers,
+        "popup_frames": r.popup_frames,
+        "frames_after_gap": r.frames_after_gap,
         "error": r.error,
     })
     .to_string()

@@ -5,7 +5,7 @@ import Synchronization
 /// A scripted v1 daemon that keeps a workspace tree and changes it like
 /// cmux-tui for the commands App tests run (`new-tab`, `split`,
 /// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`,
-/// `rename-workspace`, `close-surface`).
+/// `rename-workspace`, `close-surface`, `new-conversation-tab` into a workspace).
 /// `list-workspaces` reports the current tree, so `DaemonService.reconcile`
 /// mirrors what a command made; a command that changes the tree also sends
 /// `tree-changed`, as cmux-tui does. It starts with one workspace whose one pane
@@ -181,6 +181,19 @@ nonisolated final class TopologyDaemon: Sendable {
                 }
                 guard let created else { return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#] }
                 return ok(#"{"surface":\#(created.surface),"terminal_id":"\#(UUID().uuidString.lowercased())","pane":\#(created.pane),"screen":\#(created.screen),"workspace":\#(created.workspace),"key":"\#(key)","lifecycle":"running","replayed":false}"#)
+            case "new-conversation-tab":
+                // Only the `workspace` form (an empty workspace's first
+                // tab): a new pane holding the new surface.
+                let workspace = int("workspace")
+                let surface = state.tree.withLock { tree -> Int? in
+                    guard let w = tree.workspaces.firstIndex(where: { $0.id == workspace }) else { return nil }
+                    let screen = tree.next(), pane = tree.next(), surface = tree.next()
+                    tree.workspaces[w].screens.append(Screen(id: screen, layout: .leaf(pane), panes: [Pane(id: pane, tabs: [surface])]))
+                    tree.revision += 1
+                    return surface
+                }
+                guard let surface else { return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#] }
+                return ok(#"{"surface":\#(surface),"replayed":false}"#)
             case "close-surface":
                 let surface = int("surface")
                 let closed = state.tree.withLock { tree -> Bool in

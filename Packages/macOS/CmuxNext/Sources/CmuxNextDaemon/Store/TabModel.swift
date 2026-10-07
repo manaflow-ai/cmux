@@ -44,6 +44,9 @@ public final class TabModel: Identifiable {
     /// Browser page zoom or terminal font scale saved on the tab record;
     /// nil = 1 (daemon state resources).
     public internal(set) var zoom: Double?
+    /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
+    /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
+    public internal(set) var userIcon: String?
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -51,6 +54,8 @@ public final class TabModel: Identifiable {
     /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
     /// not (`TerminalSnapshot.extra.progress`).
     public internal(set) var progress: TerminalProgressReport?
+    /// The terminal's OSC 7501 program status records (`extra.program_status`).
+    public internal(set) var programStatus: [ProgramStatusRecord] = []
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -139,12 +144,14 @@ public final class TabModel: Identifiable {
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
-    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?) {
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
+        if userIcon != record.icon { userIcon = record.icon }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
+        if self.programStatus != programStatus { self.programStatus = programStatus }
     }
 
     /// Point updates from surface events (no full snapshot).

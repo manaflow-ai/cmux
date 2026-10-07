@@ -64,11 +64,11 @@ final class ProxiedBrowserTabs {
 
     /// `address`, the favicon of tab `key`, when the app may fetch it itself:
     /// nil for a loopback icon of a remote store (a remote-localhost page or a
-    /// proxied tab), which would load from this Mac (BrowserFaviconPolicy).
+    /// proxied tab), which would load from this Mac (URL.isAppFetchableFavicon).
     func appFetchableFavicon(_ address: String?, key: String, page: (any BrowserTab)?) -> String? {
         let remote = (page as? CEFTab)?.machineStore != nil || isProxied(key)
         guard let address, let url = URL(string: address) else { return address }
-        return BrowserFaviconPolicy.appMayFetch(url, remoteStore: remote) ? address : nil
+        return url.isAppFetchableFavicon(remoteStore: remote) ? address : nil
     }
 
     /// `plan` as the cache's configuration hook: nil (a blank page) for a
