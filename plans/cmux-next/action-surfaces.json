@@ -7726,6 +7726,80 @@
     },
     {
       "cli" : "focusMove",
+      "cli_name" : "action home-previous-conversation",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.previousConversation",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Previous Conversation",
+      "title_key" : "action.home.previousConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-next-conversation",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.nextConversation",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Next Conversation",
+      "title_key" : "action.home.nextConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
       "cli_name" : "action home-open-conversation",
       "context_menu" : "focusMove",
       "context_menus" : [
@@ -16597,6 +16671,32 @@
       },
       "title" : "Toggle Chief Settings",
       "title_key" : "action.home.toggleChiefSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action chief-open-memory-inspector",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.openMemoryInspector",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Chief: Open Memory Inspector",
+      "title_key" : "action.chief.openMemoryInspector",
       "title_table" : "ActionCatalog"
     },
     {

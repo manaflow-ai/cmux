@@ -138,6 +138,16 @@ out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$fake_home/Library/D
 reminder_args "$out" "$args"
 has_arg "$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag" "$args" \
   || fail "the reminder must still remove a per-tag DerivedData: $out"
+# Deleting a tag's bundle leaves its detached cmux-tui owner running from the deleted
+# executable. The reminder stops it through the bundle's own binary before any rm.
+own_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
+stop_line="$(printf '%s\n' "$out" | grep -F -- "--session cmux-app-$tag server stop --end-terminals" || true)"
+[[ -n "$stop_line" ]] || fail "the reminder does not stop the tag's cmux-tui owner: $out"
+[[ "$stop_line" == *"$(printf '%q' "$own_app/Contents/Resources/bin/cmux-tui")"* ]] \
+  || fail "the stop does not run the tag bundle's own cmux-tui: $stop_line"
+first_rm="$(printf '%s\n' "$out" | grep -n '^  rm ' | head -1 | cut -d: -f1)"
+stop_at="$(printf '%s\n' "$out" | grep -nF -- "server stop --end-terminals" | head -1 | cut -d: -f1)"
+(( stop_at < first_rm )) || fail "the owner must be stopped before the bundle is removed: $out"
 
 # The reminder is pasted into a shell, so a path carrying shell syntax must come back out
 # as that literal path and must never run.

@@ -4961,25 +4961,9 @@ mod unix {
         let pty_writer = master.take_writer()?;
         let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
 
-        let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
         let clipboard = ClipboardReads::new(Arc::new(SystemClock));
-        let title_changed = Arc::new(AtomicBool::new(false));
-        let bell = Arc::new(AtomicBool::new(false));
-        let callbacks = Callbacks {
-            on_pty_write: Some(Box::new({
-                let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
-            })),
-            on_title_changed: Some(Box::new({
-                let title_changed = title_changed.clone();
-                move || title_changed.store(true, Ordering::Release)
-            })),
-            on_bell: Some(Box::new({
-                let bell = bell.clone();
-                move || bell.store(true, Ordering::Release)
-            })),
-            on_clipboard_read: Some(clipboard.callback()),
-        };
+        let signals = ParserSignals::new();
+        let callbacks = signals.callbacks(&clipboard);
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
         term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
@@ -5046,7 +5030,6 @@ mod unix {
         shared.clipboard.start_timer(&shared)?;
 
         let parser_host = shared.clone();
-        let signals = ParserSignals { pending_responses, title_changed, bell };
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
             let guarded = parser_host.clone();
             let parse = move || {
