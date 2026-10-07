@@ -50,6 +50,14 @@ extension AppActions {
             }
             registry.track(work)
         })
+        // Cmd-Shift-[ / ] on Home: the previous or next conversation in the list; stops at the ends.
+        for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
+            registry.bind(id) {
+                guard let page = homePage(services) else { return }
+                guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
+                page.show(next)
+            }
+        }
         registry.bind("home.openConversation", invoke: { invocation in
             guard let id = invocation["conversation"]?.stringValue, !id.isEmpty else {
                 registry.refuse(RefusalStrings.homeNotReady)
