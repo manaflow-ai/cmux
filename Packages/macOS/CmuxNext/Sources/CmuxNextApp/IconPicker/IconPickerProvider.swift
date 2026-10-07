@@ -21,6 +21,16 @@ final class IconPickerProvider: PageProvider {
         self.onFinish = onFinish
     }
 
+    /// Red stub for the warm page's long-lived provider (S3 d).
+    init(prefs: IconPickerPrefsStore, catalog: IconPickerSymbolCatalog? = nil, maxEmojiVersion: Int? = nil) {
+        session = IconPickerSession(id: "", current: nil)
+        self.prefs = prefs
+        onFinish = { _ in }
+    }
+
+    /// Red stub: does not start the session.
+    func begin(_ session: IconPickerSession, onFinish: @escaping (IconPickerResult) -> Void) {}
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.iconPicker.finish":

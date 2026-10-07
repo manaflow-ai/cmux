@@ -32,8 +32,8 @@ struct IconPickerHostTests {
 
     @Test func aSessionFinishesOnce() async throws {
         var results: [IconPickerResult] = []
-        let provider = IconPickerProvider(session: IconPickerSession(id: "s1", current: nil),
-                                          prefs: IconPickerPrefsStore(services: nil)) { results.append($0) }
+        let provider = IconPickerProvider(prefs: IconPickerPrefsStore(services: nil))
+        provider.begin(IconPickerSession(id: "s1", current: nil)) { results.append($0) }
         let context = PageCallContext(page: "cmux.icon-picker")
         _ = try await provider.call("cmux.iconPicker.finish", params: .object(["session": .string("s1"), "value": .string("🚀")]),
                                     context: context)
@@ -42,6 +42,39 @@ struct IconPickerHostTests {
         await #expect(throws: PageError.self) {
             try await provider.call("cmux.iconPicker.asset.put", params: .object([:]), context: context)
         }
+    }
+
+    /// S3 d: the warm page's one provider serves every session over one subscription. The
+    /// catalog goes with the first event of a page load; a later session's event has none; a
+    /// late finish from an earlier session is refused.
+    @Test func oneProviderServesEverySessionOfTheWarmPage() async throws {
+        let catalog = IconPickerSymbolCatalog(names: ["star"], keywords: [""], categories: [])
+        let provider = IconPickerProvider(prefs: IconPickerPrefsStore(services: nil), catalog: catalog, maxEmojiVersion: 160)
+        let context = PageCallContext(page: "cmux.icon-picker")
+        var events: [JSONValue] = []
+        var results: [String] = []
+        provider.begin(IconPickerSession(id: "s1", current: nil)) { results.append("s1 \($0)") }
+        _ = try await provider.subscribe(IconPickerProvider.sessionStream, filter: .null, context: context) { events.append($0) }
+        #expect(events.map { $0["id"] } == [.string("s1")])
+        #expect(events.first?["symbols"] == .array([.string("star")]))
+        #expect(events.first?["maxEmojiVersion"] == JSONValue(160))
+
+        provider.finish(.cancel)
+        provider.begin(IconPickerSession(id: "s2", current: "🚀")) { results.append("s2 \($0)") }
+        #expect(events.map { $0["id"] } == [.string("s1"), .string("s2")])
+        #expect(events.last?["symbols"] == nil && events.last?["value"] == .string("🚀"))
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.iconPicker.finish", params: .object(["session": .string("s1"), "value": .string("🎉")]),
+                                    context: context)
+        }
+        _ = try await provider.call("cmux.iconPicker.finish", params: .object(["session": .string("s2"), "value": .string("🎉")]),
+                                    context: context)
+        #expect(results == ["s1 cancel", "s2 set(\"🎉\")"])
+
+        // A page reload (a crash) subscribes again and gets the catalog with the current session.
+        var reloaded: [JSONValue] = []
+        _ = try await provider.subscribe(IconPickerProvider.sessionStream, filter: .null, context: context) { reloaded.append($0) }
+        #expect(reloaded.first?["id"] == .string("s2") && reloaded.first?["symbols"] != nil)
     }
 
     @Test func prefsMergeKeepsEveryRecentAndOurTone() {
