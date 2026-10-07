@@ -387,12 +387,20 @@ mark {
   align-items: center;
 }
 
-.select select {
+.select .ui-select-native {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.select .ui-select-button {
   appearance: none;
   padding-right: 24px;
 }
 
-.select .icon {
+.select .ui-select-chevron {
   position: absolute;
   right: 6px;
   color: var(--muted-text);
