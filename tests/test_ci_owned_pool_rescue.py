@@ -2107,8 +2107,13 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
-    def test_polls_from_a_github_hosted_runner(self):
-        self.assertEqual(self.doc["jobs"]["rescue"]["runs-on"], "ubuntu-24.04")
+    def test_polls_from_an_ephemeral_runner(self):
+        # Never from an owned pool it may rescue, and never only from
+        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+        self.assertEqual(
+            self.doc["jobs"]["rescue"]["runs-on"],
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+        )
 
     def test_marker_steps_never_fail_the_changes_job(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["changes"]["steps"]
