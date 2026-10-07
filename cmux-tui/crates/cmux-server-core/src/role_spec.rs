@@ -152,7 +152,7 @@ fn parse_entry(name: &str, entry: &Value) -> Result<Option<RoleSpec>, String> {
     let spec = RoleSpec {
         name: name.to_owned(),
         program: program(entry)?,
-        args: args(entry)?,
+        args: remote_entry_args(args(entry)?)?,
         env: env(entry)?,
         restart: match str_field(entry, "restart")?.unwrap_or("always") {
             "always" => RestartPolicy::Always,
@@ -221,12 +221,63 @@ fn env(entry: &Map<String, Value>) -> Result<BTreeMap<String, String>, String> {
         if !valid_env_key(key) {
             return Err(format!("`env` key {key:?} is not allowed"));
         }
+        if key.starts_with("CMUX_TUI_REMOTE_WS") {
+            return Err(format!(
+                "`env` key {key:?} would set a cmux-tui remote entry; roles may not"
+            ));
+        }
         match value.as_str() {
             Some(s) if !s.contains('\0') => env.insert(key.clone(), s.to_owned()),
             _ => return Err(format!("`env` value of {key} must be a string")),
         };
     }
     Ok(env)
+}
+
+/// Refuses args that open a cmux-tui remote entry wider than loopback or
+/// the tailnet, or that turn on the trusted carrier: on a user's server the
+/// remote entry stays private and enrolled (vm-image.md 6.3a).
+fn remote_entry_args(args: Vec<String>) -> Result<Vec<String>, String> {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--remote-ws-trusted-carrier" {
+            return Err("a role may not turn on the remote trusted carrier \
+                        (only cmux Cloud machines, through /etc/cmux/host.json)"
+                .to_owned());
+        }
+        let address = match word.strip_prefix("--remote-ws=") {
+            Some(address) => Some(address),
+            None if word == "--remote-ws" => {
+                Some(words.next().ok_or("`--remote-ws` in a role needs an address")?.as_str())
+            }
+            None => None,
+        };
+        if let Some(address) = address {
+            let private = address
+                .parse::<std::net::SocketAddr>()
+                .is_ok_and(|socket| private_listen_address(socket.ip()));
+            if !private {
+                return Err(format!(
+                    "a role's remote entry {address:?} must be a loopback or tailnet address"
+                ));
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// Loopback, or Tailscale's ranges (100.64.0.0/10, fd7a:115c:a1e0::/48).
+pub fn private_listen_address(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback() || (a == 100 && (64..128).contains(&b))
+        }
+        std::net::IpAddr::V6(v6) => {
+            let s = v6.segments();
+            v6.is_loopback() || (s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0)
+        }
+    }
 }
 
 fn stop_grace(entry: &Map<String, Value>) -> Result<Duration, String> {
