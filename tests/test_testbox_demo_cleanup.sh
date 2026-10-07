@@ -4,8 +4,9 @@
 #  1. A box the wrapper names (TBX=) is stopped and its warmup run is
 #     cancelled in every exit path: wrapper failure after TBX=, a wrapper
 #     that hangs past the warmup bound, and a later step that fails.
-#     Ctrl-C (SIGINT to the demo's process group, as a terminal sends it)
-#     ends a running bounded step at once, stops the box and exits 130.
+#     Ctrl-C (SIGINT to the demo's process group, as a terminal sends it) or
+#     TERM ends a running bounded step at once, stops the box and exits 130
+#     or 143; a second Ctrl-C during that cleanup does not abort it.
 #  2. Without an hq checkout the demo starts nothing and names the public
 #     fallback instead of a personal default path.
 set -euo pipefail
@@ -58,6 +59,10 @@ cat >"$bin/blacksmith" <<SH
 #!/usr/bin/env bash
 echo "blacksmith \$*" >>"$work/calls"
 case "\$*" in
+  "testbox stop --id "*)
+    touch "\$FAKE_STATE/stopping"
+    [[ -z "\${FAKE_SLOW_STOP:-}" ]] || sleep 2
+    echo "blacksmith testbox stopped \$4" >>"$work/calls" ;;
   --version) echo "blacksmith 0.0.0-fake" ;;
   "testbox status"*) exit "\${FAKE_STATUS_EXIT:-0}" ;;
 esac
@@ -110,30 +115,45 @@ run_demo later-failure HQ_TOOLS="$work/hq" FAKE_WARMUP=ok FAKE_STATUS_EXIT=7
 called "blacksmith testbox stop --id tbx_ok" || fail "1c: box tbx_ok was not stopped"
 called "gh run cancel 4242" || fail "1c: run 4242 was not cancelled"
 
-# 1d. Ctrl-C while the wrapper runs after naming the box. The bounded step
-#     sits in its own process group under GNU timeout, so only the demo's
-#     trap can end it. Job control gives the demo its own group to signal.
-: >"$work/calls"
-rm -f "$work/state/"*
-log="$work/ctrl-c.log"
-set -m
-(cd "$repo" && exec env PATH="$bin:$PATH" FAKE_STATE="$work/state" HQ_TOOLS="$work/hq" \
-  FAKE_WARMUP=hang-after-tbx CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT=50 "$demo") >"$log" 2>&1 &
-demo_pid=$!
-set +m
-for _ in $(seq 1 100); do [[ -e "$work/state/named" ]] && break; sleep 0.1; done
-[[ -e "$work/state/named" ]] || fail "1d: the fake wrapper never named its box"
-started=$SECONDS
-kill -INT -- "-$demo_pid"
-set +e
-wait "$demo_pid"
-rc=$?
-set -e
-(( SECONDS - started < 20 )) || fail "1d: Ctrl-C took $((SECONDS - started)) s to end the demo"
-[[ $rc -eq 130 ]] || fail "1d: expected exit 130 after Ctrl-C (rc=$rc)"
-called "blacksmith testbox stop --id tbx_hung" || fail "1d: box tbx_hung was not stopped after Ctrl-C"
-called "gh run cancel 777" || fail "1d: the warmup run of tbx_hung was not cancelled after Ctrl-C"
-! kill -0 "$(cat "$work/state/wrapper-started")" 2>/dev/null || fail "1d: the wrapper still runs after Ctrl-C"
+# 1d-1f. Signals while the wrapper runs after naming the box. The bounded
+#     step sits in its own process group under GNU timeout, so only the
+#     demo's trap can end it. Job control gives the demo its own group, which
+#     is what a terminal signals on Ctrl-C.
+signal_demo() { # <case> <signal> <expected rc> [second signal during cleanup]
+  local name="$1" sig="$2" want="$3" second="${4:-}" target
+  : >"$work/calls"
+  rm -f "$work/state/"*
+  log="$work/$name.log"
+  set -m
+  (cd "$repo" && exec env PATH="$bin:$PATH" FAKE_STATE="$work/state" HQ_TOOLS="$work/hq" \
+    FAKE_WARMUP=hang-after-tbx FAKE_SLOW_STOP="${second:+1}" CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT=50 "$demo") >"$log" 2>&1 &
+  demo_pid=$!
+  set +m
+  for _ in $(seq 1 100); do [[ -e "$work/state/named" ]] && break; sleep 0.1; done
+  [[ -e "$work/state/named" ]] || fail "$name: the fake wrapper never named its box"
+  target="-$demo_pid"
+  [[ "$sig" == TERM ]] && target="$demo_pid"
+  started=$SECONDS
+  kill "-$sig" -- "$target"
+  if [[ -n "$second" ]]; then
+    # A second Ctrl-C while the box is being stopped must not abort cleanup.
+    for _ in $(seq 1 100); do [[ -e "$work/state/stopping" ]] && break; sleep 0.1; done
+    [[ -e "$work/state/stopping" ]] || fail "$name: cleanup never began to stop the box"
+    kill "-$second" -- "-$demo_pid" 2>/dev/null || true
+  fi
+  set +e
+  wait "$demo_pid"
+  rc=$?
+  set -e
+  (( SECONDS - started < 20 )) || fail "$name: $sig took $((SECONDS - started)) s to end the demo"
+  [[ $rc -eq $want ]] || fail "$name: expected exit $want after $sig (rc=$rc)"
+  called "blacksmith testbox stopped tbx_hung" || fail "$name: box tbx_hung was not stopped"
+  called "gh run cancel 777" || fail "$name: the warmup run of tbx_hung was not cancelled"
+  ! kill -0 "$(cat "$work/state/wrapper-started")" 2>/dev/null || fail "$name: the wrapper still runs"
+}
+signal_demo 1d-ctrl-c INT 130
+signal_demo 1e-term TERM 143
+signal_demo 1f-double-ctrl-c INT 130 INT
 
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok
