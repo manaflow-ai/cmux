@@ -273,6 +273,23 @@
         }
       }
     },
+    "conversation.ax.someone.emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reacted with %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@さんが%2$@でリアクションしました"
+          }
+        }
+      }
+    },
     "conversation.ax.someone.exclamation": {
       "extractionState": "manual",
       "localizations": {
@@ -490,6 +507,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "メッセージ"
+          }
+        }
+      }
+    },
+    "conversation.ax.you.emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You reacted with %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@でリアクションしました"
           }
         }
       }
