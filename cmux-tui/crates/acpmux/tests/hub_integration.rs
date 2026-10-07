@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/questions.rs"]
+mod questions;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
