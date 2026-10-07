@@ -1561,6 +1561,53 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.showWhatsNew.help",
+        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.showWhatsNew",
+      "keywords" : [
+        "whats new",
+        "release notes",
+        "changelog",
+        "update",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "showWhatsNew"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.showWhatsNew",
+        "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.announcements",
         "text" : "Announcements"
       },
@@ -14381,6 +14428,191 @@
     },
     {
       "accepts" : [
+        "always",
+        "collapsed",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesCollapsed",
+            "text" : "Collapsed"
+          },
+          "value" : "collapsed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.editedFiles.show.help",
+        "text" : "The card that lists a turn's edited files, with Undo and View changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.show",
+      "keywords" : [
+        "edited",
+        "files",
+        "undo",
+        "changes",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "show"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.show",
+        "text" : "Edited Files Card"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.maxRows",
+      "keywords" : [
+        "edited",
+        "files",
+        "rows",
+        "agent"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.maxRows",
+        "text" : "Edited Files Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "turn",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesTurn",
+            "text" : "Each Turn"
+          },
+          "value" : "turn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesSession",
+            "text" : "The Whole Chat"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "turn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.scope",
+      "keywords" : [
+        "edited",
+        "files",
+        "session",
+        "turn",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.scope",
+        "text" : "Edited Files Card Covers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15155,7 +15387,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bd01e8d3cb9c3056185102d2d635016a02161b9d958c06145709bb792a26d715",
+  "schema_hash" : "d42f6a54a875fa516195509eccfc25b964c41493daf5ed3de477445ded8952ab",
   "sections" : [
     {
       "id" : "general",

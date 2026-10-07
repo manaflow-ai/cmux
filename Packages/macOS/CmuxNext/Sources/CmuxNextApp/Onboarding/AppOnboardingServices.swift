@@ -175,14 +175,21 @@ final class AppOnboardingServices: OnboardingServices {
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    private lazy var computerUseSource: (any ComputerUsePermissionSource)? = {
+    /// Resolved on each read until a helper answers, then kept: a helper
+    /// that comes up after the first read still gets the step. The check is
+    /// one non-blocking local connect, never a wait or a poll.
+    private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
+    private var computerUseSource: (any ComputerUsePermissionSource)? {
+        if let resolvedComputerUseSource { return resolvedComputerUseSource }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+            resolvedComputerUseSource = MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+            return resolvedComputerUseSource
         }
         #endif
-        return AppComputerUsePermissionSource.local()
-    }()
+        resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
+        return resolvedComputerUseSource
+    }
 
     var hasAccountsStep: Bool { true }
 
@@ -207,5 +214,9 @@ final class AppOnboardingServices: OnboardingServices {
 
     func onboardingDidEnd(completed: Bool) {
         owner.didEnd(completed: completed)
+    }
+
+    func onboardingDidReach(_ step: OnboardingModel.Step) {
+        owner.recordProgress(step)
     }
 }
