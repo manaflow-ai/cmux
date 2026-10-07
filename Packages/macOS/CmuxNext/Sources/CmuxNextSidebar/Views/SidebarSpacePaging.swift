@@ -148,6 +148,7 @@ import QuartzCore
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
         model.showCounts = host.model.showCounts
+        model.showWorkspaceDirectory = host.model.showWorkspaceDirectory
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)
