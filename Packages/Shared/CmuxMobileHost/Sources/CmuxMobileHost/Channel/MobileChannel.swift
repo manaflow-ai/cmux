@@ -1,0 +1,158 @@
+import CmuxLink
+import CmuxMobileWire
+import Foundation
+
+/// One `cmux.mobile/1` channel bound onto one `LinkChannel` (b5-mac-host.md
+/// section 2): every link message is one A0 `StreamRecord` carrying this
+/// channel's A0 id and a per-direction seq from 1. Credit records are refused;
+/// the link's acks on consumption are the credit.
+///
+/// `receive()` has a single consumer. Sends are serialized by the actor.
+public actor MobileChannel {
+    /// The A0 channel id (0 for the session channel).
+    public let id: UInt32
+    public let link: LinkChannel
+    private var sendSeq: UInt64 = 0
+    private var receiveSeq: UInt64 = 0
+    private var ended = false
+
+    public init(id: UInt32, link: LinkChannel) {
+        self.id = id
+        self.link = link
+    }
+
+    /// Wraps a channel whose first record names its A0 id (`channel.open`).
+    /// Reads that record and returns it with the bound channel.
+    public static func accept(_ link: LinkChannel) async throws -> (MobileChannel, JSONValue) {
+        guard case .message(let message)? = await Self.nextEvent(link) else {
+            throw MobileWireError(code: "channel.closed", message: "channel closed before its first record")
+        }
+        let record: StreamRecord
+        do {
+            record = try StreamRecord(decoding: message.payload)
+        } catch {
+            throw MobileWireError(code: "proto.bad_record", message: "\(error)")
+        }
+        guard record.seq == 1, record.flags.contains(.json), !record.flags.contains(.credit) else {
+            throw MobileWireError(code: "proto.bad_record", message: "first record must be JSON with seq 1")
+        }
+        let value: JSONValue
+        do {
+            value = try record.jsonObject()
+        } catch {
+            throw MobileWireError(code: "proto.bad_record", message: "\(error)")
+        }
+        let channel = MobileChannel(id: record.channel, link: link, receivedFirst: true)
+        return (channel, value)
+    }
+
+    private init(id: UInt32, link: LinkChannel, receivedFirst: Bool) {
+        self.id = id
+        self.link = link
+        receiveSeq = receivedFirst ? 1 : 0
+    }
+
+    /// `ChannelEvents` iterators are stateless handles onto the session, so a
+    /// fresh one per call reads the same single sequence.
+    private nonisolated static func nextEvent(_ link: LinkChannel) async -> ChannelEvent? {
+        var iterator = link.events.makeAsyncIterator()
+        return await iterator.next()
+    }
+
+    // MARK: Send
+
+    /// Sends a JSON object (frame or channel message).
+    public func send(json: JSONValue, flags: RecordFlags = []) async throws {
+        sendSeq += 1
+        let record = try StreamRecord.json(channel: id, seq: sendSeq, object: json, flags: flags)
+        try await link.send(record.encoded)
+    }
+
+    public func send(frame: MobileFrame) async throws {
+        try await send(json: frame.jsonValue)
+    }
+
+    public func send(message: ChannelMessage) async throws {
+        try await send(json: message.jsonValue)
+    }
+
+    /// Sends a binary record.
+    public func send(binary payload: Data, flags: RecordFlags = []) async throws {
+        sendSeq += 1
+        let record = StreamRecord(channel: id, seq: sendSeq, flags: flags.subtracting([.json, .credit]), payload: payload)
+        try await link.send(record.encoded)
+    }
+
+    /// Sends `channel.refused` and closes.
+    public func refuse(code: String, message: String, retryable: Bool = false, details: JSONValue? = nil) async {
+        try? await send(frame: .channelRefused(ChannelRefusedFrame(channel: id, code: code, message: message,
+                                                                   retryable: retryable, details: details)))
+        await finish()
+    }
+
+    /// Sends the owner's final word (`channel.closed`) and closes.
+    public func close(code: String? = nil, message: String? = nil) async {
+        try? await send(frame: .channelClosed(ChannelClosedFrame(channel: id, code: code, message: message)))
+        await finish()
+    }
+
+    /// Delivers what was sent, then closes the link channel.
+    public func finish() async {
+        try? await link.flush()
+        await link.close()
+    }
+
+    // MARK: Receive
+
+    /// The next record. A record that breaks the binding (wrong channel id,
+    /// seq jump, credit flag, malformed header) closes the channel with
+    /// `proto.bad_record` and ends the sequence.
+    public func receive() async -> MobileInbound {
+        if ended { return .closed(.local) }
+        switch await Self.nextEvent(link) {
+        case nil:
+            ended = true
+            return .closed(.local)
+        case .closed(let reason)?:
+            ended = true
+            return .closed(reason)
+        case .gap?:
+            return .gap
+        case .message(let message)?:
+            do {
+                return try decode(message.payload)
+            } catch {
+                ended = true
+                await close(code: "proto.bad_record", message: error.message)
+                return .closed(.local)
+            }
+        }
+    }
+
+    private func decode(_ payload: Data) throws(MobileWireError) -> MobileInbound {
+        let record: StreamRecord
+        do {
+            record = try StreamRecord(decoding: payload)
+        } catch {
+            throw MobileWireError(code: "proto.bad_record", message: "\(error)")
+        }
+        guard record.channel == id else {
+            throw MobileWireError(code: "proto.bad_record", message: "record for channel \(record.channel) on \(id)")
+        }
+        guard !record.flags.contains(.credit) else {
+            throw MobileWireError(code: "proto.bad_record", message: "credit records are not used on a link channel")
+        }
+        guard record.seq == receiveSeq + 1 else {
+            throw MobileWireError(code: "proto.bad_record", message: "seq \(record.seq) after \(receiveSeq)")
+        }
+        receiveSeq = record.seq
+        if record.flags.contains(.json) {
+            do {
+                return .json(try record.jsonObject())
+            } catch {
+                throw MobileWireError(code: "proto.bad_record", message: "\(error)")
+            }
+        }
+        return .binary(record.payload, record.flags)
+    }
+}
