@@ -52,6 +52,13 @@ enum DevMenu {
             container.toasts.show(Toast(.warning, "Mac is asleep"))
             container.toasts.show(Toast(.failure, "Send failed", action: ToastAction(label: "Retry") {}))
         })
+        // DEBUG-only: the Mac update gate for the mock Mac that needs an update (C16).
+        sheet.addAction(UIAlertAction(title: "Mac update gate (mock)", style: .default) { [weak presenter] _ in
+            Task { @MainActor in
+                guard let gate = await PlatformComposition.macGatePreview(container: container) else { return }
+                presenter?.present(gate, animated: true)
+            }
+        })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
             let lab = UINavigationController(rootViewController: UIHostingController(rootView: NetLabView()))

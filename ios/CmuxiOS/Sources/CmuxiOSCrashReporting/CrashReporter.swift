@@ -13,6 +13,7 @@ import Sentry
 @MainActor
 public final class CrashReporter {
     private let consent: any AnalyticsConsentProviding
+    private let buildAllowsReporting: Bool
     private let environment: [String: String]
     private let notificationCenter: NotificationCenter
     private let start: (Options) -> Void
@@ -20,14 +21,18 @@ public final class CrashReporter {
     private var observer: (any NSObjectProtocol)?
     public private(set) var isRunning = false
 
+    /// - Parameter buildAllowsReporting: the build's `CMUXCrashReportingEnabled`
+    ///   (release tooling sets it); false never starts the SDK.
     public init(
         consent: any AnalyticsConsentProviding,
+        buildAllowsReporting: Bool = CrashReporter.buildSetting(Bundle.main),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping () -> Void = { SentrySDK.close() }
     ) {
         self.consent = consent
+        self.buildAllowsReporting = buildAllowsReporting
         self.environment = environment
         self.notificationCenter = notificationCenter
         self.start = start
@@ -37,7 +42,7 @@ public final class CrashReporter {
     /// Starts reporting when consent allows and follows consent changes for
     /// the process lifetime (one defaults observer; no timer).
     public func activate() {
-        guard observer == nil, !Self.isTestRun(environment) else { return }
+        guard observer == nil, buildAllowsReporting, !Self.isTestRun(environment) else { return }
         observer = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -102,6 +107,14 @@ public final class CrashReporter {
         options.beforeSend = { event in consent.isTelemetryEnabled ? scrubber.scrub(event) : nil }
         options.beforeBreadcrumb = { crumb in consent.isTelemetryEnabled ? scrubber.scrub(crumb) : nil }
         return options
+    }
+
+    /// `CMUXCrashReportingEnabled` from Info.plist: NO, false or 0 disable.
+    public nonisolated static func buildSetting(_ bundle: Bundle) -> Bool {
+        let raw = bundle.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled")
+        if let flag = raw as? Bool { return flag }
+        guard let text = (raw as? String)?.lowercased() else { return true }
+        return !["no", "false", "0"].contains(text)
     }
 
     nonisolated static func isTestRun(_ environment: [String: String]) -> Bool {

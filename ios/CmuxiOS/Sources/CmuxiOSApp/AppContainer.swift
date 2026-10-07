@@ -35,6 +35,14 @@ final class AppContainer {
     private var remoteConfigTask: Task<Void, Never>?
     /// The account's remote config (flags, Mac floor, demo content).
     private(set) var remoteConfig = RemoteConfig.empty
+    /// App Review demo content: every seam on its mock's canned fixtures.
+    let demo: DemoModePolicy
+    var isDemo: Bool { demo.isActive(remote: remoteConfig) }
+    /// Fires when demo mode turns on or off (the shell rebuilds its seams).
+    var onDemoChange: (() -> Void)?
+    /// B5 fills this from capability negotiation; nil keeps the mock.
+    var macCapabilitiesFactory: (@Sendable () -> any MacCapabilitiesSource)?
+    private var featuresDemo = false
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).
@@ -88,6 +96,7 @@ final class AppContainer {
         #endif
         flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
+        demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -153,17 +162,33 @@ final class AppContainer {
 
     private func applyRemoteConfig(_ config: RemoteConfig) {
         guard config != remoteConfig else { return }
+        let wasDemo = isDemo
         remoteConfig = config
         remoteConfigCache.save(config)
         flags.applyRemote(config)
+        if isDemo != wasDemo {
+            diagnostics.info("demo", isDemo ? "demo content on" : "demo content off")
+            onDemoChange?()
+        }
     }
 
     private func stopRemoteConfig() {
         remoteConfigTask?.cancel()
         remoteConfigTask = nil
         remoteConfigCache.clear()
+        let wasDemo = isDemo
         remoteConfig = .empty
         flags.applyRemote(.empty)
+        if isDemo != wasDemo { onDemoChange?() }
+    }
+
+    /// The Mac compatibility rules, with the account's remote floor.
+    var macCompatibility: MacCompatibilityPolicy {
+        MacCompatibilityPolicy(remoteMinimum: remoteConfig.minimumMacProtocol)
+    }
+
+    func makeMacCapabilitiesSource() -> any MacCapabilitiesSource {
+        macCapabilitiesFactory?() ?? MockMacCapabilitiesSource()
     }
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
@@ -208,9 +233,11 @@ final class AppContainer {
     /// The feature seams for the signed-in account, built once per account
     /// and per mode change. Feature screens get only the seams they use.
     func featureSources(for account: SignedInAccount) -> FeatureSources {
-        if let features, featuresAccount == account.userID { return features }
+        if let features, featuresAccount == account.userID, featuresDemo == isDemo { return features }
         featuresAccount = account.userID
-        let made = realFactories.resolve(sourceModes.modes)
+        featuresDemo = isDemo
+        // Demo mode resolves every seam to its mock (canned fixtures).
+        let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made

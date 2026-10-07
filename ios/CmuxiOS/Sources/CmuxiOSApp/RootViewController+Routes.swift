@@ -18,7 +18,7 @@ extension RootViewController {
         case .diagnostics:
             presentOnTop(PlatformComposition.diagnosticsScreen(container: container))
         case .whatsNew:
-            container.diagnostics.info("router", "whats-new has no screen yet")
+            presentOnTop(PlatformComposition.whatsNewScreen())
         case .pairing:
             // B6 owns the pair/attach grammar and installs its handler here.
             container.diagnostics.info("router", "pairing link waits for B6")

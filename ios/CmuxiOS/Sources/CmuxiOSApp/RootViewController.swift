@@ -19,6 +19,7 @@ final class RootViewController: UIViewController {
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
     private var toastWindow: ToastWindow?
+    private var whatsNewChecked = false
 
     init(container: AppContainer) {
         self.container = container
@@ -36,6 +37,7 @@ final class RootViewController: UIViewController {
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         container.flags.onChange = { [weak self] in self?.applyFlags() }
         container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
+        container.onDemoChange = { [weak self] in self?.rebuildShell() }
         container.feedResponder.openItem = { [weak container] item in
             // The Feed tab owns item navigation once lane C6 lands; the
             // router opens the tab (deferred until signed in).
@@ -75,6 +77,7 @@ final class RootViewController: UIViewController {
         // responder below it; take first responder only while no Home screen
         // does, so Home's key commands (Cmd-F, Cmd-N, Esc) stay in the chain.
         if home == nil { becomeFirstResponder() }
+        presentWhatsNewIfNeeded()
     }
 
     private func show(_ state: AuthState) {
@@ -95,6 +98,7 @@ final class RootViewController: UIViewController {
             container.signedIn(account: account)
             DebugLaunchTasks.signedIn(container: container)
             container.router.setAccountReady(true)
+            presentWhatsNewIfNeeded()
         }
     }
 
@@ -139,6 +143,16 @@ final class RootViewController: UIViewController {
             DevTerminal.captureDiagnostics(terminal)
         }
         #endif
+    }
+
+    /// The post-update What's New sheet, once per process after sign-in.
+    private func presentWhatsNewIfNeeded() {
+        guard !whatsNewChecked, shell != nil, view.window != nil, presentedViewController == nil else { return }
+        let environment = ProcessInfo.processInfo.environment
+        guard !environment.keys.contains(where: { $0.hasPrefix("CMUX_UITEST_") }),
+              environment["CMUX_IOS_HOME_PREVIEW"] == nil else { return }
+        whatsNewChecked = true
+        if let sheet = PlatformComposition.launchWhatsNew() { present(sheet, animated: true) }
     }
 
     private func applyFlags() {
