@@ -27,6 +27,11 @@ public nonisolated struct OnboardingStateFile: Sendable {
         var version: Int
         var completed: Bool
         var date: Date
+        /// False while the first run is unfinished; nil in records written
+        /// before resume existed, which were always an end.
+        var finished: Bool?
+        /// The step an unfinished first run is at (`Step` raw value).
+        var step: String?
     }
 
     private func read() -> Record? {
@@ -43,19 +48,22 @@ public nonisolated struct OnboardingStateFile: Sendable {
     /// True when onboarding for the current version was never finished or skipped.
     public func needsOnboarding() -> Bool {
         guard let record = read() else { return true }
-        return record.version < Self.currentVersion
+        return record.version < Self.currentVersion || record.finished == false
     }
 
     /// Records that the first run is unfinished and at `step`.
-    public func markProgress(_ step: OnboardingModel.Step, now: Date = Date()) throws {}
+    public func markProgress(_ step: OnboardingModel.Step, now: Date = Date()) throws {
+        try write(Record(version: Self.currentVersion, completed: false, date: now, finished: false, step: step.rawValue))
+    }
 
     /// The step an unfinished first run was left at, or nil.
     public func resumeStep() -> OnboardingModel.Step? {
-        nil
+        guard let record = read(), record.version >= Self.currentVersion, record.finished == false else { return nil }
+        return record.step.flatMap(OnboardingModel.Step.init(rawValue:))
     }
 
     /// Records that onboarding ended (`completed` false: skipped).
     public func markDone(completed: Bool, now: Date = Date()) throws {
-        try write(Record(version: Self.currentVersion, completed: completed, date: now))
+        try write(Record(version: Self.currentVersion, completed: completed, date: now, finished: true))
     }
 }

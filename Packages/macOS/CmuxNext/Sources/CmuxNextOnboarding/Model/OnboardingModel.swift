@@ -58,7 +58,7 @@ public final class OnboardingModel {
         }
         let firstRun = Self.firstRun.filter(available)
         // A start the App can't show opens the first run instead.
-        let group: [Step]? = start.flatMap { start in
+        let group: [Step]? = resume != nil ? nil : start.flatMap { start in
             guard available(start) else { return nil }
             // The work screens open from New Tab with their own group, not the first run.
             return [Self.bringWork, Self.firstRun].first { $0.contains(start) } ?? [start]
@@ -66,7 +66,7 @@ public final class OnboardingModel {
         let steps = group?.filter(available) ?? firstRun
         isFirstRun = group == nil
         planned = steps
-        step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
+        step = (resume ?? start).flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         firstTask = FirstTaskStepModel(services: services)
         projects = ProjectsStepModel(services: services)
         classicSessions = ClassicSessionsStepModel(services: services)
@@ -75,6 +75,7 @@ public final class OnboardingModel {
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
         computerUse = ComputerUseStepModel(source: computerUseSource)
+        if isFirstRun { services.onboardingDidReach(step) }
     }
 
     private func foundNothing(_ step: Step) -> Bool {
@@ -137,6 +138,7 @@ public final class OnboardingModel {
     public func go(to target: Step) {
         guard target != step, steps.contains(target) else { return }
         step = target
+        if isFirstRun { services.onboardingDidReach(target) }
         stepDidAppear()
     }
 
@@ -158,11 +160,20 @@ public final class OnboardingModel {
         }
     }
 
-    /// Ends the flow: `completed` false means skipped (Escape, close button).
+    /// Ends the flow: `completed` false means skipped (Escape, Skip).
     /// A running import finishes; an uncommitted theme is put back.
-    /// The window closed without Skip or Done: the run is not over.
+    /// The window closed without Skip or Done (close button, quit, the App
+    /// rebuilding it): the run is not over. Work stops and an uncommitted
+    /// theme is put back, but nothing is recorded as skipped, so the first
+    /// run resumes at its step.
     public func leave() {
-        finish(completed: false)
+        guard !ended else { return }
+        ended = true
+        projects.stop()
+        chats.stop()
+        computerUse.stop()
+        if !theme.isCommitted { theme.revert() }
+        firstTask.stop()
     }
 
     public func finish(completed: Bool) {
