@@ -1117,7 +1117,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// right-click (`url` is nil when the click was not on a link). The type
     /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
     /// only the stored property has to live in the class body.
-    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    // WebKit script delivery and AppKit menu tracking both run on the main
+    // thread; synchronous publication must not require an executor-token check.
+    nonisolated(unsafe) var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
     var lastContextMenuOpenUptime: TimeInterval?

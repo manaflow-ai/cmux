@@ -25,10 +25,10 @@ public final class BrowserSSLTrustBypassMessageHandler: NSObject, WKScriptMessag
             return
         }
 
-        // WebKit delivers script messages on the main thread, but that callback
-        // does not carry Swift's MainActor executor token. Hop explicitly before
-        // touching the actor-bound owner and re-check the token there.
-        Task { @MainActor [canHandleToken, handleToken] in
+        // WebKit delivers script messages on the main thread. Keep token gating
+        // synchronous so hostile content cannot enqueue unbounded main-actor work
+        // before the owner rejects stale or mismatched bypass attempts.
+        MainActor.assumeIsolated { [canHandleToken, handleToken] in
             guard canHandleToken(token) else { return }
             handleToken(token)
         }

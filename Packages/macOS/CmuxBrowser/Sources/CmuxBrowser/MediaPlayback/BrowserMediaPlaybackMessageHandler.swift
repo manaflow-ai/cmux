@@ -22,16 +22,10 @@ public final class BrowserMediaPlaybackMessageHandler: NSObject, WKScriptMessage
         self.onReport = onReport
     }
 
-    public nonisolated func userContentController(
+    public func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        Task { @MainActor [weak self] in
-            self?.handle(message: message)
-        }
-    }
-
-    private func handle(message: WKScriptMessage) {
         guard message.webView === webView,
               let body = message.body as? [String: Any],
               let frameID = body["frameID"] as? String,
@@ -42,9 +36,12 @@ public final class BrowserMediaPlaybackMessageHandler: NSObject, WKScriptMessage
             isAudible: body["audible"] as? Bool ?? false,
             isPictureInPicture: body["pip"] as? Bool ?? false
         )
-        // WebKit delivers script messages on the main thread, but does not
-        // install Swift's executor token. MainActor tasks preserve callback
-        // order with navigation work and generation checks drop stale reports.
+        // WebKit delivers script messages on the main thread. Apply the report
+        // synchronously instead of hopping through a `Task` so it lands in
+        // WebKit's delivery order relative to navigation callbacks: a report
+        // emitted by a document before it navigates away is applied before the
+        // matching `didCommit` reset, so a stale `playing: true` cannot re-add a
+        // dead frame id after the reset and pin the pane against discard.
         onReport(report)
     }
 }

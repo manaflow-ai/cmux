@@ -22,22 +22,16 @@ public final class BrowserFormStateMessageHandler: NSObject, WKScriptMessageHand
         self.onReport = onReport
     }
 
-    public nonisolated func userContentController(
+    public func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        Task { @MainActor [weak self] in
-            self?.handle(message: message)
-        }
-    }
-
-    private func handle(message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame,
               message.webView === webView,
               let snapshot = BrowserFormStateSnapshot(messageBody: message.body) else { return }
-        // WebKit delivers script messages on the main thread, but does not
-        // install Swift's executor token. MainActor tasks preserve callback
-        // order with navigation work and generation checks drop stale reports.
+        // WebKit delivers script messages on the main thread, in order with
+        // navigation callbacks, so a report sent by a document before it
+        // navigates away lands before the next document's commit resets it.
         onReport(snapshot)
     }
 }

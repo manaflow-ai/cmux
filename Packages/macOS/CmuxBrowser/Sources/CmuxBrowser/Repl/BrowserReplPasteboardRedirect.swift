@@ -209,7 +209,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             typealias Completion = @convention(block) (Bool) -> Void
             typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
             let function = unsafeBitCast(webView.method(for: Self.editCommandSelector), to: Function.self)
-            let completion: Completion = { _ in Task { @MainActor in done() } }
+            let completion: Completion = { _ in MainActor.assumeIsolated { done() } }
             function(webView, Self.editCommandSelector, command as NSString, "" as NSString, completion)
         }
     }

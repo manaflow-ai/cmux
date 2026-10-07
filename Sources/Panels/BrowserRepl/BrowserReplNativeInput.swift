@@ -231,7 +231,7 @@ enum BrowserReplNativeInput {
             typealias Action = @convention(block) () -> Void
             typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
             let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-            let action: Action = { Task { @MainActor in gate.finish(true) } }
+            let action: Action = { MainActor.assumeIsolated { gate.finish(true) } }
             function(webView, selector, action)
             gate.timer = Task { @MainActor in
                 try? await ContinuousClock().sleep(for: timeout)

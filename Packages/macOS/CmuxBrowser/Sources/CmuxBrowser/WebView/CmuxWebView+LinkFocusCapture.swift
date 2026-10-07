@@ -104,9 +104,9 @@ private final class LinkFocusCaptureMessageHandler: NSObject, WKScriptMessageHan
         let body = message.body as? [String: Any]
         let href = body?["href"] as? String ?? ""
         let url = href.isEmpty ? nil : URL(string: href)
-        // WebKit delivers script messages on the main thread, but not
-        // necessarily on Swift's MainActor executor.
-        Task { @MainActor in
+        // WebKit delivers script messages on the main thread; apply the report
+        // synchronously so a focus and the blur that follows stay in order.
+        MainActor.assumeIsolated {
             webView.onKeyboardFocusedLinkChanged?(url)
         }
     }
