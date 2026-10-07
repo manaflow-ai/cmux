@@ -358,6 +358,27 @@ struct BrowserReplKeyResendTests {
         #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 1)
     }
 
+    /// An outcome its caller dropped before WebKit reported must go away
+    /// with its run-loop watch: nothing else may keep it (and the observer
+    /// that asks WebKit again each time the main run loop waits) alive until
+    /// a timeout nobody awaits.
+    @Test func aDroppedKeyOutcomeIsNotKeptAlive() throws {
+        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
+        #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true) == .delivered)
+        let down = try #require(webView.keyDowns.first)
+        weak var dropped: BrowserAutomationKeyDownOutcome?
+        do {
+            // The web view swallows the key, so WebKit never queues it and
+            // the outcome stays unresolved, watching the run loop.
+            let outcome = webView.observeAutomationKeyDownOutcome(down)
+            dropped = outcome
+        }
+        #expect(dropped == nil, "a dropped key outcome was kept alive")
+        // A late resend of that key finds nobody to tell and is still dropped.
+        #expect(down.dropResentBrowserAutomationKeyEvent())
+    }
+
     // The mobile browser stream replays a person's keys from their phone
     // through the specification entry point; WebKit's resend of a key no page
     // handled keeps reaching the Mac's menus there, as before.
