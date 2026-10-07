@@ -798,6 +798,24 @@ struct CheckoutAttributionTests {
         #expect(max.path == "/api/billing/checkout")
     }
 
+    /// Pro is the only plan sold yearly: a yearly Pro checkout sends
+    /// `interval=year`, monthly sends nothing (the server default), and a
+    /// yearly request for any other plan is dropped instead of refused.
+    @Test
+    func checkoutURLCarriesTheYearlyIntervalOnlyForPro() throws {
+        let base = try #require(URL(string: "https://cmux.com/api/billing/checkout?interval=month"))
+        func intervals(_ url: URL) throws -> [String?] {
+            try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+                .filter { $0.name == "interval" }.map(\.value)
+        }
+        let yearly = ProUpgradePresenter.checkoutURL(source: .nativePricingPreview, plan: .pro, interval: .year, base: base)
+        let monthly = ProUpgradePresenter.checkoutURL(source: .nativePricingPreview, plan: .pro, interval: .month, base: base)
+        let maxYearly = ProUpgradePresenter.checkoutURL(source: .nativePricingPreview, plan: .max, interval: .year, base: base)
+        #expect(try intervals(yearly) == ["year"])
+        #expect(try intervals(monthly) == [])
+        #expect(try intervals(maxYearly) == [])
+    }
+
     @Test
     func intentPropertiesNameSurfaceAndChannel() {
         let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
