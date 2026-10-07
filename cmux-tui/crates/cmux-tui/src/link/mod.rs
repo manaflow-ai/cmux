@@ -289,6 +289,9 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
 fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
     let path = match flags.get("--server-config") {
         Some(path) => PathBuf::from(path),
+        // Shortcut: duplicates the user-mode layout of cmux-server-core; use
+        // its layout code when the next Cargo WINDOW allows the dependency
+        // (bead cx-uu3).
         None => match std::env::var_os("HOME") {
             Some(home) => PathBuf::from(home).join(".config/cmux/server.json"),
             None => return Ok(None),
