@@ -1178,6 +1178,38 @@ class ReleaseMailRegression(unittest.TestCase):
             self.assertEqual(mails, [])
             self.assertIn("not a current WINDOW token", result.stderr)
 
+    def test_a_test_run_without_a_mailbox_override_never_reaches_the_real_mailbox(self):
+        # Two test runs once mailed fake RELEASE FREEZE: #42 into the real
+        # coordinator inbox. Under test, or with a local WINDOW, a token merge
+        # with no GH_MERGE_GREEN_MAILBOX_DIR refuses before merging and never
+        # runs ssh.
+        for test_flag in ("1", ""):
+            with self.subTest(GH_MERGE_GREEN_TEST=test_flag), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                window = directory / "WINDOW"
+                window.write_text(self.WINDOW)
+                ssh_log = directory / "ssh-calls"
+                (directory / "ssh").write_text(f"#!/bin/sh\necho \"$*\" >> {ssh_log}\ncat >/dev/null\n")
+                (directory / "ssh").chmod(0o755)
+                saved = {name: os.environ.get(name) for name in ("GH_MERGE_GREEN_WINDOW_FILE", "GH_MERGE_GREEN_MAILBOX_DIR", "GH_MERGE_GREEN_TEST")}
+                os.environ.pop("GH_MERGE_GREEN_MAILBOX_DIR", None)
+                os.environ.update(GH_MERGE_GREEN_WINDOW_FILE=str(window), GH_MERGE_GREEN_TEST=test_flag)
+                try:
+                    marker = directory / "merged"
+                    result = InstalledHelperRegression.run_helper(
+                        self, str(directory), marker, changed_files=("docs/README.md",),
+                        extra_args=("--window-token", "c0dec0de1234"))
+                finally:
+                    for name, value in saved.items():
+                        if value is None:
+                            os.environ.pop(name, None)
+                        else:
+                            os.environ[name] = value
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(ssh_log.exists(), ssh_log.read_text() if ssh_log.exists() else "")
+                self.assertIn("GH_MERGE_GREEN_MAILBOX_DIR", result.stderr)
+
     def test_a_merge_without_a_token_sends_no_mail(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker, mails, names = self.run_with(directory, ())
