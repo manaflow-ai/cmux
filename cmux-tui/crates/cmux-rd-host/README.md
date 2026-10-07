@@ -35,7 +35,7 @@ VM), never on a Mac: `cargo build --release`.
   and a shipped host never builds it from source (the source build exists only in bench
   builds and in the test-only cmux-remote-browser-testhost).
   - Install: `cmux-rd openh264-install [--dir PATH]` is the host enable flow's step. It
-    downloads Cisco's 2.6.0 file for this platform from `http://ciscobinary.openh264.org/`
+    downloads Cisco's 2.6.0 file for this platform from `https://ciscobinary.openh264.org/` (HTTPS, certificate verified)
     (the URLs in `cmux_encode::openh264::CiscoBinary`), decompresses the bzip2 file, and
     keeps it only when the library's SHA-256 matches the pinned value (nothing is written
     otherwise). A session never downloads.

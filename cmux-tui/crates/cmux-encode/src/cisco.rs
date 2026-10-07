@@ -5,9 +5,9 @@
 //! downloads from Cisco, so the library is never bundled in an app, an image
 //! or a release artifact, and never built from source for the product path.
 //!
-//! Integrity: the decompressed library must have the SHA-256 pinned in
-//! [`CiscoBinary`] (Cisco serves the files over plain HTTP, so the pin, not
-//! the transport, is the check). Nothing is written when the hash differs.
+//! Integrity: the download goes over HTTPS with certificate verification,
+//! and the decompressed library must have the SHA-256 pinned in
+//! [`CiscoBinary`]. Nothing is written when the hash differs.
 //!
 //! Storage: one file per user, `<data dir>/cmux/openh264/<Cisco file name>`
 //! ([`default_dir`]): `$XDG_DATA_HOME` or `~/.local/share` on Linux,
@@ -146,21 +146,19 @@ pub fn install_with(
     Ok(path)
 }
 
-/// GETs `url` from Cisco's server (plain HTTP, as Cisco publishes it; the
-/// pinned hash is the integrity check), at most [`MAX_COMPRESSED_BYTES`].
-/// attohttpc is already in the cmux-tui lockfile; without its TLS features
-/// it is a small blocking HTTP/1.1 client.
+/// GETs `url` from Cisco's server over HTTPS (rustls, webpki roots,
+/// certificate verification on), at most [`MAX_COMPRESSED_BYTES`]. The
+/// pinned hash stays the integrity check.
 fn download(url: &str) -> Result<Vec<u8>, InstallError> {
-    let response = attohttpc::get(url)
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_S))
-        .send()
+    let response = minreq::get(url)
+        .with_timeout(DOWNLOAD_TIMEOUT_S)
+        .send_lazy()
         .map_err(|e| InstallError::Download(e.to_string()))?;
-    let (status, _, reader) = response.split();
-    if status != attohttpc::StatusCode::OK {
-        return Err(InstallError::Download(format!("HTTP {status}")));
+    if response.status_code != 200 {
+        return Err(InstallError::Download(format!("HTTP {}", response.status_code)));
     }
     let mut body = Vec::new();
-    reader
+    response
         .take(MAX_COMPRESSED_BYTES as u64 + 1)
         .read_to_end(&mut body)
         .map_err(|e| InstallError::Download(e.to_string()))?;

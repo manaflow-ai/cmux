@@ -21,13 +21,13 @@ openh264-runtime = ["dep:openh264-sys2", "openh264-sys2/libloading", "dep:sha2"]
 # The host installer's step (`cmux-rd openh264-install`): downloads Cisco's
 # library from Cisco's server into a per-user directory, after its pinned
 # SHA-256 matches (module `cisco`). Never bundles the library.
-openh264-download = ["openh264-runtime", "dep:attohttpc", "dep:bzip2"]
+openh264-download = ["openh264-runtime", "dep:minreq", "dep:bzip2"]
 
 [dependencies]
 openh264-sys2 = { version = "=0.9.8", default-features = false, optional = true }
 sha2 = { version = "0.10", optional = true }
-# Plain-HTTP GET of Cisco's file (already in the cmux-tui lockfile; no TLS
-# features, so no TLS stack).
-attohttpc = { version = "0.30", default-features = false, optional = true }
+# HTTPS GET of Cisco's file: minreq with rustls and the webpki roots
+# (certificate verification on), and no other feature (coordinator, 2026-10-07).
+minreq = { version = "3.0.0", default-features = false, features = ["https-rustls"], optional = true }
 # Cisco serves bzip2 files; the default backend is the pure-Rust libbz2-rs-sys.
 bzip2 = { version = "0.6", optional = true }
