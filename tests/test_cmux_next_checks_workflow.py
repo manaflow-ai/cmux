@@ -144,6 +144,20 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
 
 
+class ReferencedFilesExist(unittest.TestCase):
+    """Every test a checks step runs, and every test or workflow a path filter names, exists.
+    The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
+    and its workflow, but the Companion workflows step still ran the test, so every pull
+    request's checks went red (run 37646119996)."""
+
+    def test_named_tests_and_workflows_exist(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        named = set(re.findall(r"(?:python3|bash) (tests/[A-Za-z0-9_./-]+\.(?:py|sh))", text))
+        named |= set(re.findall(r"^\s+- ((?:tests|\.github/workflows)/[A-Za-z0-9_./-]+\.(?:py|sh|yml))$", text, re.M))
+        missing = sorted(path for path in named if not (ROOT / path).exists())
+        self.assertEqual(missing, [])
+
+
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
 
