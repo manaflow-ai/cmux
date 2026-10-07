@@ -5,7 +5,9 @@
 //! open, never acts on viewer-to-host messages, and closes open UI when the
 //! session crashes or closes. Vectors: `schemas/remote-tab/client.json`.
 
-use crate::proto::{Control, CursorShape, Dialog, Menu, MenuChoice, Rect, ScreenInfo, SessionState};
+use crate::proto::{
+    Control, CursorShape, Dialog, Menu, MenuChoice, Rect, ScreenInfo, SessionState,
+};
 use serde::{Deserialize, Serialize};
 
 /// One input to the client reducer.
@@ -27,19 +29,49 @@ pub enum ClientInput {
 #[serde(tag = "effect", rename_all = "snake_case")]
 pub enum ClientEffect {
     /// Send this control message to the host.
-    Send { message: Control },
-    ShowMenu { token: u64, menu: Menu },
-    CloseMenu { token: u64 },
-    ShowDialog { token: u64, dialog: Dialog },
-    CloseDialog { token: u64 },
-    SetCursor { cursor: CursorShape },
+    Send {
+        message: Control,
+    },
+    ShowMenu {
+        token: u64,
+        menu: Menu,
+    },
+    CloseMenu {
+        token: u64,
+    },
+    ShowDialog {
+        token: u64,
+        dialog: Dialog,
+    },
+    CloseDialog {
+        token: u64,
+    },
+    SetCursor {
+        cursor: CursorShape,
+    },
     /// Page state for the local chrome (omnibar, back and forward).
-    Page { url: String, title: String, loading: bool, can_go_back: bool, can_go_forward: bool },
+    Page {
+        url: String,
+        title: String,
+        loading: bool,
+        can_go_back: bool,
+        can_go_forward: bool,
+    },
     /// IME and caret geometry for the input view (surface CSS pixels).
-    TextInput { input_type: String, composition_rects: Vec<Rect>, caret: Option<Rect> },
+    TextInput {
+        input_type: String,
+        composition_rects: Vec<Rect>,
+        caret: Option<Rect>,
+    },
     /// The host applied the newest screen: frames now have this pixel size.
-    ScreenApplied { pixel_width: u32, pixel_height: u32, scale: f64 },
-    Session { state: SessionState },
+    ScreenApplied {
+        pixel_width: u32,
+        pixel_height: u32,
+        scale: f64,
+    },
+    Session {
+        state: SessionState,
+    },
 }
 
 /// Inputs that change nothing, and why.
@@ -86,7 +118,145 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn apply(&mut self, _input: ClientInput) -> Result<ClientOutcome, ClientReject> {
-        Ok(ClientOutcome::default())
+    pub fn apply(&mut self, input: ClientInput) -> Result<ClientOutcome, ClientReject> {
+        match input {
+            ClientInput::Host { message } => self.host(message),
+            ClientInput::MenuChosen { token, choice } => Ok(if self.open_menu == Some(token) {
+                self.open_menu = None;
+                send(Control::MenuResult { token, choice })
+            } else {
+                note(ClientNote::StaleAnswer)
+            }),
+            ClientInput::DialogAnswered { token, accept, text } => {
+                Ok(if self.open_dialog == Some(token) {
+                    self.open_dialog = None;
+                    send(Control::DialogResult { token, accept, text })
+                } else {
+                    note(ClientNote::StaleAnswer)
+                })
+            }
+            ClientInput::Resize { screen } => {
+                self.screen_seq = self.screen_seq.saturating_add(1);
+                Ok(send(Control::Screen { seq: self.screen_seq, screen }))
+            }
+        }
     }
+
+    fn host(&mut self, message: Control) -> Result<ClientOutcome, ClientReject> {
+        if viewer_to_host(&message) {
+            return Err(ClientReject::WrongDirection);
+        }
+        Ok(match message {
+            Control::MenuShow { token, menu } => {
+                if token <= self.last_menu {
+                    return Ok(note(ClientNote::StaleShow));
+                }
+                self.last_menu = token;
+                let mut effects = Vec::new();
+                if let Some(old) = self.open_menu.replace(token) {
+                    effects.push(ClientEffect::CloseMenu { token: old });
+                }
+                effects.push(ClientEffect::ShowMenu { token, menu });
+                effects_only(effects)
+            }
+            Control::MenuCancel { token } => {
+                if self.open_menu != Some(token) {
+                    return Ok(note(ClientNote::StaleCancel));
+                }
+                self.open_menu = None;
+                effects_only(vec![ClientEffect::CloseMenu { token }])
+            }
+            Control::DialogShow { token, dialog } => {
+                if token <= self.last_dialog {
+                    return Ok(note(ClientNote::StaleShow));
+                }
+                self.last_dialog = token;
+                let mut effects = Vec::new();
+                if let Some(old) = self.open_dialog.replace(token) {
+                    effects.push(ClientEffect::CloseDialog { token: old });
+                }
+                effects.push(ClientEffect::ShowDialog { token, dialog });
+                effects_only(effects)
+            }
+            Control::State { state } => self.session(state),
+            Control::Closed { .. } => self.session(SessionState::Closed),
+            Control::Cursor { cursor } => effects_only(vec![ClientEffect::SetCursor { cursor }]),
+            Control::Page { url, title, loading, can_go_back, can_go_forward } => {
+                effects_only(vec![ClientEffect::Page {
+                    url,
+                    title,
+                    loading,
+                    can_go_back,
+                    can_go_forward,
+                }])
+            }
+            Control::TextInput { input_type, composition_rects, caret } => {
+                effects_only(vec![ClientEffect::TextInput { input_type, composition_rects, caret }])
+            }
+            Control::ScreenApplied { seq, pixel_width, pixel_height, scale } => {
+                if seq > self.screen_seq {
+                    return Err(ClientReject::UnknownScreenSeq);
+                }
+                if seq < self.screen_seq {
+                    return Ok(note(ClientNote::StaleScreen));
+                }
+                effects_only(vec![ClientEffect::ScreenApplied { pixel_width, pixel_height, scale }])
+            }
+            _ => note(ClientNote::Unhandled),
+        })
+    }
+
+    /// A crashed or closed session closes the open menu and dialog first
+    /// (no answers are sent: the host has nothing waiting for them).
+    fn session(&mut self, state: SessionState) -> ClientOutcome {
+        let mut effects = Vec::new();
+        if matches!(state, SessionState::Crashed | SessionState::Closed) {
+            if let Some(token) = self.open_menu.take() {
+                effects.push(ClientEffect::CloseMenu { token });
+            }
+            if let Some(token) = self.open_dialog.take() {
+                effects.push(ClientEffect::CloseDialog { token });
+            }
+        }
+        effects.push(ClientEffect::Session { state });
+        effects_only(effects)
+    }
+}
+
+/// Messages only a viewer sends (remote-tab-protocol.md section 4, direction V).
+fn viewer_to_host(message: &Control) -> bool {
+    matches!(
+        message,
+        Control::Open { .. }
+            | Control::Close
+            | Control::Visibility { .. }
+            | Control::Screen { .. }
+            | Control::Vsync { .. }
+            | Control::History { .. }
+            | Control::MenuResult { .. }
+            | Control::DialogResult { .. }
+            | Control::FileChooserResult { .. }
+            | Control::UploadEnd { .. }
+            | Control::DownloadCancel { .. }
+            | Control::PermissionResult { .. }
+            | Control::ClipboardPush { .. }
+            | Control::OpenTabResult { .. }
+            | Control::Find { .. }
+            | Control::FindStop { .. }
+            | Control::ScrollClaim { .. }
+            | Control::ScrollUpdate { .. }
+            | Control::ScrollRelease { .. }
+    )
+}
+
+fn send(message: Control) -> ClientOutcome {
+    effects_only(vec![ClientEffect::Send { message }])
+}
+
+fn effects_only(effects: Vec<ClientEffect>) -> ClientOutcome {
+    ClientOutcome { effects, note: None }
+}
+
+fn note(note: ClientNote) -> ClientOutcome {
+    ClientOutcome { effects: Vec::new(), note: Some(note) }
 }
