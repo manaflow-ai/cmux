@@ -266,7 +266,7 @@ extension MessageCellLayout {
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
-        if model.showsTail, bubbleFrame != nil {
+        if model.showsTail, bubbleFrame != nil || !imageFrames.isEmpty {
             y = max(y, primary.maxY + t.tailDrop)
             content.size.height += t.tailDrop
         }

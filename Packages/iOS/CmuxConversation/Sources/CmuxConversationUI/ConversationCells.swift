@@ -309,9 +309,12 @@ final class MessageCell: UICollectionViewCell {
                 continue
             }
             view.isHidden = false
-            view.frame = layout.imageFrames[index]
-            // Images take the bubble outline; the last one in a run gets the tail.
+            // Images take the bubble outline; the last one in a run gets the
+            // tail, which hangs below the full-height photo as in Messages.
             let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty
+            var frame = layout.imageFrames[index]
+            if tailed { frame.size.height += ConversationTheme.tailDrop }
+            view.frame = frame
             let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
             var maskRect = view.bounds
             if tailed { maskRect.size.height -= ConversationTheme.tailDrop }
