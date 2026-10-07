@@ -1,6 +1,6 @@
 # cmux mesh: design (experiment, cx-0op)
 
-Status: design only, 2026-10-07. Decision: CMUX-MESH-EXPERIMENT M1-M5 and amendment 1 (one region; Freestyle facts validated by our own experiments, section 1.4). Built inside the cmux VM API (CMUX-VM-API V1-V7, amendment 1). No code in this step.
+Status: design 2026-10-07, built in slices M1-M3 on `feat-cmux-next` (section 11 has the state and the SHAs). Decision: CMUX-MESH-EXPERIMENT M1-M5 and amendment 1 (one region; Freestyle facts validated by our own experiments, section 1.4). Built inside the cmux VM API (CMUX-VM-API V1-V7, amendment 1).
 
 Sources. Every claim cites one of these keys:
 
@@ -107,7 +107,8 @@ Reused code: `cmux link` owns one overlay endpoint per user per machine [TR §3,
 
 Flow:
 1. Keys on the device. The install identity key (P-256, Secure Enclave on Apple, 0600 file on Linux) already exists [TR §8]. `cmux mesh up` makes one X25519 WireGuard key per (device, mesh) in the Keychain (`AfterFirstUnlockThisDeviceOnly`, not synced) or a 0600 file [TR §8]. Private keys never leave the process that made them.
-2. Authorization. A signed-in user enrolls with the Stack session. A headless machine uses a one-time code: a member calls `POST /v1/meshes/{meshId}/enrollment-codes` (single use, 10 min TTL, stored as SHA-256, bound to mesh, creator and optional tags), then runs `cmux mesh up --code <code>` on the machine [D:M1].
+2. Authorization. A signed-in user enrolls with the Stack session. A headless machine uses a one-time code: a member calls `POST /v1/meshes/{meshId}/enrollment-codes` (single use, 10 min TTL, stored as SHA-256, bound to mesh, creator and optional tags), then runs `cmux mesh up --code <code>` on the machine [D:M1]. The device then belongs to the code's creator. As built (M2, M3): the code enrolls through `POST /v1/meshes/{meshId}/device-enrollments` with no credential. At use the creator must still be able to act (a team member, or an API key that is not revoked or expired). Any authentication failure burns the code: another mesh's path, a creator that can no longer act, a forged or stale signature, a replayed request. A valid request claims the code before the device budget and the tunnel create; if either (or anything after them) fails, the claim is given back and the same code works again.
+2a. After enrollment a headless device has no credential of its own. Its install key is the credential for its own requests (M3): `POST /v1/devices/{deviceId}/signed/peers`, `/signed/tunnel` and `/signed/rotate-key`, each signed over the cmux-mesh-v1 message with purpose `peers`, `tunnel` or `rotate-key`, the device as target, `signedAt` within 120 s, and a replay store keyed by the message hash (`mesh_signed_requests`). The request runs as the device's owner, restricted to `mesh:join`/`mesh:read` on this one device and its tunnel, and the owner must still be able to act on every call, so revoking the key that enrolled a device or removing its user stops the device's signed requests at once. Nothing else accepts the signature: every other route needs an API key or a session (401).
 3. Enrollment call: `POST /v1/meshes/{meshId}/devices` with `{wgPublicKey, installPublicKey, signature, name, os, code?}`. The signature is the install key over `(meshId, wgPublicKey, server nonce)`.
 4. Tunnel creation in the Worker: `create_tunnel {clientPublicKey: wgPublicKey, slug: hash(tenant, device), routes: [mesh cidr, mesh cidrV6], vpcs: [{vpc: mesh}]}` (inline attach; 136-171 ms [TR §13.2]). `routes` is the mesh only, never the 10/8 default. The upstream client type requires `clientPublicKey`; if a response ever carries a non-blank `PrivateKey`, the Worker deletes the tunnel and fails closed (Freestyle mints a key only when the field is omitted [OA:create_tunnel]).
 5. ACL first, then config: the mesh's reconciler adds this device's compiled rules (section 4) before the enroll call returns, so the first dial works.
@@ -163,7 +164,9 @@ Scopes (added to `SCOPES` [VM:src/domain/scopes.ts]): `mesh:read`, `mesh:write`,
 | `POST /v1/meshes/{meshId}/devices` | mesh:join, or a valid code | TenantOwnsResource<mesh>, TenantMayCreate<device>, DeviceHoldsKey (install-key signature over the nonce) |
 | `GET /v1/meshes/{meshId}/devices`, `GET /v1/devices/{deviceId}` | mesh:read | TenantOwnsResource<device> |
 | `PATCH /v1/devices/{deviceId}` (name, tags) | mesh:write; tags need tag ownership | TenantOwnsResource<device> |
-| `POST /v1/devices/{deviceId}/rotate-key` | mesh:join, own device | TenantOwnsResource<device>, DeviceHoldsKey |
+| `POST /v1/devices/{deviceId}/rotate-key` | mesh:join, own device | TenantOwnsResource<device>, CallerActsOnDevice, DeviceHoldsKey |
+| `POST /v1/meshes/{meshId}/device-enrollments` (M2, no credential) | a valid one-time code; the creator must still be able to act | TenantOwnsResource<mesh>, TenantMayCreate<device>, DeviceHoldsKey |
+| `POST /v1/devices/{deviceId}/signed/peers`, `/signed/tunnel`, `/signed/rotate-key` (M3, no credential) | the device's install-key signature; the owner must still be able to act | DeviceHoldsKey<owner, device>, TenantOwnsResource<device>, CallerActsOnDevice |
 | `DELETE /v1/devices/{deviceId}` | mesh:join (own) or mesh:write + admin | TenantOwnsResource<device> |
 | `GET /v1/devices/{deviceId}/peers` | mesh:join, own device | TenantOwnsResource<device>; returns only peers the ACL lets talk to this device |
 | `POST /v1/devices/{deviceId}/latency` | mesh:join, own device | TenantOwnsResource<device> |
@@ -182,7 +185,7 @@ New proofs, minted only in `src/proofs/` [D:V4]:
 - `DeviceHoldsKey<D, K>`: the install key signed this request's nonce.
 - `CallerIsTeamAdmin<C>`: Stack team admin permission for a session.
 
-Cross-tenant 404: every id resolves through the ownership table for the caller's tenant [D:V3, VM:proofs/tenant-owns-resource.ts]; another tenant's mesh, device, tunnel, VM or apply id is 404, a code from another tenant is 404, and a peer map never lists a device of another mesh. Inside a tenant, a member acting on another member's device without admin gets 403 (the resource is visible to the tenant). Every endpoint gets the B-gets-404 test [D:V5]. Every mutation writes an audit row [VM:README].
+Cross-tenant 404: every id resolves through the ownership table for the caller's tenant [D:V3, VM:proofs/tenant-owns-resource.ts]; another tenant's mesh, device, tunnel, VM or apply id is 404, a code from another tenant is 404, and a peer map never lists a device of another mesh. Inside a tenant, a caller that neither enrolled the device nor is a tenant admin (an API key with the `admin` scope, or a Stack team admin session) gets 404 on the device, its tunnel, its peer map, its rotation and its delete, exactly as if the device did not exist, and `GET /v1/meshes/{meshId}/devices` lists only the devices it enrolled (amended in M2/M3, was 403: a 403 would confirm that a guessed device id exists and belongs to someone else in the team; the proof is `CallerActsOnDevice` [VM:proofs/device-owner.ts]). On the credential-free device routes (M3) every refusal before the install-key signature verifies is the same 404 (unknown or deleted device, a signature by another key or for another device or request, an owner that can no longer act, experiment off), so a device id tells a stranger nothing; only the holder of the key learns that its `signedAt` is stale (403) or its request a replay (409). Every endpoint gets the B-gets-404 test [D:V5]. Every mutation writes an audit row [VM:README]; device-signed rotations are audited as the device's owner.
 
 ## 6. Proof plan (M4)
 
@@ -212,7 +215,8 @@ Threat model:
 | Removed member or lost device | revoke deletes the tunnel (~0.25 s) and peer-map entries; 60 s membership sweep; tokens expire in minutes [TR §8] |
 | Compromised device inside a mesh | default deny; pairwise rules only; no VPC-wide member rule unless granted; `routes` limited to the mesh; the link `hello` token still gates every application op [TR §0 item 7, §9] |
 | Private key exposure | keys made on device; Worker never omits `clientPublicKey`; fail closed on a minted key; Keychain `ThisDeviceOnly` [TR §8] |
-| Enrollment code theft | single use, 10 min, hashed, bound to mesh and tags, audited |
+| Enrollment code theft | single use, 10 min, hashed, bound to mesh and tags, audited; the creator must still be able to act when it is used; any authentication failure with the code burns it (M3) |
+| Headless device after enrollment (no credential) | its install key authenticates only its own peer map, tunnel config and rotation (M3): fresh (120 s), never replayed, refused once the owner key is revoked or the owner left the team; every other route needs a credential |
 | Worker compromise or Freestyle API key leak | one key controls every tenant's VPCs and tunnels (shared account [WEB:privateNetwork.ts]); key only in Worker secrets [D:V3]; drift detection; Freestyle offers no scoped API keys (validated, Q17) |
 | Noisy tenant exhausts the account rule or tunnel limit | per-tenant budgets in the Worker (section 7.1), refused with a typed 429 before any upstream call; operator alert at 70 % of the shared account's rule limit; `{vpcId}` source compression |
 | Freestyle as an observer | the gateway terminates the tunnel, so plain L3 traffic to VMs (for example HTTP on 8080) is visible to Freestyle, same trust as hosting the VM; overlay traffic is end-to-end WireGuard and the relay sees ciphertext only [TR §0, §9.1] |
@@ -297,4 +301,16 @@ A6. In "Latency", append:
 > Device-to-device traffic never uses the VPC (Freestyle does not forward tunnel to tunnel); it uses same-LAN direct, NAT-punched direct, or the `HostDO` relay, which forwards end-to-end-encrypted WireGuard packets and sees only outer addresses and sizes.
 
 A7. In "Data and audit", replace "are stored by `TeamDO` and projected to PlanetScale `cmux-next`" with "are stored by the cmux VM API Worker in PlanetScale (schema `cmux_vm`)".
+
+## 11. Status (2026-10-07)
+
+| Slice | State | Landed on `feat-cmux-next` |
+| --- | --- | --- |
+| M1a Worker: meshes, devices, tunnels, ACL compile/apply, peer map, budgets, audit, migration 0004 | done | 61da0fd0fad4 (red 13a3d58599b0, green 9926f9587e32, clients 2c192baea5b5); IPv6 route fix 5b49821af95f |
+| M1b device agent (Rust, userspace WireGuard, ping/tcp/probe) | done | 1753d8fd8b36 (red d317583fe49f, green 5d6da54d76e5) |
+| M1c live proof on cmux-lawrence-2 | done | f4cf40478988 (evidence 48e76d620fe6) |
+| M2 device ownership (non-owner 404), install-key signatures, one-time codes, key rotation, migration 0005 | done; 0005 applied on staging with grants | owner check a2ebee7fcae9, server 6fb2c554ab12, agent 1fb771b48e7d, live proof 899f05034cc9 |
+| M3 device-signed requests, revoked-key codes, code burn and restore, migration 0006 (purpose CHECK widened) | Worker and agent done; 0006 not applied; live proof see cx-0op.5 | Worker b543f0a6b417 (red 444f850fb0ff, green a944131f108f), agent fe33ef18ceb0 (red b00fa6102879, green 7e0c94c3b736) |
+
+Open: G1-G4 (section 9); ACL preview, versions, apply ids and `PATCH` device (section 5 rows not built yet); device-to-device overlay (section 7.2); the 60 s membership sweep (section 3) is not built, and M3 instead checks the owner on every device-signed call and every code use.
 
