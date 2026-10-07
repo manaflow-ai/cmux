@@ -346,6 +346,7 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         super.layout()
+        addressBar.followLayout()
         updateOcclusion()
         if pageAreaTop != reportedHeader {
             reportedHeader = pageAreaTop
