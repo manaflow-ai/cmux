@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint:prepare": "bun build ./node_modules/@gdp-ts/core/src/lint/plugin.ts ./node_modules/@gdp-ts/core/src/lint/oxlint.ts --root ./node_modules/@gdp-ts/core/src/lint --outdir .gdp-lint --target node --format esm",
     "lint": "bun run lint:prepare && oxlint --deny-warnings src test",
+    "lint:selftest": "bash scripts/lint-selftest.sh",
     "openapi": "bun scripts/generate-openapi.ts",
     "openapi:check": "bun scripts/generate-openapi.ts --check",
     "test": "bun run test:workers && bun run test:pg",
@@ -15,7 +16,7 @@
     "test:pg": "vitest run --config vitest.node.config.ts",
     "bundle": "wrangler deploy --dry-run --outdir dist --env staging",
     "bundle:check": "node scripts/check-bundle-size.mjs dist",
-    "check": "bun run typecheck && bun run lint && bun run openapi:check && bun run test && bun run bundle && bun run bundle:check"
+    "check": "bun run typecheck && bun run lint && bun run lint:selftest && bun run openapi:check && bun run test && bun run bundle && bun run bundle:check"
   },
   "dependencies": {
     "@effect/platform": "0.97.2",

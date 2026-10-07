@@ -67,6 +67,9 @@ jobs:
       - name: Oxlint with the gdp-ts preset
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run lint
+      - name: gdp-ts preset rejects forged proofs (self-test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint:selftest
       - name: openapi.json matches the HttpApi definition
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run openapi:check
