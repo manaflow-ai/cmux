@@ -28,8 +28,6 @@ public final class SidebarView: NSView {
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
-    /// The one selection highlight (top items, groups and workspaces).
-    let highlight = SidebarSelectionHighlight()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
@@ -180,7 +178,6 @@ public final class SidebarView: NSView {
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        defer { highlight.install(in: self) }
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
         newButton.alphaValue = 0
         addSubview(newButton)
@@ -265,7 +262,6 @@ public final class SidebarView: NSView {
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
-        highlight.refresh(animated: false)
     }
 
 
