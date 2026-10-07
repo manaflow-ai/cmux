@@ -9,7 +9,7 @@
 # "1". Each deploy job runs in a GitHub environment that holds its secrets:
 #
 #   environment          trigger                       Worker
-#   cmux-vm-preview      same-repo pull request        cmux-vm-preview (workers.dev)
+#   cmux-vm-preview      push to a feat-cmux-vm-* lane cmux-vm-preview (workers.dev)
 #   cmux-vm-staging      push to main                  cmux-vm-staging
 #
 # Production deploys are added with the protected cmux-vm-production
@@ -35,7 +35,10 @@ on:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml
   push:
-    branches: [main]
+    # Lane branches deploy the preview Worker (decision V6). The preview
+    # environment admits only feat-cmux-vm-* refs, which a pull_request run
+    # (refs/pull/N/merge) never is, so preview deploys run on push.
+    branches: [main, "feat-cmux-vm-*"]
     paths:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml
@@ -188,7 +191,7 @@ jobs:
         run: bash scripts/hyperdrive.sh ensure "$CONFIG_NAME"
 
   deploy-preview:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')
     needs: check
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
