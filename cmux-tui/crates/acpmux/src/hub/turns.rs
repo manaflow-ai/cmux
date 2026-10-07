@@ -375,23 +375,9 @@ impl Hub {
                     Err(_) => None,
                 };
                 match (fallback, refusal) {
-                    // A folder-trust refusal keeps its own reason; any other is the mode rule.
-                    (Ok(_), Some(e))
-                        if e.data
-                            .as_ref()
-                            .and_then(|d| d.get("reason"))
-                            .and_then(Value::as_str)
-                            .is_some_and(|r| r.starts_with("trust.")) =>
-                    {
-                        result = Err(e);
-                    }
-                    (Ok(_), Some(_)) => {
-                        result = Err(RpcError::new(
-                            -32000,
-                            "the fallback agent's mode does not ask; a remote device's turn does not run in it",
-                        )
-                        .with_data(json!({"reason": "remote.mode_not_asking"})));
-                    }
+                    // The fallback is checked as a new dispatch; its own
+                    // refusal (folder trust, mode, D13) is the turn's error.
+                    (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
