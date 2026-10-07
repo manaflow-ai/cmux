@@ -62,6 +62,8 @@ extension TabDragSession {
         /// crossing); nil when it does.
         var noTargetReason: String?
         var presentation: Presentation = .none
+        /// In place vs card (DRAG-SHAPE-INVARIANT).
+        var shaping = DragShapeTracker()
         var monitor: Any?
         var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.

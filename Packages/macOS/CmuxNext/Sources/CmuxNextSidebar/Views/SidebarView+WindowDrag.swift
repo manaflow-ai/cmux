@@ -23,6 +23,11 @@ extension SidebarView {
     /// Return true to take it over: the sidebar ends its own drag at once
     /// (rows reappear in place) and sends no intent. Nil keeps every drag in
     /// the sidebar.
+    /// How far past the sidebar's side edges a row drag goes before the
+    /// sidebar lets it go (hand-off), and before the App's drag session lets
+    /// a workspace leave any sidebar list (DRAG-SHAPE-INVARIANT: one boundary).
+    public static var handoffSlack: CGFloat { Metrics.space6 }
+
     public var onDragHandoff: ((SidebarDragHandoff) -> Bool)? {
         get { list.onDragHandoff }
         set { list.onDragHandoff = newValue }
@@ -35,7 +40,7 @@ extension SidebarListView {
     func offerHandoff(_ drag: Drag, windowPoint: NSPoint) -> Bool {
         guard let handoff = onDragHandoff, let window, let scroll = enclosingScrollView else { return false }
         let sidebarFrame = scroll.convert(scroll.bounds, to: nil)
-        let slack = Metrics.space6
+        let slack = SidebarView.handoffSlack
         guard windowPoint.x > sidebarFrame.maxX + slack || windowPoint.x < sidebarFrame.minX - slack else { return false }
         let members: [WorkspaceID]
         switch drag.payload {

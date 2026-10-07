@@ -10,19 +10,9 @@ extension TabDragSession {
     // MARK: Ghost
 
     func present(_ drag: Drag) {
-        let source = drag.source
-        let tabSize = source.screenFrame.size
-        let presentation: Presentation
-        let rect: CGRect
-        var scale: CGFloat = 1
-        if let slot = drag.winner?.proposal.ghostFrame {
-            presentation = .inline(slot)
-            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
-        } else {
-            presentation = .card
-            rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
-            if drag.winner != nil || drag.workspaceHighlight != nil { scale = DragTunables.ghostTargetScale.value }
-        }
+        let (rect, presentation) = drag.shaping.ghostTarget(of: drag)
+        let overTarget = presentation == .card && (drag.winner != nil || drag.workspaceHighlight != nil)
+        let scale: CGFloat = overTarget ? DragTunables.ghostTargetScale.value : 1
         let jump = presentation != drag.presentation
         drag.presentation = presentation
         let cardness: CGFloat = if case .inline = presentation { 0 } else { 1 }

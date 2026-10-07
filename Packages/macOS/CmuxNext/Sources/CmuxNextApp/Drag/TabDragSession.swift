@@ -11,7 +11,7 @@ import CmuxNextWakeups
 /// workspaces that left their sidebar (`TabDragSession+Workspaces`). A floating
 /// ghost follows the pointer across every window and outside them; over a
 /// strip it folds into an inline tab (the strip opens a gap), elsewhere it
-/// is a glass preview card. Every `TabDropTargetProviding` in every window
+/// is a glass preview card (`DragShapeTracker`). Every `TabDropTargetProviding` in every window
 /// (sidebar, strips, layout) is asked by screen point, in that priority.
 /// Release commits ONE daemon command for the outcome with a client
 /// transaction; release outside every window tears off into a new window
@@ -209,7 +209,10 @@ final class TabDragSession: NSObject {
         drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let context = liveContext(drag)
-        let hit = hitTest(point, drag: drag, context: context)
+        // The held strip answers first inside its tear-off band (DRAG-SHAPE-INVARIANT).
+        let held = drag.source.payload.flatMap { drag.shaping.heldStripHit(point, payload: $0, drag: drag) }
+        let hit = held.map { Hit(window: $0.window, winner: Winner(provider: $0.strip, proposal: $0.proposal, window: $0.window)) }
+            ?? hitTest(point, drag: drag, context: context)
         // The layout adapter's preview is ended by `outline`, so a move from
         // a pane zone to a strip slot animates instead of fading out and in.
         if let previous = drag.winner, previous.provider !== hit.winner?.provider, !(previous.provider is LayoutTabDropTarget) {
@@ -219,6 +222,7 @@ final class TabDragSession: NSObject {
         drag.resolution = TabDragResolver.resolve(hit.winner?.proposal, insideWindow: hit.window != nil, screenPoint: point,
                                                   context: context)
         drag.outcome = drag.resolution.outcome
+        drag.shaping.resolveTab(hit.winner.map { ($0.provider, $0.proposal) }, window: hit.window, preview: drag.resolution.preview)
         TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
         present(drag)
         wake(drag)

@@ -6,7 +6,8 @@ import CmuxNextSidebar
 // Sidebar workspace drags across windows. A row drag (one workspace, a
 // multi-selection, or a group) that leaves its sidebar sideways is handed
 // here and flies as the same glass ghost as a tab (row image plus a live
-// thumbnail of the workspace's selected tab). Targets: any window's sidebar
+// thumbnail of the workspace's selected tab; its row over a sidebar list,
+// `DragShapeTracker`). Targets: any window's sidebar
 // (slot, group header, or row = append), a pane of a window's shown
 // workspace (`WorkspaceMerge`), any window's content (append),
 // outside every window (new window under the pointer; with every
@@ -42,26 +43,27 @@ extension TabDragSession {
 
     func updateWorkspaces(_ point: CGPoint, drag: Drag) {
         guard case let .workspaces(ids, group) = drag.source.item else { return }
-        let controller = window(at: point)
+        var controller = window(at: point)
         var sidebarHit: WorkspaceDropTarget?
         var highlight: CGRect?
         var sidebar: SidebarTabDropTarget?
         var layoutHit: TabDropKind?
         var layout: LayoutTabDropTarget?
-        if let controller {
-            let adapter = adapters(for: controller, drag: drag).sidebar
+        // The held sidebar list first (DRAG-SHAPE-INVARIANT), then the window under the pointer.
+        let held = drag.shaping.heldSidebarProbe(point)
+        for (candidate, at) in [held.map { ($0.window, $0.point) }, controller.map { ($0, point) }].compactMap({ $0 }) where sidebar == nil {
+            let adapter = adapters(for: candidate, drag: drag).sidebar
             adapter.sourceMachine = MachineID(ids.first.flatMap { services.machines.daemon(forWorkspace: $0)?.machineID } ?? MachineRegistry.localID)
             drag.touched[ObjectIdentifier(adapter)] = adapter
-            if let hit = adapter.hit(screenPoint: point) {
-                sidebar = adapter
-                sidebarHit = WorkspaceDragResolver.target(for: hit.drop)
-                highlight = hit.highlightFrame
-            } else if case let adapter = adapters(for: controller, drag: drag).layout,
-                      let proposal = WorkspaceMerge.hit(point, ids: ids, group: group, window: controller, layout: adapter, services: services) {
-                // Over the content: the panes preview a merge, as for a tab.
-                drag.touched[ObjectIdentifier(adapter)] = adapter
-                (layout, layoutHit, highlight) = (adapter, proposal.kind, proposal.highlightFrame)
+            if let hit = adapter.hit(screenPoint: at) {
+                (controller, sidebar, sidebarHit, highlight) = (candidate, adapter, WorkspaceDragResolver.target(for: hit.drop), hit.highlightFrame)
             }
+        }
+        if sidebar == nil, let controller, case let adapter = adapters(for: controller, drag: drag).layout,
+           let proposal = WorkspaceMerge.hit(point, ids: ids, group: group, window: controller, layout: adapter, services: services) {
+            // Over the content: the panes preview a merge, as for a tab.
+            drag.touched[ObjectIdentifier(adapter)] = adapter
+            (layout, layoutHit, highlight) = (adapter, proposal.kind, proposal.highlightFrame)
         }
         if let previous = drag.workspaceSidebar, previous !== sidebar { previous.dropExited() }
         drag.workspaceSidebar = sidebar
@@ -82,6 +84,7 @@ extension TabDragSession {
             highlight = controller?.window?.frame
         }
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
+        drag.shaping.resolveWorkspace(sidebar == nil ? nil : controller.map { ($0, highlight) }, outcome: drag.workspaceOutcome)
         present(drag)
         wake(drag)
     }
@@ -118,6 +121,9 @@ extension TabDragSession {
             case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
             }
             services.windows.bringToFront(controller)
+        }
+        if let slot = drag.shaping.landingRect(height: drag.motion.targetRect.height) {
+            return land(drag, at: slot, cardness: 0, opacity: 0, scale: 1)
         }
         let target = drag.workspaceHighlight ?? drag.motion.targetRect
         let card = drag.motion.targetRect
