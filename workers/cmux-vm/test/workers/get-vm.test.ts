@@ -100,7 +100,7 @@ describe("owner reads", () => {
     expect(text).not.toContain("tenant-slug");
     expect(text).not.toContain("leak-check");
     expect(text.toLowerCase()).not.toContain("freestyle");
-    expect(h.upstreamRequests.map((request) => new URL(request.url).pathname)).toEqual([`/v5/vms/${upstreamId}`]);
+    expect(h.upstreamRequests.map((call) => call.path)).toEqual([`/v5/vms/${upstreamId}`]);
   });
 
   it("accepts a session token for a member of the named team", async () => {
