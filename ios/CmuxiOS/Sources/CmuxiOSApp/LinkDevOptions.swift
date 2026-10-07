@@ -4,8 +4,8 @@ import Foundation
 /// B3's WireGuard-over-WebRTC carrier (V2, until D2 picks V1 or V2) and C1's
 /// local echo prediction. Launch env first (`CMUX_IOS_LINK_WG`,
 /// `CMUX_IOS_TERMINAL_PREDICTION` = `1`/`0`), then the device's defaults
-/// (the shake menu writes them). Release builds keep both off. Read when an
-/// account's links start and when a terminal opens.
+/// (the shake menu writes them). Release builds keep both off. Read once at
+/// launch.
 struct LinkDevOptions: Equatable {
     static let wireGuardKey = "cmux.ios.dev.linkWireGuard"
     static let predictionKey = "cmux.ios.dev.terminalPrediction"
