@@ -17,6 +17,7 @@ public struct MoveScreenRequest: DaemonRequest {
         public var index: Int
     }
     public static let command = "move-screen"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.screenMetadata
     public var screen: ScreenID
     public var index: Int?
     public var workspace: WorkspaceHandle?

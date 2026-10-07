@@ -45,6 +45,8 @@ impl StandbyTerminalHost {
         let child = command.spawn().context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess { child: Some(child) };
         let host_pid = process.child_mut().id();
+        // A Cloud daemon's unit stop must not end its hosts (host_scope.rs).
+        host_scope::place_host(host_pid);
         let stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
         let stdout =

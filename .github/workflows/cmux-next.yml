@@ -48,6 +48,7 @@ on:
       - docs/mdm/**
       - webviews/test/fixtures/**
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -129,6 +130,7 @@ on:
       - docs/mdm/**
       - webviews/test/fixtures/**
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -1522,14 +1524,19 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
-  # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
-  # promote this commit to the protected `nightly-next` branch (debounced to
-  # one build per 2 h there). Only main's job, in the `release` environment,
-  # holds the release App key and checks this push run's Release compile; this
+  # Green Linux checks on a feat-cmux-next push ask main's nightly.yml to promote
+  # this commit to the protected `nightly-next` branch. The nightly build is the
+  # Release compile gate: it compiles Release itself and publishes nothing when
+  # that fails, so a push never waits for a mini before nightly-next builds it.
+  # Every green head is promoted, with no debounce: nightly.yml's concurrency
+  # group lets the running nightly-next build finish and replaces only the
+  # pending one, so the feed rolls forward to the newest green head without
+  # dropping the last one. Only main's job, in the `release` environment,
+  # holds the release App key and checks this push run's Linux checks; this
   # job only needs actions: write to request it.
   request-nightly-next:
-    needs: release-compile
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -1542,7 +1549,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
-        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
+        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA"
 
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]
