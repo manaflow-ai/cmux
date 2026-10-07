@@ -302,7 +302,7 @@ async function main() {
   let img: any;
   for (let before: number | null = null; !img; ) {
     const page = await l.call("history", { beforeSeq: before, limit: 200 });
-    img = page.messages.flatMap((m: any) => m.attachments)[0];
+    img = page.messages.flatMap((m: any) => m.attachments).find((a: any) => a.kind === "image");
     before = page.messages[0].seq;
   }
   const t0 = performance.now();
