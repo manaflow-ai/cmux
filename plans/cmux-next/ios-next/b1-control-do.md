@@ -1,6 +1,6 @@
 # B1 `control-do`: the control plane on Durable Objects
 
-Status: implemented on `feat-cmux-next-ios-b1-control-do`, 2026-10-06. Plan: [PLAN.md](PLAN.md) B1.
+Status: landed (local) on `feat-cmux-next-ios-b1-control-do`, 2026-10-06. Plan: [PLAN.md](PLAN.md) B1.
 Wire: [a0-rpc.md](a0-rpc.md) (`cmux.mobile/1`). Binding: OWNERSHIP-PRINCIPLES.md, transport.md section 6.
 
 B1 adds no Durable Object class. It extends `HostDO` (control sockets next to the datagram relay),
@@ -148,10 +148,26 @@ idempotency and offline reject, read mapping, mirror gap/resync and resume, pres
 restore), `host-signal.test.ts` (relay, `from` rewrite, scoping, rate limit), `ssh-stream.test.ts`,
 `realtime-turn.test.ts`, `mobile-config.test.ts`, `owner-hello.test.ts`.
 
-## 10. Open
+## 10. Swift client (`Packages/Shared/CmuxControlPlane`)
 
-- Catalog host ids are `h_…`; TeamDO mints `host_…`. `HostDO` accepts the TeamDO id; A0's pattern
-  should widen (or TeamDO change prefix) before the phone validates ids strictly.
+`ControlPlaneClient` (actor) over `CmuxMobileWire` frames, one per socket (`/v1/wire/user`,
+`/v1/wire/host/<host>`): `start()`/`stop()`, `states` (`connecting`, `connected(HelloOKFrame)`,
+`disconnected`, `failed`), `subscribe(stream) -> AsyncStream<StreamUpdate>` (snapshot, then only
+contiguous events; a gap sends `snapshot.request` and waits), `cursor(of:)`, `submit(OpFrame) ->
+OpOutcome` (undecided ops are resent with the same key after a reconnect; resubscribe then carries
+`pending` so the snapshot settles them), `read(op, params, stream)`, `sendSignal` (never sends
+`from`), `signals` (`AsyncStream<SignalFrame>`), `setPresence(active:)`. Reconnect backoff runs
+through an injected sleep (`ReconnectPolicy`); close codes 4002 and 4401 are terminal. Nothing
+queues while disconnected. Transport seam `ControlPlaneTransport` (URLSession in production, an
+in-memory server in the Swift Testing suite).
+
+## 11. Open
+
+- Catalog ids are `h_…`/`in_…`; the backend mints `host_<20>`/`inst_<20>`. `HostDO` uses the backend
+  ids; A0's patterns should widen before the phone validates ids strictly.
+- The datagram relay will pick its object name per host (`host:<id>:<n>`, transport.md section 6);
+  control sockets use `idFromName(<host id>)` today. When placement lands, TeamDO records the chosen
+  name and both planes use it.
 - `host.list` (TeamDO read) is not served over a socket yet; the phone lists hosts with
   `team.directory` or B6's `pairing.hosts`.
 - B6 may narrow device admission from "team member" to "paired device" (trust store in `UserDO`);
