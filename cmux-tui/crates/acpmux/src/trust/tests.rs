@@ -5,6 +5,7 @@ fn paths(dir: &Path) -> Paths {
         claude_json: dir.join("claude.json"),
         codex_config: dir.join("config.toml"),
         record: dir.join("acpmux").join("trust.json"),
+        agent_home: Some(dir.join("agent-home")),
     }
 }
 
@@ -131,4 +132,48 @@ fn concurrent_decisions_are_all_kept() {
         assert_eq!(get(&p, &format!("/repo{index}")).unwrap()["decided"], true);
     }
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// An agent-home folder cmux made for a chat (a direct child of the agent-home root with the
+/// app's marker) is trusted by construction: nobody is asked about it. A folder there without
+/// the marker, a folder inside one, and a symlink out of agent-home are asked about as usual.
+#[test]
+fn an_agent_home_folder_cmux_made_is_trusted_and_nothing_else_there_is() {
+    let dir = scratch("agent-home");
+    let paths = paths(&dir);
+    let root = dir.join("agent-home");
+    let made = root.join("0f3c2a9e-1b7d-4e5f-9a1b-2c3d4e5f6a7b");
+    std::fs::create_dir_all(made.join("inner")).unwrap();
+    std::fs::write(made.join(AGENT_HOME_MARKER), b"").unwrap();
+    let unmarked = root.join("unmarked");
+    std::fs::create_dir_all(&unmarked).unwrap();
+    // A user folder with a copied marker, reached through a symlink inside agent-home.
+    let outside = dir.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join(AGENT_HOME_MARKER), b"").unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+    let level = |path: &Path, family: &str| {
+        session_level(&paths, &path.to_string_lossy(), family).unwrap().1
+    };
+    for family in ["claude", "codex", "other"] {
+        assert_eq!(level(&made, family), Level::Trusted, "{family}");
+        assert_eq!(level(&unmarked, family), Level::Unknown, "{family}");
+        assert_eq!(level(&made.join("inner"), family), Level::Unknown, "{family}");
+        assert_eq!(level(&root.join("link"), family), Level::Unknown, "{family}");
+        assert_eq!(level(&outside, family), Level::Unknown, "{family}");
+    }
+    assert_eq!(get(&paths, &made.to_string_lossy()).unwrap()["level"], "trusted");
+    // Without an agent-home root, nothing is trusted by construction.
+    let none = Paths { agent_home: None, ..paths.clone() };
+    assert_eq!(session_level(&none, &made.to_string_lossy(), "codex").unwrap().1, Level::Unknown);
+    // The user's own answer still wins.
+    set(&paths, &made.to_string_lossy(), "untrusted").unwrap();
+    assert_eq!(level(&made, "claude"), Level::Untrusted);
+    // A marker that is a symlink is not the app's.
+    let linked = root.join("linked-marker");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::os::unix::fs::symlink(outside.join(AGENT_HOME_MARKER), linked.join(AGENT_HOME_MARKER))
+        .unwrap();
+    assert_eq!(level(&linked, "claude"), Level::Unknown);
+    let _ = std::fs::remove_dir_all(&dir);
 }
