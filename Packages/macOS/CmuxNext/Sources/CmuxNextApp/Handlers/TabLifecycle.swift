@@ -255,6 +255,15 @@ enum TabLifecycle {
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
             guard let (pane, id) = ctx.tab(invocation) else { return }
+            // The user's Cmd-W keeps a pinned tab (Chrome parity, PINNED-ITEMS-END-TO-END P3);
+            // the tab menu, the CLI and MCP name the tab and close it.
+            if invocation.origin == .user {
+                switch pane.stripModel.keyboardClose(id) {
+                case .close: break
+                case .select(let next): return pane.select(next)
+                case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
+                }
+            }
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
             return CloseUndoToasts.close(in: pane, [id])
         }
