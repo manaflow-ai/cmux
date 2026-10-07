@@ -1627,6 +1627,85 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(data.isEmpty)
     }
 
+    /// Runs the dated listing with `fakeStat` shadowing `stat`, while `find`
+    /// and `base64` stay resolvable through the inherited PATH.
+    private func runRemoteListing(
+        path: String,
+        withFakeStat fakeStat: String
+    ) throws -> (output: String, status: Int32) {
+        let binDir = try makeListingFixtureDirectory(name: "fakestat-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: binDir) }
+        let stat = binDir.appendingPathComponent("stat")
+        try fakeStat.write(to: stat, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stat.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            ProcessSSHFileExplorerTransport.posixShellBootstrap(
+                script: ProcessSSHFileExplorerTransport.remoteListingScript(path: path, showHidden: false)
+            ),
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (String(decoding: data, as: UTF8.self), process.terminationStatus)
+    }
+
+    @Test
+    func testRemoteListingKeepsOtherEntriesWhenOneVanishesBeforeStat() throws {
+        // Agents create and delete files while the explorer lists them. An entry
+        // `find` saw but `stat` can no longer read must not fail the whole
+        // directory. The fake `stat` deletes `vanishing.txt` just before the real
+        // `stat` runs over the batch that names it, reproducing the race.
+        let realStat = try #require(
+            ["/usr/bin/stat", "/bin/stat"].first { FileManager.default.isExecutableFile(atPath: $0) },
+            "stat is required on the test host"
+        )
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("present.txt"), atomically: true, encoding: .utf8)
+        try "y".write(to: root.appendingPathComponent("vanishing.txt"), atomically: true, encoding: .utf8)
+
+        let (output, status) = try runRemoteListing(path: root.path, withFakeStat: """
+        #!/bin/sh
+        for arg in "$@"; do
+          [ "$arg" = "./vanishing.txt" ] && rm -f ./vanishing.txt
+        done
+        exec \(realStat) "$@"
+        """)
+        #expect(status == 0)
+        #expect(names(from: output, path: root.path, showHidden: false).map(\.name) == ["present.txt"])
+    }
+
+    @Test
+    func testRemoteListingFallsBackWhenStatRejectsTheListingFormat() throws {
+        // A minimal `stat` (BusyBox, toybox) can accept the `%Y` probe and still
+        // reject a directive the listing format needs, such as `%W`. That host
+        // has to get the `ls` fallback status, not the access-failure status.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+        let (output, status) = try runRemoteListing(path: root.path, withFakeStat: """
+        #!/bin/sh
+        case "$*" in
+          *%W*) echo "stat: unknown directive %W" >&2; exit 1 ;;
+        esac
+        [ "$1" = "-c" ] && exit 0
+        exit 1
+        """)
+        #expect(status == ProcessSSHFileExplorerTransport.remoteListingUnsupportedToolsStatus)
+        #expect(output.isEmpty)
+    }
+
     // MARK: POSIX shell bootstrap (login-shell independence, base64 dependency)
 
     @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/bin/zsh"),
