@@ -25,8 +25,11 @@ final class WorkspaceRowView: SidebarRowView {
     /// while the setting is on (never on hover), so rows never shift.
     let disclosureButton = SidebarIconButton(symbol: "chevron.right", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .semibold,
                                              label: Strings.showTabs)
-    /// `sidebar.showCounts`: the workspace's tab count, in a fixed-width slot.
+    /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     private let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
+    private let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private var badgeText: String?
     private var disclosure: SidebarTabDisclosure?
     private var count: Int?
 
@@ -58,9 +61,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.font = SidebarStyle.titleFont
         agentMark.imageScaling = .scaleProportionallyDown
         agentMark.isHidden = true
-        [icon, title, subtitle, activity, agentMark, badge, closeButton, disclosureButton, tabCount, placeholderBar].forEach(addSubview)
+        [icon, title, subtitle, activity, agentMark, badge, closeButton, disclosureButton, tabCount, prBadge, placeholderBar].forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
+        prBadge.isHidden = true
+        prBadge.lineBreakMode = .byTruncatingTail
         tabCount.alignment = .right
         tabCount.font = .monospacedDigitSystemFont(ofSize: SidebarStyle.subtitleFont.pointSize, weight: .regular)
         progressTrack.addSublayer(progressFill)
@@ -106,8 +111,7 @@ final class WorkspaceRowView: SidebarRowView {
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant
         var disclosure: SidebarTabDisclosure?
-        var count: Int?
-        var detail: String?
+        var row: WorkspaceRowContent?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
@@ -116,24 +120,26 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group, groupColor: row.groupColor,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: observedAgentMarkVariant(),
-            disclosure: row.tabDisclosure, count: row.tabCount, detail: row.detail
+            disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
         groupColor = row.groupColor
         isShowingPlaceholder = ws.rowState == .placeholder
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
-        // WORKSPACE-ROWS-NO-DEFAULT-ICON: only a user's icon draws; a row
-        // without one shows no kind glyph and its title takes the place.
-        icon.configure(icon: ws.icon)
-        iconKind = ws.icon
+        // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
+        // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
+        // only a user's icon draws; without one the title takes the place.
+        let shown = row.content ?? WorkspaceRowContent()
+        icon.configure(icon: shown.icon)
+        iconKind = shown.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
-        activity.configure(ws.activity, style: ws.activityStyle)
-        activityState = ws.activity
+        activity.configure(shown.activity, style: ws.activityStyle)
+        activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.indicatorSize) }
@@ -146,28 +152,31 @@ final class WorkspaceRowView: SidebarRowView {
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.stringValue = row.tabCount.map(String.init) ?? ""
-        progress = ws.progress
+        badgeText = shown.badge
+        prBadge.stringValue = shown.badge ?? ""
+        progress = shown.progress
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
-        setAccessibilityLabel(accessibilityText(ws))
+        setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true
     }
 
-    private func accessibilityText(_ ws: SidebarWorkspace) -> String {
+    private func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
         var parts = [ws.title]
-        if let s = ws.rowDetail { parts.append(s) }
-        if let value = ws.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
+        if let s = content.detail { parts.append(s) }
+        if let s = content.badge { parts.append(s) }
+        if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
         case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
         case .dot: parts.append(Strings.unreadDot)
         default: break
         }
-        if let text = Strings.activity(ws.activity) { parts.append(text) }
+        if let text = Strings.activity(content.activity) { parts.append(text) }
         return parts.joined(separator: ", ")
     }
 
@@ -187,6 +196,8 @@ final class WorkspaceRowView: SidebarRowView {
     static let labelInset = Metrics.space1
     /// Room for a two-digit count, so 9 to 10 tabs moves nothing else.
     static let countWidth: CGFloat = 18
+    /// The PR badge never takes more than this from the title.
+    static let badgeMaxWidth: CGFloat = 72
 
     override func hoverChanged() {
         super.hoverChanged()
@@ -207,6 +218,7 @@ final class WorkspaceRowView: SidebarRowView {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
             tabCount.textColor = Palette.textTertiary
+            prBadge.textColor = Palette.textSecondary
             agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
@@ -266,6 +278,13 @@ final class WorkspaceRowView: SidebarRowView {
             let h = ceil(tabCount.intrinsicContentSize.height)
             tabCount.frame = NSRect(x: trailing - Self.countWidth, y: (b.height - h) / 2, width: Self.countWidth, height: h)
             trailing -= Self.countWidth + Metrics.space2
+        }
+        prBadge.isHidden = badgeText == nil || isShowingPlaceholder
+        if badgeText != nil {
+            let size = prBadge.intrinsicContentSize
+            let w = min(ceil(size.width), Self.badgeMaxWidth), h = ceil(size.height)
+            prBadge.frame = NSRect(x: trailing - w, y: (b.height - h) / 2, width: w, height: h)
+            trailing -= w + Metrics.space2
         }
         // The x and an unread badge share one slot, as wide as the wider of
         // the two, so hover swaps them in place and the name keeps its width.
