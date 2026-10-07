@@ -224,9 +224,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
-  const intervalError = unavailableIntervalResponse(request);
+  const intervalError = unavailableIntervalResponse(request, plan);
   if (intervalError) return intervalError;
-  const interval = CHECKOUT_BILLING_INTERVAL;
+  const interval = checkoutInterval(request, plan);
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
   const hasRelayAssertion =
@@ -749,11 +749,25 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   return null;
 }
 
-function unavailableIntervalResponse(request: NextRequest): NextResponse | null {
+/** Pro alone sells a yearly Price; every other plan refuses `interval=year`. */
+function unavailableIntervalResponse(
+  request: NextRequest,
+  plan: ReturnType<typeof checkoutPlan>,
+): NextResponse | null {
   const raw = request.nextUrl.searchParams.get("interval");
   if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
+  if (raw === "year" && plan === "pro") return null;
   const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
   return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
+}
+
+function checkoutInterval(
+  request: NextRequest,
+  plan: ReturnType<typeof checkoutPlan>,
+): BillingInterval {
+  return plan === "pro" && request.nextUrl.searchParams.get("interval") === "year"
+    ? "year"
+    : CHECKOUT_BILLING_INTERVAL;
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
