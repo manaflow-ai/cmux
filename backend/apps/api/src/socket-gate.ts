@@ -217,7 +217,8 @@ export class SocketGate {
   sweep(now: number): void {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.principal.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
+      // Sockets without a principal (HostDO's datagram relay) have no token here.
+      if (a?.principal?.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
     }
   }
 
@@ -225,7 +226,7 @@ export class SocketGate {
   nextExpiry(): number | null {
     let at: number | null = null
     for (const ws of this.ctx.getWebSockets()) {
-      const e = (ws.deserializeAttachment() as Attachment | null)?.principal.expires_at
+      const e = (ws.deserializeAttachment() as Attachment | null)?.principal?.expires_at
       if (typeof e === "number" && e > Date.now() && (at === null || e < at)) at = e
     }
     return at

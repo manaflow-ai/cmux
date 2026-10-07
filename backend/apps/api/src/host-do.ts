@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { route, type Endpoint } from "./host-relay/route.ts"
+import { HostControl, type ControlAttachment } from "./host-control.ts"
 
 interface Attachment {
   readonly role: "host" | "client"
@@ -18,13 +19,19 @@ const clientTag = (peer: string) => `client:${peer}`
  * reachability compiled by `TeamDO`, offline ends dropped). Pings are answered by the runtime's
  * auto-response, so an idle host costs no duration. The Worker authenticates every socket (relay
  * ticket from `UserDO`) and passes the derived peer id; frames never choose identity.
- * Not yet: rendezvous storage, wake, presence, cached tails, per-client budgets.
+ *
+ * Control plane (b1-control-do.md, host-control.ts): the same object also holds the host's and its
+ * devices' cmux.mobile/1 JSON sockets (presence, workspace and task mirrors, op forwarding to the
+ * Mac, WebRTC signaling). Relay sockets carry binary frames, control sockets JSON; the attachment
+ * tells them apart. Not yet: rendezvous storage, wake, cached tails, per-client relay budgets.
  */
 export class HostDO extends DurableObject<Env> {
   private reachable: Set<string> | undefined
+  private readonly control: HostControl
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+    this.control = new HostControl(ctx, env)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS host_relay (id INTEGER PRIMARY KEY CHECK (id = 1), host_peer TEXT NOT NULL, reachable TEXT NOT NULL)`)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
   }
@@ -54,6 +61,7 @@ export class HostDO extends DurableObject<Env> {
   /** WebSocket upgrade. The Worker sets `x-cmux-relay-role` and `x-cmux-relay-peer` after auth. */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 })
+    if (request.headers.has("x-cmux-ctl-role")) return this.control.accept(request)
     const role = request.headers.get("x-cmux-relay-role")
     const peer = request.headers.get("x-cmux-relay-peer") ?? ""
     const state = this.state()
@@ -69,7 +77,26 @@ export class HostDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  /** RPC from UserDO (socket-registry.ts): an install was revoked; its control sockets close now. */
+  async closeInstall(_entity: string, install: string, agent?: string): Promise<boolean> {
+    this.control.closeInstall(install, agent)
+    return true
+  }
+
+  override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+    const a = ws.deserializeAttachment() as ControlAttachment | null
+    if (a?.ctl) this.control.closed(ws, a)
+    try {
+      ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
+    } catch {}
+  }
+
+  override async alarm(): Promise<void> {
+    await this.control.alarm(Date.now())
+  }
+
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if ((ws.deserializeAttachment() as ControlAttachment | null)?.ctl) return this.control.message(ws, message)
     if (typeof message === "string") return
     const from = ws.deserializeAttachment() as Attachment | null
     const state = this.state()
