@@ -209,17 +209,17 @@ fn entering_blocked_or_error_alerts_once() {
 #[test]
 fn the_wording_follows_the_kind() {
     let mut records = ProgramStatusRecords::default();
-    for (index, kind) in [
-        Some(ProgramStatusKind::Question),
-        Some(ProgramStatusKind::Auth),
-        None,
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, kind) in [Some(ProgramStatusKind::Question), Some(ProgramStatusKind::Auth), None]
+        .into_iter()
+        .enumerate()
     {
         records.apply(blocked(&format!("r{index}"), kind, ""), index as u64);
     }
-    let bodies = records.take_alerts().into_iter().map(|alert| alert.notification("t").1).collect::<Vec<_>>();
+    let bodies = records
+        .take_alerts()
+        .into_iter()
+        .map(|alert| alert.notification("t").1)
+        .collect::<Vec<_>>();
     assert_eq!(bodies, ["Asks a question", "Needs sign-in", "Needs input"]);
 }
 

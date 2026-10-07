@@ -91,7 +91,8 @@ impl ProgramStatusAlert {
     /// is plain text: the program's text is never a link or a command, and
     /// the notification carries the source terminal.
     pub(crate) fn notification(&self, terminal: &str) -> (String, String) {
-        let title = self.title.clone().or_else(|| self.app.clone()).unwrap_or_else(|| terminal.to_owned());
+        let title =
+            self.title.clone().or_else(|| self.app.clone()).unwrap_or_else(|| terminal.to_owned());
         let wording = match (self.state, self.kind) {
             (ProgramStatusState::Error, _) => "Failed",
             (_, Some(ProgramStatusKind::Permission)) => "Needs approval",
@@ -275,9 +276,19 @@ impl crate::mux::Mux {
     ) {
         for alert in alerts {
             let (title, body) = alert.notification(terminal);
-            let level = if alert.is_error() { crate::mux::NotificationLevel::Error } else { crate::mux::NotificationLevel::Warning };
+            let level = if alert.is_error() {
+                crate::mux::NotificationLevel::Error
+            } else {
+                crate::mux::NotificationLevel::Warning
+            };
             if self
-                .post_notification_from(title, body, level, Some(surface), crate::mux::NotificationSource::Terminal)
+                .post_notification_from(
+                    title,
+                    body,
+                    level,
+                    Some(surface),
+                    crate::mux::NotificationSource::Terminal,
+                )
                 .is_err()
             {
                 self.report_internal_diagnostic("program status notification not posted");
