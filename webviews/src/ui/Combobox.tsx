@@ -39,6 +39,8 @@ export interface ComboboxProps {
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
+  /** The highlighted suggestion changed (arrows, pointer); undefined when none is. */
+  onHighlight?(value: string | undefined): void;
 }
 
 export function Combobox({
@@ -60,6 +62,7 @@ export function Combobox({
   onCommand,
   rootClassName,
   renderItem,
+  onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
   const [value, setValue] = useState(defaultValue);
@@ -136,7 +139,10 @@ export function Combobox({
       open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}
-      onItemHighlighted={(item) => setHighlighted(item as string | undefined)}
+      onItemHighlighted={(item) => {
+        setHighlighted(item as string | undefined);
+        onHighlight?.(item as string | undefined);
+      }}
     >
       <Autocomplete.Input
         ref={inputRef}
