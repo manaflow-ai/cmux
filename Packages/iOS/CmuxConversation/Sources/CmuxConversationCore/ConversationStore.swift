@@ -637,6 +637,9 @@ public final class ConversationStore {
     public func setViewing(_ viewing: Bool) {
         guard viewing != isViewing else { return }
         isViewing = viewing
+        // Coming back from the background, messages that arrived meanwhile
+        // are a backlog of their own (ChatKit re-checks on resume).
+        if !viewing { catchUpCaptured = false }
         if viewing { refreshReadState() }
     }
 
@@ -715,7 +718,8 @@ public final class ConversationStore {
         if isViewing, hasLoadedNewest {
             if !catchUpCaptured, serverRead != nil {
                 catchUpCaptured = true
-                if unreadCount > 0 {
+                // An earlier target still pending stays: it is the older one.
+                if unreadCount > 0, catchUpMarker == nil {
                     catchUpMarker = lastReadSeq
                     catchUpCount = unreadCount
                 }

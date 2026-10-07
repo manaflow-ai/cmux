@@ -1865,7 +1865,7 @@ final class MacMenuBubbleHighlight: NSObject, NSMenuDelegate {
 /// that message has been on screen.
 extension MacConversationViewController {
     fileprivate func installCatchUp() {
-        let label = String(localized: "conversation.catchUp.label", defaultValue: "Jump to First Unread Message", bundle: .module)
+        let label = String(localized: "conversation.catchUp.label", defaultValue: "Scroll to first unread message", bundle: .module)
         catchUpButton.image = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: label)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
         catchUpButton.imagePosition = .imageOnly
@@ -1903,6 +1903,18 @@ extension MacConversationViewController {
         if let target = store.catchUpTarget, let index = rowIndex[target.rowID] {
             let visibleTop = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
             if tableView.rect(ofRow: index).maxY > visibleTop {
+                store.dismissCatchUp()
+                setCatchUpVisible(false)
+                return
+            }
+        }
+        // ChatKit: "A message that I sent is visible on screen. Do not show
+        // catch up button." Replying there means the reader has caught up.
+        if let marker = store.catchUpMarker {
+            let range = tableView.rows(in: scrollView.contentView.bounds)
+            for index in range.location..<min(rows.count, range.location + range.length) {
+                guard case let .message(model) = rows[index], model.isOutgoing,
+                      (store.message(rowID: model.rowID)?.seq ?? .max) > marker else { continue }
                 store.dismissCatchUp()
                 setCatchUpVisible(false)
                 return

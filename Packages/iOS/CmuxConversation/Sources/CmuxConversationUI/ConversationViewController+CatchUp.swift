@@ -16,7 +16,7 @@ extension ConversationViewController {
         button.alpha = 0
         button.isHidden = true
         button.accessibilityIdentifier = "conversation.catchUp"
-        button.accessibilityLabel = String(localized: "conversation.catchUp.label", defaultValue: "Jump to First Unread Message", bundle: .module)
+        button.accessibilityLabel = String(localized: "conversation.catchUp.label", defaultValue: "Scroll to first unread message", bundle: .module)
         let glass = makeGlassView(cornerRadius: Self.catchUpButtonSize / 2, interactive: true)
         glass.isUserInteractionEnabled = false
         glass.translatesAutoresizingMaskIntoConstraints = false
@@ -69,6 +69,16 @@ extension ConversationViewController {
                 setCatchUpVisible(false)
                 return
             }
+        }
+        // ChatKit: "A message that I sent is visible on screen. Do not show
+        // catch up button." Replying there means the reader has caught up.
+        if let marker = store.catchUpMarker, collectionView.indexPathsForVisibleItems.contains(where: { indexPath in
+            guard indexPath.item < rows.count, case let .message(model) = rows[indexPath.item], model.isOutgoing else { return false }
+            return (store.message(rowID: model.rowID)?.seq ?? .max) > marker
+        }) {
+            store.dismissCatchUp()
+            setCatchUpVisible(false)
+            return
         }
         setCatchUpVisible(true)
     }

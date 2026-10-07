@@ -78,12 +78,20 @@ import Testing
         #expect(store.catchUpMarker == 80)
         store.endVisit()
         #expect(store.catchUpMarker == nil)
+        // Arrivals while backgrounded become a new target on resume.
+        store.setViewing(true)
+        store.setViewing(false)
         store.apply(.message(backend.makeMessage(seq: 101, sender: "lc"), eventSeq: 1))
-        store.apply(.message(backend.makeMessage(seq: 102, sender: "aw"), eventSeq: 2))
+        store.setViewing(true)
+        #expect(store.catchUpMarker == 100)
+        #expect(store.catchUpCount == 1)
+        store.endVisit()
+        store.apply(.message(backend.makeMessage(seq: 102, sender: "lc"), eventSeq: 2))
+        store.apply(.message(backend.makeMessage(seq: 103, sender: "aw"), eventSeq: 3))
         #expect(store.unreadCount == 2)
         // Coming back: the two new ones are the catch-up backlog.
         store.setViewing(true)
-        #expect(store.catchUpMarker == 100)
+        #expect(store.catchUpMarker == 101)
         #expect(store.catchUpCount == 2)
         #expect(store.unreadCount == 0)
     }

@@ -342,8 +342,20 @@ function boot() {
   const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN] });
   generateHistory(group, GROUP_COUNT, 0.25, SEED);
   generateHistory(direct, DIRECT_COUNT, 0.45, SEED + 1);
-  group.lastReadSeq = group.leaveUnread(GROUP_UNREAD);
-  direct.lastReadSeq = direct.leaveUnread(DIRECT_UNREAD);
+  // A real backlog never contains my own messages (sending reads the
+  // conversation), so the boot backlog is the last N messages, all from others.
+  for (const store of [group, direct]) {
+    const n = store === group ? GROUP_UNREAD : DIRECT_UNREAD;
+    const bots = store.bots();
+    for (let seq = Math.max(1, store.headSeq - n + 1); seq <= store.headSeq; seq++) {
+      const m = store.messages[seq - 1];
+      if (m.senderId !== ME.id) continue;
+      m.senderId = bots[seq % bots.length].id;
+      delete m.status;
+      delete m.readAt;
+    }
+    store.lastReadSeq = store.leaveUnread(n);
+  }
   stores.set("group", group);
   stores.set("direct", direct);
   log(

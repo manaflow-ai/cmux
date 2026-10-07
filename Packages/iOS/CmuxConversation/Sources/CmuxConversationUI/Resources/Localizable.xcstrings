@@ -58,13 +58,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jump to First Unread Message"
+            "value": "Scroll to first unread message"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最初の未読メッセージへ移動"
+            "value": "最初の未開封メッセージまでスクロール"
           }
         }
       }

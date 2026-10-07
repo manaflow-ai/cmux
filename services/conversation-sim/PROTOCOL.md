@@ -82,8 +82,10 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
 - `POST /admin/unread?conversation=<id>&count=<n>`: move the read marker so
-  exactly `n` messages from others are unread (catch-up testing). Boot leaves
-  `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) unread.
+  exactly `n` messages from others are unread (catch-up testing; the range
+  may include my own messages, which real traffic never does). Boot leaves the
+  last `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) messages unread, all from
+  others.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.
