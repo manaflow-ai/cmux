@@ -55,7 +55,8 @@ public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
             phase = .ended(.consentDenied)
         case (_, .ended):
             phase = .ended(stopSent ? .stoppedByViewer : .hostStoppedSharing)
-        case (_, .stats), (_, .unknown):
+        case (_, .stats), (_, .unknown), (_, .service):
+            // Service messages go to the service's handler, not the setup.
             break
         default:
             phase = .ended(.connectionLost)
