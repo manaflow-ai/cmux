@@ -10,6 +10,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
 
 pub mod adopt;
+pub mod adopt_live;
 pub mod agent;
 #[cfg(test)]
 mod agent_exit_tests;
