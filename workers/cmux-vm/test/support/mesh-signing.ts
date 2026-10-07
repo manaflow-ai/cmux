@@ -19,8 +19,10 @@ const b64url = (bytes: Uint8Array): string => b64(bytes).replace(/\+/gu, "-").re
 
 export async function makeInstallKey(): Promise<InstallKey> {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-  const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
-  return { publicKey: b64(raw), privateKey: pair.privateKey };
+  if (!("publicKey" in pair)) throw new Error("ECDSA generateKey returned no key pair");
+  const raw = await crypto.subtle.exportKey("raw", pair.publicKey);
+  if (!(raw instanceof ArrayBuffer)) throw new Error("raw export returned no bytes");
+  return { publicKey: b64(new Uint8Array(raw)), privateKey: pair.privateKey };
 }
 
 export interface SignOptions {
