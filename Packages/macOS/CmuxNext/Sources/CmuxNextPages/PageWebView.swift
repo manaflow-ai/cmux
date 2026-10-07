@@ -408,10 +408,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         resumeLoadWaiters()
     }
 
+    // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         resumeLoadWaiters()
     }
 
+    // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         resumeLoadWaiters()
     }
