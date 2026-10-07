@@ -233,11 +233,20 @@ enum TabHandlers {
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
         registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.shared.tabMetadata), invoke: { invocation in
-            if TabLifecycle.togglePinHidden(ctx, invocation) { return }
+            let commands = PinCommands(context: ctx)
+            if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
+                guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+                return commands.setTabPinned(tab.id, pinned: !tab.pinned, origin: invocation.origin)
+            }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            pane.setPinned(id, pinned: !tab.pinned)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
         })
+        // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
+        ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
+            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
+        }
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

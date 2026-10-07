@@ -19,10 +19,11 @@
 
 pub mod host;
 pub mod link;
+pub mod sweep;
 mod wait;
 pub use wait::{
-    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, death_watches, wait_dead_async, wait_dead_within,
-    within,
+    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
+    wait_dead_within, within, within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};

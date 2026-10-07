@@ -12,7 +12,11 @@ The run's code never executes here; it reads the Actions and pulls APIs.
 
 Usage: cmux_next_push_attribution.py --repo OWNER/NAME --run-id ID --sha SHA
        [--workflow cmux-next.yml] [--branch feat-cmux-next] [--dry-run]
-       [--summary FILE]
+       [--events push[,workflow_dispatch]] [--summary FILE]
+
+--events adds workflow_dispatch runs of the branch to the scan: the tree jobs
+(daemon tests, scheme compile) of a push whose same-tree cmux-tui was published
+after its run probed it pass or fail in a same-tree mode dispatch run.
 """
 
 from __future__ import annotations
@@ -101,6 +105,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--server-url", default="https://github.com")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--events", default="push",
+                        help="comma-separated run events to scan for the last pass (push, workflow_dispatch)")
     args = parser.parse_args(argv)
 
     def report(text: str) -> None:
@@ -113,10 +119,19 @@ def main(argv: list[str]) -> int:
     if not failed:
         report("No failed check job in this run.")
         return 0
-    runs = gh_api(
-        f"repos/{args.repo}/actions/workflows/{args.workflow}/runs"
-        f"?branch={args.branch}&event=push&per_page={SCANNED_RUNS}"
-    )["workflow_runs"]
+    events = [event for event in args.events.split(",") if event in ("push", "workflow_dispatch")] or ["push"]
+    runs = sorted(
+        (
+            run
+            for event in events
+            for run in gh_api(
+                f"repos/{args.repo}/actions/workflows/{args.workflow}/runs"
+                f"?branch={args.branch}&event={event}&per_page={SCANNED_RUNS}"
+            )["workflow_runs"]
+        ),
+        key=lambda run: run["id"],
+        reverse=True,
+    )[:SCANNED_RUNS]
     earlier = [
         (run["head_sha"], run_jobs(args.repo, run["id"]))
         for run in runs
