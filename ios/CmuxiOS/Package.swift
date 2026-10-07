@@ -388,6 +388,32 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C14 (plans/cmux-next/ios-next/c14-web.md): the in-app
+        // browser's tunnels. `tcp.forward` over the per-Mac MobileLinkClient,
+        // SSH direct-tcpip through a C9 opener, and the token-gated loopback
+        // proxy WKWebView loads. No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSWebCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSWebCoreTests",
+            dependencies: [
+                "CmuxiOSWebCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSFeedModel",
             dependencies: ["CmuxiOSFeatureKit"],
