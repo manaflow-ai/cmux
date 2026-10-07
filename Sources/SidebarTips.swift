@@ -116,21 +116,29 @@ struct SidebarTipsProgress: Equatable {
     var currentTipID: String?
     var seenTipIDs: Set<String>
     /// Local calendar day (`yyyy-MM-dd`) the Tips popover was last opened.
+    /// `nil` until the first open.
     var lastOpenedDay: String?
+    /// Set by "Don't show again"; the Help popover's "Show Tips" clears it.
+    var isHidden: Bool
 
-    init(currentTipID: String? = nil, seenTipIDs: Set<String> = [], lastOpenedDay: String? = nil) {
+    init(
+        currentTipID: String? = nil,
+        seenTipIDs: Set<String> = [],
+        lastOpenedDay: String? = nil,
+        isHidden: Bool = false
+    ) {
         self.currentTipID = currentTipID
         self.seenTipIDs = seenTipIDs
         self.lastOpenedDay = lastOpenedDay
+        self.isHidden = isHidden
     }
 }
 
-/// Pure rules for which tip shows and when the footer button marks a new one.
+/// Pure rules for the footer button and which tip the popover opens on.
 ///
-/// At most one new tip a day: the button shows a small dot while some tip is
-/// still unseen and the popover has not been opened today. Opening it on a
-/// new day moves on to the next unseen tip. Once every tip has been seen the
-/// dot never comes back, so it does not nag.
+/// The button carries a small dot until the popover is opened for the first
+/// time, then never again. Opening it on a new day moves on to the next
+/// unseen tip, so each day starts on something new without any badge.
 enum SidebarTipsSchedule {
     static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
@@ -142,13 +150,12 @@ enum SidebarTipsSchedule {
         )
     }
 
-    static func showsNewTipIndicator(
-        _ progress: SidebarTipsProgress,
-        tipIDs: [String],
-        today: String
-    ) -> Bool {
-        guard progress.lastOpenedDay != today else { return false }
-        return tipIDs.contains { !progress.seenTipIDs.contains($0) }
+    static func showsButton(_ progress: SidebarTipsProgress) -> Bool {
+        !progress.isHidden
+    }
+
+    static func showsUnopenedIndicator(_ progress: SidebarTipsProgress) -> Bool {
+        showsButton(progress) && progress.lastOpenedDay == nil
     }
 
     static func currentIndex(_ progress: SidebarTipsProgress, tipIDs: [String]) -> Int {
@@ -197,12 +204,19 @@ enum SidebarTipsStorage {
     static let currentTipIDKey = "sidebarTips.currentTipID"
     static let seenTipIDsKey = "sidebarTips.seenTipIDs"
     static let lastOpenedDayKey = "sidebarTips.lastOpenedDay"
+    static let hiddenKey = "sidebarTips.hidden"
 
-    static func progress(currentTipID: String, seenTipIDs: String, lastOpenedDay: String) -> SidebarTipsProgress {
+    static func progress(
+        currentTipID: String,
+        seenTipIDs: String,
+        lastOpenedDay: String,
+        isHidden: Bool = false
+    ) -> SidebarTipsProgress {
         SidebarTipsProgress(
             currentTipID: currentTipID.isEmpty ? nil : currentTipID,
             seenTipIDs: Set(seenTipIDs.split(separator: ",").map(String.init)),
-            lastOpenedDay: lastOpenedDay.isEmpty ? nil : lastOpenedDay
+            lastOpenedDay: lastOpenedDay.isEmpty ? nil : lastOpenedDay,
+            isHidden: isHidden
         )
     }
 

@@ -12,14 +12,40 @@ struct SidebarTipsScheduleTests {
     private let tipIDs = ["a", "b", "c"]
 
     @Test
-    func firstLaunchMarksANewTipAndOpeningShowsTheFirstOne() {
+    func theDotShowsUntilTheFirstOpenAndOpeningShowsTheFirstTip() {
         let fresh = SidebarTipsProgress()
-        #expect(SidebarTipsSchedule.showsNewTipIndicator(fresh, tipIDs: tipIDs, today: "2026-10-07"))
+        #expect(SidebarTipsSchedule.showsButton(fresh))
+        #expect(SidebarTipsSchedule.showsUnopenedIndicator(fresh))
 
         let opened = SidebarTipsSchedule.opened(fresh, tipIDs: tipIDs, today: "2026-10-07")
         #expect(opened.currentTipID == "a")
         #expect(opened.seenTipIDs == ["a"])
-        #expect(!SidebarTipsSchedule.showsNewTipIndicator(opened, tipIDs: tipIDs, today: "2026-10-07"))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(opened))
+    }
+
+    @Test
+    func theDotNeverComesBackOnLaterDaysEvenWithUnseenTips() {
+        let opened = SidebarTipsSchedule.opened(SidebarTipsProgress(), tipIDs: tipIDs, today: "2026-10-07")
+        let nextDay = SidebarTipsSchedule.opened(opened, tipIDs: tipIDs, today: "2026-10-08")
+        #expect(nextDay.seenTipIDs != Set(tipIDs))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(opened))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(nextDay))
+    }
+
+    @Test
+    func hidingRemovesTheButtonAndShowingItAgainKeepsTheDotOff() {
+        let opened = SidebarTipsSchedule.opened(SidebarTipsProgress(), tipIDs: tipIDs, today: "2026-10-07")
+        var hidden = opened
+        hidden.isHidden = true
+        #expect(!SidebarTipsSchedule.showsButton(hidden))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(hidden))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(SidebarTipsProgress(isHidden: true)))
+
+        var restored = hidden
+        restored.isHidden = false
+        #expect(SidebarTipsSchedule.showsButton(restored))
+        #expect(!SidebarTipsSchedule.showsUnopenedIndicator(restored))
+        #expect(restored.currentTipID == opened.currentTipID)
     }
 
     @Test
@@ -30,10 +56,8 @@ struct SidebarTipsScheduleTests {
     }
 
     @Test
-    func aNewDayMarksAndShowsTheNextUnseenTip() {
+    func aNewDayOpensOnTheNextUnseenTip() {
         let dayOne = SidebarTipsSchedule.opened(SidebarTipsProgress(), tipIDs: tipIDs, today: "2026-10-07")
-        #expect(SidebarTipsSchedule.showsNewTipIndicator(dayOne, tipIDs: tipIDs, today: "2026-10-08"))
-
         let dayTwo = SidebarTipsSchedule.opened(dayOne, tipIDs: tipIDs, today: "2026-10-08")
         #expect(dayTwo.currentTipID == "b")
         #expect(dayTwo.seenTipIDs == ["a", "b"])
@@ -51,10 +75,8 @@ struct SidebarTipsScheduleTests {
     }
 
     @Test
-    func onceEveryTipIsSeenTheIndicatorStaysOff() {
+    func onceEveryTipIsSeenANewDayWrapsToTheNextTip() {
         let progress = SidebarTipsProgress(currentTipID: "c", seenTipIDs: ["a", "b", "c"], lastOpenedDay: "2026-10-07")
-        #expect(!SidebarTipsSchedule.showsNewTipIndicator(progress, tipIDs: tipIDs, today: "2026-10-20"))
-
         let opened = SidebarTipsSchedule.opened(progress, tipIDs: tipIDs, today: "2026-10-20")
         #expect(opened.currentTipID == "a")
     }
@@ -68,11 +90,17 @@ struct SidebarTipsScheduleTests {
 
     @Test
     func storageRoundTripsProgress() {
-        let progress = SidebarTipsProgress(currentTipID: "b", seenTipIDs: ["a", "b"], lastOpenedDay: "2026-10-07")
+        let progress = SidebarTipsProgress(
+            currentTipID: "b",
+            seenTipIDs: ["a", "b"],
+            lastOpenedDay: "2026-10-07",
+            isHidden: true
+        )
         let decoded = SidebarTipsStorage.progress(
             currentTipID: progress.currentTipID ?? "",
             seenTipIDs: SidebarTipsStorage.encodedSeenTipIDs(progress.seenTipIDs),
-            lastOpenedDay: progress.lastOpenedDay ?? ""
+            lastOpenedDay: progress.lastOpenedDay ?? "",
+            isHidden: progress.isHidden
         )
         #expect(decoded == progress)
         #expect(SidebarTipsStorage.progress(currentTipID: "", seenTipIDs: "", lastOpenedDay: "") == SidebarTipsProgress())

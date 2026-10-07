@@ -75,7 +75,6 @@ enum SidebarFooterControl: CaseIterable, Equatable {
     case account
     case mobileConnect
     case help
-    case tips
     case shortcutDiscovery
     case upgrade
     case extensions

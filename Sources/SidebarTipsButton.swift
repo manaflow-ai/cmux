@@ -3,25 +3,29 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
-import Combine
 import SwiftUI
 
 /// Sidebar-footer lightbulb that opens a small popover with one tip at a time
 /// on how to use cmux. Same size, tint, hover and popover anchor as the Help
-/// button next to it. A small accent dot marks a tip the user has not seen
-/// yet (at most one new tip a day, see `SidebarTipsSchedule`); the popover
-/// never opens by itself.
+/// button next to it. A small accent dot sits on the bulb until the popover is
+/// opened for the first time (see `SidebarTipsSchedule`); the popover never
+/// opens by itself. "Don't show again" hides the button until the Help
+/// popover's "Show Tips" brings it back.
 struct SidebarTipsButton: View {
     private static let iconSize: CGFloat = 13
-    private static let dotSize: CGFloat = 5
+    private static let dotSize: CGFloat = 6
+    /// Gap knocked out of the glyph around the dot so it reads on any backdrop.
+    private static let dotRing: CGFloat = 1.5
+    private static let dotTopInset: CGFloat = 2.5
+    private static let dotTrailingInset: CGFloat = 3
 
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
     @AppStorage(SidebarTipsStorage.seenTipIDsKey) private var seenTipIDs = ""
     @AppStorage(SidebarTipsStorage.lastOpenedDayKey) private var lastOpenedDay = ""
+    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var isPopoverPresented = false
-    @State private var today = SidebarTipsSchedule.dayKey(for: Date())
 
     private let title = String(localized: "sidebar.tips.button", defaultValue: "Tips")
 
@@ -30,17 +34,28 @@ struct SidebarTipsButton: View {
     }
 
     private var progress: SidebarTipsProgress {
-        SidebarTipsStorage.progress(currentTipID: currentTipID, seenTipIDs: seenTipIDs, lastOpenedDay: lastOpenedDay)
+        SidebarTipsStorage.progress(
+            currentTipID: currentTipID,
+            seenTipIDs: seenTipIDs,
+            lastOpenedDay: lastOpenedDay,
+            isHidden: isHidden
+        )
     }
 
-    private var showsNewTipIndicator: Bool {
-        !isPopoverPresented && SidebarTipsSchedule.showsNewTipIndicator(progress, tipIDs: tipIDs, today: today)
+    private var showsUnopenedIndicator: Bool {
+        !isPopoverPresented && SidebarTipsSchedule.showsUnopenedIndicator(progress)
     }
 
     var body: some View {
+        if SidebarTipsSchedule.showsButton(progress) {
+            button
+        }
+    }
+
+    private var button: some View {
         Button {
             if !isPopoverPresented {
-                today = SidebarTipsSchedule.dayKey(for: Date())
+                let today = SidebarTipsSchedule.dayKey(for: Date())
                 store(SidebarTipsSchedule.opened(progress, tipIDs: tipIDs, today: today))
             }
             isPopoverPresented.toggle()
@@ -50,13 +65,14 @@ struct SidebarTipsButton: View {
                 style: SidebarFooterCircularIconStyle.standard.resized(to: Self.iconSize)
             )
             .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
+            .mask { glyphMask }
             .overlay(alignment: .topTrailing) {
-                if showsNewTipIndicator {
+                if showsUnopenedIndicator {
                     Circle()
                         .fill(cmuxAccent.color)
                         .frame(width: Self.dotSize, height: Self.dotSize)
-                        .padding(.top, 3)
-                        .padding(.trailing, 4)
+                        .padding(.top, Self.dotTopInset)
+                        .padding(.trailing, Self.dotTrailingInset)
                         .transition(.opacity)
                 }
             }
@@ -68,24 +84,37 @@ struct SidebarTipsButton: View {
             preferredEdge: .maxY,
             detachedGap: 4
         ) {
-            SidebarTipsPopover(showsModifierHoldHints: showModifierHoldHints)
+            SidebarTipsPopover(showsModifierHoldHints: showModifierHoldHints) {
+                isPopoverPresented = false
+                isHidden = true
+            }
         })
-        .animation(.easeOut(duration: 0.15), value: showsNewTipIndicator)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            today = SidebarTipsSchedule.dayKey(for: Date())
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: RunLoop.main)) { _ in
-            today = SidebarTipsSchedule.dayKey(for: Date())
-        }
+        .animation(.easeOut(duration: 0.15), value: showsUnopenedIndicator)
         .accessibilityElement(children: .ignore)
         .safeHelp(title)
         .accessibilityLabel(title)
         .accessibilityValue(
-            showsNewTipIndicator
+            showsUnopenedIndicator
                 ? String(localized: "sidebar.tips.newTip", defaultValue: "New tip")
                 : ""
         )
         .accessibilityIdentifier("SidebarTipsButton")
+    }
+
+    /// Opaque everywhere except a small circle behind the dot, so the bulb
+    /// glyph keeps a clean gap around it.
+    private var glyphMask: some View {
+        ZStack(alignment: .topTrailing) {
+            Rectangle()
+            if showsUnopenedIndicator {
+                Circle()
+                    .frame(width: Self.dotSize + Self.dotRing * 2, height: Self.dotSize + Self.dotRing * 2)
+                    .padding(.top, Self.dotTopInset - Self.dotRing)
+                    .padding(.trailing, Self.dotTrailingInset - Self.dotRing)
+                    .blendMode(.destinationOut)
+            }
+        }
+        .compositingGroup()
     }
 
     private func store(_ next: SidebarTipsProgress) {
@@ -95,15 +124,52 @@ struct SidebarTipsButton: View {
     }
 }
 
+/// "Show Tips" row for the Help popover. It only appears while the Tips
+/// button is hidden by "Don't show again", and matches the other Help rows.
+struct SidebarTipsHelpMenuItem: View {
+    let dismissHelpPopover: () -> Void
+
+    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
+
+    var body: some View {
+        if isHidden {
+            Button {
+                dismissHelpPopover()
+                isHidden = false
+            } label: {
+                HStack(spacing: 8) {
+                    Text(String(localized: "sidebar.help.showTips", defaultValue: "Show Tips"))
+                        .cmuxFont(size: 12)
+                    Spacer(minLength: 0)
+                    CmuxSystemSymbolImage(
+                        systemName: "lightbulb",
+                        pointSize: 13,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("SidebarHelpMenuOptionShowTips")
+        }
+    }
+}
+
 /// The Tips popover: the tip's title with its live shortcut, one or two lines
-/// of explanation, and a row to page through the other tips. Reads and writes
-/// the shared progress itself so paging stays live while it is open.
+/// of explanation, a row to page through the other tips, and "Don't show
+/// again". Every tip is laid out in the same stack and only the current one is
+/// visible, so the popover keeps the tallest tip's height and nothing moves
+/// while paging. Reads and writes the shared progress itself so paging stays
+/// live while it is open.
 private struct SidebarTipsPopover: View {
     private static let width: CGFloat = 264
 
     /// Passed in from the footer: the popover's own hosting view has no
     /// settings runtime in its environment.
     let showsModifierHoldHints: Bool
+    let onDontShowAgain: () -> Void
 
     @AppStorage(SidebarTipsStorage.currentTipIDKey) private var currentTipID = ""
     @AppStorage(SidebarTipsStorage.seenTipIDsKey) private var seenTipIDs = ""
@@ -119,27 +185,14 @@ private struct SidebarTipsPopover: View {
     }
 
     private func content(tips: [SidebarTip], index: Int) -> some View {
-        let tip = tips[index]
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(tip.title)
-                    .cmuxFont(size: 13, weight: .semibold)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                if let shortcut = shortcutText(for: tip) {
-                    Text(shortcut)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .cmuxFont(size: 11, weight: .regular, design: .rounded)
-                        .monospacedDigit()
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(tips.enumerated()), id: \.element.id) { tipIndex, tip in
+                    tipText(tip)
+                        .opacity(tipIndex == index ? 1 : 0)
+                        .accessibilityHidden(tipIndex != index)
                 }
             }
-            Text(tip.message)
-                .cmuxFont(size: 12)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 4)
             HStack(spacing: 4) {
                 pageDots(count: tips.count, index: index)
                 Spacer(minLength: 8)
@@ -159,12 +212,44 @@ private struct SidebarTipsPopover: View {
                 }
             }
             .padding(.top, 10)
+            Button(action: onDontShowAgain) {
+                Text(String(localized: "sidebar.tips.dontShowAgain", defaultValue: "Don’t show again"))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+            .accessibilityIdentifier("SidebarTipsDontShowAgainButton")
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
         .frame(width: Self.width, alignment: .leading)
         .accessibilityIdentifier("SidebarTipsPopover")
+    }
+
+    private func tipText(_ tip: SidebarTip) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(tip.title)
+                    .cmuxFont(size: 13, weight: .semibold)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if let shortcut = shortcutText(for: tip) {
+                    Text(shortcut)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .cmuxFont(size: 11, weight: .regular, design: .rounded)
+                        .monospacedDigit()
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
+            }
+            Text(tip.message)
+                .cmuxFont(size: 12)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func shortcutText(for tip: SidebarTip) -> String? {
