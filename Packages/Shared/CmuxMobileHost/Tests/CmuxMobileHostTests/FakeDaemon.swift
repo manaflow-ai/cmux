@@ -12,6 +12,8 @@ actor FakeDaemon: MobileDaemon {
     private var changeSubscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     let attachments = AsyncQueue<FakeAttachment>()
     var attachError: MobileDaemonError?
+    /// Changes the tree right after the first read answers (a delta racing the initial load).
+    var raceFirstRead: ((inout MobileWorkspaceState) -> Void)?
 
     init(state: MobileWorkspaceState = FakeDaemon.sample) {
         self.state = state
@@ -25,7 +27,16 @@ actor FakeDaemon: MobileDaemon {
         ]),
     ])
 
-    func workspaceState() async throws -> MobileWorkspaceState { state }
+    func workspaceState() async throws -> MobileWorkspaceState {
+        let answer = state
+        if let race = raceFirstRead {
+            raceFirstRead = nil
+            mutate(race)
+        }
+        return answer
+    }
+
+    func setRaceFirstRead(_ race: @escaping @Sendable (inout MobileWorkspaceState) -> Void) { raceFirstRead = race }
 
     func workspaceChanges() async -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -112,5 +123,6 @@ actor FakeAttachment: MobileTerminalAttachment {
     func detach() async {
         detached = true
         continuation.finish()
+        await recorded.push("detach")
     }
 }

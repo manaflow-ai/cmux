@@ -9,13 +9,15 @@ public actor MobileOpExecutor {
     private let owner: WorkspaceStreamOwner
     private let daemon: any MobileDaemon
     private let ledger: MobileOpLedger
+    private let authorizer: any MobileDeviceAuthorizer
     private var nextTx: UInt64 = 0
 
     public init(policy: MobileOpPolicy, owner: WorkspaceStreamOwner, daemon: any MobileDaemon,
-                ledger: MobileOpLedger = MobileOpLedger()) {
+                authorizer: any MobileDeviceAuthorizer, ledger: MobileOpLedger = MobileOpLedger()) {
         self.policy = policy
         self.owner = owner
         self.daemon = daemon
+        self.authorizer = authorizer
         self.ledger = ledger
     }
 
@@ -33,9 +35,14 @@ public actor MobileOpExecutor {
         let policy = policy
         let owner = owner
         let daemon = daemon
+        let authorizer = authorizer
         let context = MobileOpContext(install: principal.install, idempotencyKey: op.idempotencyKey)
         let (outcome, replayed) = await ledger.run(install: principal.install, key: op.idempotencyKey,
                                                    fingerprint: fingerprint) {
+            // Re-checked per op: a device revoked after its hello runs nothing.
+            if case .failure(let failure) = await authorizer.authorizeForwarded(install: context.install, userID: nil) {
+                return .reject(tx: tx, MobileOpRejection(code: failure.code, message: failure.message))
+            }
             let state: MobileWorkspaceState
             do {
                 state = try await owner.currentState()

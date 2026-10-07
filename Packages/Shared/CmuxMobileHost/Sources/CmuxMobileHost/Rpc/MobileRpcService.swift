@@ -11,15 +11,17 @@ actor MobileRpcService {
     private let owner: WorkspaceStreamOwner
     private let executor: MobileOpExecutor
     private let readHandlers: [String: any MobileReadHandler]
+    private let gate: MobileSessionGate
     private var forwarder: Task<Void, Never>?
 
     init(channel: MobileChannel, principal: MobileDevicePrincipal, owner: WorkspaceStreamOwner,
-         executor: MobileOpExecutor, readHandlers: [String: any MobileReadHandler]) {
+         executor: MobileOpExecutor, readHandlers: [String: any MobileReadHandler], gate: MobileSessionGate) {
         self.channel = channel
         self.principal = principal
         self.owner = owner
         self.executor = executor
         self.readHandlers = readHandlers
+        self.gate = gate
     }
 
     func run() async {
@@ -45,6 +47,7 @@ actor MobileRpcService {
 
     /// Returns false when the channel should end.
     private func handle(_ value: JSONValue) async -> Bool {
+        guard await gate.isOpen else { return false }
         let frame: MobileFrame
         do {
             frame = try MobileFrame(value: value)
@@ -58,7 +61,7 @@ actor MobileRpcService {
         switch frame {
         case .subscribe(let f):
             guard await checkStream(f.stream) else { return true }
-            await subscribe(afterSeq: f.afterSeq, pending: f.pending ?? [])
+            await subscribe(afterSeq: f.afterSeq, epoch: value["epoch"]?.stringValue, pending: f.pending ?? [])
         case .unsubscribe(let f):
             guard await checkStream(f.stream) else { return true }
             forwarder?.cancel()
@@ -67,7 +70,7 @@ actor MobileRpcService {
             guard await checkStream(f.stream) else { return true }
             let decided = await executor.decided(install: principal.install, keys: f.pending ?? [])
             if let snapshot = try? await owner.snapshotFrame(decided: decided) {
-                try? await channel.send(frame: .snapshot(snapshot))
+                try? await channel.send(json: owner.stamped(.snapshot(snapshot)))
             } else {
                 await sendError(code: "owner.unreachable", message: "the daemon is unreachable", retryable: true)
             }
@@ -93,11 +96,11 @@ actor MobileRpcService {
         return false
     }
 
-    private func subscribe(afterSeq: UInt64?, pending: [String]) async {
+    private func subscribe(afterSeq: UInt64?, epoch: String?, pending: [String]) async {
         forwarder?.cancel()
         let updates: AsyncStream<WorkspaceStreamUpdate>
         do {
-            updates = try await owner.updates(afterSeq: pending.isEmpty ? afterSeq : nil)
+            updates = try await owner.updates(afterSeq: pending.isEmpty ? afterSeq : nil, epoch: epoch)
         } catch {
             await sendError(code: "owner.unreachable", message: "the daemon is unreachable", retryable: true)
             return
@@ -105,27 +108,32 @@ actor MobileRpcService {
         let decided = await executor.decided(install: principal.install, keys: pending)
         let channel = channel
         let owner = owner
+        let resume = pending.isEmpty ? afterSeq : nil
         forwarder = Task {
-            var last: UInt64?
+            var last: UInt64? = resume
+            var first = true
             for await update in updates {
                 if Task.isCancelled { return }
                 switch update {
                 case .snapshot(var snapshot):
-                    if last == nil { snapshot.decided = decided }
+                    if first { snapshot.decided = decided }
                     last = snapshot.seq
-                    guard (try? await channel.send(frame: .snapshot(snapshot))) != nil else { return }
+                    guard (try? await channel.send(json: owner.stamped(.snapshot(snapshot)))) != nil else { return }
                 case .event(let event):
                     if let seen = last, event.seq <= seen { continue }
-                    if let seen = last, event.seq != seen + 1 {
-                        // This subscriber fell behind its buffer: resync instead of a gap.
+                    if last.map({ event.seq != $0 + 1 }) ?? true {
+                        // Behind its buffer (or the opening snapshot was dropped): resync, never a gap.
                         guard let snapshot = try? await owner.snapshotFrame() else { return }
                         last = snapshot.seq
-                        guard (try? await channel.send(frame: .snapshot(snapshot))) != nil else { return }
+                        guard (try? await channel.send(json: owner.stamped(.snapshot(snapshot)))) != nil else { return }
+                        // The snapshot was read after this event committed, so it covers it.
+                        first = false
                         continue
                     }
                     last = event.seq
-                    guard (try? await channel.send(frame: .event(event))) != nil else { return }
+                    guard (try? await channel.send(json: owner.stamped(.event(event)))) != nil else { return }
                 }
+                first = false
             }
         }
     }

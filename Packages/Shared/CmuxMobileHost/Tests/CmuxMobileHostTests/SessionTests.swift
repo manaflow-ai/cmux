@@ -14,7 +14,7 @@ struct SessionTests {
         let (_, reply) = try await h.hello()
         #expect(reply["t"] == "hello.ok")
         #expect(reply["caps"] == .array(["device-proof", "read"]))
-        #expect(await h.host.connectedInstalls == [PhoneHarness.install])
+        #expect(await h.host.connectedInstalls() == [PhoneHarness.install])
     }
 
     @Test func helloWithoutProofIsRefusedAndTheSessionCloses() async throws {
@@ -83,7 +83,8 @@ struct SessionTests {
 actor EchoHandler: MobileChannelHandler {
     private(set) var principals: [String] = []
 
-    func serve(_ channel: MobileChannel, open: ChannelOpenFrame, principal: MobileDevicePrincipal) async {
+    func serve(_ channel: MobileChannel, open: ChannelOpenFrame, principal: MobileDevicePrincipal,
+               gate: MobileSessionGate) async {
         principals.append(principal.install)
         try? await channel.send(frame: .channelOpened(ChannelOpenedFrame(channel: open.channel, window: 65536,
                                                                          params: ["media": "rd_datagrams"], resumed: false)))

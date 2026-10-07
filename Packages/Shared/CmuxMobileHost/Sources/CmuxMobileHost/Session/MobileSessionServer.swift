@@ -15,13 +15,19 @@ actor MobileSessionServer {
         case denied
     }
 
+    static let noticeGrace: Duration = .milliseconds(500)
+
     let session: LinkSession
+    let gate = MobileSessionGate()
     private let context: MobileHostContext
     private let attestation: CarrierAttestation?
     private var admission = Admission.none
+    /// The install the hello claimed, known before its proof is checked, so a
+    /// revocation during admission still matches this session.
+    private var claimedInstall: String?
     private var usedChannelIDs: Set<UInt32> = [0]
     private var channels: [UInt32: MobileChannel] = [:]
-    private var tasks: [Task<Void, Never>] = []
+    private var tasks: [UUID: Task<Void, Never>] = [:]
     private var revoked = false
 
     init(session: LinkSession, context: MobileHostContext, attestation: CarrierAttestation? = nil) {
@@ -38,16 +44,45 @@ actor MobileSessionServer {
     /// Serves until the link session closes.
     func run() async {
         for await link in await session.incomingChannels() {
-            let task = Task { await self.serve(link) }
-            tasks.append(task)
+            let id = UUID()
+            tasks[id] = Task {
+                await self.serve(link)
+                self.taskEnded(id)
+            }
         }
-        for task in tasks { task.cancel() }
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
     }
 
-    /// The device was revoked: every channel gets `auth.revoked`, then the session closes.
+    private func taskEnded(_ id: UUID) {
+        tasks[id] = nil
+    }
+
+    /// Revokes this session when it belongs to `install` (admitted or still
+    /// in admission). Returns whether it did.
+    func revokeIfMatches(_ install: String) async -> Bool {
+        let matches = principal?.install == install || claimedInstall == install
+        guard matches, !revoked else { return false }
+        await revoke()
+        return true
+    }
+
+    /// The device was revoked: the gate closes at once (no more ops or
+    /// input), every channel gets `auth.revoked` within a short grace, then
+    /// the session closes regardless of whether the peer read the notices.
     func revoke() async {
         revoked = true
-        for channel in channels.values { await channel.close(code: "auth.revoked", message: "this device was revoked") }
+        await gate.close()
+        // Mid-admission: the hello path sees `revoked`, answers auth.forbidden and closes.
+        if case .pending = admission { return }
+        let open = Array(channels.values)
+        await OnceSignal.bounded(Self.noticeGrace, clock: context.clock) {
+            await withTaskGroup(of: Void.self) { group in
+                for channel in open {
+                    group.addTask { await channel.close(code: "auth.revoked", message: "this device was revoked") }
+                }
+            }
+        }
         await session.close()
     }
 
@@ -81,7 +116,7 @@ actor MobileSessionServer {
         }
         usedChannelIDs.insert(open.channel)
         channels[open.channel] = channel
-        await context.serve(channel, open: open, principal: principal)
+        await context.serve(channel, open: open, principal: principal, gate: gate)
         channels[open.channel] = nil
     }
 
@@ -126,15 +161,16 @@ actor MobileSessionServer {
                 return
             }
             settle(principal)
-            await context.register(self, install: principal.install)
             // The session channel carries nothing after hello.ok; drain until close.
             drain: while true {
                 if case .closed = await channel.receive() { break drain }
             }
         case .failure(let error):
             settle(nil)
-            try? await channel.send(frame: .error(ErrorFrame(code: error.code, message: error.message, retryable: false)))
-            await channel.finish()
+            await OnceSignal.bounded(Self.noticeGrace, clock: context.clock) {
+                try? await channel.send(frame: .error(ErrorFrame(code: error.code, message: error.message, retryable: false)))
+                await channel.finish()
+            }
             await session.close()
         }
     }
@@ -146,9 +182,13 @@ actor MobileSessionServer {
         guard hello.min <= 1, hello.max >= 1 else {
             return .failure(MobileAuthFailure(code: "proto.version_unsupported", message: "this host speaks version 1"))
         }
+        claimedInstall = hello.client.install
         let request = DeviceAuthRequest(client: hello.client, proof: DeviceProof(json: value["auth"]),
                                         sessionID: session.sessionID, attestation: attestation)
-        switch await context.authorizer.authorize(request) {
+        let verdict = await context.authorizer.authorize(request)
+        // A revocation that arrived while the proof was checked wins.
+        if revoked { return .failure(.forbidden("device was revoked")) }
+        switch verdict {
         case .success(let principal):
             let caps = context.configuration.caps.filter { hello.caps.contains($0) }
             let ok = HelloOKFrame(version: 1, caps: caps, serverTime: Int64(Date().timeIntervalSince1970 * 1000),

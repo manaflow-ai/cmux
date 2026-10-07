@@ -7,7 +7,9 @@ import Foundation
 /// channel's A0 id and a per-direction seq from 1. Credit records are refused;
 /// the link's acks on consumption are the credit.
 ///
-/// `receive()` has a single consumer. Sends are serialized by the actor.
+/// `receive()` has a single consumer. Sends go out one at a time in call
+/// order (a FIFO gate around the link send), so A0 seqs stay contiguous even
+/// while a send waits for link credit.
 public actor MobileChannel {
     /// The A0 channel id (0 for the session channel).
     public let id: UInt32
@@ -15,6 +17,8 @@ public actor MobileChannel {
     private var sendSeq: UInt64 = 0
     private var receiveSeq: UInt64 = 0
     private var ended = false
+    private var sending = false
+    private var sendWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(id: UInt32, link: LinkChannel) {
         self.id = id
@@ -63,9 +67,8 @@ public actor MobileChannel {
 
     /// Sends a JSON object (frame or channel message).
     public func send(json: JSONValue, flags: RecordFlags = []) async throws {
-        sendSeq += 1
-        let record = try StreamRecord.json(channel: id, seq: sendSeq, object: json, flags: flags)
-        try await link.send(record.encoded)
+        let payload = try json.canonicalData()
+        try await sendRecord(payload, flags: flags.union(.json).subtracting(.credit))
     }
 
     public func send(frame: MobileFrame) async throws {
@@ -78,9 +81,31 @@ public actor MobileChannel {
 
     /// Sends a binary record.
     public func send(binary payload: Data, flags: RecordFlags = []) async throws {
-        sendSeq += 1
-        let record = StreamRecord(channel: id, seq: sendSeq, flags: flags.subtracting([.json, .credit]), payload: payload)
+        try await sendRecord(payload, flags: flags.subtracting([.json, .credit]))
+    }
+
+    private func sendRecord(_ payload: Data, flags: RecordFlags) async throws {
+        await acquireSend()
+        defer { releaseSend() }
+        let record = StreamRecord(channel: id, seq: sendSeq + 1, flags: flags, payload: payload)
         try await link.send(record.encoded)
+        sendSeq += 1
+    }
+
+    private func acquireSend() async {
+        guard sending else {
+            sending = true
+            return
+        }
+        await withCheckedContinuation { sendWaiters.append($0) }
+    }
+
+    private func releaseSend() {
+        if sendWaiters.isEmpty {
+            sending = false
+        } else {
+            sendWaiters.removeFirst().resume()
+        }
     }
 
     /// Sends `channel.refused` and closes.
@@ -94,6 +119,12 @@ public actor MobileChannel {
     public func close(code: String? = nil, message: String? = nil) async {
         try? await send(frame: .channelClosed(ChannelClosedFrame(channel: id, code: code, message: message)))
         await finish()
+    }
+
+    /// Closes the link channel without waiting for delivery (revocation,
+    /// teardown of a peer that stopped reading).
+    public func abort() async {
+        await link.close()
     }
 
     /// Delivers what was sent, then closes the link channel.

@@ -9,9 +9,14 @@ import Foundation
 /// restarted host never reuses a seq a mirror holds (b5-mac-host.md 5).
 /// Refreshes run on daemon change signals, coalesced: a signal during a read
 /// schedules one more read, never a timer.
+///
+/// Every snapshot and event carries `epoch` (one per stream instance): a
+/// mirror holding another epoch's seq takes a snapshot instead of applying
+/// events (b1-control-do.md section 11).
 public actor WorkspaceStreamOwner {
     public nonisolated let stream: String
     public nonisolated let hostID: String
+    public nonisolated let epoch: String
     private let daemon: any MobileDaemon
     private let tailLimit: Int
     private let subscriberBuffer: Int
@@ -24,6 +29,8 @@ public actor WorkspaceStreamOwner {
     private var changeTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var refreshAgain = false
+    /// A change arrived before the first state was set: read again after it.
+    private var changedWhileLoading = false
     private var stopped = false
 
     public init(hostID: String, daemon: any MobileDaemon, startSeq: UInt64? = nil, tailLimit: Int = 512,
@@ -34,7 +41,16 @@ public actor WorkspaceStreamOwner {
         self.tailLimit = max(1, tailLimit)
         self.subscriberBuffer = max(1, subscriberBuffer)
         self.now = now
-        head = startSeq ?? UInt64(max(0, now().timeIntervalSince1970 * 1000))
+        let start = startSeq ?? UInt64(max(0, now().timeIntervalSince1970 * 1000))
+        head = start
+        epoch = "ep_\(start)_\(UUID().uuidString.prefix(8).lowercased())"
+    }
+
+    /// The frame as JSON with this stream's `epoch` member (A0 decoders ignore it).
+    public nonisolated func stamped(_ frame: MobileFrame) throws -> JSONValue {
+        guard case .object(var object) = try frame.jsonValue else { return try frame.jsonValue }
+        object["epoch"] = .string(epoch)
+        return .object(object)
     }
 
     /// The seq of the last committed event (or of the starting snapshot).
@@ -51,19 +67,20 @@ public actor WorkspaceStreamOwner {
         return try loadedSnapshot(decided: decided)
     }
 
-    /// Updates from now on. With `afterSeq` inside the retained tail the
-    /// stream starts with the missed events; otherwise with a snapshot.
-    /// A subscriber more than `subscriberBuffer` updates behind loses the
-    /// newest ones and sees a seq jump (resync with a snapshot).
-    public func updates(afterSeq: UInt64?) async throws -> AsyncStream<WorkspaceStreamUpdate> {
+    /// Updates from now on. With `afterSeq` (of this `epoch`, when given)
+    /// inside the retained tail the stream starts with the missed events;
+    /// otherwise with a snapshot. A subscriber more than `subscriberBuffer`
+    /// updates behind loses the oldest ones and sees a seq jump at its next
+    /// read (resync with a snapshot).
+    public func updates(afterSeq: UInt64?, epoch: String? = nil) async throws -> AsyncStream<WorkspaceStreamUpdate> {
         _ = try await currentState()
         // No suspension from here to the registration: the initial items and
         // the live events meet exactly at `head`.
         let snapshot = try loadedSnapshot(decided: [])
         let (stream, continuation) = AsyncStream<WorkspaceStreamUpdate>.makeStream(
-            bufferingPolicy: .bufferingOldest(subscriberBuffer))
+            bufferingPolicy: .bufferingNewest(subscriberBuffer))
         let floor = tail.first?.seq ?? head + 1
-        if let after = afterSeq, after <= head, after + 1 >= floor {
+        if let after = afterSeq, epoch == nil || epoch == self.epoch, after <= head, after + 1 >= floor {
             for event in tail where event.seq > after { continuation.yield(.event(event)) }
         } else {
             continuation.yield(.snapshot(snapshot))
@@ -109,28 +126,43 @@ public actor WorkspaceStreamOwner {
     }
 
     private func load() async throws -> MobileWorkspaceState {
-        if let loadTask { return try await loadTask.value }
+        if let loadTask { return await adopt(try await loadTask.value) }
         let daemon = daemon
-        let task = Task { try await daemon.workspaceState() }
+        let task = Task { () throws -> MobileWorkspaceState in
+            // Subscribe before the first read: a change during it is buffered
+            // and refreshes right after the state is set.
+            if !self.isListening {
+                self.startListening(await daemon.workspaceChanges())
+            }
+            return try await daemon.workspaceState()
+        }
         loadTask = task
         do {
-            let loaded = try await task.value
-            if state == nil {
-                state = loaded
-                startListening()
-            }
-            return state ?? loaded
+            return await adopt(try await task.value)
         } catch {
             loadTask = nil
             throw error
         }
     }
 
-    private func startListening() {
+    /// Sets the first loaded state once (whichever loader resumes first).
+    private func adopt(_ loaded: MobileWorkspaceState) async -> MobileWorkspaceState {
+        if state == nil {
+            state = loaded
+            if changedWhileLoading {
+                changedWhileLoading = false
+                await refresh()
+            }
+        }
+        return state ?? loaded
+    }
+
+    private var isListening: Bool { changeTask != nil || stopped }
+
+    private func startListening(_ changes: AsyncStream<Void>) {
         guard changeTask == nil, !stopped else { return }
-        let daemon = daemon
         changeTask = Task { [weak self] in
-            for await _ in await daemon.workspaceChanges() {
+            for await _ in changes {
                 guard let self, !Task.isCancelled else { return }
                 await self.refresh()
             }
@@ -146,7 +178,11 @@ public actor WorkspaceStreamOwner {
     }
 
     private func readOnce() async {
-        guard let old = state, let new = try? await daemon.workspaceState() else { return }
+        guard let old = state else {
+            changedWhileLoading = true
+            return
+        }
+        guard let new = try? await daemon.workspaceState() else { return }
         let changes = WorkspaceDiff(from: old, to: new).changes
         state = new
         let at = Int64(now().timeIntervalSince1970 * 1000)

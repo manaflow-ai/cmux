@@ -21,6 +21,7 @@ actor TerminalChannelBridge {
     private let principal: MobileDevicePrincipal
     private let owner: WorkspaceStreamOwner
     private let daemon: any MobileDaemon
+    private let gate: MobileSessionGate
     private var attachment: (any MobileTerminalAttachment)?
     private var window = TerminalChannelBridge.defaultWindow
 
@@ -36,12 +37,13 @@ actor TerminalChannelBridge {
     var overflows: Int { overflowCount }
 
     init(channel: MobileChannel, open: ChannelOpenFrame, principal: MobileDevicePrincipal,
-         owner: WorkspaceStreamOwner, daemon: any MobileDaemon) {
+         owner: WorkspaceStreamOwner, daemon: any MobileDaemon, gate: MobileSessionGate) {
         self.channel = channel
         self.open = open
         self.principal = principal
         self.owner = owner
         self.daemon = daemon
+        self.gate = gate
     }
 
     func run() async {
@@ -64,10 +66,14 @@ actor TerminalChannelBridge {
         let sender = Task { [weak self] in await self?.drain() }
         await receiveLoop(attachment)
         pump.cancel()
+        let closedBySender = finished
         finishQueue()
         await attachment.detach()
+        // A sender stuck on link credit must not hold the bridge: close the
+        // link (which fails its send) unless the sender already closed it.
+        if !closedBySender { await channel.abort() }
+        sender.cancel()
         await sender.value
-        await channel.finish()
     }
 
     // MARK: Open
@@ -161,6 +167,11 @@ actor TerminalChannelBridge {
     }
 
     private func push(_ item: TerminalOutbound) {
+        // Grid and title updates supersede their queued predecessors, so a
+        // stalled viewer holds at most one of each.
+        if case .message(let message) = item, message.name == "terminal.size" || message.name == "terminal.title" {
+            queue.removeAll { if case .message(let queued) = $0 { return queued.name == message.name } else { return false } }
+        }
         if let waiter {
             self.waiter = nil
             waiter.resume(returning: item)
@@ -219,13 +230,14 @@ actor TerminalChannelBridge {
         while !finished {
             switch await channel.receive() {
             case .binary(let payload, _):
+                guard await gate.isOpen else { return }
                 guard let input = try? TerminalInput(decoding: payload) else {
                     await channel.close(code: "proto.bad_record", message: "bad terminal input")
                     return
                 }
                 await attachment.write(input)
             case .json(let value):
-                guard await handle(value, attachment) else { return }
+                guard await gate.isOpen, await handle(value, attachment) else { return }
             case .gap:
                 continue
             case .closed:

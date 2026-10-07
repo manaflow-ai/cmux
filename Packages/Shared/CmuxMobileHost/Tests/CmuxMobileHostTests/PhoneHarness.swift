@@ -27,8 +27,8 @@ struct PhoneHarness {
     let key: P256.Signing.PrivateKey
 
     init(devices: ((P256.Signing.PrivateKey) -> [PairedDevice])? = nil, handlers: MobileChannelHandlers = MobileChannelHandlers(),
-         daemon: FakeDaemon = FakeDaemon()) async throws {
-        let key = P256.Signing.PrivateKey()
+         daemon: FakeDaemon = FakeDaemon(),
+         authorizer: (any MobileDeviceAuthorizer)? = nil, key: P256.Signing.PrivateKey = P256.Signing.PrivateKey()) async throws {
         let paired = devices?(key) ?? [PairedDevice(install: Self.install, userID: Self.userID, keyID: "k1",
                                                      publicKey: key.publicKey.x963Representation)]
         let store = StaticTrustStore(devices: paired)
@@ -36,7 +36,7 @@ struct PhoneHarness {
         let host = MobileHost(
             configuration: MobileHostConfiguration(hostID: Self.hostID, accountUserID: Self.userID),
             acceptor: network.acceptor, daemon: daemon,
-            authorizer: TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),
+            authorizer: authorizer ?? TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),
             handlers: handlers, linkConfiguration: Self.fast, workspaceStartSeq: 1000)
         await host.start()
         let phone = LinkSession(

@@ -14,6 +14,9 @@ public actor HostControlUplink {
     private let appVersion: String
     private let install: String
     private var forwarder: Task<Void, Never>?
+    /// The last forwarded op per device: ops of one device run in order,
+    /// different devices concurrently, and none blocks this frame loop.
+    private var opChains: [String: Task<Void, Never>] = [:]
     private var nextKey: UInt64 = 0
 
     public init(socket: any HostControlSocket, host: MobileHost, install: String, appVersion: String,
@@ -53,6 +56,8 @@ public actor HostControlUplink {
         }
         forwarder?.cancel()
         forwarder = nil
+        for chain in opChains.values { chain.cancel() }
+        opChains.removeAll()
     }
 
     private func sendOp(_ op: String, params: JSONValue) async throws {
@@ -65,9 +70,18 @@ public actor HostControlUplink {
         switch frame["t"]?.stringValue {
         case "snapshot.request":
             guard frame["stream"]?.stringValue == host.workspaceStream.stream else { return }
-            startForwarding()
+            if let device = frame["to"]?.stringValue {
+                await sendScopedSnapshot(to: device, pending: frame["pending"])
+            } else {
+                startForwarding()
+            }
         case "op":
-            await forwardedOp(frame)
+            let from = frame["from"]?.stringValue ?? ""
+            let previous = opChains[from]
+            opChains[from] = Task { [weak self] in
+                await previous?.value
+                await self?.forwardedOp(frame)
+            }
         case "read":
             guard case .int(let id)? = frame["id"] else { return }
             let op = frame["op"]?.stringValue ?? "read"
@@ -97,23 +111,45 @@ public actor HostControlUplink {
                 case .snapshot(let snapshot):
                     last = snapshot.seq
                 case .event(let event):
+                    if let seen = last, event.seq <= seen { continue }
                     guard let seen = last, event.seq == seen + 1 else {
                         // Behind the buffer: HostDO would see a gap and ask again; send a snapshot now.
                         guard let snapshot = try? await owner.snapshotFrame() else { return }
                         last = snapshot.seq
-                        guard (try? await socket.send(MobileFrame.snapshot(snapshot).jsonValue)) != nil else { return }
+                        guard (try? await socket.send(owner.stamped(.snapshot(snapshot)))) != nil else { return }
                         continue
                     }
                     last = event.seq
                 }
-                guard (try? await socket.send(update.frame.jsonValue)) != nil else { return }
+                guard (try? await socket.send(owner.stamped(update.frame))) != nil else { return }
             }
         }
     }
 
+    /// A device's pending-key snapshot (b1-control-do.md section 3): only to
+    /// that device, with its decided keys. The broadcast forwarder is untouched.
+    private func sendScopedSnapshot(to device: String, pending: JSONValue?) async {
+        let keys: [String]
+        if case .array(let items)? = pending { keys = items.compactMap(\.stringValue) } else { keys = [] }
+        let decided = await host.executor.decided(install: device, keys: keys)
+        guard let snapshot = try? await host.workspaceStream.snapshotFrame(decided: decided),
+              case .object(var object)? = try? host.workspaceStream.stamped(.snapshot(snapshot)) else { return }
+        object["to"] = .string(device)
+        try? await socket.send(.object(object))
+    }
+
     private func forwardedOp(_ frame: JSONValue) async {
-        guard let from = frame["from"]?.stringValue,
-              case .op(let op)? = try? MobileFrame(value: frame) else { return }
+        guard let from = frame["from"]?.stringValue else { return }
+        guard case .op(let op)? = try? MobileFrame(value: frame) else {
+            // Still settle it, or HostDO holds the forward until its TTL.
+            guard let key = frame["idempotency_key"]?.stringValue else { return }
+            let reply = MobileOpReply(idempotencyKey: key, stream: host.workspaceStream.stream,
+                                      outcome: .reject(tx: "tx_invalid", MobileOpRejection(code: "validation.invalid",
+                                                                                           message: "bad op frame")),
+                                      replayed: false)
+            await send(reply, to: from)
+            return
+        }
         let actor = frame["actor"]?.objectValue ?? [:]
         // The ledger keys by install so a resend over the link dedupes here too.
         let install = actor["install"]?.stringValue ?? from
@@ -126,9 +162,13 @@ public actor HostControlUplink {
                                   outcome: .reject(tx: "tx_denied", MobileOpRejection(code: failure.code, message: failure.message)),
                                   replayed: false)
         }
+        await send(reply, to: from)
+    }
+
+    private func send(_ reply: MobileOpReply, to device: String) async {
         for out in reply.frames {
             guard case .object(var object)? = try? out.jsonValue else { continue }
-            object["to"] = .string(from)
+            object["to"] = .string(device)
             try? await socket.send(.object(object))
         }
     }

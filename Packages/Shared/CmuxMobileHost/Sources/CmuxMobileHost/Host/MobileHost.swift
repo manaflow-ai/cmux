@@ -6,6 +6,9 @@ import Foundation
 /// sessions from a carrier's `LinkAcceptor`, admits paired devices, and
 /// serves `rpc` and `terminal` channels against the daemon, plus the
 /// pluggable browser, rd and files handlers. Owns no entity.
+///
+/// Single use: `stop()` is final (sign-out, account switch, quit). Make a
+/// new host to serve again.
 public actor MobileHost {
     public nonisolated let configuration: MobileHostConfiguration
     /// The `workspace:<host>` projection, shared with the `HostDO` uplink.
@@ -19,8 +22,8 @@ public actor MobileHost {
     private var sessionsTask: Task<Void, Never>?
     private var revocationTask: Task<Void, Never>?
     private var servers: [ObjectIdentifier: MobileSessionServer] = [:]
-    private var admitted: [String: Set<ObjectIdentifier>] = [:]
     private var started = false
+    private var stopped = false
 
     public init(configuration: MobileHostConfiguration, acceptor: any LinkAcceptor, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, handlers: MobileChannelHandlers = MobileChannelHandlers(),
@@ -32,20 +35,24 @@ public actor MobileHost {
         workspaceStream = owner
         let executor = MobileOpExecutor(
             policy: MobileOpPolicy(hostID: configuration.hostID, allowsTerminalSpawn: configuration.allowsTerminalSpawn),
-            owner: owner, daemon: daemon)
+            owner: owner, daemon: daemon, authorizer: authorizer)
         self.executor = executor
         linkHost = LinkHost(acceptor: acceptor, configuration: linkConfiguration, clock: clock)
-        let box = WeakHost()
         context = MobileHostContext(configuration: configuration, authorizer: authorizer, owner: owner,
-                                    executor: executor, daemon: daemon, handlers: handlers,
-                                    onAdmitted: { server, install in await box.host?.admit(server, install: install) })
-        box.host = self
+                                    executor: executor, daemon: daemon, handlers: handlers, clock: clock)
     }
 
-    /// Starts accepting sessions. Idempotent.
+    /// Starts accepting sessions. Idempotent; no effect after `stop()`.
     public func start() async {
-        guard !started else { return }
+        guard !started, !stopped else { return }
         started = true
+        let revocations = await authorizer.revocations()
+        revocationTask = Task { [weak self] in
+            for await install in revocations {
+                guard let self else { return }
+                await self.revoke(install)
+            }
+        }
         await linkHost.start()
         let sessions = await linkHost.sessions()
         sessionsTask = Task { [weak self] in
@@ -54,17 +61,12 @@ public actor MobileHost {
                 await self.serve(session)
             }
         }
-        let revocations = await authorizer.revocations()
-        revocationTask = Task { [weak self] in
-            for await install in revocations {
-                guard let self else { return }
-                await self.revoke(install)
-            }
-        }
     }
 
-    /// Closes every session and stops accepting (sign-out, account switch, quit).
+    /// Closes every session and stops accepting. Final.
     public func stop() async {
+        guard !stopped else { return }
+        stopped = true
         sessionsTask?.cancel()
         revocationTask?.cancel()
         sessionsTask = nil
@@ -72,16 +74,22 @@ public actor MobileHost {
         await linkHost.close()
         await workspaceStream.stop()
         servers.removeAll()
-        admitted.removeAll()
-        started = false
     }
 
     /// Admitted devices with a live session (diagnostics, tests).
-    public var connectedInstalls: [String] { admitted.filter { !$0.value.isEmpty }.keys.sorted() }
+    public func connectedInstalls() async -> [String] {
+        var installs: Set<String> = []
+        for server in servers.values {
+            if let install = await server.principal?.install { installs.insert(install) }
+        }
+        return installs.sorted()
+    }
 
     // MARK: Private
 
     private func serve(_ session: LinkSession) {
+        guard !stopped else { return }
+        // Registered before its hello, so a revocation during admission finds it.
         let server = MobileSessionServer(session: session, context: context)
         let id = ObjectIdentifier(server)
         servers[id] = server
@@ -91,22 +99,18 @@ public actor MobileHost {
         }
     }
 
-    private func admit(_ server: MobileSessionServer, install: String) {
-        admitted[install, default: []].insert(ObjectIdentifier(server))
-    }
-
     private func ended(_ id: ObjectIdentifier) {
         servers[id] = nil
-        for install in admitted.keys { admitted[install]?.remove(id) }
     }
 
+    /// Revokes every session of `install` concurrently: one peer that stopped
+    /// reading cannot delay another's revocation.
     private func revoke(_ install: String) async {
-        let ids = admitted.removeValue(forKey: install) ?? []
-        for id in ids { await servers[id]?.revoke() }
+        let all = Array(servers.values)
+        await withTaskGroup(of: Void.self) { group in
+            for server in all {
+                group.addTask { _ = await server.revokeIfMatches(install) }
+            }
+        }
     }
-}
-
-/// Breaks the init-time cycle between the host and its context.
-private final class WeakHost: @unchecked Sendable {
-    weak var host: MobileHost?
 }
