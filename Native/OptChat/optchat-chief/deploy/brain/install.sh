@@ -71,10 +71,11 @@ render() { # label log args-xml env-xml
 }
 
 SOCK="$BRAIN/daemon/cmux.sock"
-# The daemon reaches the brain's acpmux (subagent workspaces, remote acpmux attach) through ACPMUX_HOME.
+# The daemon reaches the brain's acpmux (subagent workspaces, remote acpmux attach) through ACPMUX_HOME,
+# and the host's tools socket (chief-inspect, the owner's memory inspector) through CMUX_TUI_CHIEF_TOOLS_SOCKET.
 render "$P.daemon" "$BRAIN/logs/daemon.log" \
   "$(xml_args "$BRAIN/bin/cmux-tui" --headless --socket "$SOCK")" \
-  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux")"
+  "$(xml_env ACPMUX_HOME "$BRAIN/acpmux" CMUX_TUI_CHIEF_TOOLS_SOCKET "$BRAIN/mux/optchat/tools.sock")"
 # The acpmux agent is the daemon's only supervisor; the host waits for it (OPTCHAT_ACPMUX_SUPERVISED=1).
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \

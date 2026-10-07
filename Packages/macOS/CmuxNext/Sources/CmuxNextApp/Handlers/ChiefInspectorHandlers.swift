@@ -19,6 +19,8 @@ enum ChiefInspectorHandlers {
     static let actionID: ActionID = "chief.openMemoryInspector"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let remotePage = ChiefInspectorPageService(services: context.services)
+        context.services.pages.register(remotePage)
         registry.bind(actionID, requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
             let anchor = try anchorPane(invocation, context: context)
             let muxHome = HomeBrainHost.muxHome(tag: context.services.environment.tag)
@@ -26,6 +28,12 @@ enum ChiefInspectorHandlers {
             // with them (a caller such as `cmux action run` waits and gets the failure).
             context.registry.track(Task { @MainActor in
                 do {
+                    // No Chief on this Mac: a paired server's Chief, through its daemon.
+                    if !(await Task.detached { ChiefInspectorEndpoint.exists(muxHome: muxHome) }.value),
+                       let server = remoteChief(context) {
+                        try openRemote(server, page: remotePage, anchor: anchor, invocation: invocation, context: context)
+                        return nil
+                    }
                     let endpoint = try await Task.detached { try ChiefInspectorEndpoint.read(muxHome: muxHome) }.value
                     let url = try await endpoint.ticketURL()
                     try await openInNewColumn(url, anchor: anchor, context: context)
@@ -42,6 +50,25 @@ enum ChiefInspectorHandlers {
                 }
             })
         })
+    }
+
+    /// A connected paired server whose brain daemon serves `chief-inspect`.
+    private static func remoteChief(_ context: AppActionContext) -> ServerMachineSession? {
+        context.services.machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+    }
+
+    /// The remote inspector page in this window, then moved into a new
+    /// column right of `anchor`'s column.
+    private static func openRemote(_ server: ServerMachineSession, page: ChiefInspectorPageService, anchor: PaneModel,
+                                   invocation: ActionInvocation, context: AppActionContext) throws {
+        guard let window = context.services.windows.active,
+              page.open(machineID: server.machineID, in: window, focus: invocation.allowsViewChange) else {
+            throw ActionWorkFailure(RefusalStrings.noWindowOpen)
+        }
+        if let located = context.allTabs.first(where: { $0.tab.page == InternalPageID.chiefInspector.rawValue }),
+           located.pane.id != anchor.id || located.pane.tabs.count > 1 {
+            TabMoves.toNewColumn(located.tab, anchor: anchor, services: context.services)
+        }
     }
 
     /// The pane the new column goes right of: the focused (or targeted) pane;
@@ -100,6 +127,11 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
     /// No usable `inspector.json`: no local Chief host, or one without an inspector.
     struct Missing: Error {}
 
+    /// Whether a local host wrote its file (blocking: off the main actor).
+    nonisolated static func exists(muxHome: URL) -> Bool {
+        (try? read(muxHome: muxHome)) != nil
+    }
+
     /// Reads the file the running host wrote; refuses when there is none
     /// (no local Chief host, or one that serves no inspector). Blocking file
     /// I/O: callers run it off the main actor.
@@ -141,6 +173,13 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 }
 
 enum ChiefInspectorStrings {
+    static var pageTitle: String {
+        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module)
+    }
+    static var serverOffline: String {
+        String(localized: "handlers.chief.inspector.serverOffline",
+               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module)
+    }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
                defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again.",

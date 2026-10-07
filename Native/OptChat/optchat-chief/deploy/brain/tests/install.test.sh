@@ -18,6 +18,7 @@ brain="$HOME/.cmux/brains/chief"
 fail() { echo "FAIL: $*"; exit 1; }
 [[ "$(env_of acpmux ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "acpmux agent ACPMUX_HOME"
 [[ "$(env_of daemon ACPMUX_HOME)" == "$brain/acpmux" ]] || fail "daemon agent has no ACPMUX_HOME=$brain/acpmux (got '$(env_of daemon ACPMUX_HOME)')"
+[[ "$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)" == "$brain/mux/optchat/tools.sock" ]] || fail "daemon agent has no CMUX_TUI_CHIEF_TOOLS_SOCKET (got '$(env_of daemon CMUX_TUI_CHIEF_TOOLS_SOCKET)')"
 [[ "$(env_of host OPTCHAT_ACPMUX_SUPERVISED)" == "1" ]] || fail "host agent OPTCHAT_ACPMUX_SUPERVISED"
 # Subagents and the Chief run `cmux` from $BRAIN/bin first on PATH (cmux_env.rs pins it there
 # only when the CLI sits next to optchat-chief). Without it they ran an older `cmux` from ~/bin
