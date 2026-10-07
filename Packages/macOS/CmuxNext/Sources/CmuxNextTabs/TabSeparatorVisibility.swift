@@ -4,9 +4,18 @@
 public struct TabSeparatorVisibility {
     public init() {}
 
-    /// The separators that show in a row of `tabCount` tabs. Stub: every
-    /// separator shows (the 8e9575bdbefd rule) until the Chrome rule lands.
+    /// The separators that show in a row of `tabCount` tabs. A separator
+    /// shows only when neither neighbor is selected, hovered or dragged, so
+    /// each of those tabs hides the separators on both of its sides. The
+    /// separator before + has one neighbor tab, the last one. Indices
+    /// outside the row are ignored.
     public static func visibleSeparators(tabCount: Int, selected: Int?, hovered: Int?, dragged: Int?) -> Set<Int> {
-        Set(0..<max(tabCount, 0))
+        guard tabCount > 0 else { return [] }
+        let emphasized = Set([selected, hovered, dragged].compactMap(\.self))
+        var visible: Set<Int> = []
+        for index in 0..<tabCount where !emphasized.contains(index) && !emphasized.contains(index + 1) {
+            visible.insert(index)
+        }
+        return visible
     }
 }
