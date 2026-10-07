@@ -70,12 +70,12 @@ fn removes_by_url_host_and_range() {
     store.record(&visit("https://example.com/", None, None, T0 + 5_000)).unwrap();
     store.record(&visit("https://notexample.com/", None, None, T0 + 6_000)).unwrap();
     store.record(&visit("https://other.org/", None, None, T0 + 3_600_000)).unwrap();
-    assert_eq!(store.remove_host("Example.com").unwrap(), 2);
-    assert_eq!(store.remove_url("https://notexample.com/").unwrap(), 1);
+    assert_eq!(store.remove_host("Example.com", "b1").unwrap(), 2);
+    assert_eq!(store.remove_url("https://notexample.com/", "b2").unwrap(), 1);
     store.record(&visit("https://recent.org/", None, None, T0 + 7_200_000)).unwrap();
-    assert_eq!(store.remove_since(Some(T0 + 7_000_000)).unwrap(), 1);
+    assert_eq!(store.remove_since(Some(T0 + 7_000_000), "b3").unwrap(), 1);
     assert_eq!(urls(&store), ["https://other.org/"]);
-    assert_eq!(store.remove_since(None).unwrap(), 1);
+    assert_eq!(store.remove_since(None, "b4").unwrap(), 1);
     assert_eq!(store.count().unwrap(), 0);
 }
 
@@ -102,4 +102,54 @@ fn entries_use_the_profile_qualified_id_and_fall_back_to_the_url() {
     assert_eq!(entries[0].title, "https://a/");
     assert_eq!(entries[0].profile.as_deref(), Some("work"));
     assert!(store.entries("work", "", Some(T0 + 1), 10).unwrap().is_empty());
+}
+
+/// RECOVERABLE-BY-DEFAULT (ff, 2026-10-06): every removal keeps the visits
+/// in a backup; restoring brings them back with their ids, titles and
+/// times; a purge deletes the backup for good.
+#[test]
+fn removals_are_recoverable_until_purged() {
+    let store = VisitStore::open_in_memory().unwrap();
+    let a = store.record(&visit("https://a.example/", Some("A"), Some("m/t1"), T0)).unwrap();
+    store.record(&visit("https://b.example/", None, None, T0 + 1)).unwrap();
+    store.record(&visit("https://c.example/", None, None, T0 + 2)).unwrap();
+    assert_eq!(store.remove_url("https://a.example/", "r1").unwrap(), 1);
+    assert_eq!(store.remove_host("b.example", "r2").unwrap(), 1);
+    assert_eq!(urls(&store), ["https://c.example/"]);
+    assert_eq!(store.restore("r1").unwrap(), 1);
+    let back = store.visit(a).unwrap().expect("the visit is back under its id");
+    assert_eq!(
+        (back.url.as_str(), back.title.as_deref(), back.tab.as_deref(), back.at_ms),
+        ("https://a.example/", Some("A"), Some("m/t1"), T0)
+    );
+    assert_eq!(store.restore("r1").unwrap(), 0, "a backup restores once");
+    assert_eq!(store.purge("r2").unwrap(), 1);
+    assert_eq!(store.restore("r2").unwrap(), 0, "a purged backup is gone");
+    assert_eq!(urls(&store), ["https://c.example/", "https://a.example/"]);
+}
+
+/// A restored visit whose id was taken meanwhile comes back under a new id.
+#[test]
+fn a_restore_never_overwrites_a_newer_visit() {
+    let store = VisitStore::open_in_memory().unwrap();
+    store.record(&visit("https://a/", None, None, T0)).unwrap();
+    let top = store.record(&visit("https://b/", None, None, T0 + 1)).unwrap();
+    assert_eq!(store.remove_visit(top, "r").unwrap(), 1);
+    let reused = store.record(&visit("https://new/", None, None, T0 + 2)).unwrap();
+    assert_eq!(reused, top, "SQLite reuses the largest free rowid");
+    assert_eq!(store.restore("r").unwrap(), 1);
+    assert_eq!(urls(&store), ["https://new/", "https://b/", "https://a/"]);
+}
+
+/// A backup never outlives normal history: pruning drops backed-up visits
+/// past the retention too.
+#[test]
+fn prune_drops_backups_past_retention() {
+    let store = VisitStore::open_in_memory().unwrap();
+    store.record(&visit("https://old/", None, None, T0 - RETENTION_MS - 60_000)).unwrap();
+    store.record(&visit("https://new/", None, None, T0)).unwrap();
+    assert_eq!(store.remove_since(None, "r").unwrap(), 2);
+    store.prune(T0).unwrap();
+    assert_eq!(store.restore("r").unwrap(), 1);
+    assert_eq!(urls(&store), ["https://new/"]);
 }

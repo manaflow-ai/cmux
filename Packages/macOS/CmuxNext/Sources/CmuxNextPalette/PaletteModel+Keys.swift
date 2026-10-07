@@ -26,8 +26,9 @@ extension PaletteModel {
             runCommand = command
             send(.activate(nil))
         case .toggleActions:
-            // Cmd-K on an action edits its shortcut; Tab keeps the Actions
-            // menu (which lists Edit Keyboard Shortcut… too).
+            // The footer's Actions button (or a user key): on an action it edits
+            // its shortcut; Tab keeps the Actions menu (which lists Edit
+            // Keyboard Shortcut… too).
             if let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
             _ = openActionsMenu()
         case .openActions:

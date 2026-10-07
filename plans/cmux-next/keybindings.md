@@ -169,6 +169,18 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   `.conversation(pane:tab:)` (the Home lead's 8ae1c9c1914; the applier gives the message
   box the keyboard, and with no Home view yet it blurs a Chromium page and resigns the
   pane responder); the context key is `surfaceKind == home`.
+- Top pages (2026-10-06): the Home top page fills the content area without a pane; the
+  window's context then has `surfaceKind == home` and `topPage == home` (no `topPage`
+  while a workspace is shown). A top page's own keys name `topPage`, so a Home
+  conversation tab inside a workspace (`surfaceKind == home`, no `topPage`) keeps tab
+  switching. Scoped defaults (`KeyBindingDefaults.scopedEntries`) sit after the catalog's
+  defaults in the default layer, so in their context they win and elsewhere the global key
+  runs; the last-entry rule is unchanged. First use: Home's Cmd-Shift-[ / ]
+  (`home.previousConversation`, `home.nextConversation`, `when: topPage == home`), which
+  stop at the ends of the list like Messages. In cmux.json a user entry with the same
+  `when` overrides them; `KeyBindingTable.conflicts()` reports entries of one layer on the
+  same keys and the same `when` that run different actions (a scoped entry over a global
+  one is a scope, not a conflict).
 - Removed: `BrowserChordTable.tabNavigation` (now default entries), the popup key step,
   the `chordMismatch` slot (a decided event is never re-run).
 

@@ -56,7 +56,9 @@ extension StateResourceClient {
 
     /// What `closed.reopen` recreated.
     public struct ReopenedItem: Decodable, Sendable, Equatable {
-        public var workspaceID: ResourceID
+        /// Nil when the reply names no workspace (a reopen of a deleted
+        /// space that had none may; cmux-tui-core names the active one).
+        public var workspaceID: ResourceID?
         public var screenIDs: [ResourceID]
         public var tabIDs: [ResourceID]
 

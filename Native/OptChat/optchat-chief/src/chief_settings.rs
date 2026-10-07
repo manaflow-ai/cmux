@@ -1,5 +1,5 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": false}}`), shown later in the Chief settings
+//! (`{"remote": {"autoApprove": true}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
 //! that: a change goes through the host (`Brain::set_setting`), which
 //! refuses to turn `remote.autoApprove` on during a remote-origin turn, and
@@ -11,11 +11,21 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 /// The settings this host knows.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
-    /// A remote-origin turn runs with the configured policy instead of
-    /// `ask` (default false: every local effect needs an approval).
+    /// A remote-origin turn (the owner's own paired device) runs with the
+    /// configured policy instead of `ask`. Default true (Lawrence,
+    /// 2026-10-06: "i dont want stuff to require my approval"); false turns
+    /// approvals and the spawn floor back on.
     pub remote_auto_approve: bool,
+}
+
+impl Default for ChiefSettings {
+    fn default() -> ChiefSettings {
+        ChiefSettings {
+            remote_auto_approve: true,
+        }
+    }
 }
 
 /// The key of `ChiefSettings::remote_auto_approve`.
@@ -29,10 +39,7 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            remote_auto_approve: value
-                .pointer("/remote/autoApprove")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
         }
     }
 

@@ -130,7 +130,8 @@ final class TabCell {
         }
         // Fills fade; geometry never implicitly animates.
         backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        separatorLayer.actions = ["opacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
+        // Separators switch at once (Chrome): no fade lag behind hover.
+        separatorLayer.actions = ["opacity": NSNull(), "bounds": NSNull(), "position": NSNull()]
     }
 
     static let noActions: [String: any CAAction] = [

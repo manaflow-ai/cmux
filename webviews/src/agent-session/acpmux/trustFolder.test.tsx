@@ -59,7 +59,7 @@ function Harness({
   fail,
 }: {
   levels: Map<string, TrustLevel>;
-  chat: { sessionId?: string; cwd?: string; started: boolean; prompts: number };
+  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number };
   fail?: boolean;
 }) {
   const source = React.useMemo(
@@ -111,18 +111,17 @@ test("a trust reply reads as its folder and level, and a host that can't say rea
   expect(await readFolderTrust({ get: () => new Promise(() => {}), set: async () => ({}) }, "/a", 10)).toBeUndefined();
 });
 
-test("a new chat's folder is asked about only after its first prompt, and nothing waits on it", async () => {
+test("a new chat's folder is asked about before its first prompt", async () => {
   const levels = new Map<string, TrustLevel>();
-  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", started: false, prompts: 0 } });
-  expect(row()).toBeNull();
-  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 } });
+  await render({ levels, chat: { cwd: "/work/app", prompts: 0 } });
   expect(row()!.textContent).toBe("Claude Code can edit and run code in appTrustDon't trust");
-  expect(row()!.getAttribute("title")).toBe("/work/app");
+  // No folder tooltip over the row or its buttons: the cwd chip already names the folder.
+  expect([row()!, ...row()!.querySelectorAll("*")].filter((node) => node.hasAttribute("title"))).toEqual([]);
 });
 
 test("Trust saves acpmux's record and offers Undo, which forgets it and asks again", async () => {
   const levels = new Map<string, TrustLevel>();
-  const chat = { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 };
+  const chat = { sessionId: "s", cwd: "/work/app", prompts: 1 };
   await render({ levels, chat });
   await press("Trust");
   expect(levels.get("/work/app")).toBe("trusted");
@@ -133,14 +132,19 @@ test("Trust saves acpmux's record and offers Undo, which forgets it and asks aga
   await press("Don't trust");
   expect(levels.get("/work/app")).toBe("untrusted");
   expect(row()!.textContent).toBe("Won't trust appUndo");
-  // The answer stays until the user sends their next prompt.
+  // Don't trust stays: no prompt goes until the user changes it.
   await render({ levels, chat: { ...chat, prompts: 2 } });
+  expect(row()!.textContent).toBe("Won't trust appUndo");
+  await press("Undo");
+  await press("Trust");
+  // Trust stays until the user sends their next prompt.
+  await render({ levels, chat: { ...chat, prompts: 3 } });
   expect(row()).toBeNull();
 });
 
 test("a second answer while the first one saves is ignored", async () => {
   const levels = new Map<string, TrustLevel>();
-  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 } });
+  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", prompts: 1 } });
   const buttons = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")];
   await act(async () => {
     buttons[0]!.click();
@@ -154,15 +158,16 @@ test("a second answer while the first one saves is ignored", async () => {
 test("a folder already decided, another chat, or a failed save each behave without a prompt", async () => {
   await render({
     levels: new Map([["/work/app", "trusted"]]),
-    chat: { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 },
+    chat: { sessionId: "s", cwd: "/work/app", prompts: 1 },
   });
   expect(row()).toBeNull();
   const levels = new Map<string, TrustLevel>();
-  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 } });
+  await render({ levels, chat: { sessionId: "s", cwd: "/work/app", prompts: 1 } });
   expect(row()).not.toBeNull();
-  await render({ levels, chat: { sessionId: "t", cwd: "/work/api", started: false, prompts: 0 } });
-  expect(row()).toBeNull();
-  await render({ levels, chat: { sessionId: "u", cwd: "/work/web", started: true, prompts: 1 }, fail: true });
+  // Another chat in another folder asks about that folder.
+  await render({ levels, chat: { sessionId: "t", cwd: "/work/api", prompts: 0 } });
+  expect(row()!.textContent).toBe("Claude Code can edit and run code in apiTrustDon't trust");
+  await render({ levels, chat: { sessionId: "u", cwd: "/work/web", prompts: 1 }, fail: true });
   await press("Trust");
   expect(row()!.textContent).toBe("Couldn't save that. Try again.TrustDon't trust");
 });

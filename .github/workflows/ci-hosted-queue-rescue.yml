@@ -54,11 +54,29 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          EVENT_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          EVENT_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
           MIN_QUEUE_AGE_SECONDS: "840"
         run: |
           set -euo pipefail
           [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$EVENT_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+          # The event already carries the attempt and the timestamps. Nearly every
+          # run it names ended in seconds, so it is ruled out here without an API
+          # call (every workflow shares GITHUB_TOKEN's budget; it ran out on
+          # 2026-10-06). The live run is still read below before any rerun.
+          (( EVENT_ATTEMPT < 3 )) || {
+            echo "retry limit reached for run $RUN_ID"
+            exit 0
+          }
+          if [[ -n "$EVENT_CREATED_AT" && -n "$EVENT_UPDATED_AT" ]]; then
+            event_age_seconds=$(( $(date -u -d "$EVENT_UPDATED_AT" +%s) - $(date -u -d "$EVENT_CREATED_AT" +%s) ))
+            (( event_age_seconds >= MIN_QUEUE_AGE_SECONDS )) || {
+              echo "run ended before the hosted queue timeout (${event_age_seconds}s)"
+              exit 0
+            }
+          fi
 
           run_json="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")"
           current_attempt="$(jq -r '.run_attempt // 0' <<<"$run_json")"

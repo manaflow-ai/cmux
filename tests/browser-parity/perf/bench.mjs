@@ -24,6 +24,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { startOwnHost } from "../lib/parity-host.mjs";
 import { createDevBrowser, createNodeHost, createHostedRepl, loadRuntime } from "../lib/dev-driver.mjs";
 import { tokens, TOKENIZER } from "./tokens.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
@@ -289,10 +290,14 @@ function cmuxAppBackend() {
 }
 
 // The Rust browser host on headless Chromium, one session per page (as the
-// cmux backend), through `cmux-browser-host eval`.
-function hostHeadlessBackend() {
+// cmux backend), through `cmux-browser-host eval`. Every eval runs on the
+// bench's own host (a private socket, lib/parity-host.mjs), stopped by its
+// exact PID when the bench ends: an eval on the default socket started a
+// detached `serve` that outlived the bench.
+export async function hostHeadlessBackend() {
   const bin = process.env.PARITY_HOST_BIN || "cmux-browser-host";
-  const env = { CMUX_BROWSER_HOST_ENGINE: "headless" };
+  const host = await startOwnHost({ cmd: bin });
+  const env = { CMUX_BROWSER_HOST_ENGINE: "headless", CMUX_BROWSER_HOST_SOCKET: host.socket };
   const workDir = makeTestDir("perf-host-");
   const call = (code, session) =>
     runProcess(bin, ["eval", ...(session ? ["--session", session] : []), "--engine", "headless", "--max-output", "0", "-"], { input: code, env, cwd: workDir });
@@ -324,7 +329,10 @@ function hostHeadlessBackend() {
         await close(s);
       }
     },
-    close: async () => removeTestDir(workDir),
+    close: async () => {
+      await host.stop();
+      removeTestDir(workDir);
+    },
   };
 }
 

@@ -35,16 +35,16 @@
          }
      }
  
-@@ -185,7 +191,7 @@
-         let listOrigin = list.superlayer == nil ? CGPoint.zero : list.convert(CGPoint.zero, to: v.layer)
-         // Container motion: the transcript's sublayer transform moves every row (WindowView.animateRows).
-         let originY = Float(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42)
+@@ -196,7 +202,7 @@
+                 if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "container \(d)" }
+             }
+         }
 -        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window.isKeyWindow)
 +        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window?.isKeyWindow ?? false)  // cmux: optional window
          let base = slot * FlightRecorder.maxRows
          var n = 0
          // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
-@@ -351,10 +357,11 @@
+@@ -429,10 +435,11 @@
          guard let c else { return }
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
@@ -59,7 +59,7 @@
          let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
          let t0 = order.first.map { self.samples[$0].t } ?? CACurrentMediaTime()
          // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
-@@ -381,20 +388,23 @@
+@@ -459,20 +466,23 @@
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
          }
@@ -90,7 +90,7 @@
          let q = DispatchQueue(label: "flight.burst", qos: .utility)
          let start = CACurrentMediaTime()
          var i = 0
-@@ -402,7 +412,8 @@
+@@ -480,7 +490,8 @@
          timer.schedule(deadline: .now(), repeating: 1.0 / 60)
          timer.setEventHandler {
              let t = CACurrentMediaTime() - start
