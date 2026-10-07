@@ -128,10 +128,13 @@ describe("coderouter usage read timeouts", () => {
       listAccounts: async () => [account],
       listEncryptedCredentials: async () => [envelope],
       markCooldown: async () => {},
-      credential: async () => {
-        throw new DOMException("The operation timed out.", "TimeoutError");
+      // The usage read rejects the token, so the forced refresh runs and
+      // times out: a refresh failure, not a usage-read timeout.
+      credential: async (input) => {
+        if (input.force) throw new DOMException("The operation timed out.", "TimeoutError");
+        return codex();
       },
-      fetchUsage: async () => Response.json({ plan_type: "pro" }),
+      fetchUsage: async () => new Response(null, { status: 401 }),
       report: (failure, _error, context = {}, options = {}) => {
         reported.push({ failure, context, options });
       },
