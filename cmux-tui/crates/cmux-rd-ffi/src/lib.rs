@@ -3,7 +3,8 @@
 //! The macOS client links this staticlib through the client xcframework
 //! (`scripts/cmux-next/build-rd-ffi.sh`; plans/cmux-next/remote-desktop.md
 //! section 3). The surface is small on purpose: received bytes in, access
-//! units, messages and feedback datagrams out. No I/O, no threads, no async
+//! units, messages and feedback datagrams out; upstream media frames in,
+//! datagrams out. No I/O, no threads, no async
 //! runtime. Every entry point catches panics; a panic poisons the receiver
 //! and every later call on it returns `CMUX_RD_ERR_PANIC`.
 
@@ -13,6 +14,7 @@ mod rb_client_ffi;
 mod receiver;
 mod session;
 mod session_ffi;
+mod upstream_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -25,9 +27,10 @@ pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 pub use session::{MAX_STREAMS, Session, SessionError};
 pub use session_ffi::*;
+pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;

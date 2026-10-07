@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 2u
+#define CMUX_RD_FFI_ABI_VERSION 3u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -222,6 +222,67 @@ int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+
+/* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
+   One sender per upstream stream (microphone, camera, screen share) the host
+   registered. Encoded frames go in; UpMedia datagrams come out with adaptive
+   FEC. The host's upstream feedback (acked frame, NACKs, arrival times)
+   drives delay-based congestion control, a pacing budget at the target
+   bitrate, NACK resends and keyframe requests. Nothing is queued to catch
+   up: a frame over the budget is dropped and the sender asks for a
+   keyframe; dependent frames are then dropped until an independent one.
+   Not thread-safe, like a session. */
+typedef struct CmuxRdUpstream CmuxRdUpstream;
+
+/* Path classes (transport.md section 4); CMUX_RD_PATH_DO_RELAY caps the rate. */
+#define CMUX_RD_PATH_DIRECT_LAN 0u
+#define CMUX_RD_PATH_DIRECT_WAN 1u
+#define CMUX_RD_PATH_VIA_CLOUD_REGION 2u
+#define CMUX_RD_PATH_DO_RELAY 3u
+/* Bytes of untaken datagrams after which new frames are dropped. */
+#define CMUX_RD_UPSTREAM_MAX_QUEUED 4194304u
+
+/* Counters for the status line. */
+typedef struct CmuxRdUpstreamStats {
+    uint64_t frames_sent;
+    uint64_t frames_dropped;
+    uint32_t acked_frame;    /* newest frame the host completed, 0 for none */
+    uint32_t loss_ppm;       /* smoothed loss, parts per million */
+    bool keyframe_requested; /* make the next frame independent */
+} CmuxRdUpstreamStats;
+
+/* NULL for an unknown carrier or path, max_datagram outside 64..9000 (use
+   the link's, 1152 or 1332), or min_bps > max_bps. A bitrate of 0 takes the
+   default (start 8, floor 1, ceiling 80 Mbit/s). fec: block FEC on a lossy
+   path; pass false for Opus audio, which has in-band FEC. */
+CmuxRdUpstream *cmux_rd_upstream_new(uint32_t carrier, uint16_t stream, uint32_t max_datagram, uint32_t path,
+                                     uint64_t start_bps, uint64_t min_bps, uint64_t max_bps, bool fec);
+void cmux_rd_upstream_free(CmuxRdUpstream *upstream);
+/* Sends one encoded frame (an access unit or an Opus packet) captured at
+   t_capture_us. independent: references no earlier frame (keyframes, every
+   audio packet); other frames reference the previous frame sent. Returns
+   the datagrams queued, 0 when the frame was dropped (over the pacing
+   budget, dependent on a dropped frame, or CMUX_RD_UPSTREAM_MAX_QUEUED bytes
+   are waiting), CMUX_RD_ERR_INVALID for a frame too large to send. */
+int32_t cmux_rd_upstream_send_frame(CmuxRdUpstream *upstream, const uint8_t *data, size_t len,
+                                    uint64_t t_capture_us, bool independent, uint64_t now_us);
+/* Offers one datagram from the host (a session's CMUX_RD_MESSAGE_DATAGRAM
+   message, header included). Returns the resent datagrams queued;
+   CMUX_RD_ERR_STREAM when it is not feedback for this stream (offer it to
+   the next sender; also for a datagram kind this build does not know),
+   CMUX_RD_ERR_INVALID for bad bytes. */
+int32_t cmux_rd_upstream_on_datagram(CmuxRdUpstream *upstream, const uint8_t *bytes, size_t len, uint64_t now_us);
+/* Writes the oldest queued datagram (stream-framed on the stream carrier):
+   1 when written, 0 when none is queued, CMUX_RD_ERR_BUFFER (*out_len = size
+   needed) when cap is too small; it then stays queued. Call after every
+   send_frame and on_datagram until 0. *out_len is written on every path. */
+int32_t cmux_rd_upstream_pop_datagram(CmuxRdUpstream *upstream, uint8_t *out, size_t cap, size_t *out_len);
+/* The bitrate the encoder should aim for now; the floor while the host has
+   been silent for 500 ms with a frame unacknowledged. 0 for NULL. */
+uint64_t cmux_rd_upstream_target_bps(const CmuxRdUpstream *upstream, uint64_t now_us);
+/* Reports a path change (CMUX_RD_PATH_*); CMUX_RD_ERR_INVALID for others. */
+int32_t cmux_rd_upstream_set_path(CmuxRdUpstream *upstream, uint32_t path);
+int32_t cmux_rd_upstream_stats(const CmuxRdUpstream *upstream, CmuxRdUpstreamStats *out);
 
 /* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
    One client per remote tab. Inputs and outcomes are JSON in the shapes of
