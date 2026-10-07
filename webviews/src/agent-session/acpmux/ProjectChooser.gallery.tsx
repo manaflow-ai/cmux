@@ -87,6 +87,13 @@ const directoryBrowser: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="directory"]'));
 };
 
+const sourceSetupRequired: Play = async (ctx) => {
+  await sourcePicker(ctx);
+  const list = ctx.document.querySelector<HTMLElement>(".acpmux-add-project-list");
+  if (list) list.scrollTop = list.scrollHeight;
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-tag"));
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
@@ -159,6 +166,11 @@ export default componentEntry<Props>({
       note: "The source step keeps local folder and Git URL choices together, with setup-required sources quiet and disabled.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
       play: sourcePicker,
+    },
+    "add-project-source-setup": {
+      note: "Setup-required sources stay visible as small quiet tags and cannot be selected until configured.",
+      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
+      play: sourceSetupRequired,
     },
     "add-project-directory": {
       note: "The folder browser stays in the same panel and keeps its navigation hints visible.",

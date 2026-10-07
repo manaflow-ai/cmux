@@ -398,6 +398,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-add-project-row{display:flex;align-items:center;gap:8px;min-height:38px;padding:5px 8px;box-sizing:border-box}
 .acpmux-add-project-icon{display:grid;place-items:center;flex:none;width:20px;height:20px;border-radius:5px;color:var(--agent-muted);background:color-mix(in srgb,var(--agent-text) 9%,transparent);font-size:12px}
 .acpmux-add-project-row .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-add-project-row.is-disabled{color:var(--agent-muted);cursor:default;opacity:.72}
+.acpmux-add-project-tag{flex:none;padding:1px 4px;border:1px solid color-mix(in srgb,var(--agent-text) 24%,transparent);border-radius:3px;color:var(--agent-muted);font-size:10px;line-height:14px;white-space:nowrap}
 .acpmux-add-project-finder{width:100%;margin-top:6px;padding:7px 8px;border:0;border-top:1px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:12px system-ui,-apple-system,sans-serif;text-align:left;cursor:pointer}
 .acpmux-add-project-finder:hover{background:var(--acpmux-menu-hover)}
 .acpmux-add-project-footer{display:flex;gap:9px;margin-top:7px;padding:7px 4px 0;border-top:1px solid var(--acpmux-composer-edge);color:var(--agent-muted);font-size:10.5px;line-height:14px;white-space:nowrap}

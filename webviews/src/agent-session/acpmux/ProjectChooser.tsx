@@ -253,8 +253,8 @@ const ADD_PROJECT_SOURCES: AddProjectChoice[] = [
   { id: "new", label: "New project", description: "Create a project from a folder" },
   { id: "folder", label: "Local folder", description: "Choose a folder already on the device" },
   { id: "git", label: "Git URL", description: "Clone a repository from a URL" },
-  { id: "github", label: "GitHub repo", description: "Setup Required", disabled: true },
-  { id: "other", label: "Other sources", description: "Setup Required", disabled: true },
+  { id: "github", label: "GitHub repo", description: "Connect a repository from GitHub", disabled: true },
+  { id: "other", label: "Other sources", description: "Configure another source", disabled: true },
 ];
 
 const AddProjectPanel = React.forwardRef<HTMLInputElement, {
@@ -273,7 +273,6 @@ const AddProjectPanel = React.forwardRef<HTMLInputElement, {
         ? ADD_PROJECT_SOURCES
         : projects.map((project) => ({ id: project.cwd, label: project.label, description: project.cwd }));
   const suggestions = choices
-    .filter((choice) => !choice.disabled)
     .filter((choice) => `${choice.label} ${choice.description}`.toLowerCase().includes(query.trim().toLowerCase()))
     .map((choice) => choice.id);
   const title = step === "environment" ? "Environment" : step === "source" ? "Add project" : "Choose a folder";
@@ -302,12 +301,13 @@ const AddProjectPanel = React.forwardRef<HTMLInputElement, {
         renderItem={(id) => {
           const choice = choices.find((item) => item.id === id)!;
           return (
-            <span className="acpmux-add-project-row">
+            <span className={`acpmux-add-project-row${choice.disabled ? " is-disabled" : ""}`}>
               <span className="acpmux-add-project-icon" aria-hidden="true">{step === "directory" ? "⌂" : "•"}</span>
               <span className="acpmux-menu-text">
                 <span className="acpmux-menu-label">{choice.label}</span>
                 <span className="acpmux-menu-description">{choice.description}</span>
               </span>
+              {choice.disabled && <span className="acpmux-add-project-tag">Setup Required</span>}
             </span>
           );
         }}
