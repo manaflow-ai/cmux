@@ -14,7 +14,8 @@ extension DebugHome {
 
     /// Contacts the user has no direct conversation with.
     static func teammatesWithoutDM(rows: [InboxRow], contacts: [HomeContact]) -> Int {
-        0
+        let peers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        return contacts.filter { !peers.contains($0.id) }.count
     }
 
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
