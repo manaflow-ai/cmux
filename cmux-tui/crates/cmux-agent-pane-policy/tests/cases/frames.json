@@ -1199,7 +1199,18 @@
   "token": null,
   "expect": {
    "refuse": "transport.duplicate_key",
-   "method": "_acpmux/peer_add",
+   "method": "session/new",
+   "id": "1"
+  }
+ },
+ {
+  "name": "duplicate top-level id: the refusal names the first, as Foundation keeps it",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"id\":2,\"method\":\"session/new\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.duplicate_key",
+   "method": "session/new",
    "id": "1"
   }
  },

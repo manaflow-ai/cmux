@@ -151,12 +151,48 @@ pub fn refusal_frame(
     format!(r#"{{"jsonrpc":"2.0","id":{request_id},"error":{body}}}"#)
 }
 
-/// A frame's method and raw id, for a refusal.
+/// A frame's method and raw id, for a refusal. Of two equal top-level keys
+/// the first counts, as Foundation's `JSONSerialization` keeps it
+/// (AcpmuxPaneMethods.swift `identity`); serde_json's map would keep the last.
 pub(crate) fn identity(text: &str) -> (Option<String>, Option<String>) {
-    match serde_json::from_str::<Value>(text) {
-        Ok(Value::Object(o)) => (
-            o.get("method").and_then(Value::as_str).map(str::to_owned),
-            o.get("id").and_then(raw_id),
+    struct First(Option<Value>, Option<Value>);
+    impl<'de> serde::Deserialize<'de> for First {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct Visit;
+            impl<'de> serde::de::Visitor<'de> for Visit {
+                type Value = First;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("a JSON object")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<First, A::Error> {
+                    let mut first = First(None, None);
+                    while let Some(key) = map.next_key::<String>()? {
+                        let slot = match key.as_str() {
+                            "method" => &mut first.0,
+                            "id" => &mut first.1,
+                            _ => {
+                                map.next_value::<serde::de::IgnoredAny>()?;
+                                continue;
+                            }
+                        };
+                        let value = map.next_value::<Value>()?;
+                        if slot.is_none() {
+                            *slot = Some(value);
+                        }
+                    }
+                    Ok(first)
+                }
+            }
+            d.deserialize_map(Visit)
+        }
+    }
+    match serde_json::from_str::<First>(text) {
+        Ok(First(method, id)) => (
+            method.as_ref().and_then(Value::as_str).map(str::to_owned),
+            id.as_ref().and_then(raw_id),
         ),
         _ => (None, None),
     }
