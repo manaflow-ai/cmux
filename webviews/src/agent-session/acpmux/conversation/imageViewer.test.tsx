@@ -247,3 +247,40 @@ test("one image has no arrows or place, and + zooms it in place", async () => {
   expect(image.style.transform).toBe("translate(0px, 0px) scale(1)");
   await unmount();
 });
+
+test("the image keys work with focus on the viewer itself", async () => {
+  const { unmount } = await mount(
+    createElement(ImageViewer, {
+      images: [{ src: png("A"), alt: "Light" }],
+      index: 0,
+      onIndex: () => {},
+      onClose: () => {},
+    }),
+  );
+  await until(() => doc().querySelector(".acpmux-image-viewer-stage"));
+  // A press on the image or a button focuses the dialog itself (WebKit does not focus buttons).
+  const layer = doc().querySelector<HTMLElement>(".acpmux-image-viewer")!;
+  await act(async () => layer.focus());
+  await key(layer, "+");
+  const image = doc().querySelector<HTMLElement>(".acpmux-image-viewer-image")!;
+  expect(image.style.transform).toBe("translate(0px, 0px) scale(2)");
+  await unmount();
+});
+
+test("Control-scroll on the stage zooms the image, and the pane never scrolls behind", async () => {
+  const { unmount } = await mount(
+    createElement(ImageViewer, {
+      images: [{ src: png("A"), alt: "Light" }],
+      index: 0,
+      onIndex: () => {},
+      onClose: () => {},
+    }),
+  );
+  await until(() => doc().querySelector(".acpmux-image-viewer-stage"));
+  const image = doc().querySelector<HTMLElement>(".acpmux-image-viewer-image")!;
+  const wheel = new dom.window.WheelEvent("wheel", { deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true });
+  await act(async () => doc().querySelector(".acpmux-image-viewer-stage")!.dispatchEvent(wheel));
+  expect(wheel.defaultPrevented).toBe(true);
+  expect(image.style.transform).not.toBe("translate(0px, 0px) scale(1)");
+  await unmount();
+});
