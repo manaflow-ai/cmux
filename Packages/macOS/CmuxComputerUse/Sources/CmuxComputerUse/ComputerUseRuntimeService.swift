@@ -935,7 +935,10 @@ public final class ComputerUseRuntimeService {
         helperUnavailableInThisBuild = false
         let currentCheckTask = Task.detached(priority: .userInitiated) {
             let staging = ComputerUseHelperStaging()
+            // Every helper this returns satisfies the trust requirement, so the
+            // reuse path checks the installed copy as the staged path does.
             let isCurrent = staging.isCurrent(nested: source, destination: destination)
+                && trust.isTrusted(destination)
             if isCurrent {
                 // A copy staged by an earlier build can still carry the empty
                 // record #13602 wrote; release it in place instead of restaging.
