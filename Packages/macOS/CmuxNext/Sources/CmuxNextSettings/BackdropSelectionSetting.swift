@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Persists the selected background: bundled art, a macOS system wallpaper, the desktop picture
 /// (`desktop`), or `none`. Unset is ``defaultSelection``.
