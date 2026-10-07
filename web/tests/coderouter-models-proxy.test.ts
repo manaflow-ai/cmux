@@ -140,7 +140,7 @@ describe("coderouter models proxy with no account configured", () => {
   function noAccountModelsProxy(configured: boolean) {
     const checks: string[] = [];
     const proxy = createCodexModelsProxy({
-      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: "vm-1" }),
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
       select: async () => null,
       credential: async () => {
         throw new Error("no account should be read");
