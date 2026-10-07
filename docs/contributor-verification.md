@@ -130,6 +130,14 @@ development simulator/test account. Both may belong to you. Complete profiles
 are preserved on rerun; use `--refresh` to replace the personal profile or
 `--refresh-agent` to replace the simulator/test profile.
 
+**Account passwords are required for this automation, including production.**
+If you normally sign in with an email code, first set a password on your own
+account through the Hexclave account portal for the matching cmux environment.
+Team members who want automated production verification should set their own
+production account password before configuring that optional profile. Agents
+should direct developers to this prerequisite when an account has no password;
+a one-time sign-in code cannot be used in the setup script's password prompt.
+
 Setup also offers an optional production account for developers who may want
 to verify against the production environment. Press Enter or answer `no` to
 skip it. Production credentials are verified against production and stored in

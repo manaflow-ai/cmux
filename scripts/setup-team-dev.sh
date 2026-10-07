@@ -23,6 +23,8 @@ Usage: scripts/setup-team-dev.sh [--refresh] [--refresh-agent] [--refresh-produc
 Prompts separately for missing development dogfood and simulator/test accounts.
 Offers optional production credentials for developers who may want to verify
 against the production environment. Decline or press Enter to skip production.
+All profiles require an account password. If you normally use email codes, first
+set your own password in the Hexclave account portal for the matching environment.
 Complete profiles are kept unless their refresh option is selected:
   --refresh             Replace the development personal dogfood account.
   --refresh-agent       Replace the development simulator/test account.
@@ -213,6 +215,8 @@ configure_production() {
   echo
   echo "==> Optional production verification"
   echo "    Add this only if you may want to verify against the production environment."
+  echo "    This requires your production account password, even if you normally use email codes."
+  echo "    First set your own password in the Hexclave account portal for cmux production."
   echo "    These credentials are separate from development and require explicit selection."
   adopt_legacy_production
   validate_existing_file "$PRODUCTION_ENV_FILE"
