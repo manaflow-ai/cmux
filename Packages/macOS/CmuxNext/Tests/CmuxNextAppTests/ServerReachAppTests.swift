@@ -104,18 +104,20 @@ import Testing
     /// Mac's link has as a paired peer is dialed through the link; this Mac's
     /// own brain still wins, and an unpaired server stays on SSH.
     @Test func aServerPairedWithThisMacsLinkUsesTheOverlay() throws {
-        let link = ServerReachPlan.LinkPeers(socket: "/tmp/cmux-501/link.sock", installs: [Self.install])
+        let socket = "/tmp/cmux-501/link.sock"
+        let link = ServerReachPlan.LinkPeers(socket: socket, installs: [Self.install])
         let host = PairedServer(host: Self.host, name: "build-box", kind: "server")
-        #expect(ServerReachPlan.route(for: host, install: Self.install, local: nil, link: link) == .overlay(linkSocket: link.socket))
+        #expect(ServerReachPlan.route(for: host, install: Self.install, local: nil, link: link) == .overlay(linkSocket: socket))
         guard case .ssh = ServerReachPlan.route(for: host, install: "inst_bbbbbbbbbbbbbbbbbbbb", local: nil, link: link) else {
             Issue.record("an install the link does not know must not use the overlay")
             return
         }
         let me = ServerReachPlan.LocalServer(hostNames: ["build-box"], brainSocket: "/Users/me/.cmux/brains/chief/daemon/cmux.sock")
         #expect(ServerReachPlan.route(for: host, install: Self.install, local: me, link: link) == .unix(me.brainSocket))
-        let reach = try ServerReach(hostID: Self.host, installID: Self.install, name: "build-box", route: .overlay(linkSocket: link.socket))
+        let reach = try ServerReach(hostID: Self.host, installID: Self.install, name: "build-box", route: .overlay(linkSocket: socket))
         #expect(ServerReach(transportFields: reach.transportFields) == reach)
-        #expect(reach.dialPreamble == #"{"op":"link.dial","host":"\#(Self.install)","service":"owner_session"}"#)
+        #expect(reach.dialArguments(linkSocket: socket)
+            == ["link", "dial", "--host", Self.install, "--service", "owner_session", "--socket", socket])
         #expect(ServerReachPlan.parseLinkShow(Data(#"{"running":true,"socket":"/tmp/l.sock","install":"inst_x"}"#.utf8)) == "/tmp/l.sock")
         #expect(ServerReachPlan.parseLinkShow(Data(#"{"running":false,"socket":null}"#.utf8)) == nil)
         #expect(ServerReachPlan.parsePeerList(Data(#"{"peers":[{"install":"inst_a"},{"install":"inst_b"}]}"#.utf8)) == ["inst_a", "inst_b"])

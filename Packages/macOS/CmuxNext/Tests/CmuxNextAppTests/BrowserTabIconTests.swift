@@ -23,6 +23,12 @@ import Testing
         #expect(BrowserTabIconState.resolve(isLoading: false, isDormant: false, favicon: nil) == .globe)
     }
 
+    /// `appearance.statusIndicator.showPageLoading` off: the favicon stays.
+    @Test func pageLoadingOffKeepsTheFavicon() {
+        #expect(BrowserTabIconState.resolve(isLoading: true, isDormant: false, favicon: Self.icon, showsLoading: false) == .favicon(Self.icon))
+        #expect(BrowserTabIconState.resolve(isLoading: true, isDormant: false, favicon: nil, showsLoading: false) == .globe)
+    }
+
     @Test func aHibernatedTabNeverShowsTheThrobber() {
         #expect(BrowserTabIconState.resolve(isLoading: true, isDormant: true, favicon: Self.icon) == .favicon(Self.icon))
     }

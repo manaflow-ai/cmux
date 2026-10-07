@@ -16,6 +16,9 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "config_option_update",
     "session_info_update",
     "agent_thought_chunk",
+    // A subagent's spawn and end belong to the subagent (`crate::subagents`).
+    "subagent_spawned",
+    "subagent_state_update",
 ];
 
 /// Codex (`codex-acp`) reports stream trouble as

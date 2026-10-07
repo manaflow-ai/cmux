@@ -115,3 +115,15 @@ fn malformed_config_is_refused() {
         refused(text, CLOUD);
     }
 }
+
+/// /etc/cmux/host.json is trusted only when the agent's user owns it and
+/// neither group nor others can write it.
+#[test]
+fn the_host_config_file_must_be_owned_by_the_agent_and_not_shared_writable() {
+    assert_eq!(file_is_trusted(0, 0o100644, 0), Ok(()));
+    assert_eq!(file_is_trusted(0, 0o100600, 0), Ok(()));
+    assert!(file_is_trusted(1000, 0o100644, 0).unwrap_err().contains("uid 1000"));
+    assert!(file_is_trusted(0, 0o100664, 0).unwrap_err().contains("writable"));
+    assert!(file_is_trusted(0, 0o100646, 0).unwrap_err().contains("writable"));
+    assert!(file_is_trusted(0, 0o100666, 0).is_err());
+}

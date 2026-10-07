@@ -395,6 +395,21 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
+    def test_autofix_token_asks_only_for_what_the_app_grants(self):
+        """The App installation refuses pull-requests: write ("The permissions requested are not
+        granted to this installation", run 37590228478), so the token asks for contents only, which
+        the push needs (an App push starts CI). The comment uses the job's own GITHUB_TOKEN."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        autofix = jobs["generated-autofix"]
+        mint = next(step for step in autofix["steps"] if step.get("id") == "app-token")
+        requested = sorted(key for key in mint["with"] if key.startswith("permission-"))
+        self.assertEqual(requested, ["permission-contents"])
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertEqual(autofix["permissions"], {"contents": "read", "pull-requests": "write"})
+        commit = autofix["steps"][-1]
+        self.assertEqual(commit["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertNotIn('GH_TOKEN="$APP_TOKEN"', commit["run"])
+
     def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         autofix = jobs["generated-autofix"]
@@ -436,12 +451,32 @@ class PathRoutingStructure(unittest.TestCase):
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
+        # Main's promote-nightly-next refuses a head whose push run has no successful
+        # "cmux-next Release compile (Xcode 26)" job. Requested after the Linux checks alone, it
+        # ran about 10 minutes before that job finished and refused every head from 00:12Z to
+        # 15:00Z on 2026-10-07 (run 37638104609). The request waits for that job and nothing
+        # else, so an unrelated red never holds the promotion.
         self.assertEqual(nightly["needs"], "release-compile")
+        self.assertEqual(jobs["release-compile"]["name"], "cmux-next Release compile (Xcode 26)")
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
         self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        self.assertNotIn("needs.checks", nightly["if"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
+    def test_every_green_feat_push_promotes_without_a_debounce(self):
+        """nightly-next rolls forward to every green head. Promotions are never dropped by a
+        time window; nightly.yml's own concurrency group coalesces them: the running build
+        finishes and only the newest pending one runs next."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = jobs["request-nightly-next"]["steps"][0]["run"]
+        self.assertIn("-f promote_nightly_next_sha=", run)
+        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
+        group = nightly["concurrency"]["group"]
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
+        self.assertIs(nightly["concurrency"]["cancel-in-progress"], False)
 
     def test_batch_dispatch_runs_every_dispatch_gated_job(self):
         # scripts/ci/next_batch.py validates a stack of pull requests by
@@ -703,7 +738,10 @@ class SameTreeIsAnEvent(unittest.TestCase):
         uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
-        self.assertEqual(route["permissions"].get("actions"), "read")
+        # The probe dispatches one cmux-tui artifacts run for a same-repository
+        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
+        self.assertEqual(route["permissions"].get("actions"), "write")
+        self.assertEqual(route["permissions"].get("contents"), "write")
 
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()

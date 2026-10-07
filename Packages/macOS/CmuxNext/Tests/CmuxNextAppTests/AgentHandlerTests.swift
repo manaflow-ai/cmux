@@ -17,7 +17,10 @@ import Testing
         try await waitForCondition(what, timeout: .seconds(15), sourceLocation: sourceLocation, condition)
     }
 
-    @Test func newAgentChatCreatesWorkspaceAndOpensChatWhenNoPaneIsMounted() async throws {
+    /// New Agent Chat and Add Harness… (BYOH H3) share the pane path: both work from Home or a
+    /// workspace with no mounted pane yet (nxdog proof: Add Harness refused "No pane is focused").
+    @Test(arguments: ["palette.newAgentChat", "palette.addHarness"])
+    func newAgentChatCreatesWorkspaceAndOpensChatWhenNoPaneIsMounted(_ actionID: String) async throws {
         let daemon = try TopologyDaemon(emptyWorkspace: true)
         let services = ActionBindingCoverageTests.boundServices()
         // Leave the initial empty workspace alone so Cmd-I's own tracked
@@ -44,9 +47,9 @@ import Testing
         #expect(window.content?.panes.isEmpty == true)
 
         let run = RegistryControlBridge(registry: services.registry).performActionTracked(ControlActionRequest(
-            actionID: "palette.newAgentChat", origin: "user", focus: true
+            actionID: actionID, origin: "user", focus: true
         ))
-        #expect(run.outcome == .ran, "Cmd-I: \(run.outcome)")
+        #expect(run.outcome == .ran, "\(actionID): \(run.outcome)")
         for task in run.work {
             let failure = await task.value
             #expect(failure == nil, "Cmd-I work: \(failure.map(String.init(describing:)) ?? "")")

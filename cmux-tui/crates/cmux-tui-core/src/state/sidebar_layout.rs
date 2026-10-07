@@ -446,8 +446,9 @@ pub const RECENTS_CONTRIBUTION: &str = "cmux/agent-chats#recents";
 
 /// The app's `SidebarLayoutDocument.defaults`: on top Home and the App Store
 /// as app rows; in the middle the workspaces, then the recent agent chats
-/// (an app section); at the bottom one inline line, leading, with the
-/// account avatar and the Settings gear, icons only. Fixed ids, so a
+/// (an app section); at the bottom one inline line, leading, with only the
+/// account avatar (the profile control; Settings is in its menu,
+/// SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2). Fixed ids, so a
 /// never-written layout is identical on every device.
 pub fn defaults() -> Document {
     let mut top = Section::new("sec_top", Region::Top, Look::BuiltIn, Content::Items);
@@ -461,10 +462,7 @@ pub fn defaults() -> Document {
     recents.contribution = Some(RECENTS_CONTRIBUTION.into());
     let mut bottom = Section::new("sec_bottom", Region::Bottom, Look::BuiltIn, Content::Items);
     bottom.arrangement = Arrangement::new(ArrangementLayout::Inline, Alignment::Leading);
-    bottom.items = vec![
-        Item::new("itm_account", ItemRef::new("built_in", "account"), false),
-        Item::new("itm_settings", ItemRef::new("built_in", "settings"), false),
-    ];
+    bottom.items = vec![Item::new("itm_account", ItemRef::new("built_in", "account"), false)];
     Document { revision: 0, sections: vec![top, workspaces, recents, bottom] }
 }
 

@@ -13,6 +13,9 @@ final class SidebarListDrag {
     var grabOffsetX: CGFloat = 0
     let gapHeight: CGFloat
     let lift: DragLiftView
+    /// The top section the rows would join (drop-to-pin), while the
+    /// pointer is over the band above the list; the list keeps its order.
+    var pinTarget: SidebarRegionDrop?
     var target: DropTarget? {
         didSet { if case let .position(position)? = target { lastPosition = position } }
     }

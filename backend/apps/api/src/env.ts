@@ -78,6 +78,8 @@ export interface Env {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
+  /** Var (development only): the public coderouter host the coderouter.cmux.internal edge rule forwards to (cloud-coderouter-edge.ts); unset = no rule. */
+  readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
   /**

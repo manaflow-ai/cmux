@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextUpdater
 
-/// `updates.rollback` refuses until the daemon reports its stored formats,
+/// `updates.rollback` refuses when the stores' formats could not be read,
 /// and never relaunches on a refusal.
 @MainActor
 @Suite struct UpdaterRollbackTests {
@@ -14,7 +14,7 @@ import Testing
                                      defaults: UserDefaults(suiteName: "rollback-\(UUID().uuidString)")!, enableSparkle: false)
         var relaunched = 0
         #expect(throws: RollbackRefusal.storesUnknown) {
-            try service.rollback(to: nil, stored: nil, relaunch: { _ in relaunched += 1 })
+            try service.rollback(to: nil, inputs: RollbackInputs(kept: [], stored: nil), relaunch: { _ in relaunched += 1 })
         }
         #expect(relaunched == 0)
     }

@@ -26,8 +26,9 @@ final class SettingsPageProvider: PageProvider {
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
-    /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
-    /// they left it.
+    /// A folders-only NSOpenPanel returning absolute paths; injectable without opening UI in tests.
+    var pickChatFolders: @MainActor () async -> [String]? = { await ChatRootPicker().choose() }
+    /// The cmux picker for other folder lists (`~/` for home), nil when cancelled.
     var pickFolders: (@MainActor () async -> [String]?)?
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
@@ -86,9 +87,14 @@ final class SettingsPageProvider: PageProvider {
             // native cmux picker, so the write is theirs even for a user-only key.
             let descriptor = try descriptor(params)
             guard descriptor.kind == .folderList else { throw PageError.invalidParams("\(descriptor.id) is not a folder list") }
-            guard let pickFolders else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
-            guard let chosen = await pickFolders(), !chosen.isEmpty else { return ["added": []] }
-            let current = (descriptor.effectiveValue(in: settings.snapshot.root)?.arrayValue ?? []).compactMap(\.stringValue)
+            if descriptor.path == ChatSettings.rootsPath, Self.writer(context) != .user {
+                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+            }
+            let picker = descriptor.path == ChatSettings.rootsPath ? pickChatFolders : pickFolders
+            guard let picker else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
+            guard let chosen = await picker(), !chosen.isEmpty else { return ["added": []] }
+            let source = descriptor.path == ChatSettings.rootsPath ? settings.fileRoot : settings.snapshot.root
+            let current = (descriptor.storedValue(in: source)?.arrayValue ?? []).compactMap(\.stringValue)
             let added = chosen.filter { !current.contains($0) }
             if !added.isEmpty {
                 // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
@@ -142,10 +148,24 @@ final class SettingsPageProvider: PageProvider {
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
+        // Capture before returning the subscription so an immediate mutation cannot become
+        // the task's baseline and disappear from the first event.
+        let initialRoot = settings.snapshot.root
+        let initialFileRoots = settings.fileRoot.value(at: ChatSettings.rootsPath)
+        let initialManagedRoots = settings.managedChatRoots
         let task = Task { @MainActor in
-            var last = settings.snapshot.root
-            for await (count, root) in Observations({ (settings.loadCount, settings.snapshot.root) }) {
-                let keys = SettingsSchema.all.filter { $0.storedValue(in: root) != $0.storedValue(in: last) }.map(\.id)
+            var last = initialRoot
+            var lastFileRoots = initialFileRoots
+            var lastManagedRoots = initialManagedRoots
+            for await (count, root, fileRoots, managedRoots) in Observations({
+                (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
+            }) {
+                let keys = SettingsSchema.all.filter {
+                    $0.storedValue(in: root) != $0.storedValue(in: last)
+                        || ($0.path == ChatSettings.rootsPath && (fileRoots != lastFileRoots || managedRoots != lastManagedRoots))
+                }.map(\.id)
+                lastFileRoots = fileRoots
+                lastManagedRoots = managedRoots
                 last = root
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
@@ -173,13 +193,19 @@ final class SettingsPageProvider: PageProvider {
         let root = settings.snapshot.root
         let file = settings.fileRoot
         return .array(SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }.map { descriptor in
-            [
+            var row: JSONValue = [
                 "key": .string(descriptor.id),
                 "value": descriptor.effectiveValue(in: root) ?? .null,
                 "default": descriptor.defaultValue ?? .null,
                 "customized": .bool(descriptor.isCustomized(in: file)),
                 "managed": settings.managedSource(for: descriptor).map(Self.managedInfo) ?? .null,
             ]
+            if descriptor.path == ChatSettings.rootsPath, case .object(var members) = row {
+                members["folders"] = settings.chatRootRows
+                members["user_roots"] = settings.fileRoot.value(at: ChatSettings.rootsPath) ?? .array([])
+                row = .object(members)
+            }
+            return row
         })
     }
 
@@ -247,7 +273,9 @@ final class SettingsPageProvider: PageProvider {
         } catch let managed as SettingManaged {
             throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
         } catch let refused as SettingRefused {
-            throw PageError(code: "cmux.settings.invalid", message: String(describing: refused))
+            let reasons = descriptor.path == ChatSettings.rootsPath
+                ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
+            throw PageError(code: "cmux.settings.invalid", message: reasons.first ?? String(describing: refused))
         } catch let userOnly as SettingUserOnly {
             throw Self.userOnlyError(userOnly)
         }

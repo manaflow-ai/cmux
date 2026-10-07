@@ -12,6 +12,8 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
     case setReadCursor(seq: UInt64)
     case addParticipant(ConversationParticipant)
     case setTitle(String)
+    /// `question.answer`: `answer` is `{selections}` (CmuxAgentQuestion's `conversationAnswer`).
+    case answerQuestion(messageID: String, partIndex: Int, answer: JSONValue)
 
     public var kindName: String {
         switch self {
@@ -23,6 +25,7 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
         case .setReadCursor: "read_cursor.set"
         case .addParticipant: "participants.add"
         case .setTitle: "title.set"
+        case .answerQuestion: "question.answer"
         }
     }
 
@@ -50,6 +53,10 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
             try c.encode(participant, forKey: DynamicKey("participant"))
         case .setTitle(let title):
             try c.encode(title, forKey: DynamicKey("title"))
+        case .answerQuestion(let messageID, let partIndex, let answer):
+            try c.encode(messageID, forKey: DynamicKey("message_id"))
+            try c.encode(partIndex, forKey: DynamicKey("part_index"))
+            try c.encode(answer, forKey: DynamicKey("answer"))
         }
     }
 }
