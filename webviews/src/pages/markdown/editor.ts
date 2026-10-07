@@ -497,11 +497,11 @@ function githubReferencePlugin(repository: () => string | undefined) {
 }
 
 function githubReferenceDecorations(doc: ProseNode, repository?: string): DecorationSet {
-  if (!repository) return DecorationSet.empty;
   const decorations: Decoration[] = [];
   doc.descendants((node, pos, parent) => {
-    if (!node.isText || parent?.type.spec.code || node.marks.some((mark) => mark.type.name === "link" || mark.type.spec.code))
-      return false;
+    if (parent?.type.spec.code) return false;
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type.name === "link" || mark.type.spec.code)) return false;
     for (const reference of githubReferences(node.text!, repository)) {
       decorations.push(
         Decoration.inline(pos + reference.start, pos + reference.end, {

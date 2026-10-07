@@ -670,6 +670,7 @@ export function Markdown({
   fresh,
   now = 0,
   waiting = false,
+  githubRepository,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -687,8 +688,13 @@ export function Markdown({
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
-    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` }, overBudget };
-  }, [linkIcon, noteIds, notePrefix, overBudget]);
+    return {
+      linkIcon,
+      githubRepository,
+      notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
+      overBudget,
+    };
+  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
