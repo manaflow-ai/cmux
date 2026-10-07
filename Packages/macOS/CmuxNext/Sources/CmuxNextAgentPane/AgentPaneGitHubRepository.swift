@@ -4,7 +4,9 @@ import Foundation
 ///
 /// A missing repository, a non-GitHub remote and a command failure all intentionally return nil:
 /// callers then leave issue references as ordinary text.
-public enum AgentPaneGitHubRepository {
+public struct AgentPaneGitHubRepository {
+    public init() {}
+
     public static func read(at path: String) -> String? {
         guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
         let process = Process()

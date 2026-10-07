@@ -118,7 +118,10 @@ describe("links", () => {
 
   test("linkifies bare and qualified GitHub references in prose", () => {
     const out = renderToStaticMarkup(
-      createElement(Markdown, { githubRepository: "manaflow-ai/cmux" }, "Fix #1234 and upstream/cmux#56."),
+      createElement(Markdown, {
+        githubRepository: "manaflow-ai/cmux",
+        children: "Fix #1234 and upstream/cmux#56.",
+      }),
     );
     expect(out).toContain('href="https://github.com/manaflow-ai/cmux/issues/1234"');
     expect(out).toContain('href="https://github.com/upstream/cmux/issues/56"');
