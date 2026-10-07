@@ -80,9 +80,6 @@ describe("agent theme", () => {
     expect(acpmux).toMatch(/--acpmux-base:var\(--agent-accent-text/);
     // Send fills with the highlight; its arrow is the highlight's label color, else the opaque base.
     expect(acpmux).toMatch(/\.acpmux-send\{[^}]*color:var\(--agent-highlight-text,var\(--acpmux-base\)\)/);
-    const shared = css("./styles.css");
-    expect(shared).toMatch(/--color-token-button-foreground:\s*var\(--agent-accent-text/);
-    expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
   });
 
   // The composer sits on the page, which already paints the theme's

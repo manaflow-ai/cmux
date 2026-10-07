@@ -8,6 +8,8 @@
 
 optchat-chief is an OptChat-memory brain with one Chief conversation and a fresh acpmux session per turn, so it does not produce the TypeScript core's effect trace. Each case is run through one adapter that compares what both brains must share, or is N/A with its reason. The test fails on a case missing here and on a listed deviation that no longer deviates.
 
+The `policy` cases (approval policy and harness routing) all run on every brain: the TypeScript and Rust cores through their policy rules, optchat-chief through its settings reader, its harness gate and the shared rules its brain calls (`tests/corpus.rs` `the_shared_policy_cases_hold_for_optchat_chief`).
+
 Adapters: `inbox` (the messages the brain wakes on and logs equal the corpus's prompts), `turn-text` (the text a turn posts), `outbox` (the sends of a refused reply and the reconnect).
 
 ## optchat-chief
@@ -82,6 +84,11 @@ Adapters: `inbox` (the messages the brain wakes on and logs equal the corpus's p
 | children: a permission from a session not known yet fetches the session list; a known child's is handled at once | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
 | children: on reconnect a lost child is marked failed and one that finished meanwhile is finished | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
 | children: a running child that closes is marked failed; acpmux loss finishes a child whose events were being fetched | N/A | Children: optchat-chief's subagents are its own spawns (src/subagents.rs, brain/spawns.rs) with their own lifecycle tests, not mux-session children with work cards and permission prompts. |
+| prompts: a refused prompt that acpmux then accepts and runs: its pending retry timer sends nothing | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| prompts: a refusal of a prompt acpmux accepted and queued is ignored | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| prompts: a prompt accepted only in the attach replay and refused after the resend retries on the clock | N/A | Mux prompt retries: optchat-chief never sends a long-lived mux prompt that the mux can refuse; a turn that cannot start is retried from the queue (brain tests). |
+| wake remote: the owner's paired device wakes the Chief when the owner stamped it relayed; an unstamped, mismatched or foreign device message does not | inbox |  |
+| wake remote group: a relayed device message in a group needs a mention, like the person's own; another person's device never wakes it | inbox |  |
 
 ## Deviations
 
