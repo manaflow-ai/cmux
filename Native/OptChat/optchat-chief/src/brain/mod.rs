@@ -25,6 +25,7 @@ pub mod images;
 mod inbox;
 mod outbox;
 mod recover;
+mod side;
 mod spawns;
 mod turns;
 
@@ -232,20 +233,29 @@ pub fn parent_tag(home: &std::path::Path) -> String {
 /// Longest reply text posted (the owner refuses more than 64 KiB per message).
 const REPLY_BYTES: usize = 60_000;
 
-/// One queued new message.
+/// One queued new message. The inbox is one queue; each turn takes the
+/// items of its head item's conversation and answers there (G9).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Queued {
     text: String,
     source: Source,
     /// The images of a human message, for the turn's prompt (never logged).
     images: Vec<images::TurnImage>,
+    /// The side conversation of a human message; None for the main
+    /// conversation, which also takes every note, child report and spawn.
+    conversation: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
     /// A human message of the Chief conversation; `remote` names the paired
     /// install that sent it (the relay's origin), None for a local one.
-    Message { seq: u64, remote: Option<String> },
+    Message {
+        seq: u64,
+        /// The message's id (a side floor's crash dedupe).
+        id: String,
+        remote: Option<String>,
+    },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
@@ -335,6 +345,10 @@ pub struct Brain {
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
     describing: HashSet<String>,
+    /// Highest seq handled (queued or skipped) of each side conversation;
+    /// its saved floor follows once nothing of it is queued (`handled` for
+    /// the main conversation).
+    side_handled: HashMap<String, u64>,
 }
 
 impl Brain {
@@ -399,6 +413,7 @@ impl Brain {
             turn_engine: None,
             describer: None,
             describing: HashSet::new(),
+            side_handled: HashMap::new(),
         };
         brain.save();
         brain
@@ -668,18 +683,53 @@ impl Brain {
     }
 
     fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
+        self.queue_in(None, text, images, source);
+    }
+
+    /// Queues an item of `conversation` (None: the main one). It interrupts
+    /// only a running turn of the same conversation (G9): an item for
+    /// another conversation waits and runs when it is the head.
+    fn queue_in(
+        &mut self,
+        conversation: Option<String>,
+        text: String,
+        images: Vec<images::TurnImage>,
+        source: Source,
+    ) {
         // Section 9: subagents' reports reach a working Chief between its
         // tool calls; on acpmux that is a stop like a human message's.
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
+        let same = self.phase == Phase::Running && self.turn_side() == conversation;
         self.queue.push_back(Queued {
             text,
             source,
             images,
+            conversation,
         });
-        if human {
+        if human && same {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();
+    }
+
+    /// The side conversation of `conversation` (None for the main one).
+    fn side_of(&self, conversation: Option<&str>) -> Option<String> {
+        conversation
+            .filter(|c| self.state.conversation.as_deref() != Some(*c))
+            .map(str::to_owned)
+    }
+
+    /// The side conversation of the pending turn (None: the main one).
+    fn turn_side(&self) -> Option<String> {
+        let turn = self.state.turn.as_ref()?;
+        self.side_of(turn.conversation.as_deref())
+    }
+
+    /// Whether a human message of `conversation` (None: main) is queued.
+    fn queued_messages_of(&self, conversation: Option<&str>) -> bool {
+        self.queue.iter().any(|q| {
+            q.conversation.as_deref() == conversation && matches!(q.source, Source::Message { .. })
+        })
     }
 }
 
