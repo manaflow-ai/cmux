@@ -215,22 +215,35 @@ describe("acpmux composer pickers", () => {
   // DIAG(#18423): trace the WebKit press step by step; this file fails only when run alone.
   test("DIAG press trace", async () => {
     const w = dom.window as unknown as Record<string, unknown>;
-    console.log("DIAG env", JSON.stringify({
-      winPointer: typeof w.PointerEvent,
-      globalPointer: typeof globals.PointerEvent,
-      eventIsDom: globals.Event === w.Event,
-      mouseIsDom: globals.MouseEvent === w.MouseEvent,
-      nodeIsDom: globals.Node === w.Node,
-      focusIsDom: globals.FocusEvent === w.FocusEvent,
-      raf: typeof w.requestAnimationFrame,
-    }));
+    console.log(
+      "DIAG env",
+      JSON.stringify({
+        winPointer: typeof w.PointerEvent,
+        globalPointer: typeof globals.PointerEvent,
+        eventIsDom: globals.Event === w.Event,
+        mouseIsDom: globals.MouseEvent === w.MouseEvent,
+        nodeIsDom: globals.Node === w.Node,
+        focusIsDom: globals.FocusEvent === w.FocusEvent,
+        raf: typeof w.requestAnimationFrame,
+      }),
+    );
     await render(snapshot({ modes }));
+    const seen = (event: Event) =>
+      console.log("DIAG event", event.type, event.constructor.name, "prevented", event.defaultPrevented);
+    for (const type of ["pointerdown", "mousedown", "mouseup", "click", "focusin", "focusout", "blur"])
+      doc.addEventListener(type, seen, true);
     for (const label of ["Model", "Mode"]) {
       const chip = button(label)!;
+      console.log("DIAG chip", label, chip.outerHTML.slice(0, 300));
       const state = (step: string) =>
-        console.log("DIAG", label, step, chip.getAttribute("aria-expanded"),
+        console.log(
+          "DIAG",
+          label,
+          step,
+          chip.getAttribute("aria-expanded"),
           (doc.activeElement as HTMLElement | null)?.getAttribute?.("aria-label") ?? doc.activeElement?.tagName,
-          doc.querySelectorAll("[role=menu],[role=dialog]").length);
+          doc.querySelectorAll("[role=menu],[role=dialog]").length,
+        );
       const Pointer = (w.PointerEvent as typeof MouseEvent | undefined) ?? dom.window.MouseEvent;
       for (const round of ["open", "close"]) {
         await act(async () => {
