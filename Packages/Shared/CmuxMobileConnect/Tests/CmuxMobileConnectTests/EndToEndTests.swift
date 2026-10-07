@@ -35,7 +35,7 @@ struct EndToEndTests {
         let assembly = MobileHostAssembly(
             credentials: try fixture.hostCredentials(), trust: fixture.trust, daemon: daemon, signaling: nil,
             options: MobileHostAssemblyOptions(listen: DirectListenConfiguration(port: 0, localAddress: "127.0.0.1"), link: Self.link),
-            handlers: MobileChannelHandlers(), directFaults: faults, webrtcFaults: nil)
+            features: MobileHostFeatures(), directFaults: faults, webrtcFaults: nil)
         let port = try await assembly.start()
         let registry = MobileLinkRegistry(credentials: try fixture.phoneCredentials(),
                                           options: MobileConnectOptions(link: Self.link, policy: Self.policy),
@@ -64,7 +64,7 @@ struct EndToEndTests {
             credentials: try fixture.hostCredentials(), trust: fixture.trust, daemon: daemon, signaling: hostSignaling,
             options: MobileHostAssemblyOptions(listen: DirectListenConfiguration(port: 0, localAddress: "127.0.0.1"),
                                                webrtc: Self.webrtc, link: Self.link),
-            handlers: MobileChannelHandlers(), directFaults: nil, webrtcFaults: faults)
+            features: MobileHostFeatures(), directFaults: nil, webrtcFaults: faults)
         _ = try await assembly.start()
         let phoneChannel = hub.endpoint(id: ConnectFixture.phoneInstall)
         let registry = MobileLinkRegistry(

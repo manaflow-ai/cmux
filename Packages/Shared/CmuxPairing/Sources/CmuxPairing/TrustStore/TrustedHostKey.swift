@@ -15,10 +15,14 @@ public struct TrustedHostKey: Hashable, Sendable {
     public var installKey: InstallPublicKey?
     /// The host's verified `wg` key (B3), raw 32 bytes; own Macs only.
     public var wireGuardKey: Data?
+    /// The host's team when it is another account's (B6 guest admission: its
+    /// HostDO socket needs `?team=`); nil for this account's own Macs.
+    public var team: String?
 
     public init(host: String, install: String, name: String, ownerUser: String, directKey: Data,
                 certificate: LinkCertificate, isOwnAccount: Bool, installKey: InstallPublicKey? = nil,
-                wireGuardKey: Data? = nil) {
+                wireGuardKey: Data? = nil, team: String? = nil) {
+        self.team = team
         self.installKey = installKey
         self.wireGuardKey = wireGuardKey
         self.host = host

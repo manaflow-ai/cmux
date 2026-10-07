@@ -32,7 +32,8 @@ public struct TrustStoreKeyLookup: TrustedKeyLookup {
             if valid(entry.cert, key: entry.publicKey, user: entry.ownerUser, install: entry.hostInstall, purpose: .direct, at: at),
                let raw = entry.cert.keyBytes {
                 return TrustedHostKey(host: host, install: entry.hostInstall, name: entry.name, ownerUser: entry.ownerUser,
-                                      directKey: raw, certificate: entry.cert, isOwnAccount: false, installKey: entry.publicKey)
+                                      directKey: raw, certificate: entry.cert, isOwnAccount: false, installKey: entry.publicKey,
+                                      team: entry.team)
             }
         }
         return nil

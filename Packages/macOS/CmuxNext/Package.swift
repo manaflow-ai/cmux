@@ -136,6 +136,9 @@ let package = Package(
         // B4 direct, B2 WebRTC, B3 acceptors, B6 trust store, for CmuxNextMobileConnect.
         .package(path: "../../Shared/CmuxMobileConnect"),
         .package(path: "../../Shared/CmuxPairing"),
+        .package(path: "../../Shared/CmuxInstallAuthCore"),
+        .package(path: "../../Shared/CmuxBrowserStream"),
+        .package(path: "../../Shared/CmuxRemoteDesktop"),
         .package(path: "../../Shared/CmuxControlPlane"),
         .package(path: "../../Shared/CmuxLink"),
         .package(path: "../../Shared/CmuxLinkDirect"),
@@ -183,6 +186,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextMobileConnect",
+                "CmuxNextMobileHostUI",
                 "CmuxNextUpdater",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
@@ -197,6 +201,8 @@ let package = Package(
                 "CmuxNextAgentActivity",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextApps",
                 "CmuxNextTasks",
@@ -979,11 +985,48 @@ let package = Package(
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
                 .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
                 .product(name: "CmuxLinkWG", package: "CmuxLinkWG"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The phone link's Mac UI and engine adapters (D1b): the remote desktop
+        // consent panel, menu bar indicator and pasteboard (C3), browser pages
+        // over the app's tabs through a seam (C2), the Simulator capture host (C14).
+        .target(
+            name: "CmuxNextMobileHostUI",
+            dependencies: [
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxRemoteDesktop", package: "CmuxRemoteDesktop"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMobileHostUITests",
+            dependencies: [
+                "CmuxNextMobileHostUI",
+                .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMobileConnectTests",
+            dependencies: [
+                "CmuxNextMobileConnect",
+                "CmuxNextMobileLink",
+                "CmuxNextDaemon",
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),

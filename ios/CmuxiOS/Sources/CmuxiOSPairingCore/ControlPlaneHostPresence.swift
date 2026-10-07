@@ -3,13 +3,14 @@ import CmuxMobileWire
 import Foundation
 
 /// `HostPresenceSource` over each Mac's HostDO control socket
-/// (`/v1/wire/host/<host>?team=<team>`, stream `host:<host>`). One socket per
-/// followed host, closed when the host leaves the set or the stream ends.
+/// (`/v1/wire/host/<host>?team=<team>`, stream `host:<host>`). One session per
+/// followed host (the app passes leases on the Mac's shared socket), ended
+/// when the host leaves the set or the stream ends.
 public struct ControlPlaneHostPresence: HostPresenceSource {
-    private let makeClient: @Sendable (_ host: String, _ team: String) -> ControlPlaneClient
+    private let makeClient: @Sendable (_ host: String, _ team: String) async -> any ControlPlaneSession
 
-    /// - Parameter makeClient: builds the host socket client (the app injects URL, token and transport).
-    public init(makeClient: @escaping @Sendable (_ host: String, _ team: String) -> ControlPlaneClient) {
+    /// - Parameter makeClient: the host socket session (the app injects URL, token and transport, or a pool lease).
+    public init(makeClient: @escaping @Sendable (_ host: String, _ team: String) async -> any ControlPlaneSession) {
         self.makeClient = makeClient
     }
 
@@ -21,7 +22,7 @@ public struct ControlPlaneHostPresence: HostPresenceSource {
                 await withTaskGroup(of: Void.self) { group in
                     for (host, team) in hosts {
                         group.addTask {
-                            let client = makeClient(host, team)
+                            let client = await makeClient(host, team)
                             await client.start()
                             for await update in await client.subscribe("host:\(host)") {
                                 if let p = Self.presence(update) { sink.yield(await collected.set(host, p)) }

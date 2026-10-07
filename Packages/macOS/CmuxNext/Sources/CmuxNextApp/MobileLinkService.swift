@@ -5,12 +5,15 @@ import os
 
 /// The cmux.mobile/1 phone link host (d1-terminal-ux.md, Mac wiring),
 /// started by `MobileHostService` next to its irx host (the one the shipping phone
-/// uses) when `MobileLinkSetting.enabled`. It needs the Mac's backend install
-/// principal (`MobileLinkHostAccount`); the app has none yet, so
-/// `accountProvider` stays nil and the host logs why it did not start.
+/// uses) when `MobileLinkSetting.enabled`. It runs as the Mac's backend install
+/// principal (`MobileLinkHostAccount`, `CloudMobileLinkAccount`), which
+/// `AppServices` supplies for the signed-in account.
 final class MobileLinkService {
-    /// Fills the install principal once the Mac enrolls as a host (B6).
-    var accountProvider: (() -> (any MobileLinkHostAccount)?)?
+    /// The install principal for the signed-in account, given the Mac's name;
+    /// nil while signed out.
+    var accountProvider: (@MainActor (String) -> (any MobileLinkHostAccount)?)?
+    /// The app's files, git, browser, remote desktop, tunnel, simulator and task services (D1b).
+    var servicesProvider: (@MainActor (MobileLinkSetting) -> MobileLinkServices)?
     private var runner: MobileLinkHostRunner?
     private var starting: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
@@ -21,8 +24,8 @@ final class MobileLinkService {
     func start(launch: LaunchIdentity, daemon: DaemonService, setting: MobileLinkSetting = MobileLinkSetting()) {
         stop()
         guard setting.enabled else { return }
-        guard let account = accountProvider?() else {
-            logger.info("phone link: not started, this Mac has no install principal yet")
+        guard let provider = accountProvider else {
+            logger.info("phone link: not started, no account source")
             return
         }
         generation += 1
@@ -31,13 +34,19 @@ final class MobileLinkService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let keys = support.appendingPathComponent(namespace, isDirectory: true).appendingPathComponent("mobile-link", isDirectory: true)
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let linkServices = servicesProvider?(setting) ?? MobileLinkServices()
         starting = Task { [weak self, logger] in
             let name = await MacName.computerName()
             guard let self, self.generation == current, !Task.isCancelled else { return }
+            guard let account = provider(name) else {
+                logger.info("phone link: not started, signed out")
+                return
+            }
             let runner = MobileLinkHostRunner(
                 account: account,
                 options: MobileLinkHostOptions(macName: name, appVersion: version,
-                                               wireGuardOverWebRTC: setting.wireGuardOverWebRTC, keyDirectory: keys),
+                                               wireGuardOverWebRTC: setting.wireGuardOverWebRTC, keyDirectory: keys,
+                                               services: linkServices),
                 endpointProvider: { @MainActor in try await daemon.endpoint() })
             self.runner = runner
             do {

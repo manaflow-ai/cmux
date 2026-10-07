@@ -26,15 +26,15 @@ public actor MobileHostAssembly {
 
     public init(credentials: MobileHostCredentials, trust: MobileHostTrust, daemon: any MobileDaemon,
                 signaling: MobileHostSignaling?, options: MobileHostAssemblyOptions = MobileHostAssemblyOptions(),
-                handlers: MobileChannelHandlers = MobileChannelHandlers()) {
+                features: MobileHostFeatures = MobileHostFeatures()) {
         self.init(credentials: credentials, trust: trust, daemon: daemon, signaling: signaling, options: options,
-                  handlers: handlers, directFaults: nil, webrtcFaults: nil)
+                  features: features, directFaults: nil, webrtcFaults: nil)
     }
 
     @_spi(Testing)
     public init(credentials: MobileHostCredentials, trust: MobileHostTrust, daemon: any MobileDaemon,
                 signaling: MobileHostSignaling?, options: MobileHostAssemblyOptions,
-                handlers: MobileChannelHandlers, directFaults: DirectFaultInjector?, webrtcFaults: WebRTCFaultInjector?) {
+                features: MobileHostFeatures, directFaults: DirectFaultInjector?, webrtcFaults: WebRTCFaultInjector?) {
         let hostID = credentials.hostID
         direct = DirectAcceptor(identity: credentials.direct, hostID: hostID, configuration: options.listen,
                                 authorizer: CmuxPairing.TrustStoreAuthorizer(lookup: trust.lookup, host: hostID),
@@ -67,9 +67,10 @@ public actor MobileHostAssembly {
         devices = trust.devices
         let authorizer = CmuxMobileHost.TrustStoreAuthorizer(hostID: hostID, accountUserID: credentials.accountUserID,
                                                              store: trust.devices)
-        host = MobileHost(configuration: MobileHostConfiguration(hostID: hostID, accountUserID: credentials.accountUserID),
+        host = MobileHost(configuration: features.configuration(hostID: hostID, accountUserID: credentials.accountUserID),
                           acceptor: MergedLinkAcceptor(acceptors), daemon: daemon, authorizer: authorizer,
-                          handlers: handlers, linkConfiguration: options.link,
+                          handlers: features.handlers, linkConfiguration: options.link,
+                          taskRunner: features.taskRunner, taskAttachments: features.taskAttachments,
                           keyResolver: TrustedKeyCarrierResolver(lookup: trust.lookup, hostID: hostID))
     }
 

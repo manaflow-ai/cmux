@@ -293,6 +293,16 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect((await call("/v1/realtime/turn", undefined, {})).status).toBe(401)
   })
 
+  it("answers the Mac's own signal.turn_credentials read on the host socket", async () => {
+    const u = await hostUser("ctl-turn-host")
+    const mac = await openHost(u.host, u.mac.token)
+    await mac.hello("mac")
+    mac.send({ t: "read", id: 7, op: "signal.turn_credentials", params: { host: u.host } })
+    expect(await mac.next((f) => f.t === "error" && f.id === 7)).toMatchObject({ code: "signal.turn_unavailable", retryable: false })
+    mac.send({ t: "read", id: 8, op: "task.list", params: {} })
+    expect(await mac.next((f) => f.t === "error" && f.id === 8)).toMatchObject({ code: "validation.invalid" })
+  })
+
   it("admits a second install of the same user as a device, never as the host", async () => {
     const u = await hostUser("ctl-second")
     const laptop = await installToken(u.session, u.user, "cli", "macos")

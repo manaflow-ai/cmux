@@ -51,9 +51,11 @@ import Testing
         let lookup = TrustStoreKeyLookup(mirror: mirror, environment: TrustFixtures.env, user: "user_a1", now: { TrustFixtures.now })
         let own = try #require(await lookup.hostKey(for: "host_a1"))
         #expect(own.directKey == f.macKey && own.isOwnAccount && own.install == "inst_m1")
-        #expect(own.installKey == f.mac.publicKey && own.wireGuardKey == nil)
+        #expect(own.installKey == f.mac.publicKey && own.wireGuardKey == nil && own.team == nil)
         let remote = try #require(await lookup.hostKey(for: "host_b1"))
         #expect(remote.directKey == f.otherMacKey && !remote.isOwnAccount && remote.ownerUser == "user_b1")
+        // Another account's Mac: its HostDO socket asks `?team=` (B6 guest admission).
+        #expect(remote.team == "team_b1")
         #expect(await lookup.hostKey(for: "host_zz") == nil)
         #expect(await lookup.isTrustedDevice(directKey: f.phoneKey, onHost: nil))
         #expect(await lookup.isTrustedDevice(directKey: f.guestKey, onHost: "host_a1"))

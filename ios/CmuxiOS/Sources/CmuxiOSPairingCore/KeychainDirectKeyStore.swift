@@ -1,17 +1,22 @@
 import CryptoKit
+public import CmuxPairing
 public import Foundation
 import Security
 
 /// `DirectKeyStore` in the Keychain, `AfterFirstUnlockThisDeviceOnly`, not
-/// synced (transport.md section 8; b4-direct.md section 2).
+/// synced (transport.md section 8; b4-direct.md section 2). One X25519 key
+/// per link purpose: B4's `direct` key, B3's WireGuard (`wg`) key.
 public struct KeychainDirectKeyStore: DirectKeyStore {
     public enum Failure: Error, Hashable { case keychain(OSStatus) }
 
     private let service: String
+    private let account: String
 
-    /// One key per (bundle, API environment), like the install key.
-    public init(bundleID: String, environment: String) {
-        service = "\(bundleID).direct-key.\(environment)"
+    /// One key per (bundle, API environment, purpose), like the install key.
+    public init(bundleID: String, environment: String, purpose: LinkPurpose = .direct) {
+        let name = purpose == .wg ? "wg-key" : "direct-key"
+        service = "\(bundleID).\(name).\(environment)"
+        account = name
     }
 
     public func privateKey() throws -> Data {
@@ -32,7 +37,7 @@ public struct KeychainDirectKeyStore: DirectKeyStore {
 
     private func query() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: "direct-key", kSecAttrSynchronizable as String: false]
+         kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
     }
 
     private func read() throws -> Data? {
