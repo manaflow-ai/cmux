@@ -10,8 +10,8 @@ A harness is any coding agent cmux can drive over the Agent Client Protocol
     icon.svg
 ```
 
-`acpmux harness add acme` creates that folder with every field filled in. Edit
-it, then run `acpmux harness check acme`. A running daemon picks up a saved
+`cmux harness add acme` (or `acpmux harness add acme`) creates that folder with every field filled in. Edit
+it, then run `cmux harness check acme`. A running daemon picks up a saved
 change within a few seconds; open chats keep running on what they started with.
 
 ## harness.json
@@ -75,6 +75,27 @@ Unknown fields are errors, so a typo is caught instead of ignored.
 
 A manifest whose command is not installed still appears, marked unavailable
 with its `run.install` hint.
+
+## Share a harness with your team
+
+Commit the folder to a repository, in `.cmux/harnesses/<id>/` (or
+`harnesses/<id>/`, or the repository root for a repository that is only the
+harness). Teammates install it with one command:
+
+```
+cmux harness add --from git@github.com:acme/agent-harness.git
+cmux harness add --from ~/src/acme-app acme      # one harness from a checkout
+```
+
+`add --from` checks every manifest before installing it and copies only
+`harness.json` and its icon; scripts in the repository never run. A harness
+of the same id needs `--replace`.
+
+A project that ships `.cmux/harnesses/` is noticed when you work in it:
+`_acpmux/harnesses` with that `cwd` lists its harnesses under
+`projectHarnesses`, with whether you have installed them and whether yours
+differs, so the app can offer to install them. Nothing from a project folder
+runs until you install it.
 
 ## Check
 
