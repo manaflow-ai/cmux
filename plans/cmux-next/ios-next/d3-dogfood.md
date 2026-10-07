@@ -34,9 +34,9 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.3 | Mac-to-phone end-to-end push keys | C7 | done (kept `CmuxPhonePush` path) |
 | 1.4 | Apple, Google, GitHub, email code, passkey errors | kept | done |
 | 1.4 | Account deletion, team switcher | C11 | done |
-| 1.4 | Deferred sign-in (SSH without an account) | C16 | missing (design note only) |
+| 1.4 | Deferred sign-in (SSH without an account) | C16, E5 | done (guest shell, sync offer; e5-extras.md 5) |
 | 1.5 | Onboarding stages, push opt-in, pairing, connect, replay | C10, B6 | done |
-| 1.5 | Keep-awake onboarding card | C10, C16 | missing |
+| 1.5 | Keep-awake onboarding card | C10, C16, E5 | mocked (flag `keepAwake` off; Mac control is D1b) |
 | 1.5 | Cloud onboarding | C12 | done (`cloudOnboarding` step) |
 | 1.5 | One-time migration sheets | - | dropped (no iroh) |
 | 1.6 | QR scanner, manual add, setup help | B6, B4 | done |
@@ -92,7 +92,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
 | 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (plain PTY only) |
-| 1.15 | SFTP browser | C4, C9 | missing (scoped in c4-files.md 8) |
+| 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | missing (C14 pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
 | 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
@@ -102,11 +102,11 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.17 | Connection and computers | B6, C11 | done |
 | 1.17 | Networking diagnostics (path badge, RTT) | C11, D1 | done (V1 RTT sampled at connect only, B2 F3) |
 | 1.17 | Terminal and display options, scrollback | C11 | done |
-| 1.17 | Haptics toggle | C11 | missing |
+| 1.17 | Haptics toggle | C11, E5 | done |
 | 1.17 | Privacy (telemetry consent) | C11, C16 | done |
 | 1.17 | Diagnostics: verbose log, export, clear, copy support info | C16 | done |
 | 1.17 | Legal, support links, version | C11 | done |
-| 1.17 | Erase all data on this device | C11 | missing (needs every lane's store list) |
+| 1.17 | Erase all data on this device | C11, E5 | done (sandbox-wide plan, e5-extras.md 3) |
 | 1.17 | DEBUG Developer section | A1 | done |
 | 1.18 | Structured diagnostic log, terminal latency trace | C16, C1 | done |
 | 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`) |

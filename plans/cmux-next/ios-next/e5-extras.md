@@ -114,11 +114,21 @@ Implements c16-platform.md 9. `AccessState` (Platform, pure): `restoring`, `sign
   automated sign-in (`CMUX_UITEST_STACK_EMAIL` or the readiness nonce), so the tagged launcher
   still lands signed in. `CMUX_IOS_GUEST=1` (DEBUG) starts as guest for UI tests.
 
-## 6. Verification
+## 6. Verification (2026-10-07)
 
-Swift Testing: `CmuxMobileSSHTests` (fake-channel SFTP), `CmuxiOSSFTPCoreTests`,
-`CmuxiOSSettingsCoreTests` (erase plan, executor, confirmation), `CmuxiOSFeatureKitTests` (haptics
-preference), `CmuxiOSOnboardingCoreTests` (keep-awake step and projection), `CmuxiOSPlatformTests`
-(access state, guest policy, router). `CmuxiOSApp` compiles once for the simulator with SwiftPM.
-No tagged build in this lane (disk and fleet, see the coordination log); every screen is
-UNVERIFIED on a device.
+- `CmuxMobileSSH`: all 91 tests green on macOS (`swift test`), including 13 new
+  `SFTPClientFakeChannelTests` against the in-memory SFTP v3 server (handshake, readdir, stat,
+  pipelined read/write across chunks, short reads, mkdir/rename/remove/rmdir, status mapping,
+  resume for both directions, cancellation between chunks, dropped channel).
+- `CmuxiOSFeatureKitTests`, `CmuxiOSSettingsCoreTests`, `CmuxiOSOnboardingCoreTests`,
+  `CmuxiOSPlatformTests`, `CmuxiOSSSHCoreTests` and the new `CmuxiOSSFTPCoreTests`: 201 tests green
+  on macOS through a scratch package linking the same sources (the CmuxiOS package is iOS-only).
+- `CmuxiOSApp` builds for `arm64-apple-ios17.0-simulator` with SwiftPM (one build, scratch
+  deleted). `CmuxiOSShellTests` changes compile with it but were not run (iOS-only, CI).
+- Not run: any simulator or device UI. The SFTP browser, Settings rows, erase flow, keep-awake card
+  and guest shell are UNVERIFIED on a device; no tagged build was attempted (disk at 12 GiB, no fleet
+  manifest, lane rules).
+
+Residual: viewer error copy still says "Mac" for SSH hosts ("No Connection to This Mac"); the
+diagnostics log can append a line after the wipe before the app closes; host sync after sign-in is
+a republish through the B1 seam, so other devices see the hosts only once B1 serves host sync.
