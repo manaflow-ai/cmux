@@ -14,7 +14,7 @@ describe("/api/mcp route", () => {
   test("an unauthenticated call is a 401 with a bearer challenge, before any tool runs", async () => {
     const response = await POST(new Request("https://cmux.com/api/mcp", {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      headers: { host: "cmux.com", "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_machines", arguments: {} } }),
     }));
     expect(response.status).toBe(401);
