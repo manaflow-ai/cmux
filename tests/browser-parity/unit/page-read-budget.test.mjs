@@ -248,7 +248,10 @@ test("snapshot: one huge text or value is cut at the snapshot's size budget with
 
 // The walk is a deferred work stack: a node's children are scheduled before
 // any is read. One element with very many children must not schedule them
-// all; the walk charges each child where it schedules it.
+// all; the walk charges each child where it schedules it. 200,000 children:
+// more than the snapshot's 1,000-node budget, and within the 250,000
+// elements that frame.observe's sensitive-field scan reads (a page with
+// more is refused whole).
 test("snapshot: one element with more children than the node budget schedules no more than the budget", async () => {
   await withRepl(async (run) => {
     const r = await run(`
@@ -256,7 +259,7 @@ test("snapshot: one element with more children than the node budget schedules no
         const host = document.createElement("div");
         const p = document.createElement("span");
         p.textContent = "x";
-        for (let i = 0; i < 300000; i++) host.appendChild(p.cloneNode(true));
+        for (let i = 0; i < 200000; i++) host.appendChild(p.cloneNode(true));
         document.body.replaceChildren(host);
       });
       const raw = await page._mainFrame._agent("snapshot", { maxNodes: 1000 });
