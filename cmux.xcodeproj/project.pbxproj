@@ -3286,6 +3286,8 @@
 		22326FBAA042DDAFA15F818C /* SidebarPeekController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B954AEE8BD37A8D69AA13832 /* SidebarPeekController.swift */; };
 		F3E95CEBB40A6AA79A9B4CEE /* SidebarPeekEdgeTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C733A9B22B4426FB8C1CD4F /* SidebarPeekEdgeTrackingView.swift */; };
 		12262B17C8E63041FCC7513B /* SidebarPeekPanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */; };
+		BF83CF990A0241B5D77B2234 /* SidebarPeekPanelWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA6C974800D8AF0C3A15AA2 /* SidebarPeekPanelWindow.swift */; };
+		0FD5BB9FDC316B053390ABDD /* SidebarPeekPanelWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124B3A20E384A384BF58063 /* SidebarPeekPanelWindowTests.swift */; };
 		5842622F8ED35FF5B317C174 /* SidebarPeekPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327A9185ED75125180313AF0 /* SidebarPeekPresentation.swift */; };
 		A80040010000000000000001 /* SidebarPointerFrameReportingModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80040020000000000000001 /* SidebarPointerFrameReportingModifier.swift */; };
 		A80040030000000000000001 /* SidebarPointerInteractionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80040040000000000000001 /* SidebarPointerInteractionMonitor.swift */; };
@@ -7714,6 +7716,8 @@
 		B954AEE8BD37A8D69AA13832 /* SidebarPeekController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekController.swift; sourceTree = "<group>"; };
 		2C733A9B22B4426FB8C1CD4F /* SidebarPeekEdgeTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekEdgeTrackingView.swift; sourceTree = "<group>"; };
 		1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekPanelHost.swift; sourceTree = "<group>"; };
+		FAA6C974800D8AF0C3A15AA2 /* SidebarPeekPanelWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekPanelWindow.swift; sourceTree = "<group>"; };
+		6124B3A20E384A384BF58063 /* SidebarPeekPanelWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarPeekPanelWindowTests.swift"; sourceTree = "<group>"; };
 		327A9185ED75125180313AF0 /* SidebarPeekPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekPresentation.swift; sourceTree = "<group>"; };
 		A80040020000000000000001 /* SidebarPointerFrameReportingModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarPointerFrameReportingModifier.swift; sourceTree = "<group>"; };
 		A80040040000000000000001 /* SidebarPointerInteractionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarPointerInteractionMonitor.swift; sourceTree = "<group>"; };
@@ -11997,6 +12001,7 @@
 				E80734AD866B727FCEA3F6F3 /* SidebarWorkspaceTableController+ReorderDrop.swift */,
 				8B85730BDFE4C5F97476FDCE /* SidebarWorkspaceTableController+ReorderLift.swift */,
 				1525C188F2BD8ED27D43C51C /* SidebarGlassSelection.swift */,
+				FAA6C974800D8AF0C3A15AA2 /* SidebarPeekPanelWindow.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13518,6 +13523,7 @@
 				A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */,
 				F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */,
 				03F486001BC03CEE3611842F /* GhosttyExternalDisplayScalingTests.swift */,
+				6124B3A20E384A384BF58063 /* SidebarPeekPanelWindowTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16087,6 +16093,7 @@
 				22326FBAA042DDAFA15F818C /* SidebarPeekController.swift in Sources */,
 				F3E95CEBB40A6AA79A9B4CEE /* SidebarPeekEdgeTrackingView.swift in Sources */,
 				12262B17C8E63041FCC7513B /* SidebarPeekPanelHost.swift in Sources */,
+				BF83CF990A0241B5D77B2234 /* SidebarPeekPanelWindow.swift in Sources */,
 				5842622F8ED35FF5B317C174 /* SidebarPeekPresentation.swift in Sources */,
 				A80040010000000000000001 /* SidebarPointerFrameReportingModifier.swift in Sources */,
 				A80040030000000000000001 /* SidebarPointerInteractionMonitor.swift in Sources */,
@@ -18337,6 +18344,7 @@
 				385C6BA7E78DB87460E5D930 /* SidebarMarkdownRendererTests.swift in Sources */,
 				130160000000000000000001 /* SidebarNewLocalWorkspaceTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,
+				0FD5BB9FDC316B053390ABDD /* SidebarPeekPanelWindowTests.swift in Sources */,
 				A80070010000000000000001 /* SidebarPointerInteractionMonitorTests.swift in Sources */,
 				A80040110000000000000001 /* SidebarPointerInteractionScaleTests.swift in Sources */,
 				C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */,

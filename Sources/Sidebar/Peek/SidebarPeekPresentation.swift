@@ -40,6 +40,14 @@ struct SidebarPeekPresentation: ViewModifier {
     let panelMetrics: SidebarPeekPanelMetrics
     /// Acquires and releases the pointer hold as the pointer crosses the panel.
     let onPanelHoverChange: (Bool) -> Void
+    /// False until the card first appears. The panel is mounted lazily, so
+    /// it can arrive already revealed (switching to floating); gating on
+    /// this keeps that first reveal a slide instead of a pop.
+    @State private var cardHasAppeared = false
+
+    private var showsCard: Bool {
+        isRevealed && cardHasAppeared
+    }
 
     /// Outer width including the card's leading inset, so floating and docked
     /// place the list's leading edge identically.
@@ -61,19 +69,20 @@ struct SidebarPeekPresentation: ViewModifier {
             // Slide from just behind the window edge rather than from zero
             // width. Animating the frame would re-lay-out every row on every
             // frame of the reveal; translating a laid-out subtree does not.
-            .offset(x: isRevealed ? 0 : -floatingWidth)
-            .opacity(isRevealed ? 1 : 0)
-            .allowsHitTesting(isRevealed)
-            .accessibilityHidden(!isRevealed)
+            .offset(x: showsCard ? 0 : -floatingWidth)
+            .opacity(showsCard ? 1 : 0)
+            .allowsHitTesting(showsCard)
+            .accessibilityHidden(!showsCard)
             .onHover(perform: onPanelHoverChange)
+            .onAppear { cardHasAppeared = true }
             // The exit is its own curve: a reveal wants a touch of arrival
             // settle, but a dismissal should read as the panel leaving the
             // screen, fast and without ceremony.
             .animation(
-                isRevealed
+                showsCard
                     ? SidebarPeekMotion.reveal
                     : (dismissesInstantly ? nil : SidebarPeekMotion.dismiss),
-                value: isRevealed
+                value: showsCard
             )
         } else {
             // The width itself is live during a toggle: the toggle animator

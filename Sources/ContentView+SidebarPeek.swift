@@ -94,8 +94,25 @@ extension ContentView {
         sidebarIsRevealed && sidebarRendersAsCard
     }
 
+    /// Whether the floating card's child window should exist right now.
+    ///
+    /// A docked, visible sidebar never needs it, and that is the common
+    /// typing setup: the card is a second full sidebar list, so keeping it
+    /// mounted there was pure cost. It mounts as soon as a card can show
+    /// (floating, or hidden with peek on), which is before the edge dwell
+    /// or the titlebar hover can ask for a reveal, and unmounts on dock.
+    var sidebarNeedsPeekPanel: Bool {
+        SidebarPeekPanelMount.isNeeded(
+            sidebarVisible: sidebarState.isVisible,
+            presentationMode: sidebarState.presentationMode,
+            peekEnabled: sidebarPeek.policy.isEnabled,
+            peekPresenting: sidebarPeek.presentsPanel
+        )
+    }
+
     /// Zero-sized anchor owning the child panel window that floats the card
-    /// above the terminal. Mounted from `contentAndSidebarLayout`.
+    /// above the terminal. Mounted from `sidebarPeekLifecycle` while
+    /// `sidebarNeedsPeekPanel`.
     var sidebarPeekPanelHost: some View {
         let appearance = windowAppearanceSnapshot
         return SidebarWidthReader(layout: sidebarLayout) { width in
@@ -110,6 +127,15 @@ extension ContentView {
                 glassBlurRadius: appearance.usesCompositorGlass && !sidebarState.occupiesLayout
                     ? appearance.sidebarSettings.effectiveCompositorBlurRadius
                     : nil,
+                onKeyboardFocusChange: { hasFocus in
+                    // Typing into a rename or checklist field in the card
+                    // keeps the peek up even after the pointer wanders off.
+                    if hasFocus {
+                        sidebarPeek.acquire(.keyboardFocusInside)
+                    } else {
+                        sidebarPeek.release(.keyboardFocusInside)
+                    }
+                },
                 content: AnyView(sidebarPeekCard(width: width))
             )
         }
@@ -264,14 +290,16 @@ extension ContentView {
                 sidebarPeek.sidebarCollapsed()
                 sidebarToggleHoverSuppressedUntil = Date().addingTimeInterval(0.3)
             }
-            .background(
+            .background {
                 // Zero-sized anchor that owns the floating card's child
                 // window. The card cannot live in this tree: the portal
                 // hosts every terminal surface above the window's SwiftUI
                 // hosting view, so an in-tree card draws underneath the
                 // terminal no matter its zIndex.
-                sidebarPeekPanelHost
-            )
+                if sidebarNeedsPeekPanel {
+                    sidebarPeekPanelHost
+                }
+            }
             .overlay(alignment: .leading) {
                 // Same slot and layering as the resizer overlay, which is
                 // the proven way in this codebase to receive pointer

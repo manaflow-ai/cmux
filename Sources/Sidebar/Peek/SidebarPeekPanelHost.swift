@@ -36,14 +36,6 @@ extension NSWindow {
     }
 }
 
-final class SidebarPeekPanelWindow: NSPanel {
-    // Never key or main: the parent keeps keyboard focus, so keystrokes keep
-    // flowing to the terminal while the card is up, and clicking a row cannot
-    // steal the window's key state out from under the peek gesture.
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-}
-
 /// Owns the child panel and keeps it glued to its parent window's leading
 /// edge. One controller per main window, held by the bridge's coordinator.
 @MainActor
@@ -67,6 +59,12 @@ final class SidebarPeekPanelWindowController {
     private var appliedBlurRadius: Int?
     /// Pending blur removal after the card hides; see `syncCompositorBlur`.
     private var blurResetTask: Task<Void, Never>?
+    /// Clock for the blur-removal delay (injected-clock bounded-delay
+    /// policy, same as the drop fallback in the reorder controller).
+    private let blurResetClock: any Clock<Duration>
+    /// Told when an editor inside the card takes or gives up the keyboard;
+    /// see `SidebarPeekPanelWindow`.
+    var onKeyboardFocusChange: ((Bool) -> Void)?
     /// Trailing-edge coalescing for content pushes. ContentView can evaluate
     /// its body many times inside one runloop turn (worst during a workspace
     /// switch); the first push of a turn lands synchronously so clicks
@@ -92,6 +90,10 @@ final class SidebarPeekPanelWindowController {
     /// card is up.
     private static var topExclusion: CGFloat {
         WindowChromeMetrics.appTitlebarHeight + 2
+    }
+
+    init(blurResetClock: any Clock<Duration> = ContinuousClock()) {
+        self.blurResetClock = blurResetClock
     }
 
     deinit {
@@ -175,9 +177,11 @@ final class SidebarPeekPanelWindowController {
             blurResetTask = nil
             applyCompositorBlur(radius, to: panel)
         } else if appliedBlurRadius != nil, blurResetTask == nil {
-            blurResetTask = Task { @MainActor [weak self] in
-                guard (try? await Task.sleep(for: .milliseconds(320))) != nil else { return }
-                guard let self, let panel = self.panel else { return }
+            // Cancellable: a re-reveal, a docked switch and detach all
+            // cancel it before it can strip the blur off a showing card.
+            blurResetTask = Task { @MainActor [weak self, blurResetClock] in
+                try? await blurResetClock.sleep(for: .milliseconds(320))
+                guard let self, !Task.isCancelled, let panel = self.panel else { return }
                 self.blurResetTask = nil
                 self.applyCompositorBlur(nil, to: panel)
             }
@@ -219,6 +223,9 @@ final class SidebarPeekPanelWindowController {
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.contentView = hosting
         panel.ignoresMouseEvents = true
+        panel.onKeyboardFocusChange = { [weak self] hasFocus in
+            self?.onKeyboardFocusChange?(hasFocus)
+        }
 
         parent.addChildWindow(panel, ordered: .above)
 
@@ -283,12 +290,30 @@ final class SidebarPeekPanelWindowController {
         }
         parentObservers = []
         if let panel {
+            // An edit in flight hands key back to the parent before the card
+            // goes away. The hold release hops a turn: detach can run inside
+            // a SwiftUI update (dismantle), where publishing is not allowed.
+            let releasesKeyboardHold = panel.hostsKeyboardEditor
+            panel.onKeyboardFocusChange = nil
+            panel.relinquishKeyboardFocus()
+            if releasesKeyboardHold, let onKeyboardFocusChange {
+                Task { @MainActor in onKeyboardFocusChange(false) }
+            }
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
         }
+        // Empty the hosting view first so SwiftUI dismantles the card's
+        // list (its table controller commits drafts and drops observers)
+        // instead of leaving that to the hosting view's deallocation.
+        hostingView?.rootView = AnyView(EmptyView())
         panel = nil
         hostingView = nil
         parentWindow = nil
+        // A re-attach starts from a hidden first push, so the next reveal
+        // slides in instead of popping.
+        hasPushedContent = false
+        lastRevealed = false
+        pendingCoalescedContent = nil
         appliedBlurRadius = nil
         blurResetTask?.cancel()
         blurResetTask = nil
@@ -298,8 +323,8 @@ final class SidebarPeekPanelWindowController {
 /// Hosting view that keeps the pointer honest over the card.
 ///
 /// The terminal underneath registers an I-beam cursor rect with the key
-/// window, and this panel is deliberately never key, so its own cursor rects
-/// are ignored: AppKit keeps applying the terminal's I-beam straight through
+/// window, and this panel is not key (except while an editor inside it has
+/// the keyboard), so its own cursor rects are ignored: AppKit keeps applying the terminal's I-beam straight through
 /// the card. Re-asserting the arrow on entry and movement is the only lever
 /// a non-key window has.
 private final class SidebarPeekPanelHostingView: NSHostingView<AnyView> {
@@ -350,6 +375,9 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
     /// Compositor blur for the card's window; nil when the card blurs
     /// through its own material instead.
     let glassBlurRadius: Int?
+    /// Told when an editor in the card (rename, checklist) takes or gives
+    /// up the keyboard, so the owner can hold the peek open meanwhile.
+    let onKeyboardFocusChange: (Bool) -> Void
     let content: AnyView
 
     @MainActor
@@ -381,6 +409,7 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
 
     func updateNSView(_ view: AnchorView, context: Context) {
         let controller = context.coordinator.controller
+        controller.onKeyboardFocusChange = onKeyboardFocusChange
         let contentWidth = contentWidth
         let metrics = metrics
         let acceptsMouse = acceptsMouse

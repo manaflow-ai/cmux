@@ -28,6 +28,11 @@ final class SidebarPeekController: ObservableObject {
     ///
     /// - Parameter policy: The new timings and behaviour flags.
     func setPolicy(_ policy: SidebarPeekPolicy) {
+        // The policy is not published, but whether peek is on decides if
+        // the card's window is mounted at all (`SidebarPeekPanelMount`).
+        if policy.isEnabled != machine.policy.isEnabled {
+            objectWillChange.send()
+        }
         machine = SidebarPeekMachine(policy: policy)
         guard !policy.isEnabled else { return }
         send(.escapePressed)
