@@ -69,7 +69,7 @@ export async function runBillingAlertChecks(options: {
         `Types: ${errors.types.length ? errors.types.join(", ") : "unknown"}.`,
         errors.eventIds.length ? `Events: ${errors.eventIds.join(", ")}.` : "",
         errors.latest ? `Latest error: ${errors.latest}` : "",
-        "The alerts cron replays failed events every 5 minutes and the hourly billing reconcile reapplies Stripe subscription state; check the buyer's entitlement if this persists.",
+        "The alerts cron replays lease-contention failures every 5 minutes, Stripe redelivers the rest, and the hourly billing reconcile reapplies Stripe subscription state; check the buyer's entitlement if this persists.",
       ].filter(Boolean).join(" "),
       severity: "critical",
     });

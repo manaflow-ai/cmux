@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, asc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, like, lt, sql } from "drizzle-orm";
 import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
@@ -197,7 +197,8 @@ const STRIPE_WEBHOOK_REPLAY_MIN_AGE_MS = 2 * 60 * 1_000;
 const STRIPE_WEBHOOK_REPLAY_BATCH = 3;
 
 /**
- * Re-runs failed webhook events from Stripe's authoritative event record.
+ * Re-runs webhook events that lost a transient race, newest first, from
+ * Stripe's authoritative event record.
  * Processing is already idempotent because Stripe redelivers events, so a
  * replay racing a Stripe retry produces the same entitlement state.
  */
@@ -212,12 +213,15 @@ export function makeStripeWebhookReplayer(
       .select({ id: stripeWebhookEvents.id })
       .from(stripeWebhookEvents)
       .where(and(
-        isNotNull(stripeWebhookEvents.error),
+        // Only lease contention is known to clear on its own. Other failures
+        // keep Stripe's redelivery schedule and page, so a permanently
+        // failing row never occupies the replay batch.
+        like(stripeWebhookEvents.error, `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}%`),
         isNull(stripeWebhookEvents.processedAt),
         gte(stripeWebhookEvents.createdAt, new Date(now.getTime() - STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS)),
         lt(stripeWebhookEvents.createdAt, new Date(now.getTime() - STRIPE_WEBHOOK_REPLAY_MIN_AGE_MS)),
       ))
-      .orderBy(asc(stripeWebhookEvents.createdAt))
+      .orderBy(desc(stripeWebhookEvents.createdAt))
       .limit(STRIPE_WEBHOOK_REPLAY_BATCH);
 
     let succeeded = 0;
