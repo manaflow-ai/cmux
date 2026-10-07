@@ -192,3 +192,83 @@ fn cookies_and_storage_take_the_old_cli_forms() {
     assert!(tab_page(&["storage", "local", "set", "k"]).is_err());
     assert!(tab_page(&["storage", "cookies"]).is_err());
 }
+
+#[test]
+fn input_verbs_take_the_old_cli_forms() {
+    assert_eq!(
+        tab_page(&["press", "Enter"]).unwrap(),
+        ("browser.page.press", json!({ "tab": "tab_01ab", "key": "Enter" }))
+    );
+    assert_eq!(
+        tab_page(&["press", "Space", "--selector", "#agree"]).unwrap(),
+        (
+            "browser.page.press",
+            json!({ "tab": "tab_01ab", "key": "Space", "selector": "#agree" })
+        )
+    );
+    assert_eq!(
+        tab_page(&["hover", "#menu"]).unwrap(),
+        ("browser.page.hover", json!({ "tab": "tab_01ab", "selector": "#menu" }))
+    );
+    assert_eq!(
+        tab_page(&["scroll-into-view", "e4"]).unwrap(),
+        ("browser.page.scroll_into_view", json!({ "tab": "tab_01ab", "selector": "e4" }))
+    );
+    assert_eq!(
+        tab_page(&["select", "#size", "m"]).unwrap(),
+        (
+            "browser.page.select",
+            json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
+        )
+    );
+    assert_eq!(tab_page(&["check", "#a"]).unwrap().0, "browser.page.check");
+    assert_eq!(tab_page(&["uncheck", "#a"]).unwrap().0, "browser.page.uncheck");
+    assert_eq!(
+        tab_page(&["scroll", "--dy", "400"]).unwrap(),
+        ("browser.page.scroll", json!({ "tab": "tab_01ab", "dy": 400.0 }))
+    );
+    assert_eq!(
+        tab_page(&["scroll", "#list", "--dx=-50"]).unwrap(),
+        ("browser.page.scroll", json!({ "tab": "tab_01ab", "selector": "#list", "dx": -50.0 }))
+    );
+    // The old CLI's flag forms, flags first, and `scroll N`.
+    assert_eq!(
+        tab_page(&["press", "--selector", "#q", "--key", "Enter"]).unwrap(),
+        ("browser.page.press", json!({ "tab": "tab_01ab", "key": "Enter", "selector": "#q" }))
+    );
+    assert_eq!(tab_page(&["key", "Tab"]).unwrap().0, "browser.page.press");
+    assert_eq!(
+        tab_page(&["select", "--selector", "#size", "--value", "m"]).unwrap(),
+        (
+            "browser.page.select",
+            json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
+        )
+    );
+    assert_eq!(
+        tab_page(&["scrollintoview", "--selector", "#f"]).unwrap(),
+        ("browser.page.scroll_into_view", json!({ "tab": "tab_01ab", "selector": "#f" }))
+    );
+    assert_eq!(
+        tab_page(&["scroll", "400"]).unwrap(),
+        ("browser.page.scroll", json!({ "tab": "tab_01ab", "dy": 400.0 }))
+    );
+    assert_eq!(
+        tab_page(&["scroll", "--dy", "-50", "#list"]).unwrap(),
+        ("browser.page.scroll", json!({ "tab": "tab_01ab", "selector": "#list", "dy": -50.0 }))
+    );
+    for bad in [
+        &["press"][..],
+        &["scroll", "--dy", "inf"],
+        &["scroll", "--dx", "NaN"],
+        &["press", "a", "b"],
+        &["press", "a", "--dy", "1"],
+        &["scroll"],
+        &["scroll", "--dy", "far"],
+        &["scroll", "#a", "--selector", "#b", "--dy", "1"],
+        &["select", "#size"],
+        &["check"],
+        &["hover", "#a", "--force"],
+    ] {
+        assert!(tab_page(bad).is_err(), "{bad:?}");
+    }
+}
