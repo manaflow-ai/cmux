@@ -123,5 +123,8 @@ fn pending_hint_names_answer_for_a_question_and_allow_for_a_tool() {
     assert!(!hint.contains("allow"), "{hint}");
     let tool = json!({"toolCall": {"kind": "execute"},
                       "options": [{"optionId": "yes", "kind": "allow_once"}, {"optionId": "no", "kind": "reject_once"}]});
-    assert_eq!(pending_hint(&tool, "s1"), "acpmux session allow s1 [yes|no] | acpmux session deny s1");
+    assert_eq!(
+        pending_hint(&tool, "s1"),
+        "acpmux session allow s1 [yes|no] | acpmux session deny s1"
+    );
 }

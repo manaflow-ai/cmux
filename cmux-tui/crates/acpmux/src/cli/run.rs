@@ -184,7 +184,13 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             } else {
                 for p in &out {
                     let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                    println!("{:<24} {} [{}]  answer: {}", g("session"), g("title"), g("kind"), g("answer"));
+                    println!(
+                        "{:<24} {} [{}]  answer: {}",
+                        g("session"),
+                        g("title"),
+                        g("kind"),
+                        g("answer")
+                    );
                 }
             }
             Ok(())
