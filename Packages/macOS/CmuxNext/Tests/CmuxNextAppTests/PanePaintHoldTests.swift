@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextPages
 @testable import CmuxNextTabs
 import Testing
 
@@ -94,5 +95,23 @@ extension PanePaintHoldTests {
         pane.show(agent)
         #expect(page.superview == nil)
         #expect(agent.alphaValue == 1)
+    }
+}
+
+extension PanePaintHoldTests {
+    /// No-flicker audit: a page tab (App Store, History, Keyboard Shortcuts…)
+    /// on a host whose document has not painted is transparent too, so the
+    /// pane keeps what it showed until the page paints, as for an agent page.
+    @Test func anUnpaintedPageTabKeepsTheOutgoingContent() throws {
+        let pane = pane()
+        let terminal = NSView()
+        pane.show(terminal)
+        let web = try #require(PageWebView(pooledHost: .settings))
+        #expect(!web.hasPainted)
+        let page = InternalPageView(key: "page-tab", page: .settings, content: web)
+        pane.show(page)
+        #expect(pane.content === page)
+        #expect(terminal.superview === pane.contentHost, "the pane went empty before the page painted")
+        #expect(page.alphaValue == 0)
     }
 }
