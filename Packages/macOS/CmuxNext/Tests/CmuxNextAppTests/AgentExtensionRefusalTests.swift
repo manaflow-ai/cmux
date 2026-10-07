@@ -22,7 +22,7 @@ import Testing
 
     @Test func everyPageOperationOnSuchATabIsRefusedWithATypedReason() throws {
         let tab = page()
-        for operation in [BrowserPageOperation.evaluate("1"), .reload, .back, .forward] {
+        for operation in [BrowserPageOperation.evaluate("1"), .evaluateAsync("return true"), .screenshot(.viewport), .reload, .back, .forward] {
             let error = try #require(refusal(operation, tab))
             #expect(error.code == "forbidden")
             #expect(error.data?.objectValue?["reason"]?.stringValue == "extension_host_access")

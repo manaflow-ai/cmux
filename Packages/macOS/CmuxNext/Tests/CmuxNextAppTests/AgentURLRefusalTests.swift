@@ -32,6 +32,10 @@ import Testing
         let shown = page("chrome://password-manager/passwords")
         #expect(refusal(.evaluate("1"), shown)?.code == "forbidden")
         #expect(refusal(.reload, shown)?.code == "forbidden")
+        // A wait scripts the page and a screenshot reads its pixels.
+        #expect(refusal(.evaluateAsync("return true"), shown)?.code == "forbidden")
+        #expect(refusal(.screenshot(.viewport), shown)?.code == "forbidden")
+        #expect(refusal(.screenshot(.fullPage), shown)?.code == "forbidden")
         #expect(refusal(.state, shown) == nil, "state reads no page content")
         #expect(refusal(.evaluate("1"), page()) == nil)
     }
