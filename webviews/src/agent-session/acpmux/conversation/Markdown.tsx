@@ -17,6 +17,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
+import "../../../markdown-task-checkbox.css";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -515,8 +516,15 @@ function Block({
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
               {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
               {it.task && (
-                <span className={`cv-checkbox${it.checked ? " is-checked" : ""}`}>
-                  {it.checked && <Check size={12} strokeWidth={1.4} />}
+                <span
+                  className={`cv-checkbox${it.checked ? " is-checked" : ""} cmux-markdown-checkbox`}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a read-only visual checkbox must contain the SVG check mark.
+                  role="checkbox"
+                  aria-checked={it.checked ? "true" : "false"}
+                  aria-readonly="true"
+                  data-checked={it.checked ? "true" : "false"}
+                >
+                  {it.checked && <Check className="cv-checkbox__check" size={10} strokeWidth={1.8} />}
                 </span>
               )}
               <span className="cv-li__text">
