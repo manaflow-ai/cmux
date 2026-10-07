@@ -37,7 +37,7 @@ function deps(overrides: Partial<VmModelPlaneDependencies> = {}): VmModelPlaneDe
     issueToken: async () => ({ token: "crt_test-token", expiresAt: new Date(0) }),
     revokeTokensForVm: async () => undefined,
     edgeOriginEnv: () => undefined,
-    vercelEnv: () => undefined,
+    vercelEnv: () => "production",
     vercelBranchUrl: () => undefined,
     vercelBypassSecret: () => undefined,
     ...overrides,
@@ -100,6 +100,27 @@ describe("provisionVmModelPlane", () => {
     );
     expect(provision.edgeRules.map((rule) => rule.domain)).toEqual(["coderouter.cmux.internal", "reflection.cmux.internal"]);
     expect(provision.edgeRules.every((rule) => rule.destinationHost === "cmux-git-feat-manaflow.vercel.app")).toBe(true);
+  });
+
+  test("outside production with no origin override, a machine gets no edge rule and no token", async () => {
+    // A dev backend or local checkout signs with its own key and keeps its
+    // database private; production can verify neither. Pointing its machines'
+    // edge at production made every one poll coderouter.dev with a refused
+    // credential for the machine's whole life.
+    for (const vercelEnv of [undefined, "development"]) {
+      let issued = 0;
+      const provision = await provisionVmModelPlane(INPUT, deps({
+        vercelEnv: () => vercelEnv,
+        issueToken: async () => {
+          issued += 1;
+          return { token: "crt_x", expiresAt: new Date(0) };
+        },
+      }));
+      expect({ vercelEnv, rules: provision.edgeRules, issued }).toEqual({ vercelEnv, rules: [], issued: 0 });
+    }
+    // An explicit origin still wires a non-production machine.
+    const wired = await provisionVmModelPlane(INPUT, deps({ vercelEnv: () => undefined, edgeOriginEnv: () => "https://coderouter-dev.example.com" }));
+    expect(wired.edgeRules.map((rule) => rule.destinationHost)).toEqual(["coderouter-dev.example.com", "coderouter-dev.example.com"]);
   });
 
   test("an invalid origin override is a typed unavailable failure, not a create with a bad rule", async () => {
