@@ -67,10 +67,12 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   navigation is cancelled and the action fails); a tab you claimed stays
   where it is, but reads and input on it fail while it shows a blocked
   page. `blockedNavigations()` lists the blocks. The policy is enforced
-  outside this JavaScript context, so `{ lock: true }` cannot be undone. `configure({ userAgent, extraHTTPHeaders, permissions, proxy })`
+  outside this JavaScript context, so `{ lock: true }` cannot be undone. `configure({ userAgent, extraHTTPHeaders, permissions, proxy, incognito })`
   sets browser-context options for the tabs this session opened (a tab you
   claimed keeps its own; `null` clears one; a proxy applies to tabs opened afterwards, in a private
-  profile without your cookies). `storageState({ path })`
+  profile without your cookies); `incognito: true` opens every later tab in a store that keeps
+  nothing (one way). `tabs.open(url, { incognito: true })` opens one such tab: no cookie of your
+  profile, no history, never kept; `tabs.list()` marks it `incognito`. `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site
   only, `{ all: true }` the whole profile, `{ urls }` those URLs. `downloads()` lists downloads.
