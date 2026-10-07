@@ -114,7 +114,7 @@ pub fn parse_column_dock(
         })
         .transpose()?
         .unwrap_or(DockMode::Docked);
-    Ok(dock.then_some(ColumnDock { edge, mode }))
+    Ok(dock.then_some(ColumnDock { edge, mode, permanent: false }))
 }
 
 /// The pure reducer of `set-column-dock`: the screen's column flags in
@@ -304,7 +304,7 @@ mod tests {
         let mut flags = vec![None];
         for edge in DockEdge::ALL {
             for mode in [DockMode::Docked, DockMode::Overlay] {
-                flags.push(Some(ColumnDock { edge, mode }));
+                flags.push(Some(ColumnDock { edge, mode, permanent: false }));
             }
         }
         flags

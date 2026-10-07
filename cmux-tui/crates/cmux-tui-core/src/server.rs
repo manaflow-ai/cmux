@@ -1665,6 +1665,9 @@ enum Command {
         edge: Option<String>,
         #[serde(default)]
         mode: Option<String>,
+        /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
+        #[serde(default)]
+        permanent: Option<bool>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -13833,7 +13836,7 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
+        Command::SetColumnDock { pane, dock, edge, mode, permanent: _, transaction } => {
             let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
             let outcome = mux.set_column_dock(
                 pane,
