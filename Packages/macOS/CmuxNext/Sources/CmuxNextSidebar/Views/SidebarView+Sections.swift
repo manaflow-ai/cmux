@@ -35,7 +35,7 @@ extension SidebarView {
                 self.model.send(.layout(op))
             }
         }
-        installPinDrops()
+        SidebarPinDrops.install(self)
         // The footer row (the profile control and the spaces dots) takes no
         // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
         // The band below keeps the same rule it had while it held the footer.

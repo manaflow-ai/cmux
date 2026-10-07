@@ -10,7 +10,7 @@ import AppKit
     /// Probes the band under `windowPoint`; true while a section holds the drag.
     static func holds(_ list: SidebarListView, _ drag: SidebarListDrag, at windowPoint: NSPoint) -> Bool {
         guard case .workspaces = drag.payload, let sidebar = sidebar(of: list) else { return false }
-        drag.pinTarget = sidebar.pinDrop(at: windowPoint)
+        drag.pinTarget = SidebarPinDrops.pinDrop(sidebar, at: windowPoint)
         guard drag.pinTarget != nil else { return false }
         drag.lastWindowPoint = windowPoint
         let point = list.convert(windowPoint, from: nil)
@@ -40,7 +40,7 @@ import AppKit
 
     /// Hides the outline (a cancelled drag).
     static func end(_ list: SidebarListView) {
-        _ = sidebar(of: list)?.pinDrop(at: nil)
+        if let sidebar = sidebar(of: list) { _ = SidebarPinDrops.pinDrop(sidebar, at: nil) }
     }
 
     /// The sidebar that holds the list (and the band above it).
