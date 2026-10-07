@@ -38,7 +38,43 @@ fn is_zombie(pid: libc::pid_t) -> bool {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn is_zombie(pid: libc::pid_t) -> bool {
+    // proc_pidinfo answers nothing for a zombie (it has no task), so read
+    // the process table: sysctl {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid}
+    // fills one `struct kinfo_proc` (648 bytes on 64-bit Darwin) whose
+    // `kp_proc` is `struct extern_proc`: `p_stat` (char) at offset 36 and
+    // `p_pid` (int) at offset 40.
+    const KINFO_PROC_SIZE: usize = 648;
+    const P_STAT_OFFSET: usize = 36;
+    const P_PID_OFFSET: usize = 40;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
+    let mut info = [0u8; KINFO_PROC_SIZE];
+    let mut size = info.len();
+    // SAFETY: the kernel writes at most `size` bytes into `info`.
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            4,
+            info.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 || size != KINFO_PROC_SIZE {
+        return false;
+    }
+    let recorded_pid = libc::pid_t::from_ne_bytes([
+        info[P_PID_OFFSET],
+        info[P_PID_OFFSET + 1],
+        info[P_PID_OFFSET + 2],
+        info[P_PID_OFFSET + 3],
+    ]);
+    recorded_pid == pid && u32::from(info[P_STAT_OFFSET]) == libc::SZOMB
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn is_zombie(_pid: libc::pid_t) -> bool {
     false
 }
