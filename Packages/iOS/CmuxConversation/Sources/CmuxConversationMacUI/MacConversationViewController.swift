@@ -908,8 +908,14 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showReactors(model, from: rowView.badge)
             return true
         }
+        // Messages opens the thread focus from the replies link and from a
+        // reply's quote.
         if !rowView.repliesLabel.isHidden, rowView.repliesLabel.frame.contains(local) {
-            showThread(rootID: model.message.id, from: rowView.repliesLabel)
+            enterReply(model.message)
+            return true
+        }
+        if let quote = rowView.rowLayout?.quoteFrame, quote.contains(local), model.message.replyToID != nil {
+            enterReply(model.message)
             return true
         }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
@@ -1064,19 +1070,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
     }
 
-    private func showThread(rootID: String, from view: NSView) {
-        let thread = store.messages.filter { $0.id == rootID || $0.replyToID == rootID }
-        let lines = thread.map { message -> String in
-            let name = store.info?.participant(message.senderID)?.name ?? ""
-            return "\(name): \(message.text)"
-        }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = MacTextPopoverController(text: lines.joined(separator: "\n\n"))
-        popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
-        if let root = thread.first { enterReply(root) }
-    }
-
     // MARK: Lab automation (DEBUG dev runner only)
 
     #if DEBUG
@@ -1149,6 +1142,18 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 }
             }
             return "ok"
+        case "clickreplies", "clickquote":
+            // A real single click on the row's replies link or reply quote.
+            guard let index = rows.indices.last(where: { index in
+                guard let model = messageModel(at: index), model.message.text.localizedCaseInsensitiveContains(argument) || argument.isEmpty else { return false }
+                return verb == "clickreplies" ? model.message.replyCount > 0 : model.message.replyToID != nil
+            }) else { return "error no row" }
+            tableView.scrollRowToVisible(index)
+            guard let rowView = rowView(at: index) else { return "error not visible" }
+            let target = verb == "clickreplies" ? rowView.repliesLabel.frame : (rowView.rowLayout?.quoteFrame ?? .zero)
+            let point = rowView.convert(NSPoint(x: target.midX, y: target.midY), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0, windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return "error event" }
+            return handleClick(event, in: tableView) ? "ok thread \(threadRootID ?? "-")" : "error unhandled"
         case "react":
             let bits = argument.split(separator: " ").map(String.init)
             guard bits.count == 2, let index = lastMessageRow(matching: bits[0]), let model = messageModel(at: index),
