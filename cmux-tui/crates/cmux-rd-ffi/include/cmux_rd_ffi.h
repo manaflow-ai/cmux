@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 1u
+#define CMUX_RD_FFI_ABI_VERSION 2u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -222,6 +222,23 @@ int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+
+/* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
+   One client per remote tab. Inputs and outcomes are JSON in the shapes of
+   schemas/remote-tab/client.json: an input is {"op": ...}; the outcome is
+   {"effects": [...], "note": null|"...", "reject": null|"..."}. A reject
+   leaves the state unchanged. The outcome bytes stay valid until the next
+   call on the same client. No I/O, no threads; a panic poisons the client. */
+typedef struct CmuxRbClient CmuxRbClient;
+
+/* NULL only when allocation fails. */
+CmuxRbClient *cmux_rb_client_new(void);
+/* NULL is ignored. */
+void cmux_rb_client_free(CmuxRbClient *client);
+/* Applies one input. CMUX_RD_OK with *outcome and *outcome_len set;
+   CMUX_RD_ERR_INVALID when json is not a client input (state unchanged). */
+int32_t cmux_rb_client_apply(CmuxRbClient *client, const uint8_t *json, size_t json_len,
+                             const uint8_t **outcome, size_t *outcome_len);
 
 #ifdef __cplusplus
 }

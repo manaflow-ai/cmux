@@ -10,6 +10,7 @@ pub mod errors;
 pub mod handoff;
 pub mod harness;
 pub mod harness_folder;
+pub mod harness_run;
 pub mod harness_secret;
 pub mod hosts;
 pub mod orchestrate;
