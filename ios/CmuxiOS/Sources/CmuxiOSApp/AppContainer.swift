@@ -10,6 +10,7 @@ import CmuxiOSPlatform
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
 import CmuxiOSPush
+import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import Foundation
@@ -59,6 +60,17 @@ final class AppContainer {
     let realFactories: RealFeatureFactories
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
+    /// terminal surface, and the crash-report consent (shared key).
+    let terminalPreferences = TerminalPreferencesStore()
+    let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+    /// C7 fills this with the push owner's per-device filter; nil keeps the
+    /// notification preferences on this device.
+    var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?
+    private(set) lazy var notificationPreferences = NotificationPreferencesStore(sink: notificationPreferencesSinkFactory?())
+    /// B5/D1 fill this with the live path badge per device once they hold a
+    /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
+    var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.

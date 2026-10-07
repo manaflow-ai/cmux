@@ -1,5 +1,6 @@
 import CmuxiOSAuth
 import CmuxiOSFeatureKit
+import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
 import UIKit
@@ -20,11 +21,19 @@ enum ShellComposition {
             developer: developerScreen(container: container),
             links: PlatformComposition.settingsLinks(container: container),
             replayTour: replayTour,
+            accountController: StackAccountController(gate: container.auth),
+            linkDiagnostics: linkDiagnostics(container: container, sources: sources),
+            terminal: container.terminalPreferences,
+            notifications: container.notificationPreferences,
+            notificationAuthorization: SystemNotificationAuthorization(permissions: container.permissions),
+            privacy: container.privacy,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
         // Lane C9: the Hosts tab over this account's host records and the
-        // device's SSH logins, keys and pinned host keys.
-        let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice)
+        // device's SSH logins, keys and pinned host keys; terminals follow
+        // the device's terminal settings (C11).
+        let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice,
+                             appearance: container.terminalPreferences)
         let content = ShellContent(sources: sources, home: home, settings: settings,
                                    screens: [.hosts: { ssh.makeHostsScreen() }])
         return ShellRootController(
@@ -32,6 +41,14 @@ enum ShellComposition {
             sidebar: container.flags.isEnabled(.iPadSidebar),
             content: { content.controller(for: $0) }
         )
+    }
+
+    /// Live link badges per device: the real owner once B5/D1 register it;
+    /// the mock badges only while the device list itself is mocked, so real
+    /// devices never show fake paths.
+    static func linkDiagnostics(container: AppContainer, sources: FeatureSources) -> (any LinkDiagnosticsSource)? {
+        if let factory = container.linkDiagnosticsFactory { return factory() }
+        return sources.resolved[.devices] == .mock ? MockLinkDiagnosticsSource() : nil
     }
 
     /// The DEV sources screen; nil in Release so Settings has no Developer row.

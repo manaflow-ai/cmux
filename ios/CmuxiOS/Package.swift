@@ -55,6 +55,8 @@ let package = Package(
                 "CmuxiOSOnboarding",
                 "CmuxiOSOnboardingCore",
                 "CmuxiOSSettingsCore",
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
@@ -258,7 +260,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxiOSShellTests",
-            dependencies: ["CmuxiOSShell", "CmuxiOSFeatureKit"],
+            dependencies: ["CmuxiOSShell", "CmuxiOSFeatureKit", "CmuxiOSSettingsCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // App-wide services: router, toasts, remote flags, diagnostics,

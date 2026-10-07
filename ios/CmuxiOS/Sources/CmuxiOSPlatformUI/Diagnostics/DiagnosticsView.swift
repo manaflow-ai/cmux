@@ -13,10 +13,11 @@ public struct DiagnosticsView: View {
     public var body: some View {
         Form {
             Section {
-                Toggle(PlatformText.crashReports, isOn: $model.crashReportsEnabled)
+                LabeledContent(PlatformText.crashReports,
+                               value: model.crashReportsEnabled ? PlatformText.on : PlatformText.off)
                     .accessibilityIdentifier("platform.diagnostics.crashReports")
             } footer: {
-                Text(PlatformText.crashReportsFooter)
+                Text(PlatformText.crashReportsMovedFooter)
             }
             Section {
                 LabeledContent(PlatformText.logLines, value: model.lineCount.formatted())

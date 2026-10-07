@@ -2,15 +2,14 @@ public import CmuxiOSPlatform
 public import Foundation
 public import Observation
 
-/// State behind the diagnostics screen: the crash-report consent toggle, the
-/// log's size, export, copy and clear.
+/// State behind the diagnostics screen: the crash-report consent (read
+/// only; the toggle lives in Settings > Privacy, lane C11), the log's size,
+/// export, copy and clear.
 @MainActor
 @Observable
 public final class DiagnosticsModel {
     public private(set) var lineCount = 0
-    public var crashReportsEnabled: Bool {
-        didSet { defaults.set(crashReportsEnabled, forKey: consentKey) }
-    }
+    public private(set) var crashReportsEnabled: Bool
     @ObservationIgnored private let sink: DiagnosticLogSink
     @ObservationIgnored private let supportInfo: @MainActor () -> DiagnosticSupportInfo
     @ObservationIgnored private let defaults: UserDefaults
@@ -33,6 +32,7 @@ public final class DiagnosticsModel {
     public var supportText: String { supportInfo().rendered }
 
     public func refresh() async {
+        crashReportsEnabled = defaults.object(forKey: consentKey) as? Bool ?? true
         lineCount = await sink.lines().count
     }
 
