@@ -1083,3 +1083,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_macho_parity.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_route_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_cross_shadow_jobs.py"
+lane = "linux-guard"

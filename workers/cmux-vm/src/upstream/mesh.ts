@@ -10,6 +10,7 @@ import type { Named } from "@gdp-ts/core";
 import { Context, type Effect } from "effect";
 import type { DeviceId, MeshId, TenantId, TunnelId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { MeshProtocol } from "../mesh/acl.ts";
+import type { DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import type { CallerActsOnDevice } from "../proofs/device-owner.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
@@ -71,11 +72,12 @@ export interface UpstreamMeshService {
       readonly owns: TenantOwnsResource<C, M>;
       readonly scope: KeyHasScope<C, "mesh:join">;
       readonly mayCreate: TenantMayCreate<C, "device">;
+      /** The tunnel's client key is the key the device's install key signed for this mesh, never another. */
+      readonly holds: DeviceHoldsKey<C, M>;
     },
     options: {
       readonly tenantId: TenantId;
       readonly deviceId: DeviceId;
-      readonly clientPublicKey: string;
       readonly routes: ReadonlyArray<string>;
     },
   ) => Effect.Effect<CreatedTunnel, UpstreamError>;
@@ -93,6 +95,22 @@ export interface UpstreamMeshService {
     device: Named<D, DeviceId>,
     proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, "mesh:join">; readonly acts: CallerActsOnDevice<C, D> },
   ) => Effect.Effect<void, UpstreamError>;
+
+  /**
+   * Replaces the device tunnel's client key with the key the install key
+   * signed for this device (`rotate_tunnel_key`). The tunnel keeps its id,
+   * routes and attachments; the server key changes. Fails (without returning
+   * it) if the provider minted a private key.
+   */
+  readonly rotateTunnelKey: <C, D>(
+    device: Named<D, DeviceId>,
+    proofs: {
+      readonly owns: TenantOwnsResource<C, D>;
+      readonly scope: KeyHasScope<C, "mesh:join">;
+      readonly acts: CallerActsOnDevice<C, D>;
+      readonly holds: DeviceHoldsKey<C, D>;
+    },
+  ) => Effect.Effect<TunnelInfo, UpstreamError>;
 
   /** Puts the VM on the mesh's network (live; a VM is on at most one). Returns its IPv4 address there. */
   readonly attachVm: <C, M, V>(

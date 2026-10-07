@@ -27,7 +27,7 @@ extension ServerMachineSession {
         }
         let detail: String? = switch session.reach.route {
         case .ssh(let host): [host.destination.description, session.link.flatMap(RemoteStrings.detail)].compactMap { $0 }.joined(separator: "\n")
-        case .unix: nil
+        case .unix, .overlay: nil
         }
         return SidebarMachine(id: MachineID(session.machineID), name: session.name, kind: .server, status: status, detail: detail)
     }
