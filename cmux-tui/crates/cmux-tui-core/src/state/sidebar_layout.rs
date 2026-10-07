@@ -10,7 +10,10 @@
 //! strings (region, look, content, arrangement layout and align) keep an
 //! unknown value as `Other`, and sections, items, refs and arrangements keep
 //! unknown keys in `extra`, so a stored document never loses what a newer
-//! app wrote.
+//! app wrote. The app decodes `region` and `content` strictly (one unknown
+//! value would fail its whole document), so `Op::introduced_unknown_value`
+//! lets the wire refuse an op that would store one; a stored row that holds
+//! one (from a newer daemon) still reads.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -340,6 +343,26 @@ pub enum Op {
     ItemUpdate { id: String, shows_label: bool },
     #[serde(rename = "layout.reset")]
     Reset,
+}
+
+impl Op {
+    /// The region or content value this op would store that the app cannot
+    /// decode (`SidebarRegion` and `SectionContent` are strict in the app),
+    /// as `(field, value)`.
+    pub fn introduced_unknown_value(&self) -> Option<(&'static str, &str)> {
+        let (region, content) = match self {
+            Op::SectionAdd { section, .. } => (&section.region, Some(&section.content)),
+            Op::SectionMove { region, .. } => (region, None),
+            _ => return None,
+        };
+        if let Region::Other(value) = region {
+            return Some(("region", value));
+        }
+        match content {
+            Some(Content::Other(value)) => Some(("content", value)),
+            _ => None,
+        }
+    }
 }
 
 /// Why the owner refused an op; `as_str` is the wire reason. (A reused
