@@ -89,7 +89,9 @@ public struct SidebarMapping {
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
             },
-            muted: muted
+            muted: muted,
+            // The store refuses every close of its home workspace (`home_not_closable`).
+            isClosable: workspace.kind != Self.homeKind
         )
     }
 
