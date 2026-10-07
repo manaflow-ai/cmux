@@ -60,7 +60,16 @@ import Testing
         #expect(router.route(URL(fileURLWithPath: "/Users/me/it's.sh")) == .terminal(cwd: "/Users/me", command: #"sh '/Users/me/it'\''s.sh'"#))
         #expect(router.route(URL(fileURLWithPath: "/tmp/setup.zsh")) == .terminal(cwd: "/tmp", command: "zsh '/tmp/setup.zsh'"))
         #expect(router.route(URL(fileURLWithPath: "/opt/bin/tool")) == .terminal(cwd: "/opt/bin", command: "'/opt/bin/tool'"))
-        #expect(router.route(URL(fileURLWithPath: "/tmp/notes.txt")) == .unsupported)
+    }
+
+    /// Open With and a drop on the Dock icon: every other file goes to the file opener (the
+    /// markdown page, a tab that previews it, or the editor), as classic opens it.
+    @Test func otherFilesGoToTheFileOpener() {
+        for path in ["/tmp/notes.txt", "/Users/me/README.md", "/Users/me/paper.pdf", "/Users/me/photo.png",
+                     "/Users/me/anim.gif", "/Users/me/clip.mp4", "/Users/me/clip.mov", "/Users/me/song.m4a"] {
+            #expect(router.route(URL(fileURLWithPath: path)) == .file(URL(fileURLWithPath: path)), "\(path)")
+        }
+        #expect(router.route(URL(fileURLWithPath: "/Users/me/page.html")) == .browserTab(URL(fileURLWithPath: "/Users/me/page.html")))
     }
 
     @Test func foldersOpenATerminalThere() {
