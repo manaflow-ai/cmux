@@ -239,5 +239,19 @@
   },
   "denies": [],
   "needs": false
+ },
+ {
+  "name": "enabling a folder harness always needs a gesture",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1"
+   }
+  },
+  "denies": [],
+  "needs": true
  }
 ]

@@ -171,7 +171,7 @@ import Testing
             "session_id": opt(facts.sessionId), "needs_gesture": facts.needsGesture,
             "needs_path_check": facts.needsPathCheck, "setting": setting,
             "attach_session": opt(facts.attachSession), "foreign_source": facts.foreignSource,
-            "handoff_id": opt(facts.handoffId), "free": facts.free,
+            "handoff_id": opt(facts.handoffId), "harness_enable": facts.harnessEnable, "free": facts.free,
         ]
     }
 
@@ -179,7 +179,7 @@ import Testing
     /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
     @Test func fullCheckOrder() throws {
         let all = try Self.cases("check.json")
-        #expect(all.count == 27, "check.json: the full order's 27 cases")
+        #expect(all.count == 28, "check.json: the full order's 28 cases")
         for c in all {
             let name = c["name"] as? String ?? "?"
             let state = try #require(c["state"] as? [String: Any])

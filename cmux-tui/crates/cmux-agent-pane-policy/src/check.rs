@@ -117,6 +117,11 @@ pub struct Facts {
     /// credit), and the handoff it names.
     pub foreign_source: bool,
     pub handoff_id: Option<String>,
+    /// `_acpmux/harness_enable`: the host's native sheet decides it, and the
+    /// host adds the confirmed `sha256` (AgentPaneTransport `harnessEnable`,
+    /// `confirmHarnessEnable`); refused with [`Refusal::HarnessNotConfirmed`]
+    /// when the user does not enable it.
+    pub harness_enable: bool,
 }
 
 impl Facts {
@@ -128,6 +133,7 @@ impl Facts {
             && self.setting.is_none()
             && self.attach_session.is_none()
             && !self.foreign_source
+            && !self.harness_enable
     }
 }
 
@@ -235,6 +241,7 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
             facts.foreign_source = true;
             facts.handoff_id = params.get("handoffId").and_then(Value::as_str).map(str::to_owned);
         }
+        facts.harness_enable = method.as_deref() == Some("_acpmux/harness_enable");
     }
     if let Some(requested) = requested_setting(&frame) {
         let value = requested.value.clone().unwrap_or_else(|| config_value_text(&frame));

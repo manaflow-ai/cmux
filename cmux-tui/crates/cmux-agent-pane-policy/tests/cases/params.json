@@ -789,5 +789,44 @@
    }
   },
   "breaks": true
+ },
+ {
+  "name": "_acpmux/harnesses with the chat folder passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harnesses",
+   "params": {
+    "cwd": "/x"
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/harness_enable with folder and id passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1"
+   }
+  },
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/harness_enable may not carry sha256 (only the host adds it)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/harness_enable",
+   "params": {
+    "folder": "/x",
+    "id": "p1",
+    "sha256": "ab"
+   }
+  },
+  "breaks": true
  }
 ]

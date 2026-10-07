@@ -106,7 +106,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
         "session_id": facts.session_id, "needs_gesture": facts.needs_gesture,
         "needs_path_check": facts.needs_path_check, "setting": setting,
         "attach_session": facts.attach_session, "foreign_source": facts.foreign_source,
-        "handoff_id": facts.handoff_id, "free": facts.free(),
+        "handoff_id": facts.handoff_id, "harness_enable": facts.harness_enable, "free": facts.free(),
     })
 }
 
@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 27, "check.json: the full order's 27 cases");
+    assert_eq!(all.as_array().unwrap().len(), 28, "check.json: the full order's 28 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]

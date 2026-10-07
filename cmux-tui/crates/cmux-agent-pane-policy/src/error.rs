@@ -13,6 +13,9 @@ pub enum Refusal {
     DuplicateKey,
     McpServersRefused,
     SessionNotInPane,
+    /// The user did not enable a folder harness on the host's sheet
+    /// (`_acpmux/harness_enable`; the host decides, see `Facts::harness_enable`).
+    HarnessNotConfirmed,
 }
 
 impl Refusal {
@@ -26,6 +29,7 @@ impl Refusal {
             Refusal::DuplicateKey => "transport.duplicate_key",
             Refusal::McpServersRefused => "transport.mcp_servers_refused",
             Refusal::SessionNotInPane => "transport.session_not_in_pane",
+            Refusal::HarnessNotConfirmed => "transport.harness_not_confirmed",
         }
     }
 
@@ -40,6 +44,7 @@ impl Refusal {
             Refusal::DuplicateKey,
             Refusal::McpServersRefused,
             Refusal::SessionNotInPane,
+            Refusal::HarnessNotConfirmed,
         ]
         .into_iter()
         .find(|r| r.code() == code)

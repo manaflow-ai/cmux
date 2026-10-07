@@ -39,6 +39,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -78,6 +79,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -172,6 +174,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -279,6 +282,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -331,6 +335,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -382,6 +387,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -422,6 +428,7 @@
     "attach_session": "s9",
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -461,6 +468,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -501,6 +509,7 @@
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -540,6 +549,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -580,6 +590,7 @@
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": "h1",
+    "harness_enable": false,
     "free": false
    }
   }
@@ -619,6 +630,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -659,6 +671,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -699,6 +712,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -739,6 +753,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -785,6 +800,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -831,6 +847,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": false
    }
   }
@@ -869,6 +886,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }
@@ -938,6 +956,48 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "enabling a folder harness waits for the host's sheet, a gesture and the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"_acpmux/harness_enable\",\"params\":{\"folder\":\"/x\",\"id\":\"p1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 22,
+    "method": "_acpmux/harness_enable",
+    "params": {
+     "folder": "/x",
+     "id": "p1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harness_enable",
+    "page_id": "22",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": true,
     "free": false
    }
   }
@@ -983,6 +1043,7 @@
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
+    "harness_enable": false,
     "free": true
    }
   }

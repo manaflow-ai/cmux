@@ -10,7 +10,7 @@
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-    "acp.session.fork", "acp.trust.get", "acp.trust.set"
+    "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -30,6 +30,7 @@
     "session/set_mode": "always",
     "session/set_config_option": "always",
     "acp.trust.set": "when_trusting",
+    "_acpmux/harness_enable": "always",
     "_acpmux/permission_respond": "when_option_allows",
     "_acpmux/permission_group_respond": "when_decision_allows"
   },
@@ -48,7 +49,7 @@
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
     "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
     "_acpmux/prewarm": {"params": ["harness", "cwd"], "acpmux": []},
-    "_acpmux/harnesses": {"params": [], "acpmux": []},
+    "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": [], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId"], "acpmux": []},
@@ -63,6 +64,7 @@
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
+    "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
   },

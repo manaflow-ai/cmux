@@ -25,7 +25,9 @@
 //!   calls it with what the pane sent and the daemon answered, and decides the
 //!   click's scope credit; the session folders (`observeFolder`) stay here;
 //! - gesture tickets, records and the mode confirmation sheet
-//!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`);
+//!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`), and the folder
+//!   harness sheet (`confirmHarnessEnable`: the user's Enable, the confirmed
+//!   `sha256` the host adds; `Facts::harness_enable` says when);
 //! - request ids: the relay id map, the in-flight refusal and the reply id
 //!   rewrite (`AcpmuxRequestIds`); this crate gives the reply filter
 //!   ([`reply`]) and the encoding with a relay id ([`check::encode`]);
