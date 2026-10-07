@@ -1108,6 +1108,34 @@ obstacle to adoption, that text has been removed.
 
 ---
 
+## cmux VM API dependencies (workers/cmux-vm)
+
+### gdp-ts
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Guillermo Rauch
+- **Source:** https://github.com/rauchg/gdp-ts (commit ebd0af9cae423997a43a024dc6d6738b0895bbec)
+- **Use:** `@gdp-ts/core` library and its Oxlint preset, installed from that
+  commit; not vendored.
+
+### Upstream VM provider SDK type declarations
+
+- **License:** MIT License (declared in the package's `package.json`)
+- **Copyright:** Freestyle
+- **Source:** npm package `freestyle` 0.2.16
+- **Files:** `workers/cmux-vm/upstream/sdk/` (`dist/**/*.d.ts` and
+  `package.json`, unmodified), kept as a pinned API surface for coverage
+  checks and not shipped in the Worker bundle.
+
+`workers/cmux-vm/upstream/openapi.json` is the provider's public OpenAPI
+document (https://api.freestyle.sh/openapi.json), copied unmodified. It states
+no license; it is kept only as the pinned surface for coverage checks and is
+not shipped in the Worker bundle.
+
+MIT License text: see the Primer Octicons section above.
+
+---
+
 ## Shared License Texts
 
 MIT-licensed components above are distributed under the MIT License text
