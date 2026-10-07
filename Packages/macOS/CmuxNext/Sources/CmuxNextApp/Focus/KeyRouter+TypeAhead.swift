@@ -21,7 +21,9 @@ extension KeyRouter {
     /// Captures a printable key while Cmd-T is presenting its page. This runs
     /// before the old responder can see the key, so a cold page cannot lose it.
     func captureNewTabInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, Self.isPrintable(event), let (controller, kind) = focus(for: window), kind == .content,
+        guard let window, Self.isPrintable(event) else { return false }
+        let (controller, kind) = focus(for: window)
+        guard kind == .content, let controller,
               let pane = controller.focus.state.resolved.pane, var buffer = newTabInput[pane] else { return false }
         buffer.append(event.characters ?? "")
         newTabInput[pane] = buffer
@@ -32,7 +34,9 @@ extension KeyRouter {
     /// selected tab is the New Tab page. The readiness callback replays it in order.
     func promoteNewTabInput(_ resolved: FocusState.Resolved, in window: NSWindow?) {
         guard case .agentPage(let pane, let tab) = resolved, newTabInput[pane] != nil,
-              let window, let (controller, kind) = focus(for: window), kind == .content,
+              let window else { return }
+        let (controller, kind) = focus(for: window)
+        guard kind == .content, let controller,
               let paneController = controller.content?.paneController(key: pane),
               paneController.currentTabKey == tab, services?.agentTabs.isNewTabPage(tab) == true,
               let readiness = paneController.currentContent?.inputReadiness,
