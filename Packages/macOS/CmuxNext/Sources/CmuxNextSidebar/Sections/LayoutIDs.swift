@@ -25,6 +25,10 @@ public nonisolated struct LayoutItemID: Hashable, Sendable, Codable, CustomStrin
     }
     public var description: String { rawValue }
     public static func mint() -> LayoutItemID { LayoutItemID("itm_" + LayoutIDs.random()) }
+    /// A client-only item (`client.` prefix): drawn by this window, never in
+    /// the layout document, so it cannot be dragged, edited or hidden.
+    public var isTransient: Bool { rawValue.hasPrefix(Self.transientPrefix) }
+    public static let transientPrefix = "client."
 }
 
 nonisolated enum LayoutIDs {
