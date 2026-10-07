@@ -31,7 +31,7 @@ import Testing
         view.appSections = SidebarRecentsUnderListTests.Recents()
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
-        #expect(view.trailRegion.layoutResult == .empty)
+        #expect(view.list.trailer.region.layoutResult == .empty)
         #expect(view.list.trailer.height == 0)
     }
 }
