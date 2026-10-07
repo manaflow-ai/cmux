@@ -34,7 +34,7 @@ struct CloudWelcomeView: View {
     var showsMedia = true
     var showsReasons = true
     var sliderAutoplays = true
-    var sliderShowsFeatureList = false
+    var sliderShowsFeatureList = true
     var sliderListUsesDots = false
 
     static let windowWidth: CGFloat = 580
@@ -55,7 +55,7 @@ struct CloudWelcomeView: View {
             } else {
                 CloudWelcomeHero()
             }
-            panel
+            panel(hasMedia: hasMedia)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
         }
@@ -84,7 +84,7 @@ struct CloudWelcomeView: View {
         #endif
     }
 
-    private var panel: some View {
+    private func panel(hasMedia: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // The title is above the hero, so the subtitle leads the panel.
             Text(String(
@@ -92,7 +92,7 @@ struct CloudWelcomeView: View {
                 defaultValue: "Persistent cloud computers that open as regular cmux workspaces."
             ))
             .cmuxFont(size: 15, weight: .medium)
-            if showsReasons {
+            if showsReasons && !hasMedia {
             VStack(alignment: .leading, spacing: 12) {
                 CloudWelcomeReasonRow(
                     symbol: "terminal",
@@ -148,7 +148,10 @@ struct CloudWelcomeView: View {
             Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
                 .cmuxFont(size: 30, weight: .bold)
                 .tracking(-0.35)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 30)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
     }

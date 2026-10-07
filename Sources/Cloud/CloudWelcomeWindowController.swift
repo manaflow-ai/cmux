@@ -48,8 +48,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         present(over: parent)
     }
 
-    /// The slider layout is a debug choice while it is designed; launch uses the default.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false, sliderListUsesDots: Bool = false) {
+    /// Help and launch share the same feature-list layout.
+    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
         window?.close()
         let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
         self.window = window
