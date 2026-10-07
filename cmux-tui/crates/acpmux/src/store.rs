@@ -138,6 +138,20 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// Chat store roots the harness's launch env named at its last spawn
+    /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harness_roots: Vec<HarnessRoot>,
+}
+
+/// One chat store root a spawn's env named: `harness` is a chat index
+/// adapter id (`claude-code`, `codex`, ...) or, for a profile's own `sessions`
+/// roots, the profile id. Never carries other env values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRoot {
+    pub harness: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -470,6 +484,7 @@ mod tests {
             unread: false,
             last_turn: None,
             remote_origin: false,
+            harness_roots: vec![],
         }
     }
 

@@ -16,6 +16,8 @@ export default agentPaneEntry({
   title: "Composer",
   area: "Agent pane",
   height: 420,
+  // The transcript must not move while a play step opens a menu over it.
+  anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -61,6 +63,21 @@ export default agentPaneEntry({
     "codex-model": {
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
+    },
+    "slash-menu": {
+      note: "Play: type / in the prompt; the agent's command menu opens.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
     },
     disconnected: {
       note: "The daemon connection dropped.",
