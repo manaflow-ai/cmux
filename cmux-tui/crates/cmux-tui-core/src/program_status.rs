@@ -174,7 +174,7 @@ impl ProgramStatusRecords {
             updated_at_ms: now_ms,
         };
         let alerts = matches!(state, ProgramStatusState::Blocked | ProgramStatusState::Error);
-        if alerts && previous != Some(state) && self.alerts.len() < MAX_PENDING_ALERTS && false {
+        if alerts && previous != Some(state) && self.alerts.len() < MAX_PENDING_ALERTS {
             self.alerts.push(ProgramStatusAlert {
                 state,
                 kind: record.kind,
