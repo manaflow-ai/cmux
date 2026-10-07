@@ -41,6 +41,7 @@ export function ThemePicker({
   labelId,
   disabled,
   configLabel,
+  configTheme,
   onPick,
   onPreview,
 }: {
@@ -51,6 +52,8 @@ export function ThemePicker({
   labelId: string;
   disabled: boolean;
   configLabel: string;
+  /** The theme the null choice shows (the Ghostty config's, or the terminal theme), for its chip. */
+  configTheme: string;
   onPick(name: string | null): void;
   /** The highlighted row while the list is open; null when it closes or nothing is highlighted. */
   onPreview(name: string | null): void;
@@ -85,7 +88,7 @@ export function ThemePicker({
         disabled={disabled}
         onClick={() => setOpen(!open)}
       >
-        <ThemeChip theme={value ? (colors?.get(value) ?? undefined) : undefined} />
+        <ThemeChip theme={colors?.get(value ?? configTheme)} />
         <span className="theme-button-name">{value ?? configLabel}</span>
         <Icon name="chevron" />
       </button>
@@ -111,7 +114,7 @@ export function ThemePicker({
           renderItem={(name) =>
             name === CONFIG ? (
               <span className="theme-option-row">
-                <span className="theme-chip theme-chip-empty" aria-hidden="true" />
+                <ThemeChip theme={colors?.get(configTheme)} />
                 <span className="theme-option-name">{configLabel}</span>
                 {value === null && <Icon name="check" className="theme-option-check" />}
               </span>

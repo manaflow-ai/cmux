@@ -56,3 +56,11 @@ test("the app theme matches the terminal theme until the host's app level has on
   await run(() => page!.store.setTheme("app", "Gruvbox Dark"));
   expect(app().textContent).toContain("Gruvbox Dark");
 });
+
+test("an unset theme previews the Ghostty config's theme for the system appearance", async () => {
+  // jsdom has no matchMedia: the page reads Light, so the config pair's light side shows.
+  page = await renderPage({ path: "/settings/theme" });
+  expect(theme(page).querySelector("[data-theme-preview]")?.getAttribute("data-theme-preview")).toBe(
+    "Apple System Colors Light",
+  );
+});

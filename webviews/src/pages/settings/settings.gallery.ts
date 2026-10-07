@@ -176,7 +176,7 @@ Object.assign(variants, {
       theme: {
         levels: ["room", "workspace", "terminal"],
         current: { room: null, workspace: "Tokyo Night", terminal: "Gruvbox Dark" },
-        config: "Apple System Colors",
+        config: "light:Apple System Colors Light,dark:Apple System Colors",
         app: null,
       },
     },
@@ -187,7 +187,12 @@ Object.assign(variants, {
     options: { values: { "appearance.theme": "Gruvbox Dark" } },
     host: {
       ...host,
-      theme: { levels: ["terminal"], current: { terminal: null }, config: "Apple System Colors", app: "Rose Pine" },
+      theme: {
+        levels: ["terminal"],
+        current: { terminal: null },
+        config: "light:Apple System Colors Light,dark:Apple System Colors",
+        app: "Rose Pine",
+      },
     },
     note: "An app theme apart from the terminal theme.",
   }),

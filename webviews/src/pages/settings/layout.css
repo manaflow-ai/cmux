@@ -308,7 +308,8 @@
 
 .theme-caption {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
@@ -319,6 +320,12 @@
 .theme-caption-name {
   color: var(--text);
   font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The Theme section's help explains a choice; it wraps instead of truncating. */
+.theme-studio .row-help {
+  white-space: normal;
 }
 
 .theme-caption-contrast {

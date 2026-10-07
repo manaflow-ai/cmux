@@ -70,7 +70,7 @@ export type HostLists = {
   /**
    * Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme: a
    * level with a theme overrides appearance.theme there (the page shows it inline, P4). `config`
-   * names the theme the Ghostty config resolves to (the preview of an unset appearance.theme).
+   * is the Ghostty config's theme value (a name or a light/dark pair) (the preview of an unset appearance.theme).
    * `app`, when present, is the app theme apart from the terminal theme (null: match the
    * terminal), set with `cmux.settings.theme.set` at level `app`.
    */

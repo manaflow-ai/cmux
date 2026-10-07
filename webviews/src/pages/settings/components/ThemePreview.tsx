@@ -9,13 +9,13 @@ import { rowsByKey, sections } from "../schema";
 import { t, text } from "../strings";
 
 const W = 720;
-const H = 236;
+const H = 214;
 const GAP = 12;
 const TERM_W = 424;
 const APP_X = TERM_W + GAP;
 const APP_W = W - APP_X;
 const CELL = 7.25;
-const LINE = 19;
+const LINE = 17.5;
 
 type Segment = [column: number, color: number | "fg" | "dim", text: string];
 
@@ -45,6 +45,11 @@ const LINES: Segment[][] = [
     [23, "fg", "README.md"],
     [34, "dim", "# 4 items"],
   ],
+  [...PROMPT, [14, "fg", "git log --oneline -1"]],
+  [
+    [0, 3, "a3ebde5"],
+    [8, "fg", "Add the Theme section"],
+  ],
   [
     [0, 4, "~/cmux"],
     [7, 5, "main"],
@@ -54,9 +59,10 @@ const LINES: Segment[][] = [
   ],
 ];
 const SELECTED = { line: 3, column: 14, length: 12 };
-const CURSOR = { line: 7, column: 21 };
+const CURSOR = { line: 9, column: 21 };
 
 const title = (key: string) => (rowsByKey.get(key) ? text(rowsByKey.get(key)!.title) : key);
+const help = (key: string) => text(rowsByKey.get(key)?.help);
 const section = (id: string) => text(sections.find((item) => item.id === id)?.title);
 
 export function ThemePreview({
@@ -176,14 +182,11 @@ export function ThemePreview({
             />
             <circle cx={APP_W - 110 - 32} cy="125" r="6" fill={a.icon} />
             <text x="0" y="146" fontSize="10" fill={a.textSecondary}>
-              {truncate(t("settingsPage.openConfigHelp"), 34)}
+              {truncate(help("app.globalHotKey"), 34)}
             </text>
             <rect y="160" width={APP_W - 124} height="1" fill={a.separator} />
             <text x="0" y="184" fontSize="11" fill={a.accentText}>
               {truncate(t("settingsWindow.showInFinder"), 18)}
-            </text>
-            <text x="0" y="206" fontSize="10" fill={a.danger}>
-              {truncate(t("settingsPage.invalidValue"), 30)}
             </text>
             <rect x={APP_W - 110 - 70} y="172" width="58" height="20" rx="5" fill={a.accent} />
             <text x={APP_W - 110 - 41} y="186" fontSize="11" fontWeight="500" textAnchor="middle" fill={a.onAccent}>

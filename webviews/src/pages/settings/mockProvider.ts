@@ -205,7 +205,7 @@ export class MockSettingsProvider {
     theme: {
       levels: ["room", "workspace", "terminal"],
       current: { room: null, workspace: "Dracula", terminal: null },
-      config: "Apple System Colors",
+      config: "light:Apple System Colors Light,dark:Apple System Colors",
       app: null,
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },

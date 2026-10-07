@@ -50,7 +50,8 @@ export function ThemeStudio() {
   const names = state.domains.themes;
   const colors = state.themeColors;
   const host = state.host?.theme;
-  const config = host?.config ?? (scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT);
+  // The Ghostty config's theme: a name or a light/dark pair, resolved for the system appearance.
+  const config = themeFor(parseThemeSpec(host?.config), scheme, scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT);
   const hasApp = host !== undefined && "app" in host;
   const appTheme = hasApp ? (host.app ?? null) : null;
 
@@ -81,6 +82,7 @@ export function ThemeStudio() {
       labelId={id}
       disabled={disabled}
       configLabel={t("settingsWindow.themeUseConfig")}
+      configTheme={config}
       onPick={onPick}
       onPreview={previewTerminal}
     />
@@ -199,7 +201,7 @@ export function ThemeStudio() {
               <div className="row-main">
                 <div className="row-label">
                   <div className="row-title" id={ids.app}>
-                    {t("settingsPage.theme.app")}
+                    {text(row.title)}
                   </div>
                   <div className="row-help">{t("settingsPage.theme.appHelp")}</div>
                 </div>
@@ -211,6 +213,7 @@ export function ThemeStudio() {
                     labelId={ids.app}
                     disabled={!state.connected}
                     configLabel={t("settingsPage.theme.matchTerminal")}
+                    configTheme={terminalName}
                     onPick={(name) => void store.setTheme("app", name)}
                     onPreview={(name) => setPreviewing(name ? { name, target: "app" } : null)}
                   />
