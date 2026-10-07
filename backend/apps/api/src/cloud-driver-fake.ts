@@ -1,6 +1,6 @@
 import type { SqlStore } from "@cmux/ownership"
 import { DriverError } from "./team-vm-driver.ts"
-import { createBody, LIST_PAGE, type CreateOptions, type ListedVm, type RawCloudDriver, type VmResources, type VmTag } from "./cloud-driver.ts"
+import { createBody, LIST_PAGE, type CreateOptions, type EdgeTlsRule, type ListedVm, type RawCloudDriver, type VmResources, type VmTag } from "./cloud-driver.ts"
 
 /**
  * Test provider (ENVIRONMENT=test, CLOUD_DRIVER=fake): VMs in the object's own SQLite.
@@ -12,6 +12,8 @@ export class FakeCloudDriver implements RawCloudDriver {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384, state_reads INTEGER NOT NULL DEFAULT 0, power_refuse INTEGER NOT NULL DEFAULT 0, power_calls INTEGER NOT NULL DEFAULT 0, snapshot_delete_refuse INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
+    // Like Freestyle: inline rules of a create, deleted with the VM (`rule` is the whole rule, as sent).
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_tls (id TEXT PRIMARY KEY, vm TEXT NOT NULL, domain TEXT NOT NULL, rule TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
 
@@ -37,6 +39,7 @@ export class FakeCloudDriver implements RawCloudDriver {
     // The image decides the size (Freestyle has no size at create); image_size in fakeControl sets it.
     const img = this.sql.exec<{ image_cpu: number; image_memory: number; image_storage: number }>(`SELECT image_cpu, image_memory, image_storage FROM cloud_fake_ctl WHERE id = 1`)[0]!
     this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle, cpu, memory, storage, snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds, img.image_cpu, img.image_memory, img.image_storage, opts.snapshot ?? null)
+    for (const rule of body.tls?.rules ?? []) this.sql.exec(`INSERT INTO cloud_fake_tls (id, vm, domain, rule) VALUES (?, ?, ?, ?)`, crypto.randomUUID(), `fs-${name}`, rule.domain, JSON.stringify(rule))
     this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
     return { id: `fs-${name}`, tag: null }
   }
@@ -58,7 +61,16 @@ export class FakeCloudDriver implements RawCloudDriver {
   async delete(id: string) {
     this.maybeFail()
     const gone = this.sql.exec<{ name: string }>(`DELETE FROM cloud_fake_vm WHERE id = ? RETURNING name`, id)
+    this.sql.exec(`DELETE FROM cloud_fake_tls WHERE vm = ?`, id)
     if (gone.length) this.sql.exec(`UPDATE cloud_fake_ctl SET deletes = deletes + 1 WHERE id = 1`)
+  }
+
+  async replaceTlsRule(vmId: string, rule: EdgeTlsRule) {
+    this.maybeFail()
+    const found = this.sql.exec<{ id: string }>(`SELECT id FROM cloud_fake_tls WHERE vm = ? AND domain = ?`, vmId, rule.domain)[0]
+    if (!found) return false
+    this.sql.exec(`UPDATE cloud_fake_tls SET rule = ? WHERE id = ?`, JSON.stringify(rule), found.id)
+    return true
   }
 
   async pause(id: string) {
