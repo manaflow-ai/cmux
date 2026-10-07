@@ -55,13 +55,20 @@ login = "acme-agent login"
 docs = "https://acme.example/setup"
 
 [sessions]
-roots = ["~/.acme/sessions"]
-home_env = ["ACME_HOME"]
-format = "jsonl"
-resume = ["acme-agent", "--resume", "${sessionId}"]
+adapter = "jsonl"
+roots = ["${ACME_HOME:-~/.acme}/sessions"]
+layouts = ["~/.acme-accounts/*/sessions"]
+files = "*/*.jsonl"
+exclude = ["**/subagents/**"]
 [sessions.fields]
-id = "/sessionId"
-title = "/summary"
+id = "file.stem"
+title = ["last:/customTitle", "first:/message/content"]
+cwd = "first:/cwd"
+updated = "file.mtime"
+count = "count:/type=user"
+[sessions.resume]
+argv = ["acme-agent", "--resume", "{id}"]
+cwd = "{cwd}"
 "#;
 
 fn user_only(dir: &Path) -> ProfileSources {
@@ -98,9 +105,14 @@ fn a_profile_file_maps_onto_a_harness_profile() {
     let detail = &meta.model_details[0];
     assert_eq!(detail.short_name.as_deref(), Some("Large"));
     assert_eq!(detail.context_window, Some(200_000));
-    let sessions = meta.sessions.as_ref().unwrap();
-    assert_eq!(sessions.format, SessionsFormat::Jsonl);
-    assert_eq!(sessions.home_env, ["ACME_HOME"]);
+    // The ALL-CHATS-ON-DEVICE sessions block (nx-all-chats DESIGN.md section 5).
+    let sessions = serde_json::to_value(meta.sessions.as_ref().unwrap()).unwrap();
+    assert_eq!(sessions["adapter"], "jsonl");
+    assert_eq!(sessions["layouts"][0], "~/.acme-accounts/*/sessions");
+    assert_eq!(sessions["files"], "*/*.jsonl");
+    assert_eq!(sessions["fields"]["title"][1], "first:/message/content");
+    assert_eq!(sessions["fields"]["id"], "file.stem");
+    assert_eq!(sessions["resume"]["argv"][2], "{id}");
     assert_eq!(meta.auth.as_ref().unwrap().login.as_deref(), Some("acme-agent login"));
 }
 
@@ -293,4 +305,31 @@ fn declared_models_carry_profile_catalog_fields() {
         plain,
         serde_json::json!({"id": "acme-small", "name": "acme-small", "declared": true})
     );
+}
+
+#[test]
+fn a_sessions_block_is_validated() {
+    let dir = temp("sessions");
+    let base = "command = \"x\"\n[sessions]\n";
+    let cases = [
+        ("unknown-adapter", "adapter = \"zip\"\nroots = [\"/r\"]\n", "adapter"),
+        ("builtin-fields", "adapter = \"codex\"\n[sessions.fields]\nid = \"file.stem\"\n", "built-in"),
+        ("no-files", "adapter = \"jsonl\"\nroots = [\"/r\"]\n[sessions.fields]\nid = \"file.stem\"\n", "files"),
+        ("bad-selector", "adapter = \"jsonl\"\nroots = [\"/r\"]\nfiles = \"*.jsonl\"\n[sessions.fields]\nid = \"stem\"\n", "selector"),
+        ("sql-write", "adapter = \"sqlite\"\nroots = [\"/r\"]\nfiles = \"*.db\"\nquery = \"ATTACH 'x' AS y\"\n", "read-only"),
+        ("resume-both", "adapter = \"claude-code\"\n[sessions.resume]\nargv = [\"c\"]\nadopt = true\n", "resume"),
+    ];
+    for (id, body, _) in cases {
+        write(&dir, &format!("{id}.toml"), &format!("id = \"{id}\"\n{base}{body}"));
+    }
+    write(&dir, "ok-builtin.toml", "id = \"ok-builtin\"\ncommand = \"x\"\n[sessions]\nadapter = \"claude-code\"\nlayouts = [\"~/.subrouter/codex/claude/*/projects\"]\n");
+    let loaded = load(&user_only(&dir));
+    assert_eq!(loaded.profiles.keys().collect::<Vec<_>>(), ["ok-builtin"], "{:?}", loaded.diagnostics);
+    for (id, _, needle) in cases {
+        assert!(
+            loaded.diagnostics.iter().any(|d| d.id.as_deref() == Some(id) && d.message.contains(needle)),
+            "{id}: {:?}",
+            loaded.diagnostics
+        );
+    }
 }
