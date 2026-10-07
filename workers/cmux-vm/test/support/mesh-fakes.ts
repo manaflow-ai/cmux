@@ -97,6 +97,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return json({ id, cidr, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
     }
     const vpcMatch = /^\/v5\/vpcs\/([^/]+)$/u.exec(path);
+    if (vpcMatch !== null && method === "GET") {
+      const found = vpcs.get(decodeURIComponent(vpcMatch[1] ?? ""));
+      return found === undefined ? json({ message: "not found" }, 404) : json({ ...found, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
+    }
     if (vpcMatch !== null && method === "DELETE") {
       const id = decodeURIComponent(vpcMatch[1] ?? "");
       if (!vpcs.has(id)) return json({ message: "not found" }, 404);
@@ -108,6 +112,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
+      const routesIn = Array.isArray(fields["routes"]) ? fields["routes"] : [];
+      if (!routesIn.includes("fd00:1::/64")) return json({ code: "CONFLICT", message: "network IPv6 range outside the tunnel's routes" }, 409);
       const routes = Array.isArray(fields["routes"]) ? fields["routes"].filter((route): route is string => typeof route === "string") : [];
       const tunnel: FakeTunnel = {
         id: `tun-${crypto.randomUUID()}`,

@@ -20,6 +20,7 @@ import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/ki
 import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
+import "../../markdown-task-checkbox.css";
 import {
   brokenLinkPlugin,
   caretAt,
