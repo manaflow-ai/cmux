@@ -51,6 +51,9 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
+    /// The bridged connection's liveness ask (`DaemonConnection+Heartbeat`).
+    let heartbeat: DemandTimer
+    var heartbeatMisses = 0
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -69,6 +72,7 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
+        heartbeat = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
         // concurrency-allow: drained at once by the store pump into the bounded EventInbox
         (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
     }
@@ -92,6 +96,7 @@ public actor DaemonConnection {
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
+        heartbeat.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let transport, _, _) = phase { transport.close() }
@@ -224,6 +229,7 @@ public actor DaemonConnection {
             phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
             wake.watch(file: endpoint.socketPath)
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
+            if endpoint.bridge != nil { scheduleHeartbeat(transport, serial: serial) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged))
             gate.open(first: connected) { continuation.yield($0) }
@@ -273,6 +279,7 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
+        heartbeat.cancel()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"
