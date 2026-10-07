@@ -81,7 +81,7 @@ public struct WindowAppearanceSnapshot {
             tintOpacity: sidebarSettings.tintOpacity,
             cornerRadius: sidebarSettings.cornerRadius,
             blurOpacity: sidebarSettings.blurOpacity,
-            colorScheme: resolvedScheme,
+            colorScheme: sidebarScheme,
             compositorGlass: sidebarSettings.compositorGlass,
             compositorBlurRadius: sidebarSettings.compositorBlurRadius
         )
@@ -95,10 +95,12 @@ public struct WindowAppearanceSnapshot {
     ///
     /// The workspace card paints its own opaque terminal colour, so the ground
     /// can go clear under it. A translucent terminal already has Ghostty's own
-    /// blur path and keeps the legacy plan. This one answer drives the ground,
-    /// the sidebar layer, and the window plan, so they can never disagree.
+    /// blur path and keeps the legacy plan, and Reduce Transparency keeps the
+    /// opaque plan. This one answer drives the ground, the sidebar layer, and
+    /// the window plan, so they can never disagree.
     public var usesCompositorGlass: Bool {
         sidebarSettings.compositorGlass
+            && !reducesTransparency
             && !unifySurfaceBackdrops
             && terminalBackgroundOpacity >= 0.999
             && !terminalBackgroundBlur.isMacOSGlassStyle

@@ -66,7 +66,7 @@ public struct SidebarBackdropSettingsSnapshot {
         cornerRadius: Double,
         blurOpacity: Double,
         colorScheme: ColorScheme,
-        compositorGlass: Bool = true,
+        compositorGlass: Bool = false,
         compositorBlurRadius: Double = Self.compositorBlurRadiusRange.lowerBound
     ) {
         self.materialRawValue = materialRawValue

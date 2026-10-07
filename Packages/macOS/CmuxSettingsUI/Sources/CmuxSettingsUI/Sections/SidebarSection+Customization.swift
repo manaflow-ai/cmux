@@ -15,6 +15,7 @@ extension SidebarSection {
                 .toggleStyle(.switch)
                 .controlSize(.small)
         }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-liquid-glass"])
         SettingsCardDivider()
 
         SettingsCardRow(
@@ -62,6 +63,7 @@ extension SidebarSection {
             }
         }
         .disabled(!liquidGlass.current)
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-glass-blur"])
         SettingsCardDivider()
 
         SettingsCardRow(
@@ -167,6 +169,7 @@ extension SidebarSection {
             .fixedSize()
             .disabled(peekDisabled.current)
         }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-peek-reveal"])
         SettingsCardDivider()
 
         SettingsCardRow(
@@ -180,6 +183,7 @@ extension SidebarSection {
                 .labelsHidden()
                 .controlSize(.small)
         }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-peek-disabled"])
         SettingsCardDivider()
 
         SettingsCardRow(
@@ -199,6 +203,7 @@ extension SidebarSection {
             .pickerStyle(.segmented)
             .fixedSize()
         }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-row-density"])
         SettingsCardDivider()
 
         SettingsCardRow(
@@ -212,6 +217,7 @@ extension SidebarSection {
                 .labelsHidden()
                 .controlSize(.small)
         }
+        .settingsSearchAnchors(["setting:sidebarAppearance:sidebar-drag-switch"])
         SettingsCardDivider()
     }
 

@@ -70,9 +70,9 @@ public struct WindowAppearanceUserSettingsSnapshot {
         bgGlassEnabled: Bool,
         bgGlassTintHex: String,
         bgGlassTintOpacity: Double,
-         sidebarCompositorGlass: Bool = true,
-         sidebarGlassBlurRadius: Double = SidebarBackdropSettingsSnapshot.compositorBlurRadiusRange.lowerBound,
-         reduceTransparency: Bool = false
+        sidebarCompositorGlass: Bool = false,
+        sidebarGlassBlurRadius: Double = SidebarBackdropSettingsSnapshot.compositorBlurRadiusRange.lowerBound,
+        reduceTransparency: Bool = false
     ) {
         self.sidebarCompositorGlass = sidebarCompositorGlass
         self.sidebarGlassBlurRadius = sidebarGlassBlurRadius
