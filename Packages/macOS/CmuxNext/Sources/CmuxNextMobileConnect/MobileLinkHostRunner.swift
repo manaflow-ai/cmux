@@ -72,10 +72,9 @@ public actor MobileLinkHostRunner {
 
         let box = socket
         let channel = SignalFrameChannel { frame in try await box.send(try MobileFrame.signal(frame).jsonValue) }
-        // TURN credentials ride a `read` on the host socket, which the uplink
-        // owns; until it exposes reads, ICE is STUN only (P2P, no relay).
-        let signaling = MobileHostSignaling(router: SignalRouter(channel: channel), iceServers: StaticICEServerProvider(.stunOnly),
-                                            close: { channel.finish() })
+        // TURN credentials ride a `read` on the host socket the uplink owns.
+        let ice = HostSocketICEServers { op, params in try await box.read(op, params: params) }
+        let signaling = MobileHostSignaling(router: SignalRouter(channel: channel), iceServers: ice, close: { channel.finish() })
         let assembly = MobileHostAssembly(
             credentials: MobileHostCredentials(hostID: principal.hostID, accountUserID: principal.accountUserID, direct: direct,
                                                webrtc: account.webrtcIdentity, wireGuard: wireGuard),
@@ -143,9 +142,9 @@ public actor MobileLinkHostRunner {
                 let socket = try await ControlPlaneHostSocket.connect(
                     transport: URLSessionControlPlaneTransport(),
                     baseURL: socketURL(principal.apiBaseURL, path: "/"), hostID: principal.hostID, token: token)
-                await box.set(socket)
                 let uplink = HostControlUplink(socket: socket, host: host, install: principal.install, appVersion: appVersion,
                                                signaling: channel)
+                await box.set(socket, uplink: uplink)
                 backoff.reset()
                 try await uplink.run()
                 await box.set(nil)

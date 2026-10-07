@@ -318,11 +318,18 @@ export class HostControl {
     if (!this.toDevice(s.to, relayed)) sendJson(ws, errorFrame({ code: "signal.peer_offline", message: "that device is not connected to this host", retryable: true }))
   }
 
-  private macFrame(ws: WebSocket, a: ControlAttachment, frame: Frame) {
+  private async macFrame(ws: WebSocket, a: ControlAttachment, frame: Frame) {
     const ids = this.ids()!
     const names = this.streamNames(ids.host)
     const mirrored = (s: unknown): s is string => s === names.workspace || s === names.task
     switch (frame.t) {
+      case "read": {
+        // The Mac's WebRTC acceptor needs ICE servers too (b2-webrtc.md 5); it is the only read the host role asks.
+        const r = readFields(frame)
+        if (!r.ok) return sendJson(ws, r.error)
+        if (r.op !== "signal.turn_credentials") return sendJson(ws, errorFrame({ code: "validation.invalid", message: `unknown read ${r.op}`, retryable: false }, r.id))
+        return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, identityOf(a.principal)))))
+      }
       case "op": {
         const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
         const params = (typeof frame.params === "object" && frame.params !== null ? frame.params : {}) as Record<string, unknown>

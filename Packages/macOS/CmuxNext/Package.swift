@@ -987,6 +987,19 @@ let package = Package(
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextMobileConnectTests",
+            dependencies: [
+                "CmuxNextMobileConnect",
+                "CmuxNextMobileLink",
+                "CmuxNextDaemon",
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextMobile",
             dependencies: [
