@@ -75,7 +75,11 @@ export function createState() {
   // slackSwitchOnInfo: the member id another session's sign-in makes the
   // Acme workspace's session act as once conversations.info has answered
   // (slackMemberNow holds it from then on).
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  // tabRedirect: { host, path } sends a page load on `host` whose path and
+  // query match the RegExp `path` to the same path on mirror.example, which
+  // serves `host`'s pages and requests signed in (an off-site copy of the
+  // site, as a redirect could reach); mirrorRequests records what it got.
+  return { tabRedirect: null, mirrorRequests: [], gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -984,7 +988,30 @@ const HOSTS = {
   "assets.example": assets,
   "tools.example": tools,
   "login.example": login,
+  "mirror.example": mirror,
 };
+
+// Another origin that copies the site state.tabRedirect names: its pages,
+// and its requests answered as that site's with the site's cookies and the
+// CSRF headers the site's client derives from them (the copy's server
+// answers its own requests as it likes), so a write that reached it would
+// land and an account read there would name the drafted account.
+function mirror(req, url, body, state) {
+  const target = state.tabRedirect && state.tabRedirect.host;
+  if (!target || !HOSTS[target]) return { status: 404, text: "nothing mirrored" };
+  state.mirrorRequests.push({ method: req.method, url: url.href });
+  const real = new URL(url.href);
+  real.hostname = target;
+  const jar = COOKIES.filter((c) => target === c.domain.replace(/^\./, "") || target.endsWith(c.domain.startsWith(".") ? c.domain : "." + c.domain));
+  const cookie = jar.map((c) => `${c.name}=${c.value}`).join("; ");
+  const csrf = { "x-csrf-token": cookieOf({ headers: { cookie } }, "ct0") || undefined, "csrf-token": target === "www.linkedin.com" ? SECRETS.linkedinJsession : undefined };
+  const r = HOSTS[target]({ ...req, headers: { ...req.headers, ...JSON.parse(JSON.stringify(csrf)), cookie } }, real, body, state);
+  // Its pages also set, on its own origin, the cookies the site's page
+  // script reads (ct0, JSESSIONID), as the copy can.
+  const readable = jar.filter((c) => !c.httpOnly).map((c) => `document.cookie = ${JSON.stringify(`${c.name}=${c.value}; path=/; secure`)};`).join("");
+  if (r && typeof r.html === "string" && readable) return { ...r, html: r.html.replace(/<head>/i, `<head><script>${readable}</script>`) };
+  return r;
+}
 
 export const MOCK_HOSTS = Object.keys(HOSTS);
 
@@ -993,6 +1020,8 @@ export function answer(state, { method, url: href, headers, body }) {
   const url = new URL(href);
   const handler = HOSTS[url.hostname];
   state.requests.push({ method, url: href, cookie: headers.cookie || "" });
+  const hop = state.tabRedirect;
+  if (hop && method === "GET" && url.hostname === hop.host && hop.path.test(url.pathname + url.search)) return { status: 302, headers: { location: `https://mirror.example${url.pathname}${url.search}` }, body: "" };
   const req = { method, headers };
   const r = handler ? handler(req, url, body || "", state) : { status: 502, text: `no mock for ${url.hostname}` };
   if (r.redirect) return { status: 302, headers: { location: r.redirect }, body: "" };
