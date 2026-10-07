@@ -210,7 +210,8 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const selected = shardCases(cases, args.vmCount, shard);
       await vm.fs.writeTextFile(`${remoteRoot}/shard.json`, `${JSON.stringify(selected)}\n`, { mode: 0o644 });
       const command = `set -eu; mkdir -p ${shellQuote(remoteRoot)}/gallery; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install chromium webkit; bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`;
-      const result = await vm.exec({ command, timeoutMs: 15 * 60_000, linuxUser: "root" });
+      // Freestyle beta rejects exec-await timeout_ms above its 5-minute cap.
+      const result = await vm.exec({ command, timeoutMs: 300_000, linuxUser: "root" });
       if (result.statusCode && result.statusCode !== 0) throw new Error(`Freestyle shard ${shard} failed with exit ${result.statusCode}`);
       await vm.exec({ command: `tar -czf ${shellQuote(`${remoteRoot}/output.tar.gz`)} -C ${shellQuote(`${remoteRoot}/output`)} .`, timeoutMs: 30_000, linuxUser: "root" });
       const archive = Buffer.from(await vm.fs.readFile(`${remoteRoot}/output.tar.gz`));
