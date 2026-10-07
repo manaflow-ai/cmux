@@ -1128,6 +1128,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
 
+      - name: Validate the nightly-next promotion gate
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_promotion_gate.py
+
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
