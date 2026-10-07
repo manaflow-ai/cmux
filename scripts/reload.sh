@@ -1154,8 +1154,9 @@ print_tag_cleanup_commands() {
   local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
   printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
   # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
-  # keep running from the deleted bundle: stop it, and its terminals, through the bundle's
-  # own binary before the rm.
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
   own="$(tagged_derived_data_path "$tag")"
   if [[ -z "$derived" && -L "$link" ]]; then
     derived="$(readlink "$link" 2>/dev/null || true)"
@@ -1166,7 +1167,7 @@ print_tag_cleanup_commands() {
   for root in "${roots[@]}"; do
     for config in Debug Release; do
       bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
-      printf '  [ -x %q ] && %q --session %q server stop --end-terminals\n' "$bin" "$bin" "cmux-app-${tag}"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
     done
   done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"

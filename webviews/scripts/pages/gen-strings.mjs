@@ -58,6 +58,12 @@ export function schemaKeys(schemaFile) {
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 // The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
 export const PAGES = {
+  diff: {
+    out: "webviews/src/pages/diff/generated/strings.json",
+    catalogs: [
+      { file: "Resources/Localizable.xcstrings", keys: (all) => all.filter((key) => key.startsWith("diffViewer.")) },
+    ],
+  },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
     catalogs: [{ file: "webviews/src/ui/variant-pick/Localizable.xcstrings" }],
