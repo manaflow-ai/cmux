@@ -146,6 +146,19 @@ import Testing
         #expect(tokens.count == 2 && tokens[0] != nil && tokens[0] != tokens[1])
     }
 
+    /// The helper socket lives in this user's own temp directory (0700,
+    /// owned by the user, not shared like /tmp), and the full path fits
+    /// a Unix socket address (104 bytes on macOS).
+    @Test func theDefaultSocketIsInThisUsersTempDirectoryAndFitsSunPath() throws {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        try #require(confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0)
+        let temp = String(cString: buffer)
+        let path = ComputerUseHelperDaemon.defaultSocketPath(bundleID: "com.cmuxterm.app.debug.some-long-tag-name-for-a-dev-build")
+        #expect(path.hasPrefix(temp), "\(path) is not under \(temp)")
+        #expect(path.utf8.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path), "\(path.utf8.count) bytes")
+        #expect(path.hasSuffix("/cua.sock"))
+    }
+
     @Test func turningItOffOrQuittingStopsTheHelper() async {
         let launcher = FakeLauncher()
         var exported: [String: String] = [:]
