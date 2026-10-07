@@ -488,9 +488,7 @@ private struct NativePricingPlansView: View {
                 headerAccessory: proOffersInterval
                     ? AnyView(NativePricingIntervalToggle(selection: $proInterval))
                     : nil,
-                footnote: proOffersInterval
-                    ? (proInterval == .year ? Self.proBilledYearlyNote : "")
-                    : nil,
+
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
                     String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"),
@@ -572,14 +570,6 @@ private struct NativePricingPlansView: View {
         proOffersInterval ? proInterval : .month
     }
 
-    private static var proBilledYearlyNote: String {
-        String(
-            format: String(localized: "pricing.native.pro.billedYearly", defaultValue: "$%lld billed yearly, save %lld%%"),
-            Int64(480),
-            Int64(20)
-        )
-    }
-
     /// A Max subscriber already has everything Pro sells, so the Pro card
     /// opens the billing portal instead of a second checkout.
     private var proAction: (() -> Void)? {
@@ -612,9 +602,6 @@ private struct NativePricingPlanCard: View {
     var isProminent = false
     /// Trailing content in the name row, such as the Pro billing-period toggle.
     var headerAccessory: AnyView? = nil
-    /// A line under the button. An empty string keeps the line's height so
-    /// the card does not jump when the text comes and goes.
-    var footnote: String? = nil
     let features: [String]
 
     var body: some View {
@@ -654,13 +641,6 @@ private struct NativePricingPlanCard: View {
             .disabled(action == nil)
             .controlSize(.large)
             .frame(maxWidth: .infinity)
-            if let footnote {
-                Text(footnote.isEmpty ? " " : footnote)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, -8)
-                    .accessibilityHidden(footnote.isEmpty)
-            }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(features, id: \.self) { feature in
                     HStack(alignment: .top, spacing: 8) {
