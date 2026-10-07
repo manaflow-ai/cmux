@@ -572,10 +572,9 @@ struct CloudWelcomeMediaCarousel: View {
                 let radius = min(bounds.width, bounds.height) / 2
                 fill.cornerRadius = radius
                 layer?.cornerRadius = radius
-                fill.backgroundColor = NSColor.labelColor
-                    .withAlphaComponent(0.85)
-                    .resolvedColor(with: effectiveAppearance)
-                    .cgColor
+                effectiveAppearance.performAsCurrentDrawingAppearance {
+                    fill.backgroundColor = NSColor.labelColor.withAlphaComponent(0.85).cgColor
+                }
                 CATransaction.commit()
             }
 
