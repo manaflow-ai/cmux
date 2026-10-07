@@ -11,6 +11,7 @@ mod adoption;
 mod fork;
 mod handoff;
 mod harness_view;
+mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
