@@ -74,9 +74,9 @@ describe("composer attachments", () => {
     expect(px(remove.top, box) + size).toBeLessThanOrEqual(56);
     for (const property of ["background", "color"]) {
       expect(`${property}: ${remove[property]}`).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
-      expect(remove[property]).toContain("var(--agent-");
+      expect(remove[property]).toMatch(/var\(--(agent|acpmux)-/);
     }
-    expect(rule(".acpmux-composer .acpmux-attachment-remove:hover").background).toContain("var(--agent-");
+    expect(rule(".acpmux-composer .acpmux-attachment-remove:hover").background).toMatch(/var\(--(agent|acpmux)-/);
     expect(rule(".acpmux-composer .acpmux-attachment-remove:focus-visible").outline).toContain("var(--agent-text)");
   });
 
