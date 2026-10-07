@@ -21,7 +21,9 @@ export type PlayTarget =
   | { role: string; name?: string | RegExp }
   | { testId: string }
   | { text: string | RegExp }
-  | { selector: string };
+  | { selector: string }
+  /** A CSS selector matched in the document and in every open shadow root (a web component's rows). */
+  | { deep: string };
 
 export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
@@ -177,11 +179,24 @@ export function describeTarget(target: PlayTarget): string {
   if ("role" in target) return `${target.role}${target.name === undefined ? "" : ` "${String(target.name)}"`}`;
   if ("testId" in target) return `[data-testid=${target.testId}]`;
   if ("text" in target) return `text "${String(target.text)}"`;
+  if ("deep" in target) return `deep ${target.deep}`;
   return target.selector;
+}
+
+/** The first match of `selector` in `root` or in any open shadow root under it, in document order. */
+export function deepQuery(root: Document | Element | ShadowRoot, selector: string): Element | null {
+  const direct = root.querySelector(selector);
+  if (direct) return direct;
+  for (const element of root.querySelectorAll("*")) {
+    const found = element.shadowRoot ? deepQuery(element.shadowRoot, selector) : null;
+    if (found) return found;
+  }
+  return null;
 }
 
 export function resolveTarget(root: Document | Element, target: PlayTarget): Element | null {
   if ("selector" in target) return root.querySelector(target.selector);
+  if ("deep" in target) return deepQuery(root, target.deep);
   if ("testId" in target) return root.querySelector(`[data-testid="${CSS.escape(target.testId)}"]`);
   const all = [...root.querySelectorAll("*")];
   if ("text" in target) {

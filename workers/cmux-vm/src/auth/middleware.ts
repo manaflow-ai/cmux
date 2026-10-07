@@ -45,6 +45,7 @@ export const authenticationLayer = Layer.effect(
           actor: { kind: "api_key", keyId: record.value.id },
           scopes: scopeSetOf(record.value.scopes),
           resourceAllowlist: record.value.resourceAllowlist === null ? null : new Set(record.value.resourceAllowlist),
+          credentialExpiresAt: record.value.expiresAt,
         };
         return principal;
       });
@@ -77,6 +78,7 @@ export const authenticationLayer = Layer.effect(
           actor: { kind: "session", userId },
           scopes: SESSION_SCOPES,
           resourceAllowlist: null,
+          credentialExpiresAt: null,
         };
         return principal;
       });

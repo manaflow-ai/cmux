@@ -88,7 +88,11 @@ public nonisolated final class RemoteRdCore {
         var message = CmuxRdMessage()
         guard try RemoteRdCoreError.check(cmux_rd_receiver_pop_message(handle, &message)) == 1 else { return nil }
         let bytes = Self.copy(message.data, message.len)
-        return UInt32(message.kind) == UInt32(CMUX_RD_MESSAGE_CONTROL) ? .control(bytes) : .datagram(bytes)
+        switch UInt32(message.kind) {
+        case UInt32(CMUX_RD_MESSAGE_CONTROL): return .control(bytes)
+        case UInt32(CMUX_RD_MESSAGE_BULK): return .bulk(bytes)
+        default: return .datagram(bytes)
+        }
     }
 
     /// Records one decode time for the feedback's median.

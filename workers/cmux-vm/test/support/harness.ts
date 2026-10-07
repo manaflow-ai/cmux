@@ -6,7 +6,10 @@
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
-import { generateApiKey, hashApiKey, makeStackSessionVerifier, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
+import { generateApiKey, hashApiKey, makeStackSessionVerifier, makeStackTeamMembership, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
+import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
+import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
+import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
@@ -16,6 +19,10 @@ import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
+import { makeS3aFakes } from "./s3a-fakes.ts";
+import { TeamAdmin } from "../../src/auth/team-admin.ts";
+import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
+import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -29,10 +36,16 @@ export interface HarnessOptions {
   readonly devTestTenants?: ReadonlyArray<string>;
   /** Live VMs per tenant. */
   readonly maxVms?: number;
+  /** Live snapshots per tenant. */
+  readonly maxSnapshots?: number;
   /** Requests per minute per tenant for each limit class. */
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
+  readonly mesh?: MeshFakeOptions;
+  /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
+  readonly stackWebhookSecret?: string;
 }
 
 /** One audit row as a test sees it. */
@@ -42,6 +55,8 @@ export interface AuditRow {
   readonly action: string;
   readonly cmuxId: string | null;
   readonly outcome: string;
+  /** The owner a device or system actor acted for (mesh M4); null otherwise. */
+  readonly ownerActor: string | null;
 }
 
 type SigningKey = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
@@ -50,12 +65,19 @@ interface StoredKey extends ApiKeyRecord {
   readonly hash: string;
   readonly revoked: boolean;
   readonly expiresAt: Date | null;
+  /** Set by the API key management endpoints (cx-b4h.12). */
+  readonly name?: string;
+  readonly createdBy?: string;
+  readonly createdAt?: Date;
+  readonly revokedAt?: Date;
 }
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
   const members = new Map<string, Set<string>>();
+  /** Team admins (Stack team_admin), per tenant. */
+  const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
@@ -70,6 +92,22 @@ export async function makeHarness(options: HarnessOptions = {}) {
     lastCreatedMs = Math.max(at.getTime(), lastCreatedMs + 1);
     return new Date(lastCreatedMs);
   };
+
+  /** Stack server API calls that asked for a user's teams (membership lookups). */
+  const stackMembershipCalls: string[] = [];
+  /** Users Stack cannot answer for (a deleted user, or Stack down for them): their lookups answer 500. */
+  const stackFailing = new Set<string>();
+  const stackFetch = async (request: Request): Promise<Response> => {
+    const url = new URL(request.url);
+    if (url.pathname !== "/api/v1/teams") return Response.json({ message: "no route" }, { status: 404 });
+    const user = url.searchParams.get("user_id") ?? "";
+    stackMembershipCalls.push(user);
+    if (stackFailing.has(user)) return Response.json({ message: "injected failure" }, { status: 500 });
+    const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team }));
+    return Response.json({ items });
+  };
+  const membershipCache = makeMemoryMembershipCache();
+  const webhookDeliveries = makeMemoryWebhookDeliveryStore();
 
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
@@ -107,7 +145,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const auditStore = Layer.succeed(AuditStore, {
     append: (entry) =>
       Effect.sync(() => {
-        audit.push({ tenantId: entry.tenantId, actor: entry.actor, action: entry.action, cmuxId: entry.cmuxId, outcome: entry.outcome });
+        audit.push({ tenantId: entry.tenantId, actor: entry.actor, action: entry.action, cmuxId: entry.cmuxId, outcome: entry.outcome, ownerActor: entry.ownerActor });
       }),
   });
 
@@ -115,6 +153,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
     ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
+    ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
   });
@@ -130,7 +169,20 @@ export async function makeHarness(options: HarnessOptions = {}) {
           keys.find((key) => key.hash === hash && !key.revoked && (key.expiresAt === null || key.expiresAt > now)),
         ),
       ),
+    findActiveById: (tenantId, id, now) =>
+      Effect.sync(() =>
+        Option.fromNullable(
+          keys.find((key) => key.tenantId === tenantId && key.id === id && !key.revoked && (key.expiresAt === null || key.expiresAt > now)),
+        ),
+      ),
   });
+
+  /** Snapshot reads and terminals (slice S3a) are served by s3a-fakes.ts; everything else by fake-upstream.ts. */
+  const s3a = makeS3aFakes(resources, upstream);
+  /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
+  const mesh = makeMeshFakes(upstream, options.mesh);
+  const upstreamFetch = async (request: Request): Promise<Response> =>
+    (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
   const services = Layer.mergeAll(
     ownership,
@@ -141,15 +193,75 @@ export async function makeHarness(options: HarnessOptions = {}) {
     memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
-    Layer.succeed(TeamMembership, {
-      isMember: (tenantId, userId) => Effect.sync(() => members.get(tenantId)?.has(userId) ?? false),
+    // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
+    Layer.succeed(
+      TeamMembership,
+      makeStackTeamMembership({
+        apiUrl: STACK_API_URL,
+        projectId: STACK_PROJECT_ID,
+        serverKey: Redacted.make("stack-test-server-key"),
+        cache: membershipCache.service,
+        fetch: stackFetch,
+      }),
+    ),
+    membershipCache.layer,
+    webhookDeliveries.layer,
+    s3a.layer(upstreamFetch),
+    mesh.layer(upstreamFetch),
+    Layer.succeed(TeamAdmin, {
+      isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
+    }),
+    Layer.succeed(ApiKeyAdminStore, {
+      insert: (key) =>
+        Effect.sync(() => {
+          keys.push({
+            id: key.id,
+            tenantId: key.tenantId,
+            scopes: key.scopes,
+            resourceAllowlist: key.resourceAllowlist,
+            hash: key.keyHash,
+            revoked: false,
+            expiresAt: key.expiresAt,
+            name: key.name,
+            createdBy: key.createdBy,
+            createdAt: key.createdAt,
+          });
+        }),
+      list: (tenantId, limit) =>
+        Effect.sync(() =>
+          keys
+            .filter((key) => key.tenantId === tenantId)
+            .map((key) => ({
+              id: key.id,
+              name: key.name ?? "test key",
+              scopes: key.scopes,
+              resourceAllowlist: key.resourceAllowlist,
+              createdBy: key.createdBy ?? "user:test",
+              createdAt: key.createdAt ?? new Date(0),
+              expiresAt: key.expiresAt,
+              revokedAt: key.revokedAt ?? null,
+            }))
+            .reverse()
+            .slice(0, limit),
+        ),
+      revoke: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = keys.findIndex((key) => key.tenantId === tenantId && key.id === id);
+          const found = keys[index];
+          if (found === undefined) return false;
+          keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? at };
+          return true;
+        }),
     }),
   );
 
-  const { handler, dispose } = makeWebHandler(services);
+  const { handler, dispose } = makeWebHandler(
+    services,
+    options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
+  );
 
   return {
     dispose,
@@ -165,6 +277,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);
     },
+    /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
+    s3a,
+    /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
+    mesh,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
@@ -218,6 +334,56 @@ export async function makeHarness(options: HarnessOptions = {}) {
         expiresAt: options.expiresAt ?? null,
       });
       return secret;
+    },
+    /** Revokes the API key whose secret is `secret`, as the key management endpoint does. */
+    async revokeKey(secret: string) {
+      const hash = await Effect.runPromise(hashApiKey(secret));
+      const index = keys.findIndex((key) => key.hash === hash);
+      const found = keys[index];
+      if (found === undefined) throw new Error("revokeKey: no such key");
+      keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? new Date() };
+    },
+    /** Makes `user` a team admin of `tenant` (Stack team_admin). */
+    addAdmin(tenant: string, user: string) {
+      const set = admins.get(tenant) ?? new Set<string>();
+      set.add(user);
+      admins.set(tenant, set);
+    },
+    /** Every stored API key record, as the database would hold it (hashes, never secrets). */
+    storedKeys(): ReadonlyArray<StoredKey> {
+      return keys;
+    },
+    /** Membership lookups that reached the (fake) Stack server API, by user id. */
+    stackMembershipCalls,
+    /** The shared membership cache and the processed webhook deliveries (mesh M4). */
+    membershipCache,
+    webhookDeliveries,
+    /** Stack membership lookups for `user` answer 500 (on) or normally (off). */
+    failStackFor(user: string, on = true) {
+      if (on) stackFailing.add(user);
+      else stackFailing.delete(user);
+    },
+    /** Removes `user` from `tenant` in the fake Stack directory (no webhook is sent). */
+    removeMember(tenant: string, user: string) {
+      members.get(tenant)?.delete(user);
+    },
+    /** Sends a Stack webhook signed with `secret` (default: the harness secret), as Stack (Svix) does. */
+    async stackWebhook(
+      event: { readonly type: string; readonly data: unknown },
+      sign: { readonly id?: string; readonly timestampSeconds?: number; readonly secret?: string; readonly signature?: string } = {},
+    ): Promise<Response> {
+      const body = JSON.stringify(event);
+      const id = sign.id ?? `msg_${crypto.randomUUID()}`;
+      const timestamp = String(sign.timestampSeconds ?? Math.floor(Date.now() / 1000));
+      const secret = sign.secret ?? options.stackWebhookSecret ?? "";
+      const signature = sign.signature ?? `v1,${(await signWebhookContent(Redacted.make(secret), `${id}.${timestamp}.${body}`)) ?? ""}`;
+      return handler(
+        new Request("https://vm.test/v1/webhooks/stack", {
+          method: "POST",
+          headers: { "content-type": "application/json", "svix-id": id, "svix-timestamp": timestamp, "svix-signature": signature },
+          body,
+        }),
+      );
     },
     addMember(tenant: string, user: string) {
       const set = members.get(tenant) ?? new Set<string>();

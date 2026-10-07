@@ -125,6 +125,8 @@ User mode on Linux needs `loginctl enable-linger` to run without a login session
 
 `cmux server roles set apps,postgres,...` and Settings > Server toggle them. A role that is off costs disk, not memory or CPU.
 
+The `session` role's remote WebSocket on a user's server binds loopback by default, or a tailnet address when the pairing transport needs it, never 0.0.0.0, and every connection presents an enrolled device (revocation closes live sessions). The 0.0.0.0 trusted-carrier mode exists only for cmux Cloud machines behind the Freestyle edge, selected explicitly in `/etc/cmux/host.json` with `"carrier": "freestyle-edge"`; it assumes no ingress to port 1337 except the edge (vm-image.md 6.3a, bead cx-wx2).
+
 ## 6. Pairing and trust model
 
 ### 6.1 Principals
@@ -369,7 +371,7 @@ A pure reducer in `cmux-server-core` turns facts into alerts: `(facts, previous 
 | --- | --- | --- | --- |
 | `power.onBattery` | on battery for 60 s | warning; critical under 20% | none (plug in) |
 | `network.offline` | link down and no route for 30 s | critical | none |
-| `disk.low` | free < 10% and < 10 GiB (warning), < 5% and < 2 GiB (critical); clears 2 points above (Lawrence, 2026-10-02) | warning, critical | open storage settings |
+| `disk.low` | free < 10% and < 10 GiB (warning), < 5% and < 2 GiB (critical); clears 2 points or 2 GiB above (Lawrence, 2026-10-02) | warning, critical | open storage settings |
 | `lock.pending` | the display assertion is not held (battery, MDM, user setting) and the idle lock is due within 5 minutes while a GUI workload (computer use, a headful browser) runs | warning | hold the display assertion, or open Lock Screen settings |
 | `sleep.enabled` | system sleep on AC is enabled in settings (our assertion covers idle sleep, not a lid close or a scheduled sleep) | info | `pmset -c sleep 0 disksleep 0` (admin once) |
 | `restart.noAutoRestart` | `autorestart` off | info | `pmset -a autorestart 1` (admin once) |
@@ -470,7 +472,7 @@ Built in PR https://github.com/manaflow-ai/cmux/pull/16840 (module `CmuxNextServ
 | 2 | `cmux-server-core` pure crate: layout, ports, Postgres plan (conf, hba, ident, per-app SQL), pairing code and words, health reducer, unit renderers, channel manifest verification, op catalog (38 ops); 60 tests, clippy and fmt clean on a Blacksmith Testbox (PR https://github.com/manaflow-ai/cmux/pull/16814) | done |
 | 3 | Headless Linux prototype on a Freestyle VM (`server/prototype/linux/`, README has the numbers): installer with checksum, signature, expiry and downgrade refusal; user systemd service running the real pinned session host; idempotent rerun, upgrade with terminal adoption, rollback, uninstall, purge, reboot survival; Postgres 17 user and system mode with PITR; sandboxed chrome-headless-shell; logind inhibitors; idle 0.031 CPU-s/min | done (system mode end to end, aarch64, macOS, Windows UNVERIFIED) |
 | 4 | `CmuxNextServer` Swift prototypes (panel, pairing, approver, health; three variants each), 22 tests, 42 screenshots (PR https://github.com/manaflow-ai/cmux/pull/16840) | done (not hosted in the App yet) |
-| 5 | `cmux-server` I/O crate: store (SV-R1 baked keys, SV-R2 re-exec once into the verified binary, SV-R3 tar.gz only, SV-R4 0755 store / 0700 own state folder), service units, Postgres runner, health probes, CLI; `cmux server …` on the `cmux` surface and `cmux daemon …` for the daemon lifecycle (PR https://github.com/manaflow-ai/cmux/pull/17011); `cmux host run` supervisor is lane 1's crate `cmux-host` over the `Role` trait in core | in review, waits its cmux-tui window |
+| 5 | `cmux-server` I/O crate: store (SV-R1 baked keys, SV-R2 re-exec once into the verified binary, SV-R3 tar.gz only, SV-R4 0755 store / 0700 own state folder), service units, Postgres runner, health probes, CLI; `cmux server …` on the `cmux` surface and `cmux daemon …` for the daemon lifecycle (PR https://github.com/manaflow-ai/cmux/pull/17011); `cmux host run` supervisor is lane 1's crate `cmux-host` over the `Role` trait in core | landed (slice 1) |
 | 6 | `PairingDO`, `server.pair.*`, `host` kind `server` in `TeamDO` (PR https://github.com/manaflow-ai/cmux/pull/17001, 23dd7e308b9); follow-ups: role loss mid-approval, approve retries and the limiter, HMAC collect secret; network policy `tag:server` | landed; follow-ups in review |
 | 7 | macOS: menubar item, palette actions and launch agent (c84067b4d7f); privileged helper (fix allowlist, per-build LaunchDaemon `<bundle id>.server-helper`, serves only its own app signed by its team, `scripts/cmux-next/bundle-server-helper.sh`) | menubar landed; helper in review; UI wiring of fixes next |
 | 8 | Windows: installer, service, probes | later |

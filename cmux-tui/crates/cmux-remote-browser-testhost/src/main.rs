@@ -8,6 +8,11 @@
 //! exists so the Mac client (CmuxNextRemoteBrowser) is proven over the real
 //! wire before the CEF host (cmux-remote-browser-host) streams.
 //!
+//! It also plays a tiny page for the Mac client's GUI proof: a right-click
+//! (rb pointer `down`, button 2) opens a context menu (`rb.menu.show`), a
+//! Cmd-click (button 0 with the Command modifier) opens a background tab
+//! (`rb.open_tab`), and `rb.navigate` answers with `rb.page` for that URL.
+//!
 //! Usage: cmux-remote-browser-testhost [--port 4103] [--width 1280]
 //!        [--height 720] [--fps 30] [--frames 0] [--once]
 //! `--frames N` stops after N frames (0 = until the viewer leaves);
@@ -22,13 +27,15 @@ use std::time::{Duration, Instant};
 
 use cmux_encode::openh264::{OpenH264, OpenH264Api};
 use cmux_encode::{EncCfg, H264Encoder, I420};
-use cmux_rd_core::service::negotiate;
+use cmux_rd_core::service::{caps as rd_caps, negotiate};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_proto::InputEvent;
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, OVERLAY_PORT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     StreamDeframer, encode_stream_frame,
 };
+use serde_json::{Value, json};
 
 type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -158,7 +165,7 @@ fn session(mut stream: TcpStream, o: Options) -> Res<String> {
     let Control::Hello { service, caps, max_datagram, .. } = hello else {
         return Err("the first control message is not hello".into());
     };
-    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], &[]) {
+    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], HOST_CAPS) {
         Ok(n) => n,
         Err(refusal) => {
             write_control(&mut stream, &Control::Refused { reason: refusal.reason().into() })?;
@@ -221,6 +228,7 @@ fn stream_frames(
     let mut next_paint = Instant::now();
     let mut painted: u64 = 0;
     let mut pending = engine.start(now());
+    let mut page = Page::default();
     loop {
         if let Some(req) = pending.take() {
             let out = encode_one(&mut engine, &mut encoder, &mut picture, &req, painted, now())?;
@@ -234,15 +242,28 @@ fn stream_frames(
             engine.next_deadline_us().map(|d| Duration::from_micros(d.saturating_sub(now())));
         match frames.recv_timeout(deadline.map_or(wait, |d| d.min(wait))) {
             Ok((STREAM_DATAGRAM, datagram)) => {
-                let out = engine.on_datagram(&datagram, false, now());
+                let out = engine.on_datagram(&datagram, true, now());
+                for event in &out.inject {
+                    if let InputEvent::Service { bytes, .. } = event
+                        && let Some(reply) = page.input(bytes)
+                    {
+                        write_service(stream, reply)?;
+                    }
+                }
                 pending = pending.or(send(stream, out)?);
             }
-            Ok((_, control)) => {
-                if let Ok(Control::Stop) = serde_json::from_slice::<Control>(&control) {
+            Ok((_, control)) => match serde_json::from_slice::<Control>(&control) {
+                Ok(Control::Stop) => {
                     write_control(stream, &Control::Ended { reason: "stopped".into() })?;
                     return Ok("viewer stopped".into());
                 }
-            }
+                Ok(Control::Service { body, .. }) => {
+                    if let Some(reply) = page.control(&body) {
+                        write_service(stream, reply)?;
+                    }
+                }
+                _ => {}
+            },
             Err(RecvTimeoutError::Disconnected) => return Ok("viewer left".into()),
             Err(RecvTimeoutError::Timeout) => {}
         }
@@ -254,6 +275,65 @@ fn stream_frames(
             let full = cmux_rd_core::flow::Rect { x: 0, y: 0, width: o.width, height: o.height };
             pending = pending.or(engine.damage(0, full, now()));
         }
+    }
+}
+
+fn write_service(stream: &mut TcpStream, body: Value) -> Res<()> {
+    let service = SERVICE_REMOTE_BROWSER.to_string();
+    write_control(stream, &Control::Service { service, body })
+}
+
+/// The test page reads rb input events from service input (rd change C2).
+const HOST_CAPS: &[&str] = &[rd_caps::INPUT_SERVICE];
+
+/// rb modifier bit of the Command key (`cmux_remote_browser::proto::modifiers`).
+const MOD_COMMAND: u64 = 1 << 3;
+
+/// The test page's answers to viewer input and control messages. Tokens and
+/// requests count up from 1.
+#[derive(Debug, Default)]
+struct Page {
+    menus: u64,
+    tabs: u64,
+}
+
+impl Page {
+    /// One rb input event (JSON in an rd service event).
+    fn input(&mut self, bytes: &[u8]) -> Option<Value> {
+        let event: Value = serde_json::from_slice(bytes).ok()?;
+        if event["e"] != "pointer" || event["kind"] != "down" {
+            return None;
+        }
+        let (x, y) = (event["x"].as_f64()?, event["y"].as_f64()?);
+        match event["button"].as_u64()? {
+            2 => {
+                self.menus += 1;
+                let item = |id: i64, label: &str| json!({"id": id, "type": "command", "label": label, "enabled": true, "checked": false, "items": []});
+                Some(json!({"t": "rb.menu.show", "token": self.menus, "menu": {
+                    "kind": "context", "anchor": {"x": x, "y": y, "width": 0.0, "height": 0.0}, "surface": 0,
+                    "items": [item(100, "Back"), item(102, "Reload"),
+                              {"id": -1, "type": "separator", "label": "", "enabled": true, "checked": false, "items": []},
+                              item(50150, "Copy")],
+                    "selected": null, "multiple": false, "right_aligned": false}}))
+            }
+            0 if event["modifiers"].as_u64()? & MOD_COMMAND != 0 => {
+                self.tabs += 1;
+                Some(json!({"t": "rb.open_tab", "request": self.tabs,
+                    "url": format!("https://example.com/link-{}", self.tabs),
+                    "disposition": "background_tab", "user_gesture": true}))
+            }
+            _ => None,
+        }
+    }
+
+    /// One rb control message from the viewer.
+    fn control(&mut self, body: &Value) -> Option<Value> {
+        if body["t"] != "rb.navigate" {
+            return None;
+        }
+        let url = body["url"].as_str()?;
+        Some(json!({"t": "rb.page", "url": url, "title": format!("Test host: {url}"),
+            "loading": false, "can_go_back": true, "can_go_forward": false}))
     }
 }
 

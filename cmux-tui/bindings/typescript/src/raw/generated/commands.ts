@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a. */
+/* cmux-tui mux protocol 12, IR 43d3465f155639d712ed61d32ee7d79c885cdec1df4f0f5c34e1876d54d31b7b. */
 
 
 import type * as T from "./types.js";
@@ -396,6 +396,26 @@ export interface CloudInboxUnsubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-unsubscribe";
 }
 export type CloudInboxUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxAckRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-ack";
+  "conversation": string;
+  "seq": bigint;
+}
+export type CloudMuxAckResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxSubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-subscribe";
+}
+export type CloudMuxSubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudMuxUnsubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-mux-unsubscribe";
+}
+export type CloudMuxUnsubscribeResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -1792,6 +1812,8 @@ export interface SetColumnDockRequest extends CmuxRequestBase {
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
+  "permanent"?: (boolean) | null;
+  "role"?: (string) | null;
   "transaction"?: (bigint) | null;
 }
 export type SetColumnDockResult = T.JsonValue;
@@ -2331,6 +2353,9 @@ export type CmuxRequest =
   | CloudInboxListRequest
   | CloudInboxSubscribeRequest
   | CloudInboxUnsubscribeRequest
+  | CloudMuxAckRequest
+  | CloudMuxSubscribeRequest
+  | CloudMuxUnsubscribeRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -2841,6 +2866,30 @@ export interface CmuxCommandDefinitionMap {
   "cloud-inbox-unsubscribe": {
     request: CloudInboxUnsubscribeRequest;
     result: CloudInboxUnsubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-ack": {
+    request: CloudMuxAckRequest;
+    result: CloudMuxAckResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-subscribe": {
+    request: CloudMuxSubscribeRequest;
+    result: CloudMuxSubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-mux-unsubscribe": {
+    request: CloudMuxUnsubscribeRequest;
+    result: CloudMuxUnsubscribeResult;
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";

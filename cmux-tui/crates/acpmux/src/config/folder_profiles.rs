@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::profiles::{Diagnostic, MAX_PROFILE_BYTES, Severity, parse_folder_profile_toml};
+use super::profiles::{
+    Diagnostic, MAX_PROFILE_BYTES, ProfileMeta, Severity, parse_folder_profile_toml,
+};
 use super::{Config, HarnessProfile};
 use crate::trust;
 
@@ -73,6 +75,7 @@ impl FolderGate {
                 claude_json: user.join(".claude.json"),
                 codex_config: user.join(".codex").join("config.toml"),
                 record: home.join("trust.json"),
+                agent_home: trust::agent_home_root(),
             },
         })
     }
@@ -114,6 +117,9 @@ pub struct FolderProfile {
     pub diagnostics: Vec<Diagnostic>,
     #[serde(skip)]
     pub profile: Option<HarnessProfile>,
+    /// The file's display data (name, icon); set once the file parsed.
+    #[serde(skip)]
+    pub meta: Option<ProfileMeta>,
 }
 
 /// Every profile file in `folder`'s `.cmux/harnesses`, by file name.
@@ -152,6 +158,7 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         checked_files: vec![],
         diagnostics: vec![],
         profile: None,
+        meta: None,
     };
     let bytes = match read_folder_file(&path) {
         Ok(bytes) => bytes,
@@ -165,7 +172,11 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         return Some(fp);
     };
     let (profile, icon, warnings) = match parse_folder_profile_toml(text, &path, Some(id)) {
-        Ok((_, profile, meta, warnings)) => (profile, meta.icon, warnings),
+        Ok((_, profile, meta, warnings)) => {
+            let icon = meta.icon.clone();
+            fp.meta = Some(meta);
+            (profile, icon, warnings)
+        }
         Err(errors) => {
             fp.diagnostics = errors;
             return Some(fp);
@@ -276,6 +287,139 @@ pub fn disable(gate: &FolderGate, folder: &Path, id: &str) -> Result<bool, Strin
     Ok(true)
 }
 
+/// Every folder profile a chat in `cwd` sees: those of `cwd` and of each
+/// parent, nearest folder first. An id in a nearer folder hides the same id
+/// further up, as `resolve_for_session` picks the nearest. An id the catalog
+/// has stays in the list as an error (`load_one`).
+pub fn scan_for_cwd(cfg: &Config, gate: &FolderGate, cwd: &Path) -> Vec<FolderProfile> {
+    let Ok(cwd) = canonical(cwd) else { return vec![] };
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for folder in cwd.ancestors().filter(|f| profile_dir(f).is_dir()) {
+        for fp in scan(cfg, gate, folder).unwrap_or_default() {
+            if seen.insert(fp.id.clone()) {
+                out.push(fp);
+            }
+        }
+    }
+    out
+}
+
+/// Folder profile `id` of `start` or of its nearest parent that has
+/// `.cmux/harnesses/<id>.toml`. None: no folder has the file, or `id` is not
+/// a valid id or is a catalog name (a folder profile never replaces one).
+pub fn find_nearest(
+    cfg: &Config,
+    gate: &FolderGate,
+    id: &str,
+    start: &Path,
+) -> Option<FolderProfile> {
+    let folder = nearest_folder(cfg, id, start)?;
+    load_one(cfg, gate, &folder, id)
+}
+
+/// The nearest folder (`start` or a parent) with `.cmux/harnesses/<id>.toml`.
+fn nearest_folder(cfg: &Config, id: &str, start: &Path) -> Option<PathBuf> {
+    if !super::profiles::valid_id(id) || catalog_names(cfg).contains(id) || !start.is_absolute() {
+        return None;
+    }
+    let start = canonical(start).ok()?;
+    let found = start.ancestors().find(|f| profile_dir(f).join(format!("{id}.toml")).exists());
+    found.map(Path::to_path_buf)
+}
+
+/// What `enable` shows before it records anything, gathered once for the
+/// CLI (`cmux harness enable`) and the app's sheet (`_acpmux/harness_enable`)
+/// so both show the same facts: the profile and its prompt (`prompt`).
+#[derive(Debug, Clone)]
+pub struct EnablePrompt {
+    pub profile: FolderProfile,
+    pub prompt: serde_json::Value,
+}
+
+/// Why `prepare_enable` has no prompt to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnableRefusal {
+    /// The folder has no such profile file.
+    NotFound(String),
+    /// No trusted answer, or the file is invalid (`refusal`).
+    Refused(String),
+}
+
+impl EnableRefusal {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::NotFound(m) | Self::Refused(m) => m,
+        }
+    }
+}
+
+/// Loads folder profile `id` of `folder`, refuses it like `enable` does, and
+/// builds the prompt with the program a spawn would run (`resolve_program`).
+pub fn prepare_enable(
+    cfg: &Config,
+    gate: &FolderGate,
+    folder: &Path,
+    id: &str,
+) -> Result<EnablePrompt, EnableRefusal> {
+    let fp = load_one(cfg, gate, folder, id).ok_or_else(|| {
+        EnableRefusal::NotFound(format!("{} has no {id}.toml", profile_dir(folder).display()))
+    })?;
+    if let Some(reason) = refusal(&fp) {
+        return Err(EnableRefusal::Refused(reason));
+    }
+    let base = PathBuf::from(&fp.folder);
+    let program = fp.profile.as_ref().and_then(|p| resolve_program(p, Some(&base)));
+    let prompt = prompt(&fp, program.as_deref());
+    Ok(EnablePrompt { profile: fp, prompt })
+}
+
+/// The program a spawn of `profile` runs, found the way the spawn finds it:
+/// an absolute path as is, a relative one from `base` (else the current
+/// folder), a bare name on the profile's own plain PATH (relative entries
+/// from `base`) else the login PATH. Only an executable regular file counts.
+/// The one resolver of `enable`, the app's Enable sheet and `harness doctor`.
+pub fn resolve_program(profile: &HarnessProfile, base: Option<&Path>) -> Option<PathBuf> {
+    let program = profile.argv.first().filter(|p| !p.is_empty())?;
+    if program.contains('/') {
+        let path = match base {
+            Some(base) if !Path::new(program).is_absolute() => base.join(program),
+            _ => PathBuf::from(program),
+        };
+        return executable(&path).then_some(path);
+    }
+    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
+        Some(own) => std::ffi::OsString::from(own),
+        None => crate::login_env::path()?,
+    };
+    std::env::split_paths(&path)
+        .map(|dir| match base {
+            Some(base) if !dir.is_absolute() => base.join(dir),
+            _ => dir,
+        })
+        .map(|dir| dir.join(program))
+        .find(|candidate| executable(candidate))
+}
+
+/// An executable regular file (a link counts by its target).
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// Why a session may not start a folder profile now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRefusal {
+    pub message: String,
+    /// `harness.needs_trust` or `harness.needs_enable`, so the app can offer
+    /// the folder's Trust question or its Enable harness sheet. None for a
+    /// Web or peer connection and for an invalid file.
+    pub reason: Option<&'static str>,
+    pub id: String,
+    /// The folder that holds `.cmux/harnesses`.
+    pub folder: String,
+}
+
 /// The profile a session named `id` with folder `cwd` may run: an enabled
 /// folder profile of the nearest folder (cwd or a parent) that has
 /// `.cmux/harnesses/<id>.toml`. None: no folder has that file (the caller
@@ -285,29 +429,39 @@ pub fn resolve_for_session(
     id: &str,
     cwd: &Path,
     remote: bool,
-) -> Option<Result<(HarnessProfile, PathBuf), String>> {
+) -> Option<Result<(HarnessProfile, PathBuf), FolderRefusal>> {
     let gate = cfg.folder_gate.as_ref()?;
-    if !super::profiles::valid_id(id) || catalog_names(cfg).contains(id) || !cwd.is_absolute() {
-        return None;
-    }
-    let cwd = canonical(cwd).ok()?;
-    let folder =
-        cwd.ancestors().find(|f| profile_dir(f).join(format!("{id}.toml")).exists())?.to_owned();
+    let folder = nearest_folder(cfg, id, cwd)?;
+    let shown = folder.to_string_lossy().into_owned();
+    let refuse = |message: String, reason: Option<&'static str>| FolderRefusal {
+        message,
+        reason,
+        id: id.to_owned(),
+        folder: shown.clone(),
+    };
     if remote {
-        return Some(Err(format!(
-            "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",
-            folder.display()
+        return Some(Err(refuse(
+            format!(
+                "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",
+                folder.display()
+            ),
+            None,
         )));
     }
     let fp = load_one(cfg, gate, &folder, id)?;
     Some(match (fp.state, fp.profile) {
         (FolderState::Enabled, Some(profile)) => Ok((profile, folder)),
-        (FolderState::NeedsTrust, _) => Err(needs_trust_message_parts(&fp.id, &fp.folder)),
-        (FolderState::NeedsEnable, _) => Err(format!(
-            "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",
-            fp.folder, fp.folder
+        (FolderState::NeedsTrust, _) => {
+            Err(refuse(needs_trust_message_parts(&fp.id, &fp.folder), Some("harness.needs_trust")))
+        }
+        (FolderState::NeedsEnable, _) => Err(refuse(
+            format!(
+                "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",
+                fp.folder, fp.folder
+            ),
+            Some("harness.needs_enable"),
         )),
-        _ => Err(first_error_parts(&fp.diagnostics, &fp.path)),
+        _ => Err(refuse(first_error_parts(&fp.diagnostics, &fp.path), None)),
     })
 }
 
@@ -324,21 +478,13 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     out.push_str(&format!("  command: {}\n", line.join(" ")));
     match resolved_program {
         Some(p) => out.push_str(&format!("  program: {}\n", visible(&p.to_string_lossy()))),
-        None => out.push_str("  program: not found on PATH now\n"),
+        None => out.push_str("  program: no executable file found now\n"),
     }
     for file in &fp.checked_files {
         out.push_str(&format!("  checked: {} (a change asks again)\n", visible(file)));
     }
-    if let Some(p) = resolved_program
-        && p.starts_with(&fp.folder)
-        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
-    {
-        out.push_str("  warning: the program is a file inside this folder; a change to it is not checked again\n");
-    }
-    if let Some(launcher) = download_launcher(&profile.argv) {
-        out.push_str(&format!(
-            "  warning: {launcher} downloads and runs a package at launch; a new package version is not checked\n"
-        ));
+    for warning in program_warnings(fp, resolved_program) {
+        out.push_str(&format!("  warning: {warning}\n"));
     }
     if profile.env.is_empty() {
         out.push_str("  env:     none\n");
@@ -346,11 +492,8 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     for (key, value) in &profile.env {
         let shown = env_source(value);
         out.push_str(&format!("  env:     {key} = {shown}\n"));
-        if CODE_LOADING_ENV.contains(&key.as_str())
-            || key.starts_with("DYLD_")
-            || key.starts_with("LD_")
-        {
-            out.push_str(&format!("  warning: {key} changes which code a program loads\n"));
+        if let Some(warning) = env_warning(key) {
+            out.push_str(&format!("  warning: {warning}\n"));
         }
     }
     if let Some(sha) = &fp.sha256 {
@@ -361,6 +504,74 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
         visible(&fp.folder)
     ));
     out
+}
+
+/// The confirmation as data, for the app's "Enable harness" sheet
+/// (`_acpmux/harness_enable`): the same facts and warnings as the CLI text,
+/// plus that text. Plain values are shown as in the CLI; Keychain items and
+/// login variables are named, never read.
+pub fn prompt(fp: &FolderProfile, resolved_program: Option<&Path>) -> serde_json::Value {
+    let profile = fp.profile.as_ref();
+    let env: Vec<serde_json::Value> = profile
+        .map(|p| p.env.iter().map(|(key, value)| env_entry(key, value)).collect())
+        .unwrap_or_default();
+    let mut warnings = program_warnings(fp, resolved_program);
+    if let Some(p) = profile {
+        warnings.extend(p.env.keys().filter_map(|k| env_warning(k)));
+    }
+    json!({
+        "id": fp.id,
+        "folder": fp.folder,
+        "path": fp.path,
+        "state": fp.state,
+        "trust": fp.trust,
+        "argv": profile.map(|p| p.argv.clone()).unwrap_or_default(),
+        "program": resolved_program,
+        "env": env,
+        "checkedFiles": fp.checked_files,
+        "warnings": warnings,
+        "sha256": fp.sha256,
+        "diagnostics": fp.diagnostics,
+        "text": confirmation_text(fp, resolved_program),
+    })
+}
+
+/// Warnings about the program: a file inside the folder that is not
+/// checked, or a launcher that downloads a package on each launch.
+fn program_warnings(fp: &FolderProfile, resolved_program: Option<&Path>) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(p) = resolved_program
+        && p.starts_with(&fp.folder)
+        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
+    {
+        out.push(
+            "the program is a file inside this folder; a change to it is not checked again".into(),
+        );
+    }
+    if let Some(launcher) = fp.profile.as_ref().and_then(|p| download_launcher(&p.argv)) {
+        out.push(format!(
+            "{launcher} downloads and runs a package at launch; a new package version is not checked"
+        ));
+    }
+    out
+}
+
+/// The warning for an env key that changes which code a program loads.
+fn env_warning(key: &str) -> Option<String> {
+    (CODE_LOADING_ENV.contains(&key) || key.starts_with("DYLD_") || key.starts_with("LD_"))
+        .then(|| format!("{key} changes which code a program loads"))
+}
+
+/// One env entry of the prompt: key, source kind and, for a plain value,
+/// the value (control characters written out).
+fn env_entry(key: &str, value: &str) -> serde_json::Value {
+    if let Some(item) = value.strip_prefix("${keychain:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "keychain", "item": item});
+    }
+    if let Some(var) = value.strip_prefix("${env:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "env", "variable": var});
+    }
+    json!({"key": key, "source": "plain", "value": visible(value)})
 }
 
 /// One env value as the confirmation shows it.
@@ -417,7 +628,7 @@ const MAX_CHECKED_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Every regular file inside `folder` that the command line runs or names:
 /// the program (absolute, or found on the profile's PATH, else the login
-/// PATH) and each argument (or the value after `=`) taken as a path, relative
+/// PATH, `resolve_program`) and each argument (or the value after `=`) taken as a path, relative
 /// ones from the folder. Each comes with the sha256 of its bytes, sorted by
 /// path. A link inside the folder counts by its target, whose path joins the
 /// hash, so retargeting it asks again.
@@ -427,7 +638,7 @@ fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String,
         if Path::new(program).is_absolute() {
             candidates.push(PathBuf::from(program));
         } else if !program.contains('/') {
-            candidates.extend(on_path(folder, profile, program));
+            candidates.extend(resolve_program(profile, Some(folder)));
         }
     }
     for arg in profile.argv.iter().skip(1) {
@@ -472,20 +683,6 @@ fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String,
     }
     files.sort();
     Ok(files)
-}
-
-/// Where a bare program name resolves inside `folder`: the profile's own
-/// plain PATH (as the spawn uses it), else the login PATH. Relative PATH
-/// entries count from the folder.
-fn on_path(folder: &Path, profile: &HarnessProfile, program: &str) -> Option<PathBuf> {
-    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
-        Some(own) => std::ffi::OsString::from(own),
-        None => crate::login_env::path()?,
-    };
-    std::env::split_paths(&path)
-        .map(|dir| if dir.is_absolute() { dir } else { folder.join(dir) })
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
 }
 
 /// The launcher that downloads and runs a package on each launch, when the

@@ -100,7 +100,7 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
         unsafeCSS: codeUnsafeCSS,
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
-      paneHighlightPool(),
+      paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text"),
       // React owns the host element: Pierre must not remove it on cleanUp.
       true,
     );
@@ -113,7 +113,7 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
       file.cleanUp();
       el.shadowRoot?.replaceChildren();
     };
-  }, []);
+  }, [lang]);
   useLayoutEffect(() => {
     const el = host.current;
     const file = view.current;

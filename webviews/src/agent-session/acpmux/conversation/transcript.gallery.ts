@@ -56,6 +56,59 @@ const MARKDOWN_MIX = [
   "See [the retry module](src/net/retry.ts) and https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429.",
 ].join("\n");
 
+const GALLERY_IMAGE =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="56"><rect width="96" height="56" fill="#6b7280"/><circle cx="28" cy="28" r="14" fill="#f2cc8f"/><path d="M54 43l12-16 18 16" fill="#81b29a"/></svg>',
+  );
+const TOO_LARGE_IMAGE = `data:image/png;base64,${"A".repeat(2_000_001)}`;
+const CHIP_PREVIEW_MIX = [
+  "## Reply links and images",
+  "",
+  "A globe URL: https://example.test/docs and a cached site: https://docs.example.test/guide.",
+  "The long address is https://example.test/research/2026/agent-session/gallery/fixtures?view=transcript&sort=recent&filter=public.",
+  "Inside the project: [retry.ts](/Users/you/src/atlas-web/src/net/retry.ts) and [net/](/Users/you/src/atlas-web/src/net/).",
+  "Outside the project: [notes](/Users/you/Documents/notes.md); the deny-listed `/Users/you/.ssh/id_ed25519.pem` stays text.",
+  "",
+  "Remote image (click to load): ![remote](https://images.example.test/gallery/remote.png)",
+  "A local image loads through the host: ![diagram](/Users/you/src/atlas-web/assets/diagram.png)",
+  `An oversized inline image stays safe: ![too large](${TOO_LARGE_IMAGE})`,
+  "",
+  "The local preview card is at http://localhost:5173/preview.html?tab=gallery.",
+].join("\n");
+
+const TASKS_REPLY = [
+  "- [x] Checked task",
+  "- [ ] Unchecked task",
+  "- [x] Nested checklist",
+  "  - [ ] Nested unchecked item",
+  "  - [x] Nested checked item",
+  "- [ ] This long task title wraps across several lines in a narrow agent pane so the checkbox stays aligned with the first line.",
+].join("\n");
+
+const CHIP_HOST = {
+  paths: {
+    "/Users/you/src/atlas-web/src/net/retry.ts": { place: "root" as const, folder: false },
+    "/Users/you/src/atlas-web/src/net/": { place: "root" as const, folder: true },
+    "/Users/you/Documents/notes.md": { place: "outside" as const, folder: false },
+  },
+  sites: {
+    "https://docs.example.test/guide": {
+      title: "Example docs",
+      icon:
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="4" fill="#e07a5f"/><path d="M4 8h8M8 4v8" stroke="#fff" stroke-width="2"/></svg>',
+        ),
+    },
+  },
+  policy: { outsideRoots: "confirm" as const, remoteImages: "click" as const },
+  images: {
+    "https://images.example.test/gallery/remote.png": GALLERY_IMAGE,
+    "/Users/you/src/atlas-web/assets/diagram.png": GALLERY_IMAGE,
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -93,6 +146,10 @@ export default agentPaneEntry({
         assistant(MARKDOWN_MIX, 29),
         summary(29, { status: "completed", durationMs: 41_000 }),
       ]),
+    },
+    tasks: {
+      note: "Checked, unchecked, nested and wrapping task-list items.",
+      snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
       note: "A turn that started and has no output yet.",
@@ -220,6 +277,11 @@ export default agentPaneEntry({
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
       ]),
+    },
+    "chips-and-previews": {
+      note: "Markdown mixing URL/path chips, host-mediated images, an oversized image guard, and a local preview.",
+      chipHost: CHIP_HOST,
+      snapshot: chat([user("Show the links and images", 5), assistant(CHIP_PREVIEW_MIX, 4.9), summary(4.9)]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",

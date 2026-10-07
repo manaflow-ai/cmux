@@ -259,8 +259,15 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "publish-cmux-tui-tree.py" in tree_publisher
     assert "complete tree" in tree_publisher
     assert "trusted helper" in tree_publisher
-    assert "cmux-tui-app-host-aarch64-apple-darwin" in tree_publisher
-    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
+    # 4f37f3577ce2: the companion list lives in publish-cmux-tui-tree.py
+    # (--list-companions), which both tree jobs read; it must keep the macOS
+    # app host and Cloud server beside the daemon.
+    assert "publish-cmux-tui-tree.py --list-companions" in tree_publisher
+    companions = subprocess.check_output(
+        ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+    ).split()
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in companions
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in companions
 
 
 def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
@@ -315,7 +322,13 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert len(fetching) >= 2
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
-    assert probes and all("CMUX_TUI_TREE_PR_NUMBER" in step.get("env", {}) for step in probes)
+    # A pull request's merge tree has no publisher of its own: a same-repository
+    # PR's probe dispatches one; a fork PR's never does.
+    dispatch_gate = (
+        "${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}"
+    )
+    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
@@ -2173,28 +2186,37 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
-def test_cmux_tui_artifacts_never_replaces_a_queued_feat_cmux_next_push() -> None:
-    # 2026-10-07: with one group per branch, each feat-cmux-next push replaced the
-    # pending run before its preflight started (01:31 to 02:11: 13 runs cancelled,
-    # 1 publish), so a base tree rarely got artifacts and every PR's same-tree wait
-    # timed out at 45 min. Each feat-cmux-next push now has its own group: its
-    # preflight skips a complete tree, and the jobs' owner election (tree-owner-wait,
-    # per-run job groups) keeps one builder per tree key. Pin branches keep one
-    # pending run per branch, since each publishes one tree on purpose.
+def test_cmux_tui_artifacts_coalesces_queued_feat_cmux_next_pushes() -> None:
+    # 2026-10-07 05:30: one group per feat-cmux-next push left 67 runs queued,
+    # each waiting about 2 h for a macOS builder, so the tip's tree (and the
+    # nightly-next build that needs it) waited behind every older push. Pushes
+    # to a branch now share one group with cancel-in-progress false: the running
+    # publish always finishes (no half-uploaded tree), and a newer push replaces
+    # only the pending run. PRs into feat-cmux-next are retired (direct pushes
+    # since 2026-10-03), so no PR same-tree wait depends on an intermediate tree.
+    # c6110dbd62f2: a new push to a PR cancels that PR's previous
+    # pull_request_target run (its tree is obsolete); push and dispatch runs
+    # are never cancelled once started.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
-    assert concurrency["cancel-in-progress"] == "false"
     group = concurrency["group"]
 
-    def evaluate(event_name: str, ref: str, sha: str, pr: int | None = None) -> str:
+    def render(template: str, event_name: str, ref: str, sha: str, pr: int | None = None) -> str:
         event = {"pull_request": {"number": pr}} if pr else {}
         return _evaluate_concurrency_group(
-            group, {"github": {"event_name": event_name, "ref": ref, "sha": sha, "event": event}}
+            template, {"github": {"event_name": event_name, "ref": ref, "sha": sha, "event": event}}
         )
 
+    def evaluate(event_name: str, ref: str, sha: str, pr: int | None = None) -> str:
+        return render(group, event_name, ref, sha, pr)
+
+    cancel = concurrency["cancel-in-progress"]
+    for event_name in ("push", "workflow_dispatch"):
+        assert render(cancel, event_name, "refs/heads/feat-cmux-next", "a" * 40).lower() == "false", event_name
+    assert render(cancel, "pull_request_target", "refs/heads/feat-cmux-next", "a" * 40, pr=7).lower() == "true"
+
     feat = "refs/heads/feat-cmux-next"
-    assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
-    assert "a" * 40 in evaluate("push", feat, "a" * 40)
+    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
     pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
     assert pin_a == evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "b" * 40)
     assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)

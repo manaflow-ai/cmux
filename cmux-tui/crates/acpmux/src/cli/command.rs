@@ -211,7 +211,7 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
@@ -268,6 +268,12 @@ pub enum Command {
     Allow { session: String, option: Option<String> },
     #[command(hide = true)]
     Deny { session: String },
+    #[command(hide = true)]
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
     #[command(hide = true)]
     Export {
         session: String,
@@ -357,8 +363,14 @@ pub enum HarnessCmd {
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.
+    /// An id that is no catalog harness is looked up as a folder profile
+    /// (DIR/.cmux/harnesses/ID.toml in --folder or the current folder, or
+    /// their nearest parent); an enabled one starts inside its folder.
     Doctor {
         id: String,
+        /// Where to look for a folder profile (default: the current folder).
+        #[arg(long)]
+        folder: Option<PathBuf>,
         /// Stop after session/new: send no prompt (no model call).
         #[arg(long)]
         no_prompt: bool,
@@ -444,6 +456,15 @@ pub enum SessionCmd {
     Allow { session: String, option: Option<String> },
     /// Reject a pending permission request.
     Deny { session: String },
+    /// Answer a pending agent question: one --answer per question, keyed by
+    /// question text, id or header; the choice is option labels or ids
+    /// (comma-separated for multi-select) or your own text. With no
+    /// --answer, print the questions and the command.
+    Answer {
+        session: String,
+        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
+        answer: Vec<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -648,6 +669,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
+            SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Tail { session, last, follow, since } => {

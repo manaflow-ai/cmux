@@ -11,7 +11,7 @@
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
 import { useContext, useMemo, useState } from "react";
 import { turnFiles, type TurnFile } from "../diff";
-import { ChevronDown, DiffFile } from "../changeIcons";
+import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
 import { turnCounts } from "../changes/turnCheckpoint";
@@ -21,6 +21,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionRowsContext, isEditRow } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
+import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 
@@ -55,7 +56,10 @@ function Card({
   const t = useT();
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState(settings.show !== "collapsed");
+  // Derived on every render: the host's setting can arrive after the card mounts.
+  const userOpened = useCardOpen(row.id);
+  const open = settings.show !== "collapsed" || userOpened;
+  const setOpen = (value: boolean) => setCardOpen(row.id, value);
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -72,9 +76,9 @@ function Card({
   const undoState = useUndoState(row.id);
   // An edit whose tool call carried no diff still lists, without counts.
   const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
-  const entries: { key: string; file?: TurnFile; text?: string }[] = [
+  const entries: { key: string; file?: TurnFile; path?: string }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
+    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
   ];
   const total = entries.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
@@ -93,12 +97,25 @@ function Card({
     <div className="acpmux-edited">
       <div className="acpmux-edited-head">
         <span className="acpmux-edited-icon">
-          <DiffFile />
+          <PlusMinus />
         </span>
         <div className="acpmux-edited-title">
           <div>{title}</div>
-          {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
-          {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+          <div className="acpmux-edited-sub">
+            {reviewable ? (
+              <button
+                type="button"
+                className="acpmux-edited-link"
+                onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
+              >
+                {t("edited.view")}
+                <ArrowUpRight />
+              </button>
+            ) : (
+              files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />
+            )}
+            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+          </div>
         </div>
         {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
         {reviewable && (
@@ -134,18 +151,29 @@ function Card({
         <FileStatus status={status(single.path)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
       {shown.map((entry) => {
-        if (!entry.file)
+        if (!entry.file) {
+          // An edit with no diff: its path (dimmed folder, bold name), or "Unknown file".
+          const path = entry.path;
+          const cut = path ? path.replace(/\/+$/, "").lastIndexOf("/") : -1;
           return (
             <div className="acpmux-edited-file" key={entry.key}>
-              <span className="acpmux-edited-path">{entry.text}</span>
+              {path ? (
+                <span className="acpmux-edited-path" title={path}>
+                  <DirPart dir={path.slice(0, cut + 1)} />
+                  <span className="acpmux-edited-base">{path.slice(cut + 1)}</span>
+                </span>
+              ) : (
+                <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
+              )}
             </div>
           );
+        }
         const file = entry.file;
         const slash = file.displayPath.lastIndexOf("/");
         const label = (
           <>
             <span className="acpmux-edited-path" title={file.path}>
-              <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
+              <DirPart dir={file.displayPath.slice(0, slash + 1)} />
               <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
             </span>
             <Counts additions={file.additions} deletions={file.deletions} />
@@ -315,3 +343,53 @@ function FileStatus({
     </div>
   );
 }
+
+/// The directory part of a row's path. Too long for the row, it drops its middle: the first segment
+/// stays, and the rest shows its end ("src/…/net/").
+function DirPart({ dir }: { dir: string }) {
+  if (!dir) return null;
+  const cut = dir.indexOf("/") + 1;
+  const head = dir.slice(0, cut);
+  const tail = dir.slice(cut);
+  return (
+    <span className="acpmux-edited-dir">
+      <span className="acpmux-edited-dir-head">{head}</span>
+      {tail && (
+        <span className="acpmux-edited-dir-tail">
+          <bdi>{tail}</bdi>
+        </span>
+      )}
+    </span>
+  );
+}
+
+const PlusMinus = () => (
+  <svg
+    width={16}
+    height={16}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.4}
+    strokeLinecap="round"
+    aria-hidden="true"
+  >
+    <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
+  </svg>
+);
+
+const ArrowUpRight = () => (
+  <svg
+    width={12}
+    height={12}
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.3}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3.5 8.5l5-5M4.5 3.5h4v4" />
+  </svg>
+);

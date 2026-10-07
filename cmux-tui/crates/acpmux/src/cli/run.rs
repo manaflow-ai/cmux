@@ -11,7 +11,7 @@ use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
-pub(crate) use permission::answer_permission;
+pub(crate) use permission::{answer_permission, answer_question};
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
@@ -172,7 +172,9 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                         .to_owned();
                     let options: Vec<Value> =
                         req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options}));
+                    let hint = crate::question_answer::pending_hint(&req, &name);
+                    let is_question = crate::question_answer::question(&req).is_some();
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint}));
                 }
             }
             if json_out {
@@ -182,25 +184,12 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             } else {
                 for p in &out {
                     let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                    let opts: Vec<String> = p
-                        .get("options")
-                        .and_then(Value::as_array)
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|o| {
-                                    o.get("optionId").and_then(Value::as_str).map(str::to_owned)
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
                     println!(
-                        "{:<24} {} [{}]  answer: acpmux session allow {} [{}] | acpmux session deny {}",
+                        "{:<24} {} [{}]  answer: {}",
                         g("session"),
                         g("title"),
                         g("kind"),
-                        g("session"),
-                        opts.join("|"),
-                        g("session")
+                        g("answer")
                     );
                 }
             }
@@ -642,6 +631,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         }
         Command::Allow { session, option } => answer_permission(&session, option, true).await,
         Command::Deny { session } => answer_permission(&session, None, false).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

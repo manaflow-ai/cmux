@@ -467,6 +467,10 @@ pub struct Config {
     /// `config/folder_profiles.rs`); None (an in-code config): no folder profiles.
     #[serde(skip)]
     pub folder_gate: Option<folder_profiles::FolderGate>,
+    /// The profile file sources this config was loaded from; a reload and
+    /// the hot-reload watcher read the same ones.
+    #[serde(skip)]
+    pub profile_sources: ProfileSources,
 }
 
 impl Config {
@@ -588,6 +592,7 @@ impl Config {
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
         }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
+        cfg.profile_sources = sources.clone();
         cfg.path = Some(path);
         Ok(cfg)
     }
@@ -850,7 +855,7 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     Ok(())
 }
 
-fn which(bin: &str) -> Option<String> {
+pub(crate) fn which(bin: &str) -> Option<String> {
     let path = crate::login_env::path()?;
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(bin);

@@ -11,7 +11,7 @@ import type { components, paths } from "./schema.d.ts";
 export type { components, operations, paths } from "./schema.d.ts";
 
 /** The production cmux VM API. */
-export const DEFAULT_BASE_URL = "https://vm.cmux.com";
+export const DEFAULT_BASE_URL = "https://vm.cmux.dev";
 
 /** The header that names the team a session token acts for. */
 export const TEAM_HEADER = "x-cmux-team-id";

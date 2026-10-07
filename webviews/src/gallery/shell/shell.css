@@ -145,6 +145,17 @@ body {
   color: var(--g-muted);
   font-size: 12px;
 }
+.gallery-experimental {
+  display: inline-block;
+  margin-inline-start: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--g-line);
+  border-radius: 4px;
+  color: var(--g-muted);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
 .gallery-controls {
   display: flex;
   flex-wrap: wrap;
@@ -326,3 +337,105 @@ main .gallery-entry-error {
 }
 /* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
 .gallery .variant-pick-option { flex: 0 0 auto; }
+/* The compare view (CompareView.tsx): one cell per experiment arm, same size and scale. */
+.gallery-compare-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.gallery-compare-description {
+  margin: 0;
+  color: var(--g-muted);
+  max-width: 120ch;
+}
+.gallery-compare-description strong {
+  color: var(--g-text);
+}
+.gallery-compare-bar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-bar button:disabled {
+  color: var(--g-muted);
+}
+.gallery-compare-bar .gallery-compare-primary {
+  background: var(--g-current);
+  font-weight: 600;
+}
+.gallery-compare-link {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.gallery-compare-summary {
+  font-size: 11px;
+  color: var(--g-muted);
+  user-select: all;
+}
+.gallery-compare-grid {
+  display: grid;
+  gap: 20px 16px;
+  padding-top: 14px;
+  align-items: stretch;
+}
+.gallery-compare-grid--row {
+  grid-auto-flow: column;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+/* Captions of different lengths: the frames still line up at the bottom of each grid row. */
+.gallery-compare-cell {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gallery-compare-cell figcaption {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.gallery-compare-cell-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.gallery-compare-cell-head button {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-compare-cell-head a {
+  color: var(--g-muted);
+  font-size: 11px;
+}
+.gallery-compare-arm {
+  font: 600 13px ui-monospace, monospace;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--g-hover);
+}
+.gallery-compare-cell[data-picked] .gallery-compare-arm,
+.gallery-compare-cell[data-picked] .gallery-compare-pick {
+  background: var(--g-current);
+  outline: 1px solid var(--g-text);
+}
+.gallery-compare-measure {
+  font: 11px ui-monospace, monospace;
+  color: var(--g-muted);
+}

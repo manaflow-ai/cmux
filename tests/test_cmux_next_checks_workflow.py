@@ -131,6 +131,10 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        # Only there: the macOS swift test job no longer carries a copy.
+        everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
+                      for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
+        self.assertEqual(everywhere, [(JOB, "Check the app FFI pin")])
 
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
@@ -138,6 +142,20 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class ReferencedFilesExist(unittest.TestCase):
+    """Every test a checks step runs, and every test or workflow a path filter names, exists.
+    The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
+    and its workflow, but the Companion workflows step still ran the test, so every pull
+    request's checks went red (run 37646119996)."""
+
+    def test_named_tests_and_workflows_exist(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        named = set(re.findall(r"(?:python3|bash) (tests/[A-Za-z0-9_./-]+\.(?:py|sh))", text))
+        named |= set(re.findall(r"^\s+- ((?:tests|\.github/workflows)/[A-Za-z0-9_./-]+\.(?:py|sh|yml))$", text, re.M))
+        missing = sorted(path for path in named if not (ROOT / path).exists())
+        self.assertEqual(missing, [])
 
 
 class GodfileScopes(unittest.TestCase):
@@ -201,6 +219,30 @@ class GodfileScopes(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("Wide.swift", result.stdout)
         self.assertIn("long.rs", result.stdout)
+
+    def test_file_scope_measures_only_the_named_rust_files(self):
+        # safe-push passes the files a merge changed (a whole scan takes about
+        # a minute on the laptop and holds the push queue).
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/at_budget.rs")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("long.rs", result.stdout)
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("long.rs has 1001 lines, 0 fns (limit 1000 lines, 60 fns", result.stdout)
+        self.assertNotIn("many_fns.rs", result.stdout)
+        self.assertNotIn("is gone", result.stdout)
+
+    def test_file_scope_sums_a_swift_type_over_its_module(self):
+        # A type spans every extension in its module, so an extension file
+        # alone still reports the whole type; an unnamed long file is skipped.
+        result = self.run_check("--only", "swift", "--file", "Packages/macOS/CmuxNext/Sources/Fixture/HugeMore.swift")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("type Fixture/Huge spans 1001 lines", result.stdout)
+        self.assertNotIn("Wide.swift", result.stdout)
+
+    def test_file_scope_cannot_rewrite_the_baseline(self):
+        result = self.run_check("--update-baseline", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
     def test_scope_cannot_rewrite_the_baseline(self):
         # A scoped baseline rewrite would drop the other half's entries.
@@ -367,21 +409,20 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
-    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
+    def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
+        """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
+        token" failed on every stale PR; it is removed, not widened. A stale generated file
+        fails generated-files with the commands that regenerate it."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        autofix = jobs["generated-autofix"]
-        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
-        self.assertNotIn("vars.", str(autofix["runs-on"]))
-        run = autofix["steps"][-1]["run"]
-        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
-        self.assertIn('"$current" != "$HEAD_SHA"', run)
-        self.assertNotIn("--force", run)
-        # Never a bot push to a protected branch.
-        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
-        # The regenerated files are copied onto the head, not patched against
-        # the merge commit, whose context the head may not have.
-        self.assertNotIn("git apply \"$patch\"", run)
-        self.assertIn("git add", run)
+        self.assertNotIn("generated-autofix", jobs)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("Mint the autofix token", text)
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
+        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertIn("exit 1", fail["run"])
+        self.assertNotIn("autofix", fail["run"])
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -408,12 +449,32 @@ class PathRoutingStructure(unittest.TestCase):
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
+        # Main's promote-nightly-next refuses a head whose push run has no successful
+        # "cmux-next Release compile (Xcode 26)" job. Requested after the Linux checks alone, it
+        # ran about 10 minutes before that job finished and refused every head from 00:12Z to
+        # 15:00Z on 2026-10-07 (run 37638104609). The request waits for that job and nothing
+        # else, so an unrelated red never holds the promotion.
         self.assertEqual(nightly["needs"], "release-compile")
+        self.assertEqual(jobs["release-compile"]["name"], "cmux-next Release compile (Xcode 26)")
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
         self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        self.assertNotIn("needs.checks", nightly["if"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
+    def test_every_green_feat_push_promotes_without_a_debounce(self):
+        """nightly-next rolls forward to every green head. Promotions are never dropped by a
+        time window; nightly.yml's own concurrency group coalesces them: the running build
+        finishes and only the newest pending one runs next."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = jobs["request-nightly-next"]["steps"][0]["run"]
+        self.assertIn("-f promote_nightly_next_sha=", run)
+        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
+        group = nightly["concurrency"]["group"]
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
+        self.assertIs(nightly["concurrency"]["cancel-in-progress"], False)
 
     def test_batch_dispatch_runs_every_dispatch_gated_job(self):
         # scripts/ci/next_batch.py validates a stack of pull requests by
@@ -675,7 +736,10 @@ class SameTreeIsAnEvent(unittest.TestCase):
         uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
-        self.assertEqual(route["permissions"].get("actions"), "read")
+        # The probe dispatches one cmux-tui artifacts run for a same-repository
+        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
+        self.assertEqual(route["permissions"].get("actions"), "write")
+        self.assertEqual(route["permissions"].get("contents"), "write")
 
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()

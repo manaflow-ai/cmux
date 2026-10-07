@@ -97,7 +97,9 @@ function syntheticKey(key: string): void {
     altKey: parts.includes("Alt"),
     shiftKey: parts.includes("Shift"),
   };
-  const target = document.activeElement ?? document.body;
+  // The focused element, inside open shadow roots too (a web component's focused row).
+  let target: Element = document.activeElement ?? document.body;
+  while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
   for (const type of ["keydown", "keyup"])
     target.dispatchEvent(
       new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),

@@ -34,8 +34,16 @@ export function mountIconPicker(
     titles: (id) => strings.t(`iconPicker.section.${id}`),
   });
   let session: PickerSession = { id: "" };
+  // A refused finish (an unknown session, an icon the host rejects) is shown and logged, never
+  // dropped: the picker stays open so the person sees that the icon did not change.
+  let failure: string | undefined;
   const finish = (result: { value?: string; clear?: true; cancel?: true }) =>
-    void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch(() => undefined);
+    void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch((error: unknown) => {
+      console.error("icon picker: the host refused the pick", error);
+      if (result.cancel) return;
+      failure = strings.t("iconPicker.finishFailed");
+      flushSync(render);
+    });
   const reactRoot = makeRoot(root);
   const render = () =>
     reactRoot.render(
@@ -48,11 +56,13 @@ export function mountIconPicker(
         onClear={session.canClear ? () => finish({ clear: true }) : undefined}
         assets={client && session.assets ? hostAssets(client) : undefined}
         symbolImageURL={(name) => `./__symbol/${encodeURIComponent(name)}.png`}
+        error={failure}
       />,
     );
   const open = (next: PickerSession) => {
     if (next.symbols) store.configure(next.symbols, next.maxEmojiVersion);
     session = next;
+    failure = undefined;
     store.reset(next.tab ?? "emoji");
     // Synchronous so the host can show the popover right after this event without a stale frame.
     flushSync(render);

@@ -45,6 +45,7 @@ final class SidebarBitmapCache {
         return e.image
     }
     func contains(_ k: SidebarBitmapKey) -> Bool { map[k] != nil }
+    var keys: Set<SidebarBitmapKey> { Set(map.keys) }
     func insert(_ k: SidebarBitmapKey, _ img: CGImage) {
         clock += 1
         let b = img.bytesPerRow * img.height
@@ -229,7 +230,8 @@ enum SidebarDraw {
     static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage {
         let p = ctx.palette
         let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
-        let tl = line(time.string(c.lastAt, now: ctx.now), timeFont, secondary)
+        // `.distantPast`: a row without a time (the host's extra search results).
+        let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
         let bell = c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil
         let bw = bell.map { CGFloat($0.width) / ctx.scale + 4 } ?? 0
         let size = CGSize(width: (width(tl) + bw).rounded(.up), height: SidebarMetrics.rowHeight)
@@ -279,6 +281,26 @@ enum SidebarDraw {
         return out
     }
 
+    /// A small incoming-bubble tail under a bubble's lower-left corner (flipped coordinates).
+    static func tailPath(bubbleBottomLeft o: CGPoint) -> CGPath {
+        let t = CGMutablePath()
+        t.move(to: CGPoint(x: o.x + 6, y: o.y - 6))
+        t.addQuadCurve(to: CGPoint(x: o.x - 1, y: o.y + 4), control: CGPoint(x: o.x + 5, y: o.y + 2))
+        t.addQuadCurve(to: CGPoint(x: o.x + 13, y: o.y - 1), control: CGPoint(x: o.x + 6, y: o.y + 3))
+        t.closeSubpath()
+        return t
+    }
+
+    /// The title of the host's extra search section: 11 pt semibold, secondary, at the row
+    /// text's x, baseline 20 pt in a 28 pt band (to verify against Messages' search sections).
+    static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage {
+        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, 11, nil)!
+        let l = truncated(line(title, font, ctx.palette.secondary), width - 2 * SidebarMetrics.selectionInsetX - 10, font, ctx.palette.secondary)
+        return bitmap(size: CGSize(width: max(1, width), height: 28), ctx: ctx) { g in
+            draw(l, x: SidebarMetrics.selectionInsetX + 10, baseline: 20, g)
+        }
+    }
+
     // MARK: Pinned tile
 
     /// The avatar's rect in a tile (tile coordinates).
@@ -315,6 +337,8 @@ enum SidebarDraw {
                 let br = CGRect(x: ((size.width - bw) / 2).rounded(), y: max(1, bottom - bh), width: bw.rounded(.up), height: bh)
                 let path = CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)
                 g.setFillColor(p.bubble); g.addPath(path); g.fillPath()
+                // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
+                g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
                 for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: br.minY + 13 + CGFloat(i) * 13 - 1, g) }
             }
             if c.unread {
@@ -332,6 +356,24 @@ enum SidebarDraw {
 /// the render server (no main-thread frames).
 final class SidebarTypingLayer: CALayer {
     private let dots = (0..<3).map { _ in CALayer() }
+    /// On a pinned tile the bubble points at the avatar with the preview bubble's tail.
+    private var tail: CAShapeLayer?
+    var showsTail = false {
+        didSet {
+            guard showsTail != oldValue else { return }
+            if showsTail {
+                let t = CAShapeLayer()
+                t.path = SidebarDraw.tailPath(bubbleBottomLeft: CGPoint(x: 0, y: 0))
+                t.position = CGPoint(x: 0, y: Self.size.height)
+                t.fillColor = backgroundColor
+                t.actions = ["position": NSNull(), "path": NSNull(), "fillColor": NSNull()]
+                addSublayer(t)
+                tail = t
+            } else {
+                tail?.removeFromSuperlayer(); tail = nil
+            }
+        }
+    }
     static let size = CGSize(width: 34, height: 20)
     override init() {
         super.init()
@@ -349,6 +391,8 @@ final class SidebarTypingLayer: CALayer {
     required init?(coder: NSCoder) { fatalError() }
     func apply(_ p: SidebarPalette, scale: CGFloat) {
         backgroundColor = p.bubble
+        tail?.fillColor = p.bubble
+        tail?.contentsScale = scale
         contentsScale = scale
         for d in dots { d.backgroundColor = p.typingDot; d.contentsScale = scale }
     }

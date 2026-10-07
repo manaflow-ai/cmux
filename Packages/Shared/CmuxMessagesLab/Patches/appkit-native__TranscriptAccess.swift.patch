@@ -6,12 +6,11 @@
  extension NativeStrings {
 -    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative") }
 -    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative") }
--    /// "Attachment: %@"
--    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative") }
--    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative") }
 +    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
 +    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
-+    /// "Attachment: %@"
+     /// "Attachment: %@"
+-    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative") }
+-    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative") }
 +    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: .module) }
 +    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: .module) }
      /// sender, text, time
@@ -20,3 +19,11 @@
  }
  
  extension ChatController {
+@@ -52,6 +52,7 @@
+         case let .link(url, title, site, _, _): return [title, site ?? url].compactMap { $0 }.joined(separator: ", ")
+         case let .attachment(a): return String(format: NativeStrings.attachmentFormat, a.fileName)
+         case let .location(_, _, title, subtitle): return [title, subtitle].compactMap { $0 }.joined(separator: ", ")
++        case let .custom(c): return CustomRows.plainText(c)  // cmux: d5d6a18's custom parts (this file stays at bd65bbf)
+         }
+     }
+ 

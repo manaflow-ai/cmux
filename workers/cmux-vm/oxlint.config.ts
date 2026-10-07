@@ -8,8 +8,8 @@
 //
 // Two more boundaries, checked by scripts/lint-selftest.sh like the preset:
 // - network access (`fetch`) only in src/upstream/ and src/auth/;
-// - the upstream implementation (src/upstream/live.ts: makeUpstreamClient and
-//   the provider key) is imported only from src/upstream/, src/proofs/ and the
+// - the upstream implementation (src/upstream/live.ts and live-*.ts: the
+//   clients that hold the provider key) is imported only from src/upstream/, src/proofs/ and the
 //   composition root src/index.ts. Tests are outside this rule; they build the
 //   client with a fake fetch and a fake key.
 import gdp from "./.gdp-lint/oxlint.js";
@@ -32,7 +32,7 @@ export default {
           {
             patterns: [
               {
-                regex: "(^|/)upstream/live(\\.ts)?$",
+                regex: "(^|/)upstream/live(-[a-z0-9-]+)?(\\.ts)?$",
                 message: "The upstream implementation holds the provider key; import UpstreamClient from upstream/client.ts.",
               },
             ],

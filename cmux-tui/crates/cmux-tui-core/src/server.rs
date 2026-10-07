@@ -108,6 +108,8 @@ mod client_hello;
 mod fs_wire;
 mod line_connection;
 mod origin_gate;
+mod orphan_shutdown;
+pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -189,9 +191,17 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// A docked column marked permanent stays docked on its edge for every
+/// client: `set-column-dock` takes `permanent`, and an undock, another edge,
+/// a replacement or a close or move that would remove it answers
+/// `dock-column-permanent`.
+pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
+/// `set-column-dock` and `move-tab-to-column` accept `role` (`agent_chat`),
+/// kept with the pin and sent back as `Screen.columns[].dock.role`.
+pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
@@ -1656,8 +1666,9 @@ enum Command {
         transaction: Option<u64>,
     },
     /// `dock-columns-v1`: pin or unpin the viewport column containing
-    /// `pane`. `edge` and `mode` stay strings so a bad value answers with
-    /// `error_code:"invalid-argument"` instead of a decode error.
+    /// `pane`. `edge`, `mode` and `role` (`dock-column-role-v1`) stay strings
+    /// so a bad value answers with `error_code:"invalid-argument"` instead of
+    /// a decode error.
     SetColumnDock {
         pane: PaneId,
         dock: bool,
@@ -1665,6 +1676,11 @@ enum Command {
         edge: Option<String>,
         #[serde(default)]
         mode: Option<String>,
+        /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
+        #[serde(default)]
+        permanent: Option<bool>,
+        #[serde(default)]
+        role: Option<String>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -1940,6 +1956,11 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
+    /// chief token), and the ack of handled wakes.
+    CloudMuxSubscribe(cloud_conversations::NoParams),
+    CloudMuxUnsubscribe(cloud_conversations::NoParams),
+    CloudMuxAck(cloud_conversations::MuxAckParams),
     /// Local conversation attachments (`local-attachments-v1`,
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
@@ -5149,6 +5170,8 @@ pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Called after any client connects or leaves (orphan_shutdown.rs).
+    client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -5168,6 +5191,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
+            client_presence_observer: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -5220,6 +5244,8 @@ impl ClientRegistry {
                 origin: Default::default(),
             },
         );
+        drop(state);
+        self.notify_client_presence();
         client
     }
 
@@ -6243,6 +6269,7 @@ impl ClientRegistry {
         if detached {
             self.notify_detach();
         }
+        self.notify_client_presence();
         Some(record)
     }
 
@@ -10458,7 +10485,7 @@ fn handle_request_with_cancellation(
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
-    if let Some(target) = cloud_conversations::subscribe_target(&cmd) {
+    if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
         return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
     }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
@@ -13833,8 +13860,18 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
-            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+            let mut dock = crate::mux::parse_column_dock(
+                dock,
+                edge.as_deref(),
+                mode.as_deref(),
+                role.as_deref(),
+            )?;
+            // `permanent-dock-v1`: `permanent:true` marks the column; false or
+            // omitted keeps the current value (a permanent column stays one).
+            if let Some(flag) = dock.as_mut() {
+                flag.permanent = permanent == Some(true);
+            }
             let outcome = mux.set_column_dock(
                 pane,
                 dock,
@@ -14262,6 +14299,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
+        Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
+        Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
+        Command::CloudMuxAck(params) => cloud_conversations::mux_ack(mux, client, params),
         Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
         Command::CloudConversationSubscribe(params) => {
             cloud_conversations::subscribe(mux, client, Some(params))
@@ -15750,6 +15790,9 @@ mod loopback_forward_tests;
 #[path = "server/image_paste_tests.rs"]
 mod image_paste_tests;
 
+#[cfg(test)]
+#[path = "server/orphan_shutdown_tests.rs"]
+mod orphan_shutdown_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;

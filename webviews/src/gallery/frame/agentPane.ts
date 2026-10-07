@@ -7,6 +7,7 @@
 import type { AgentPaneVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
+import { installChipHost } from "./chips";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -25,6 +26,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   >;
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
+  installChipHost(state.chipHost);
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   const deliver = () => {
@@ -46,7 +48,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "file.search":
         return answer([]);
       default:
-        return answer(null);
+        return answer(state.native?.[message.method ?? ""] ?? null);
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {

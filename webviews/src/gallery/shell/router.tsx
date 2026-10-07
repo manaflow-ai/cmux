@@ -11,13 +11,15 @@ import {
   redirect,
   type RouterHistory,
 } from "@tanstack/react-router";
+import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
 
-export const VIEWS = ["variant", "variants", "locales", "themes"] as const;
+export const VIEWS = ["variant", "variants", "locales", "themes", "compare"] as const;
 export type View = (typeof VIEWS)[number];
-export type ShellSearch = GalleryEnv & { view: View };
+/** The controls, the view, and the compare view's state (compare.ts; written only in that view). */
+export type ShellSearch = GalleryEnv & { view: View; compare: CompareState };
 
 /** Search params as flat strings, the way the stage frames and the matrix read them. */
 function parseSearch(text: string): Record<string, unknown> {
@@ -25,10 +27,18 @@ function parseSearch(text: string): Record<string, unknown> {
 }
 
 function stringifySearch(search: Record<string, unknown>): string {
-  const params = writeEnv(readEnv(new URLSearchParams(search as Record<string, string>)));
+  const flat = Object.fromEntries(
+    Object.entries(search).flatMap(([key, value]) =>
+      key === "compare" && value && typeof value === "object"
+        ? [...writeCompare(value as CompareState)]
+        : [[key, typeof value === "string" ? value : String(value)]],
+    ),
+  );
+  const params = writeEnv(readEnv(new URLSearchParams(flat)));
   const view = search.view;
   if (typeof view === "string" && view !== "variant" && (VIEWS as readonly string[]).includes(view))
     params.set("view", view);
+  if (view === "compare") writeCompare(readCompare(new URLSearchParams(flat)), params);
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -38,7 +48,12 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
     Object.entries(raw).map(([key, value]) => [key, typeof value === "string" ? value : String(value)]),
   );
   const view = (VIEWS as readonly string[]).includes(strings.view ?? "") ? (strings.view as View) : "variant";
-  return { ...readEnv(new URLSearchParams(strings)), view };
+  const params = new URLSearchParams(strings);
+  const compare =
+    raw.compare && typeof raw.compare === "object"
+      ? readCompare(writeCompare(raw.compare as CompareState))
+      : readCompare(params);
+  return { ...readEnv(params), view, compare };
 }
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */

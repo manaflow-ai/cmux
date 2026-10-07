@@ -49,6 +49,9 @@ mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+#[cfg(unix)]
+mod terminal_rehost;
+mod terminal_relaunch;
 mod terminal_work;
 mod topology_result;
 
@@ -57,7 +60,10 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
-pub use dock_columns::{ColumnDockError, ColumnDockOutcome, parse_column_dock};
+pub use dock_columns::{
+    ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
+};
+pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
@@ -3519,6 +3525,9 @@ impl Mux {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
         };
+        if let Some(root) = options.terminal_host_root.as_deref() {
+            crate::terminal_host_runtime::sweep_released_pty_locks(root);
+        }
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
@@ -8209,6 +8218,9 @@ impl Mux {
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
+            let launched =
+                prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
+            self.record_terminal_relaunch(&terminal_hex, launched);
             let spawned = match prelaunched {
                 Some(prelaunched) => {
                     Surface::spawn_prelaunched(prelaunched.into_host(), Arc::downgrade(self))
@@ -8327,6 +8339,7 @@ impl Mux {
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
+            self.record_terminal_relaunch(&terminal_hex, &opts);
             #[cfg(test)]
             if let Some(hook) =
                 self.terminal_create_after_terminal_reservation.lock().unwrap().clone()

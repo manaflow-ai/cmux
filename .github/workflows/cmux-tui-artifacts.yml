@@ -78,19 +78,22 @@ on:
         type: string
 
 concurrency:
-  # One group per feat-cmux-next push, per pushed branch otherwise (main, each
-  # cmux-tui-pin-*), per PR, and per commit for a manual dispatch.
-  # cancel-in-progress stays false, so a started run is never cancelled and no
-  # publish of immutable objects stops mid-upload. A shared group keeps one
-  # pending run that a newer run replaces, and that starved feat-cmux-next
-  # (2026-10-07 01:31-02:11: 13 of 14 base runs replaced before their
-  # preflight, so base trees went unpublished and every PR's same-tree wait
-  # timed out at 45 min). So every feat-cmux-next push runs: tree-preflight
-  # skips a complete tree, and tree-owner-wait and the per-run job groups keep
-  # one builder per tree key, so the macOS work is per tree, not per push.
-  # Main stays serialized because each main run also updates latest/.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
-  cancel-in-progress: false
+  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*), per
+  # PR, and per commit for a manual dispatch. For push and dispatch runs
+  # cancel-in-progress stays false: a started run is never cancelled, so no
+  # publish of immutable objects stops mid-upload, and a newer push replaces
+  # only the pending run. A pull_request_target run is cancelled by the next
+  # push to its PR, so a superseded PR head never holds a macOS builder
+  # (tests/test_ci_self_hosted_guard.sh,
+  # check_pr_macos_workflows_cancel_superseded_runs). One group per
+  # feat-cmux-next push (#18175) left 67 runs queued at 05:30Z on 2026-10-07,
+  # each about 2 h behind the macOS builders, so the tip's tree and the
+  # nightly-next build that needs it waited behind every older push. PRs into
+  # feat-cmux-next are retired (direct pushes since 2026-10-03), so no PR
+  # same-tree wait needs an intermediate base tree. tree-preflight still skips
+  # a complete tree, and tree-owner-wait keeps one builder per tree key.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 permissions: {}
 
@@ -420,10 +423,17 @@ jobs:
       # the Node rollback lane until a tested backend exists; do not publish a
       # misleading Rust machine package or manifest entry.
       include_windows: false
-      # Post-merge publication is off the PR critical path, so its two macOS
-      # Rust legs run on the background lane (free GitHub-hosted capacity)
-      # unless a dispatch names a runner. See docs/ci-runners.md.
-      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+      # Same-repository PRs (pull_request_target) publish the tree that their
+      # same-tree checks wait for, so these macOS legs are on the PR critical
+      # path and use the PR pool, never the background lane. See
+      # docs/ci-runners.md.
+      # Attempt 1 runs on the owned AWS minis through CI_AWS_SIDE_RUNNER
+      # (CI_SIDE_LANE_RUNNER when it is empty); Blacksmith macOS queued these
+      # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
+      # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
+      # A rerun goes back to the PR pool through macos_retry_runner.
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
 
   # The daemon tests the cmux-next app relies on (Rust tests named
@@ -440,7 +450,7 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1130,6 +1140,103 @@ jobs:
   # the commit-addressed publication and the cmux_next_ daemon tests of this
   # commit pass. A key is published once: the first passing commit with a tree
   # wins, and a later commit with the same tree keeps that binary.
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow. Builds the macOS artifacts that need
+  # no Apple SDK (cmux-app-host, cmux-browser-host, cmux-cloud, libghostty-vt)
+  # on Linux and compares each with the Mac-built artifact that `publish` just
+  # uploaded for this commit (scripts/ci/macos-cross.sh, macho_parity.py). It
+  # replaces nothing: no job reads its output, it holds no credentials, and
+  # continue-on-error keeps a red comparison out of the run's conclusion. The
+  # report is the job summary and the macos-cross-parity artifact.
+  macos-cross-shadow:
+    name: macOS cross-compile shadow (Linux, compare only)
+    needs: [publish]
+    if: needs.publish.result == 'success' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict
+        run: python3 tests/test_ci_macho_parity.py
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19
+
+      # libghostty-vt's Zig: the ghostty-next manifest sets it. Zig's darwin
+      # headers and libSystem stub must match the version Ghostty builds with.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Fetch the Mac-built references of this commit
+        run: ./scripts/ci/macos-cross.sh fetch-refs "$GITHUB_SHA"
+
+      - name: Build on Linux (no Apple SDK)
+        run: |
+          set -euo pipefail
+          sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
+          ./scripts/ci/macos-cross.sh toolchain "$sdk"
+          start=$(date +%s)
+          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$(git -C ghostty-next rev-parse HEAD)"
+          ./scripts/ci/macos-cross.sh vt
+          echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Compare with the Mac builds
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          ./scripts/ci/macos-cross.sh parity-hosts > "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-vt >> "$report" 2>&1 || status=1
+          cat "$report"
+          {
+            echo "### macOS cross-compile shadow: ${GITHUB_SHA}"
+            echo "Linux build: ${LINUX_BUILD_SECONDS:-?} s. Mac references: https://files.cmux.com/cmux-tui/${GITHUB_SHA}/"
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
@@ -1158,6 +1265,20 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-aarch64-apple-darwin
+          path: assets/tree
+
+      # Linux daemon mode fetches the musl daemon and app host by tree key
+      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
+      - name: Download the Linux x86_64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
       - name: Publish the complete tree with the trusted helper
@@ -1194,7 +1315,7 @@ jobs:
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
-            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
               fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
             done
           else
@@ -1203,7 +1324,7 @@ jobs:
           import json, os, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
-          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
+          names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
           print(json.dumps({
@@ -1241,12 +1362,14 @@ jobs:
         run: |
           set -euo pipefail
           verify_tree() {
-          local base="https://files.cmux.com/cmux-tui/tree/$1" name=cmux-tui-aarch64-apple-darwin published_sha
-          curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
-          published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
-          [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+          local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
+          for name in cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl; do
+            curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
+            published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
+            [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+            echo "Verified: $base/$name"
+          done
           curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID"
-          echo "Verified: $base/$name"
           }
           verify_tree "$KEY"
           # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
@@ -1296,6 +1419,20 @@ jobs:
           name: cmux-tui-aarch64-apple-darwin
           path: assets/tree
 
+      # Linux daemon mode fetches the musl daemon and app host by tree key
+      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
+      - name: Download the Linux x86_64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
+          path: assets/tree
+
       - name: Publish the PR tree with the trusted helper
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -1332,16 +1469,16 @@ jobs:
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/existing-source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
-            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            for asset in $(python3 "$helper" --list-companions); do
               fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
             done
           else
             source_args=(--source-file tree/source.json --publish-source)
           fi
-          python3 - "$source_commit" "$KEY" > manifest.json.tmp <<'PY'
-          import hashlib, json, pathlib, sys
-          commit, key = sys.argv[1:]
-          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
+          python3 - "$source_commit" "$KEY" "$helper" > manifest.json.tmp <<'PY'
+          import hashlib, json, pathlib, subprocess, sys
+          commit, key, helper = sys.argv[1:]
+          names = subprocess.check_output([sys.executable, helper, "--list-companions"], text=True).split()
           binaries = {}
           for name in names:
               path = pathlib.Path("assets/tree") / name

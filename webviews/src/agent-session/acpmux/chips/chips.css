@@ -72,3 +72,55 @@
   opacity: 0.5;
   cursor: default;
 }
+/* A local image the pane does not show: outside the folders, missing or not loaded (D5). */
+.cv-image-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.cv-image-file .cv-chip__icon,
+.cv-image-file .cv-chip__lock {
+  margin: 0;
+  vertical-align: 0;
+  flex: none;
+}
+.cv-image-file__alt,
+.cv-image-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-image-file__name {
+  font-weight: 600;
+}
+.cv-image-file__alt + .cv-image-file__name {
+  font-weight: 400;
+  color: var(--cv-link);
+}
+.cv-image-file__alt {
+  font-weight: 600;
+}
+.cv-image-file__note {
+  color: var(--cv-link);
+  white-space: nowrap;
+}
+.cv-image-file__open {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cv-image-file__open:focus-visible {
+  outline: 1px solid var(--cv-link);
+  outline-offset: 1px;
+}
