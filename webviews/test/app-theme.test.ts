@@ -100,3 +100,9 @@ describe("app theme", () => {
     for (const value of Object.values(variables)) expect(value).toMatch(/^#[0-9a-f]{6}$/);
   });
 });
+
+test("the Swift port's vectors are current (schemas/theme/app-theme-vectors.json)", async () => {
+  const { vectors, VECTORS_PATH } = await import("../scripts/theme/export-app-theme-vectors");
+  const fs = await import("node:fs");
+  expect(fs.readFileSync(VECTORS_PATH, "utf8")).toBe(vectors());
+});

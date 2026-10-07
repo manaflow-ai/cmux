@@ -10,6 +10,7 @@ import { entryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
+import { deriveAppTheme } from "../../theme/appTheme";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
@@ -80,7 +81,9 @@ const bootstrap = document.createElement("script");
 bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(webThemePayload(tokens));
+(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
+  webThemePayload(tokens, deriveAppTheme(theme)),
+);
 // Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
 if (env.scale !== 1) root.style.zoom = String(env.scale);
 root.dataset.galleryEntry = entry.id;
