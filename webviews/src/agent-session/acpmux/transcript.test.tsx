@@ -996,13 +996,13 @@ describe("acpmux host handshake", () => {
     const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(() => title() === "Claude Code" && Boolean(actions()?.["chat.new"]));
-      expect(title()).toBe("Claude Code");
+      await waitFor(() => title() === "Agent Chat" && Boolean(actions()?.["chat.new"]));
+      expect(title()).toBe("Agent Chat");
       // No timer or reply runs between the pick and this read.
       act(() => {
         void actions()["chat.new"]!({ harness: "codex" });
       });
-      expect(title()).toBe("Codex");
+      expect(title()).toBe("Agent Chat");
       expect(sent.some((request) => request.method === "session/new")).toBe(true);
       act(() => {
         void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
@@ -1016,7 +1016,7 @@ describe("acpmux host handshake", () => {
       expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
       await waitFor(() => doc.querySelector(".cv-user__status") === null);
       expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
-      expect(title()).toBe("Codex");
+      expect(title()).toBe("Agent Chat");
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1087,7 +1087,7 @@ describe("acpmux host handshake", () => {
       await waitFor(
         () =>
           Boolean(actions()?.["chat.new"]) &&
-          doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label") === "Claude Code",
+          doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label") === "Agent Chat",
       );
       act(() => {
         void actions()["chat.new"]!({ harness: "gemini" });
@@ -3456,6 +3456,9 @@ describe("agent pane header", () => {
         const header = dom.window.document.querySelector(".acpmux-header")!;
         expect(header.querySelector(".acpmux-title") === null).toBe(true);
         expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.textContent).not.toContain("Agent Chat");
+        expect(header.textContent).not.toContain("Claude Code");
+        expect(header.textContent).not.toContain("Codex");
         expect(dom.window.document.querySelector("section.acpmux-shell")?.getAttribute("aria-label")).toBe(
           "Fix the header",
         );
