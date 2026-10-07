@@ -154,7 +154,8 @@ describe("device enrollment", () => {
     const body = Object.fromEntries(Object.entries(typeof create?.json === "object" && create.json !== null ? create.json : {}));
     expect(body["clientPublicKey"]).toBe(KEY_1);
     const mesh = await json(await call(`/v1/meshes/${meshId}`, key));
-    expect(body["routes"]).toEqual([mesh["ipv4Cidr"]]);
+    // The provider refuses a tunnel whose routes do not cover the network's IPv6 range too (measured live in M1c).
+    expect(body["routes"]).toEqual([mesh["ipv4Cidr"], "fd00:1::/64"]);
     expect(tunnel).toMatchObject({
       id: tunnelId,
       meshId,
@@ -163,7 +164,7 @@ describe("device enrollment", () => {
       endpointPort: 51820,
       mtu: 1280,
       persistentKeepaliveSeconds: 25,
-      allowedIps: [mesh["ipv4Cidr"]],
+      allowedIps: [mesh["ipv4Cidr"], "fd00:1::/64"],
     });
     const text = JSON.stringify(tunnel);
     expect(text).not.toMatch(/private/iu);

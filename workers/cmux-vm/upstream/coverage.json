@@ -459,9 +459,10 @@
       ]
     },
     "get_vpc": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "mesh.enrollDevice"
+      ]
     },
     "update_vpc": {
       "status": "planned",

@@ -128,11 +128,17 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
 
     createTunnel: (_mesh, { owns }, options) =>
       Effect.gen(function* () {
+        // The provider refuses a tunnel whose routes miss any range of the network,
+        // and every network also has an IPv6 /64 (assigned by the provider).
+        const network = yield* http
+          .json("getNetwork", "GET", `/v5/vpcs/${proofSegment(owns)}`)
+          .pipe(Effect.flatMap(decodeAs(Schema.Struct({ cidrV6: Schema.optional(Schema.NullOr(Schema.String)) }), "getNetwork")));
+        const routes = network.cidrV6 ? [...options.routes, network.cidrV6] : [...options.routes];
         const raw = yield* http.json("createTunnel", "POST", "/v5/tunnels", {
           // Always our key: omitting it would make the provider mint one, and that key would leave the device boundary.
           clientPublicKey: options.clientPublicKey,
           displayName: upstreamName(config.environment, options.tenantId, options.deviceId),
-          routes: [...options.routes],
+          routes,
           vpcs: [{ vpc: upstreamIdOf(owns) }],
         });
         const body = yield* decodeAs(TunnelBody, "createTunnel")(raw);
