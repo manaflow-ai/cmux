@@ -205,13 +205,27 @@ impl Brain {
     }
 }
 
-/// A side message's text as the turn and the log see it: which conversation
-/// it came from, then the person's words.
+/// Longest title (characters) in a side message's label.
+const LABEL_TITLE_CHARS: usize = 80;
+
+/// A side message's text as the turn and the log see it: a fixed label with
+/// the conversation id and its title in quotes, then the person's words.
+/// The title is users' text that the model reads, so it loses newlines and
+/// other control characters, brackets and quotes, and is cut to
+/// `LABEL_TITLE_CHARS`: it cannot end the label or fake a line.
 fn labelled(summary: &Summary, text: &str) -> String {
-    let name = if summary.title.trim().is_empty() {
-        summary.id.as_str()
-    } else {
-        summary.title.as_str()
-    };
-    format!("[in {name}] {text}")
+    let cleaned: String = summary
+        .title
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .filter(|c| !matches!(c, '[' | ']' | '"'))
+        .collect();
+    let title: String = cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(LABEL_TITLE_CHARS)
+        .collect();
+    format!("[in conv {} \"{title}\"] {text}", summary.id)
 }
