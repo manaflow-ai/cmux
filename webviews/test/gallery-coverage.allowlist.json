@@ -146,6 +146,7 @@
     "pages/markdown/linkOverlays.tsx#LinkCardView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
     "pages/markdown/linkOverlays.tsx#LinkPopoverView",
+    "pages/settings/editors/OrderedChoicesEditor.tsx#OrderedChoicesEditor",
     "pages/shared/PageMenu.tsx#PageMenu",
     "ui/Breadcrumbs.tsx#Breadcrumbs",
     "ui/ChoiceGroup.tsx#ChoiceGroup",
