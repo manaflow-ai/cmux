@@ -38,6 +38,8 @@ public enum ConversationTranslationIndicator: Sendable, Hashable {
     case translating(source: Locale.Language)
     /// Automatic translation is on but the language model is not downloaded.
     case waitingForDownload(source: Locale.Language)
+    /// This device cannot translate the source language.
+    case unsupported(source: Locale.Language)
 }
 
 public struct ConversationAutoTranslation: Sendable, Hashable {
@@ -210,7 +212,8 @@ public final class ConversationTranslations {
 
     public var indicator: ConversationTranslationIndicator? {
         guard let auto = autoTranslation else { return nil }
-        if autoAvailability == .downloadable || autoAvailability == .unsupported, !hasAutomaticTranslation {
+        if autoAvailability == .unsupported { return .unsupported(source: auto.source) }
+        if autoAvailability == .downloadable, !hasAutomaticTranslation {
             return .waitingForDownload(source: auto.source)
         }
         return .translating(source: auto.source)

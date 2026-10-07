@@ -140,6 +140,16 @@ import Testing
         try await waitUntil { translations.presentation(for: message)?.caption == .unsupported(language: "xx") }
     }
 
+    @Test func automaticTranslationOfAnUnsupportedLanguageSaysSo() async throws {
+        let (backend, store, translations, translator) = try await makeStore()
+        translator.availabilityResult = .unsupported
+        translator.failure = .unsupported
+        let message = live(backend, store, seq: 4, sender: "lc", text: "es: hola", eventSeq: 100)
+        translations.translateConversation(from: message)
+        try await waitUntil { translations.indicator == .unsupported(source: spanish) }
+        #expect(translations.presentation(for: message) == nil)
+    }
+
     @Test func automaticTranslationPersistsPerConversation() async throws {
         let suite = "cmux.translation.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

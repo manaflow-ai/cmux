@@ -59,6 +59,8 @@ enum MacTranslationText {
             return String(format: String(localized: "conversation.translate.indicator.translating", defaultValue: "Translating %@", bundle: .module), languageName(source))
         case .waitingForDownload:
             return String(localized: "conversation.translate.indicator.waiting", defaultValue: "Translation will begin when language is downloaded", bundle: .module)
+        case let .unsupported(source):
+            return captionText(.unsupported(language: source.minimalIdentifier))
         }
     }
 }
