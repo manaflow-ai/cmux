@@ -6,7 +6,7 @@ import { PNG_SIGNATURE, sniffImageSize } from "./png";
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
 const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "server.ts")], {
-  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", LOG: "" },
+  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", LOG: "", MAX_PINNED: "1" },
   stdout: "pipe",
   stderr: "inherit",
 });
@@ -245,6 +245,46 @@ async function main() {
   check(back.length === bytes.length && back.every((b, i) => b === bytes[i]), "uploaded bytes served back verbatim");
   const withImg = await l.call("send", { clientMessageId: `img-${crypto.randomUUID()}`, text: "", attachmentIds: [up.attachment.id] });
   check(withImg.message.attachments[0]?.id === up.attachment.id, "send with attachmentIds attaches the upload");
+
+  console.log("conversation list state");
+  const ga = await Client.connect("group");
+  const gh = await ga.call("hello", { clientId: "list-a" });
+  check(
+    gh.conversation.pinned === false && gh.conversation.muted === false && gh.conversation.markedUnread === false && gh.conversation.deleted === false && !("pinOrder" in gh.conversation),
+    "hello carries default list state (unpinned, alerts on, read, not deleted)",
+  );
+  const gb = await Client.connect("group");
+  await gb.call("hello", { clientId: "list-b" });
+  const pinned = await ga.call("updateConversation", { pinned: true });
+  check(pinned.conversation.pinned === true && pinned.conversation.pinOrder === 0, "pin returns pinned with pinOrder 0");
+  const pushed = await gb.waitFor(() => gb.frames.find((f) => f.method === "conversation" && f.params.conversation.pinned), 3000, "conversation push");
+  check(pushed.params.conversation.id === "group", "pin is pushed to the conversation's other clients");
+  const da = await Client.connect("direct");
+  await da.call("hello", { clientId: "list-d" });
+  const overLimit = await da.raw("updateConversation", { pinned: true });
+  check(overLimit.error?.code === -32004, "pinning past MAX_PINNED is rejected (-32004 pin limit)");
+  const badType = await da.raw("updateConversation", { muted: "yes" });
+  check(badType.error?.code === -32602, "non-boolean list field is rejected (-32602)");
+  const muted = await ga.call("updateConversation", { muted: true, markedUnread: true });
+  check(muted.conversation.muted === true && muted.conversation.markedUnread === true && muted.conversation.pinned === true, "Hide Alerts and Mark as Unread apply without touching the pin");
+  const deleted = await ga.call("updateConversation", { deleted: true });
+  check(
+    deleted.conversation.deleted === true && deleted.conversation.pinned === false && !("pinOrder" in deleted.conversation) && deleted.conversation.markedUnread === false && deleted.conversation.muted === true,
+    "delete unpins and clears Mark as Unread, keeps Hide Alerts",
+  );
+  const pinDirect = await da.call("updateConversation", { pinned: true });
+  check(pinDirect.conversation.pinned === true, "deleting a pinned conversation frees its pin slot");
+  await da.call("updateConversation", { pinned: false });
+  gb.frames = [];
+  await post("/admin/burst?conversation=group&count=1&intervalMs=0");
+  await gb.waitFor(() => gb.frames.find((f) => f.method === "conversation" && f.params.conversation.deleted === false), 3000, "undelete push");
+  check(true, "a new incoming message brings a deleted conversation back");
+  const rehello = await (await Client.connect("group")).call("hello", { clientId: "list-c" });
+  check(rehello.conversation.deleted === false && rehello.conversation.muted === true, "hello after reconnect carries the current list state");
+  await ga.call("updateConversation", { muted: false });
+  ga.close();
+  gb.close();
+  da.close();
 
   console.log("admin disconnect");
   await post("/admin/disconnect");

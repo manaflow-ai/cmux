@@ -26,6 +26,7 @@ process and keep growing.
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
+| `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -36,12 +37,24 @@ as `event` notifications, in order, then sends `replayDone`. If the gap exceeds
 500 events it sends nothing and returns `lagged: true`; the client must refetch
 the newest page and rebase.
 
+`updateConversation` applies conversation list actions with Messages' rules:
+pinning appends after the last pin unless `pinOrder` is given; at most 9
+conversations (env `MAX_PINNED`) are pinned, and one more fails with `-32004
+"pin limit"`; unpinning drops `pinOrder`; deleting unpins and clears
+`markedUnread` (Hide Alerts stays). A deleted conversation is recoverable: a
+new message from someone else, or `deleted: false`, brings it back. Every
+change is pushed to the conversation's subscribed clients as `conversation`.
+
 ## Notifications (server to client)
 
 `event` with params `{eventSeq, kind, ...}`:
 
 - `message.created {message}`
 - `message.updated {message}` (edit, reaction, delivery status, reply count)
+
+`conversation {conversation}` carries the conversation after a list state
+change. It has no `eventSeq`; `hello` returns the current state, so a client
+resyncs on reconnect.
 
 `typing {participantId, isTyping}` is ephemeral and carries no `eventSeq`.
 `replayDone {}` ends a resume replay.
@@ -52,7 +65,10 @@ dedupes on `eventSeq` and on message `id`.
 ## Types
 
 ```
-Conversation { id, title, kind: "group"|"direct", participants: [Participant] }
+Conversation {
+  id, title, kind: "group"|"direct", participants: [Participant],
+  pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
+}
 Participant  { id, name, initials, colorHex, isMe }
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,

@@ -351,6 +351,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
         if case .connection = change { return }
+        if case .listState = change { return }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
         #if DEBUG

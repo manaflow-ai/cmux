@@ -73,6 +73,20 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         Task { await core.close() }
     }
 
+    public func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+        var params: [String: Any] = [:]
+        if let pinned = change.pinned { params["pinned"] = pinned }
+        if let pinOrder = change.pinOrder { params["pinOrder"] = pinOrder }
+        if let muted = change.muted { params["muted"] = muted }
+        if let markedUnread = change.markedUnread { params["markedUnread"] = markedUnread }
+        if let deleted = change.deleted { params["deleted"] = deleted }
+        let result = try await core.request("updateConversation", params: JSONBox(params), timeout: .seconds(15)).value
+        guard let info = WireDecoding.conversation(result["conversation"] as? [String: Any] ?? [:]) else {
+            throw ConversationBackendError(code: -4, message: "bad conversation")
+        }
+        return info
+    }
+
     // MARK: -
 
     actor Core {
@@ -200,6 +214,9 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                 if let last = lastEventSeq, eventSeq <= last { return }
                 lastEventSeq = eventSeq
                 continuation?.yield(.message(message, eventSeq: eventSeq))
+            case "conversation":
+                guard let info = WireDecoding.conversation(params["conversation"] as? [String: Any] ?? [:]) else { return }
+                continuation?.yield(.conversationChanged(info))
             case "typing":
                 guard let participant = params["participantId"] as? String else { return }
                 continuation?.yield(.typing(participantID: participant, isTyping: params["isTyping"] as? Bool ?? false))
@@ -286,7 +303,19 @@ enum WireDecoding {
             id: id,
             title: raw["title"] as? String ?? "",
             kind: ConversationKind(rawValue: raw["kind"] as? String ?? "") ?? .group,
-            participants: participants
+            participants: participants,
+            listState: listState(raw)
+        )
+    }
+
+    static func listState(_ raw: [String: Any]) -> ConversationListState {
+        let pinned = raw["pinned"] as? Bool ?? false
+        return ConversationListState(
+            pinned: pinned,
+            pinOrder: pinned ? raw["pinOrder"] as? Int : nil,
+            muted: raw["muted"] as? Bool ?? false,
+            markedUnread: raw["markedUnread"] as? Bool ?? false,
+            deleted: raw["deleted"] as? Bool ?? false
         )
     }
 

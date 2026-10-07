@@ -26,6 +26,8 @@ public enum ConversationStoreChange: Sendable, Equatable {
     case typing
     case older
     case connection
+    /// Pin, Hide Alerts, Mark as Unread or delete changed; the transcript is unaffected.
+    case listState
 }
 
 /// Backend-agnostic transcript state: one ordered window of messages that
@@ -75,6 +77,9 @@ public final class ConversationStore {
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
+    /// Bumps on every list state change so a stale reply or rollback never
+    /// overwrites a newer state.
+    private var listStateGeneration = 0
 
     public init(
         backend: any ConversationBackend,
@@ -139,6 +144,10 @@ public final class ConversationStore {
         case .disconnected:
             connection = .reconnecting
             notify(.connection)
+        case let .conversationChanged(info):
+            listStateGeneration += 1
+            self.info = info
+            notify(.listState)
         }
     }
 
@@ -578,5 +587,37 @@ public final class ConversationStore {
               newest > markedReadSeq else { return }
         markedReadSeq = newest
         Task { [backend] in await backend.markRead(upToSeq: newest) }
+    }
+
+    // MARK: Conversation list state
+
+    /// Pin, Hide Alerts, Mark as Unread and delete state; default until connected.
+    public var listState: ConversationListState { info?.listState ?? ConversationListState() }
+
+    /// Applies a list action at once and confirms it with the backend. A
+    /// rejected action (the pin limit, a network failure) rolls back unless a
+    /// newer state arrived meanwhile.
+    public func updateListState(_ change: ConversationListStateChange) {
+        guard !change.isEmpty, var optimistic = info else { return }
+        let previous = optimistic.listState
+        optimistic.listState = previous.applying(change)
+        guard optimistic.listState != previous else { return }
+        listStateGeneration += 1
+        let generation = listStateGeneration
+        info = optimistic
+        notify(.listState)
+        Task { [weak self, backend] in
+            do {
+                let confirmed = try await backend.updateListState(change)
+                guard let self, self.listStateGeneration == generation else { return }
+                self.info = confirmed
+                self.notify(.listState)
+            } catch {
+                guard let self, self.listStateGeneration == generation, var current = self.info else { return }
+                current.listState = previous
+                self.info = current
+                self.notify(.listState)
+            }
+        }
     }
 }
