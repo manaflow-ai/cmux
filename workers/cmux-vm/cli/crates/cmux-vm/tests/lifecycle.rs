@@ -12,9 +12,13 @@ const KEY: &str = "cmuxvm_sk_test";
 fn vm(state: &str) -> Value {
     json!({
         "id": VM_ID,
+        "displayName": null,
+        "labels": {},
         "state": state,
         "resources": { "vcpus": 2, "memoryMib": 4096, "diskMib": 16384 },
         "idleTimeoutSeconds": 300,
+        "maxRunSeconds": null,
+        "autoDeleteSeconds": null,
         "createdAt": "2026-10-07T00:00:00.000Z",
         "updatedAt": "2026-10-07T00:00:00.000Z"
     })

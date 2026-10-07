@@ -262,9 +262,15 @@ async fn dispatch(
             let cursor = parse_opt::<types::VmsListVmsCursor>("--cursor", args.cursor)?;
             let state = parse_opt::<types::VmsListVmsState>("--state", args.state)?;
             let limit = args.limit.map(|n| n.to_string());
-            let page =
-                fetch_body(client.vms_list_vms(cursor.as_ref(), limit.as_deref(), state, None))
-                    .await?;
+            // Label filters (`label=key:value`) are not a CLI flag yet.
+            let page = fetch_body(client.vms_list_vms(
+                cursor.as_ref(),
+                None,
+                limit.as_deref(),
+                state,
+                None,
+            ))
+            .await?;
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {

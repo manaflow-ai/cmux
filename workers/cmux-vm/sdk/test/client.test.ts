@@ -4,9 +4,13 @@ import { createCmuxVmClient, DEFAULT_BASE_URL, type Vm } from "../src/index.ts";
 const vmId = "vm_0123456789abcdefghjkmnpqrs";
 const vm: Vm = {
   id: vmId,
+  displayName: null,
+  labels: {},
   state: "running",
   resources: { vcpus: 2, memoryMib: 4096, diskMib: 16384 },
   idleTimeoutSeconds: 300,
+  maxRunSeconds: null,
+  autoDeleteSeconds: null,
   createdAt: "2026-10-07T00:00:00.000Z",
   updatedAt: "2026-10-07T00:00:00.000Z",
 };
