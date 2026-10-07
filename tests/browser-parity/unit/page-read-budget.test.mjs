@@ -156,7 +156,8 @@ test("A.budget readers: textContent, innerText and HTML read whole within the bu
       // 100,000 characters of text; a 60,000-character budget keeps what is
       // left after the cut margin (53,248 characters) is dropped.
       const sized = A.budget({ maxSize: 60000 });
-      const text = sized.textContent(big);
+      // Settled as the reply would be.
+      const text = sized.settle(sized.textContent(big));
       out.sizedLength = text.length;
       out.sizedEnd = text.slice(-1);
       out.sizedCut = sized.truncated;
