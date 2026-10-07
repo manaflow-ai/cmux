@@ -138,7 +138,8 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let _ = other.wait();
 
     // No process names it, but its transcript was just written.
-    let rollout = root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{ID}.jsonl"));
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{ID}.jsonl"));
     std::fs::File::options()
         .write(true)
         .open(&rollout)
@@ -187,7 +188,8 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     // Just written: live.
     let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", ID)).await.unwrap_err();
     assert!(refused.contains("written"), "{refused}");
-    let forked = c.request(method::SESSION_NEW, adopt_if_live("fakeclaude", ID, Some("fork"))).await;
+    let forked =
+        c.request(method::SESSION_NEW, adopt_if_live("fakeclaude", ID, Some("fork"))).await;
     let id = forked.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let session = hub.resolve(&id).unwrap();
     assert_eq!(session.meta().cwd, project);
