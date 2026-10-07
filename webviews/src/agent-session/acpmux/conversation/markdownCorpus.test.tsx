@@ -109,10 +109,10 @@ describe("references reply", () => {
     expect(out).toContain('<h6 class="cv-h cv-h4">Smallest heading</h6>');
   });
 
-  test("a data URL image draws; a web image is a link named by its alt text", () => {
+  test("a data URL image draws; a web image waits behind a placeholder with its site (D5)", () => {
     expect(out).toContain('<img class="cv-img" src="data:image/png;base64,');
     expect(out).toMatch(
-      /<a class="cv-link is-image" href="https:\/\/example.com\/assets\/build-graph.png"[^>]*>.*build graph<\/a>/,
+      /<span class="cv-image-placeholder" title="https:\/\/example.com\/assets\/build-graph.png">.*example.com<\/span><button[^>]*>Load image<\/button>/,
     );
     expect(out).not.toContain("![");
   });

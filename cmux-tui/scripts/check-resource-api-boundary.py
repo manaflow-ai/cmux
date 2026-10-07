@@ -1054,6 +1054,13 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
+                # Sidebar layout sections and items: the reducer validates
+                # them, and a newer app's values and keys must survive a
+                # round trip (sidebar-sections.md L5), which a closed
+                # object type would refuse.
+                "types.SidebarLayoutSnapshot.fields.sections.items",
+                "types.SidebarLayoutOpSectionAdd.fields.section",
+                "types.SidebarLayoutOpItemAdd.fields.item",
             }
             is_explicit_extra = (
                 context.startswith("types.")

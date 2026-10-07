@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 import Foundation
 public import Observation
 
@@ -51,17 +51,17 @@ public final class SidebarModel {
     public var filterText = ""
     /// The card stack above the bottom band (R114): update, what's new, announcements.
     public var cards: [SidebarCard] = []
-    /// The footer's update pill (SIDEBAR-FOOTER-MINIMAL): set by the App only
-    /// while an update is staged or installing; nil shows nothing.
-    public var updatePill: SidebarUpdatePill?
+    /// The staged update card above the footer (UPDATE-CARD): set by the App
+    /// only while an update is staged or installing; nil shows nothing.
+    public var updateCard: SidebarUpdateCard?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
-    /// Workspace rows show their tab count (`sidebar.showCounts`).
-    public var showCounts = false
+    /// What workspace rows show (`sidebar.workspaceRow.*`).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
@@ -166,7 +166,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -262,7 +262,7 @@ public final class SidebarModel {
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
-        showCounts = preferences.showCounts
+        workspaceRow = preferences.workspaceRow
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
     }
@@ -278,7 +278,8 @@ public final class SidebarModel {
         o.filterMatches = filterMatches
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
-        o.showCounts = showCounts
+        o.workspaceRow = workspaceRow
+        o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         o.groupsAsCategories = true
         o.groupsByFolder = groupsByFolder

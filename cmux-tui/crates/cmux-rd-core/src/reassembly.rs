@@ -107,7 +107,7 @@ impl Reassembler {
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
         let no_room =
             self.pending.len() >= MAX_PENDING_FRAMES && !self.pending.contains_key(&header.frame);
-        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::UpMedia)
             || header.frame <= self.finished_through
             || too_far
             || no_room
@@ -209,7 +209,8 @@ impl Reassembler {
         }
         self.pending
             .iter()
-            .find(|(_, p)| Self::decodable(p) && p.flags & flags::KEYFRAME != 0)
+            // A tile frame is standalone too, so a complete one skips older gaps.
+            .find(|(_, p)| Self::decodable(p) && p.flags & (flags::KEYFRAME | flags::TILE) != 0)
             .map(|(&f, _)| f)
     }
 
@@ -247,6 +248,14 @@ impl Reassembler {
                 continue;
             };
             self.finished_through = self.finished_through.max(frame);
+            if p.flags & flags::TILE != 0 {
+                // A tile top-off (rd change C3) depends on no frame of this
+                // stream; its ref_frame names the surface stream's video frame.
+                self.last_released = frame;
+                self.need_recovery = false;
+                out.push(CompleteFrame { frame, flags: p.flags, body });
+                continue;
+            }
             let keyframe = p.flags & flags::KEYFRAME != 0 || body.ref_frame == REF_NONE;
             let referenced = self.last_released != 0 && body.ref_frame == self.last_released;
             let recovers =

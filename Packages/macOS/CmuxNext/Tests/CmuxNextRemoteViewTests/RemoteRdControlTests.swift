@@ -73,6 +73,23 @@ struct RemoteRdControlTests {
         }
     }
 
+    /// rd change B3.2: a service's message (an rb/1 body) passes through
+    /// untouched in both directions, matching the shared vector.
+    @Test func aServiceMessageRoundTripsItsBodyUntouched() throws {
+        let v = try Self.vectors()
+        let vector = try #require(v["service"])
+        let control = try RemoteRdControl.parse(try Self.data(vector))
+        guard case let .service(service, body) = control else {
+            Issue.record("service parsed as \(control)")
+            return
+        }
+        #expect(service == "rb/1")
+        let bodyObject = try Self.object(try JSONEncoder().encode(body))
+        #expect(NSDictionary(dictionary: bodyObject) == NSDictionary(dictionary: try #require(vector["body"] as? [String: Any])))
+        let again = try Self.object(try control.json())
+        #expect(NSDictionary(dictionary: again) == NSDictionary(dictionary: vector))
+    }
+
     @Test func viewerMessagesEncodeLikeTheSharedVectors() throws {
         let v = try Self.vectors()
         let hello = RemoteRdHello(user: "u", install: "i", token: String(repeating: "ab", count: 32), caps: ["stream.open"])
