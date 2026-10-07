@@ -2965,6 +2965,12 @@ fieldset.acpmux-permission-card {
   .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
   .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
+
+/* Keep status text out of sizing: long translations and error details never move the tools. */
+.acpmux-header-status-slot{position:relative;flex:1 1 0;min-width:0;height:26px}
+.acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:12px;overflow:hidden}
+.acpmux-status>svg{flex:none}
+.acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat, no accent color. */
 .nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(48px,18vh,180px) max(16px,calc((100% - 720px)/2)) 32px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 .nt-screen>*{width:100%}
