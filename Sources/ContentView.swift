@@ -847,6 +847,7 @@ struct ContentView: View {
     private enum CommandPaletteTaskKey: Hashable, Sendable {
         case searchIndexBuild
         case search
+        case defaultTerminalStatus
         case agentLauncherAvailability
         case agentLauncherActivation(AgentSessionProviderID)
         case forkableAgentAvailability(String)
@@ -1026,7 +1027,10 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
-    @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
+    // LaunchServices queries can block while macOS refreshes its registration
+    // database. Keep palette presentation independent of that synchronous
+    // system work; the value is refreshed asynchronously before it is needed.
+    @State private var cachedDefaultTerminalIsDefault = false
     @State private var commandPaletteFocusRestoreCoordinator = CommandPaletteFocusRestoreCoordinator()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -3079,7 +3083,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
-            refreshCachedDefaultTerminalStatus()
+            scheduleCachedDefaultTerminalStatusRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
@@ -7101,8 +7105,10 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
     }
 
-    private func refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: Bool = true) {
-        let isDefault = DefaultTerminalRegistration.currentStatus().isDefault
+    private func applyCachedDefaultTerminalStatus(
+        _ isDefault: Bool,
+        refreshSearchCorpusIfPresented: Bool = true
+    ) {
         guard cachedDefaultTerminalIsDefault != isDefault else { return }
 
         cachedDefaultTerminalIsDefault = isDefault
@@ -7111,6 +7117,21 @@ struct ContentView: View {
             scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true, preservePendingActivation: true)
             syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
+        }
+    }
+
+    /// LaunchServices lookups are synchronous and can briefly block the main
+    /// thread while macOS refreshes its registration database. Never perform
+    /// that work as part of opening the command palette or handling its
+    /// registration-change notification.
+    private func scheduleCachedDefaultTerminalStatusRefresh() {
+        commandPaletteTaskStore.replace(.defaultTerminalStatus, priority: .utility) {
+            let isDefault = DefaultTerminalRegistration.currentStatus().isDefault
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                self.applyCachedDefaultTerminalStatus(isDefault)
+            }
         }
     }
 
@@ -10294,7 +10315,6 @@ struct ContentView: View {
 
     /// Presents the palette and resets per-presentation launcher availability before rebuilding results.
     private func presentCommandPalette(initialQuery: String) {
-        refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
         commandPaletteFocusRestoreCoordinator.clear()
         let browserTarget = AppDelegate.shared?.focusedBrowserActionTarget(
             preferredWindow: observedWindow ?? NSApp.keyWindow
@@ -10330,6 +10350,7 @@ struct ContentView: View {
         scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
+        scheduleCachedDefaultTerminalStatusRefresh()
     }
 
     private func resetCommandPaletteListState(initialQuery: String, currentWork: CurrentWorkSnapshot? = nil) {
