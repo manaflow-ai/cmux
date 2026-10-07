@@ -46,12 +46,10 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -879,9 +882,30 @@
-         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
-         fillMask.frame = body
-         fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
--        fillGradient.frame = CGRect(x: 0, y: -windowY, width: spec.width, height: Fixture.gradientHeight)
-+        fillGradient.frame = fillFrame(width: spec.width)  // cmux: a pane taller than the measured window
+@@ -963,6 +966,16 @@
+             RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+         }
+         CATransaction.commit()
 +    }
 +
 +    /// cmux: the outgoing gradient's colours and their locations from one
@@ -64,26 +62,4 @@
 +        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
      }
  
-+    /// cmux: the gradient layer in cell coordinates. It spans MessagesLab's
-+    /// measured 1041 pt window, so in a taller pane a row whose fill would end
-+    /// below that window takes the gradient's deepest band (the same colour
-+    /// `Fixture.color(in:atPx:)` gives a static bitmap there) instead of
-+    /// falling outside the layer and drawing with no fill under its text.
-+    func fillFrame(width: CGFloat) -> CGRect {
-+        let height = fillContainer.bounds.height
-+        let span = max(Fixture.gradientHeight, height)
-+        return CGRect(x: 0, y: -min(windowY, span - height), width: width, height: span)
-+    }
-+
      /// Window y of the cell's top: the outgoing fill shades with it.
-     var windowY: CGFloat = 0 {
-         didSet {
-@@ -889,7 +913,7 @@
-             let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
-             guard fill || mine else { return }
-             CATransaction.begin(); CATransaction.setDisableActions(true)
--            if fill { fillGradient.frame.origin.y = -windowY }
-+            if fill { fillGradient.frame = fillFrame(width: fillGradient.frame.width) }  // cmux: clamped to the pane
-             if mine { badgeFill?.frame.origin.y = -(windowY + badgeTop) }
-             CATransaction.commit()
-         }

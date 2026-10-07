@@ -31,7 +31,17 @@ pub struct Plan {
     pub keys: usize,
     pub key_spacing_ms: u64,
     pub first_frame_timeout_ms: u64,
+    /// After the keys: a right-click must show an rb menu (answered with
+    /// cancel), then key `d` must show an rb dialog (answered with OK). Needs
+    /// a page that opens an alert on `d` ([`UI_PAGE`]).
+    pub ui: bool,
 }
+
+/// A page for `--ui`: key `d` opens an alert; a right-click opens the
+/// page's context menu.
+pub const UI_PAGE: &str = "data:text/html,<html><body style='margin:0;background:%23203040'>\
+<script>addEventListener('keydown',e=>{if(e.key=='d')alert('hello from the host');});\
+document.title='ready';</script></body></html>";
 
 impl Default for Plan {
     fn default() -> Self {
@@ -41,6 +51,7 @@ impl Default for Plan {
             keys: 40,
             key_spacing_ms: 200,
             first_frame_timeout_ms: 30_000,
+            ui: false,
         }
     }
 }
@@ -57,6 +68,10 @@ pub struct Report {
     pub keys_sent: usize,
     pub latencies_ms: Vec<f64>,
     pub error: Option<String>,
+    /// `--ui`: the item count of the context menu the viewer was shown.
+    pub menu_items: Option<usize>,
+    /// `--ui`: the kind of the dialog the viewer was shown.
+    pub dialog_kind: Option<String>,
 }
 
 #[derive(PartialEq)]
@@ -65,16 +80,44 @@ enum Phase {
     Settle { until: Instant },
     Idle { until: Instant, start_frames: u64 },
     Keys { next: Instant },
+    Menu { until: Instant },
+    Dialog { until: Instant },
     Done,
 }
 
 fn key_event(down: bool) -> Vec<u8> {
-    let text = if down { "a" } else { "" };
-    serde_json::json!({"e": "key", "surface": 0, "down": down, "code": "KeyA", "key": "a",
+    key(down, "KeyA", "a")
+}
+
+fn key(down: bool, code: &str, key: &str) -> Vec<u8> {
+    let text = if down { key } else { "" };
+    serde_json::json!({"e": "key", "surface": 0, "down": down, "code": code, "key": key,
         "text": text, "unmodified_text": text, "modifiers": 0, "repeat": false,
         "location": 0, "edit_commands": []})
     .to_string()
     .into_bytes()
+}
+
+fn right_click(down: bool) -> Vec<u8> {
+    serde_json::json!({"e": "pointer", "surface": 0, "kind": if down { "down" } else { "up" },
+        "x": 300.0, "y": 300.0, "button": 2, "buttons": if down { 2 } else { 0 },
+        "click_count": 1, "modifiers": 0, "pointer_type": "mouse"})
+    .to_string()
+    .into_bytes()
+}
+
+/// An rb message to the host (rd service control).
+fn service(body: serde_json::Value) -> Vec<u8> {
+    let control = Control::Service { service: SERVICE_REMOTE_BROWSER.into(), body };
+    let mut out = Vec::new();
+    let json = serde_json::to_vec(&control).unwrap_or_default();
+    let _ = encode_stream_frame(STREAM_CONTROL, &json, &mut out);
+    out
+}
+
+/// The body of the first rb message `t` in `controls`.
+fn rb_message<'a>(controls: &'a [serde_json::Value], t: &str) -> Option<&'a serde_json::Value> {
+    controls.iter().map(|c| &c["body"]).find(|b| b["t"] == t)
 }
 
 fn hello() -> Vec<u8> {
@@ -176,7 +219,15 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
                 Phase::Keys { next: at }
             }
             Phase::Keys { next } if at >= next => {
-                if r.keys_sent >= plan.keys {
+                if r.keys_sent >= plan.keys && plan.ui {
+                    input
+                        .push(InputEvent::Service { must_deliver: true, bytes: right_click(true) });
+                    input.push(InputEvent::Service {
+                        must_deliver: true,
+                        bytes: right_click(false),
+                    });
+                    Phase::Menu { until: at + Duration::from_secs(5) }
+                } else if r.keys_sent >= plan.keys {
                     Phase::Done
                 } else {
                     // A missed frame for the previous key counts as no sample.
@@ -187,6 +238,36 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
                     Phase::Keys { next: at + Duration::from_millis(plan.key_spacing_ms) }
                 }
             }
+            Phase::Menu { until } => match rb_message(&r.controls, "rb.menu.show") {
+                Some(show) => {
+                    r.menu_items = show["menu"]["items"].as_array().map(Vec::len);
+                    let answer = serde_json::json!({"t": "rb.menu.result",
+                        "token": show["token"], "choice": {"choice": "cancel"}});
+                    sock.write_all(&service(answer)).map_err(|e| e.to_string())?;
+                    input.push(InputEvent::Service {
+                        must_deliver: true,
+                        bytes: key(true, "KeyD", "d"),
+                    });
+                    input.push(InputEvent::Service {
+                        must_deliver: true,
+                        bytes: key(false, "KeyD", "d"),
+                    });
+                    Phase::Dialog { until: at + Duration::from_secs(5) }
+                }
+                None if at >= until => return Err("no rb.menu.show after a right-click".into()),
+                None => Phase::Menu { until },
+            },
+            Phase::Dialog { until } => match rb_message(&r.controls, "rb.dialog.show") {
+                Some(show) => {
+                    r.dialog_kind = show["dialog"]["kind"].as_str().map(str::to_string);
+                    let answer = serde_json::json!({"t": "rb.dialog.result",
+                        "token": show["token"], "accept": true, "text": null});
+                    sock.write_all(&service(answer)).map_err(|e| e.to_string())?;
+                    Phase::Done
+                }
+                None if at >= until => return Err("no rb.dialog.show after key d".into()),
+                None => Phase::Dialog { until },
+            },
             other => other,
         };
         while let Some(packet) = input.packet(now()) {
@@ -216,6 +297,8 @@ fn result_json(r: &Report) -> String {
         "key_to_frame_ms": {"count": l.len(), "p50": round(percentile(&l, 0.5)),
             "p95": round(percentile(&l, 0.95)), "max": round(l.last().copied())},
         "controls": r.controls.iter().map(|c| c["t"].clone()).collect::<Vec<_>>(),
+        "menu_items": r.menu_items,
+        "dialog_kind": r.dialog_kind,
         "error": r.error,
     })
     .to_string()
