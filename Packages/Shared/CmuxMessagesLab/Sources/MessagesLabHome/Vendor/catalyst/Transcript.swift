@@ -621,7 +621,7 @@ final class RowCell: UICollectionViewCell {
         // new palette or new content) before anything changes.
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let repaint = palette != Fixture.paletteGeneration
-        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key }
+        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0 }
         if let w = pendingWant, w != spec { dropWant() }
         if palette != Fixture.paletteGeneration {
             palette = Fixture.paletteGeneration
@@ -780,7 +780,9 @@ final class RowCell: UICollectionViewCell {
     /// My tapback badge: blue, the window-anchored gradient of my bubbles (a row bitmap cannot
     /// know its window position; PartRenderer.drawReactions skips mine there). A box 40 x 44 pt
     /// with the disc center at (20, 20): the gradient masked by the disc and tails, the glyph above.
-    private var badge: CALayer?, badgeFill: CAGradientLayer?, badgeGlyph: CALayer?
+    private(set) var badge: CALayer?
+    private(set) var badgeFill: CAGradientLayer?
+    private var badgeGlyph: CALayer?
     private var badgeState = "", badgeTop: CGFloat = 0
     private static var badgeGlyphs: [String: CGImage] = [:]
     private static let badgeBox = CGSize(width: 40, height: 44)
@@ -821,7 +823,7 @@ final class RowCell: UICollectionViewCell {
         badgeTop = c.y - 20
         fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
         fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-        fill.frame = CGRect(x: 0, y: -(windowY + badgeTop), width: size.width, height: Fixture.gradientHeight)
+        RowCell.placeFill(fill, windowTop: windowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)
             mask.frame = holder.bounds
@@ -882,7 +884,88 @@ final class RowCell: UICollectionViewCell {
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
         fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
-        fillGradient.frame = fillFrame(width: spec.width)  // cmux: a pane taller than the measured window
+        placeFillGradient(width: spec.width)
+    }
+
+    /// The window band the outgoing fill gradients span (window y): the transcript's visible
+    /// height and a margin above and below it for scrolling and springs. The colour ramp stays at
+    /// window y 0...gradientHeight with flat ends: Messages keeps that fixed point mapping when only
+    /// the window height changes (resize-bottom references: same colour at the same window y at
+    /// 826 and 1098 pt), and the row bitmaps draw it so (drawsBeforeStartLocation,
+    /// drawsAfterEndLocation). A CAGradientLayer draws nothing outside its bounds: a bubble outside
+    /// the band showed no fill under its text (cmux-next, windows taller than 1041 pt).
+    struct FillSpan: Equatable {
+        /// Window y of the band's top and bottom.
+        var top: CGFloat, bottom: CGFloat
+        /// The visible transcript height (window y 0...viewport).
+        var viewport: CGFloat
+        init(viewport h: CGFloat, margin m: CGFloat) { top = -m; bottom = h + m; viewport = h }
+        /// iOS and a cell that no window view placed yet: one screen of the measured height each side.
+        static let standard = FillSpan(viewport: Fixture.gradientHeight, margin: Fixture.gradientHeight)
+    }
+    /// Set by the window view on layout and resize; no animation.
+    var fillSpan = FillSpan.standard {
+        didSet { if fillSpan != oldValue { placeFills() } }
+    }
+    /// Extra band below for a row that slides in from far below its place while its fill moves
+    /// with it (a fold's rows below the message: the slide holds the far part). Cleared with the row.
+    private(set) var fillReachBelow: CGFloat = 0
+    func extendFillReach(below d: CGFloat) {
+        guard d > fillReachBelow else { return }
+        fillReachBelow = d
+        placeFills()
+    }
+    /// Negative control for `--coverage-check --coverage-height`: the gradient spans only its
+    /// 1041 pt ramp (the fill-less bubbles below it in taller windows).
+    static let noGradientEnds = ProcessInfo.processInfo.arguments.contains("--no-gradient-ends")
+
+    /// `g` (a window-anchored gradient in a layer whose top is at window y `windowTop`) spans the
+    /// band; startPoint and endPoint keep the ramp at window y 0...gradientHeight, and the layer
+    /// extends its end colours past them.
+    static func placeFill(_ g: CAGradientLayer, windowTop: CGFloat, width: CGFloat, span: FillSpan, reachBelow: CGFloat) {
+        if noGradientEnds {
+            g.frame = CGRect(x: 0, y: -windowTop, width: width, height: Fixture.gradientHeight)
+            g.startPoint = CGPoint(x: 0.5, y: 0); g.endPoint = CGPoint(x: 0.5, y: 1)
+            return
+        }
+        let top = span.top, h = span.bottom + reachBelow - span.top
+        g.frame = CGRect(x: 0, y: top - windowTop, width: width, height: h)
+        g.startPoint = CGPoint(x: 0.5, y: -top / h)
+        g.endPoint = CGPoint(x: 0.5, y: (Fixture.gradientHeight - top) / h)
+    }
+
+    /// Whether the visible part of a body at window y bodyTop...bodyBottom lies inside the fill's band.
+    func fillCovers(bodyTop: CGFloat, bodyBottom: CGFloat) -> Bool {
+        // Only the visible part counts: a long bubble reaches far past the window.
+        let a = max(bodyTop, 0), b = min(bodyBottom, fillSpan.viewport)
+        guard b > a, !RowCell.noGradientEnds else { return true }
+        return a >= fillSpan.top - 0.5 && b <= fillSpan.bottom + fillReachBelow + 0.5
+    }
+
+    private func placeFillGradient(width: CGFloat) {
+        RowCell.placeFill(fillGradient, windowTop: windowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
+        assertFillCovers()
+    }
+
+    /// Debug builds: the visible part of the bubble (model geometry) lies inside its fill's band.
+    private func assertFillCovers() {
+        #if DEBUG
+        guard let spec, !fillContainer.isHidden, !fillGradient.isHidden else { return }
+        let body = RowDraw.bodyRect(spec)
+        assert(fillCovers(bodyTop: windowY + body.minY, bodyBottom: windowY + body.maxY),
+               "outgoing bubble \(spec.key) at window y \(windowY + body.minY)...\(windowY + body.maxY) leaves its fill span \(fillSpan)")
+        #endif
+    }
+
+    /// The fill and my badge's fill follow a new band (resize) or reach.
+    private func placeFills() {
+        guard !fillContainer.isHidden || !(badge?.isHidden ?? true) else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if !fillContainer.isHidden { placeFillGradient(width: fillGradient.bounds.width) }
+        if let badgeFill, !(badge?.isHidden ?? true) {
+            RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+        }
+        CATransaction.commit()
     }
 
     /// cmux: the outgoing gradient's colours and their locations from one
@@ -895,17 +978,6 @@ final class RowCell: UICollectionViewCell {
         fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
     }
 
-    /// cmux: the gradient layer in cell coordinates. It spans MessagesLab's
-    /// measured 1041 pt window, so in a taller pane a row whose fill would end
-    /// below that window takes the gradient's deepest band (the same colour
-    /// `Fixture.color(in:atPx:)` gives a static bitmap there) instead of
-    /// falling outside the layer and drawing with no fill under its text.
-    func fillFrame(width: CGFloat) -> CGRect {
-        let height = fillContainer.bounds.height
-        let span = max(Fixture.gradientHeight, height)
-        return CGRect(x: 0, y: -min(windowY, span - height), width: width, height: span)
-    }
-
     /// Window y of the cell's top: the outgoing fill shades with it.
     var windowY: CGFloat = 0 {
         didSet {
@@ -913,8 +985,9 @@ final class RowCell: UICollectionViewCell {
             let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
             guard fill || mine else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            if fill { fillGradient.frame = fillFrame(width: fillGradient.frame.width) }  // cmux: clamped to the pane
-            if mine { badgeFill?.frame.origin.y = -(windowY + badgeTop) }
+            let top = RowCell.noGradientEnds ? 0 : fillSpan.top
+            if fill { fillGradient.frame.origin.y = top - windowY; assertFillCovers() }
+            if mine { badgeFill?.frame.origin.y = top - (windowY + badgeTop) }
             CATransaction.commit()
         }
     }

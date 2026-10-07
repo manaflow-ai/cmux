@@ -111,7 +111,6 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
-        recentsSection,
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
