@@ -129,7 +129,7 @@ where
     drop(probe);
     let mut daemon = connect_same_uid(&socket, uid).await?;
     let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
-    let Some(mut revocations) = revocations.filter(|_| false) else { // RED: revocations ignored
+    let Some(mut revocations) = revocations else {
         let _ = splice.await;
         return Ok(());
     };
