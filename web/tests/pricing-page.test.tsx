@@ -171,7 +171,7 @@ describe("localized pricing page", () => {
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).toContain("$480 billed yearly, save 20%");
+    expect(html).not.toContain("billed yearly");
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
     expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);

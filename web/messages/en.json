@@ -1761,8 +1761,7 @@
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
       ],
       "annual": {
-        "yearly": "Yearly",
-        "billedYearlySaving": "${amount} billed yearly, save {percent}%"
+        "yearly": "Yearly"
       }
     },
     "max": {
