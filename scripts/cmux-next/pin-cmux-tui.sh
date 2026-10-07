@@ -99,7 +99,10 @@
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
 
-TARGET="aarch64-apple-darwin"
+# The binary the cmux-next app bundles and the gate commands (probe, wait,
+# resolve-commit, resolve-newest-published, pin) read on any host.
+GATE_TARGET="aarch64-apple-darwin"
+TARGET="$GATE_TARGET"
 BASE="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -171,7 +174,44 @@ mode_from_args() {
   [[ "$mode" == tree || "$mode" == pin ]] || { echo "error: CMUX_NEXT_TUI_MODE must be tree or pin, not '$mode'" >&2; exit 2; }
 }
 
-tree_dir() { echo "$repo_root/cmux-tui/target/hosted/tree/$1"; }
+# Tree mode fetch and the *-path commands use the host's target: macOS gets the
+# arm64 app daemon (its path is unchanged), Linux the static musl daemon of its
+# architecture (Linux daemon mode). CMUX_TUI_TREE_TARGET overrides the host.
+host_tree_target() {
+  if [[ -n "${CMUX_TUI_TREE_TARGET:-}" ]]; then echo "$CMUX_TUI_TREE_TARGET"; return 0; fi
+  case "$(uname -s)/$(uname -m)" in
+    Darwin/*) echo "$GATE_TARGET" ;;
+    Linux/x86_64|Linux/amd64) echo x86_64-unknown-linux-musl ;;
+    Linux/aarch64|Linux/arm64) echo aarch64-unknown-linux-musl ;;
+    *) echo "error: no cmux-tui tree target for $(uname -s) $(uname -m); set CMUX_TUI_TREE_TARGET" >&2; exit 2 ;;
+  esac
+}
+
+tree_dir() {
+  if [[ "$TARGET" == "$GATE_TARGET" ]]; then
+    echo "$repo_root/cmux-tui/target/hosted/tree/$1"
+  else
+    echo "$repo_root/cmux-tui/target/hosted/tree/$1/$TARGET"
+  fi
+}
+
+# Trees published before the Linux targets carry only the macOS binaries. On
+# such a tree, fail now instead of waiting for a target that will never appear.
+require_target_in_tree() {
+  local key="$1" legacy="$2" target="$TARGET" gate_published=false
+  [[ "$target" == "$GATE_TARGET" ]] && return 0
+  TARGET="$GATE_TARGET"
+  tree_published "$key" "$legacy" && gate_published=true
+  TARGET="$target"
+  if [[ "$gate_published" == true ]] && ! tree_published "$key" "$legacy"; then
+    {
+      echo "error: cmux-tui tree $key was published without $target (it predates the Linux tree targets)."
+      echo "  Trees carry Linux binaries from the first cmux-tui change after they were added;"
+      echo "  until then use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN) or a newer tree."
+    } >&2
+    exit 1
+  fi
+}
 
 # B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
 # for the publication actually read. <key> is published_key, <v2 key> the
@@ -611,6 +651,7 @@ fetch_tree() {
       echo "pull-request cmux-tui tree $key differs from base tree $base_key; waiting for its own publication (bounded)" >&2
     fi
   fi
+  require_target_in_tree "$wait_key" "$(legacy_tree_key HEAD)"
   wait_for_tree "$wait_key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
   if [[ "$published_key" != "$key" ]]; then
     echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
@@ -1028,10 +1069,12 @@ PY
     ;;
   fetch)
     mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then fetch_tree; else fetch_pin; fi
     ;;
   path)
     mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
       echo "$(tree_dir "$(tree_key HEAD)")/cmux-tui"
     else
@@ -1041,6 +1084,7 @@ PY
     ;;
   app-host-path)
     mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
       echo "$(tree_dir "$(tree_key HEAD)")/cmux-app-host"
     else
@@ -1050,6 +1094,7 @@ PY
     ;;
   cloud-server-path)
     mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
       echo "$(tree_dir "$(tree_key HEAD)")/cmux-cloud"
     else
@@ -1059,6 +1104,7 @@ PY
     ;;
   browser-host-path)
     mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
       echo "$(tree_dir "$(tree_key HEAD)")/cmux-browser-host"
     else

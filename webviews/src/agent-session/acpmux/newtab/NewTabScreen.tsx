@@ -19,6 +19,8 @@ export type NewTabScreenActions = {
   onShowAll(): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
+  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  onAddHarness?(): void;
 };
 
 type Props = NewTabScreenActions & {
@@ -52,8 +54,12 @@ export function NewTabScreen(props: Props) {
     inputReported.current = true;
     props.onTouched?.();
   };
+  // A folder profile is offered once enabled; until then a chat on it would be refused.
   const agents = useMemo(
-    () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
+    () =>
+      snapshot.catalog
+        .filter((entry) => !entry.folder || entry.folder.state === "enabled")
+        .map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
   const rows = useMemo(
@@ -197,6 +203,11 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
+      {props.onAddHarness && (
+        <button type="button" className="nt-add-harness" onClick={() => props.onAddHarness?.()}>
+          {t("newtab.addHarness")}
+        </button>
+      )}
     </div>
   );
 }
