@@ -62,3 +62,40 @@ test("a hash-route case keeps its route; params go only into a stage's query", a
   expect(stageUrlForTest("frame.html", { entry: "a.b", width: 760 })).toBe("/frame.html?entry=a.b&width=760");
   expect(stageUrlForTest("index.html#/a.b/c?theme=Nord", { width: 1600 })).toBe("/index.html#/a.b/c?theme=Nord");
 });
+
+test("a matrix reuses its browser while isolating and closing every case context", async () => {
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-lifecycle-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "first", path_or_url: "https://example.test/" },
+    { id: "second", path_or_url: "https://example.test/" },
+  ]));
+  let launches = 0; let contexts = 0; let closedContexts = 0; let closedBrowsers = 0;
+  const browserTypes = { chromium: { launch: async () => {
+    launches++;
+    return {
+      newContext: async () => {
+        contexts++;
+        return {
+          newPage: async () => ({
+            exposeFunction: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+            evaluate: async () => null,
+            screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+          }),
+          close: async () => { closedContexts++; },
+        };
+      },
+      close: async () => { closedBrowsers++; },
+    };
+  } } };
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => r.id)).toEqual(["first", "second"]);
+    expect(launches).toBe(1);
+    expect(contexts).toBe(2);
+    expect(closedContexts).toBe(2);
+    expect(closedBrowsers).toBe(1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
