@@ -20,6 +20,7 @@ public struct SidebarMapping {
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
+                                muted: Set<String> = [],
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "") -> [SidebarRowSection] {
@@ -29,8 +30,8 @@ public struct SidebarMapping {
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab,
-                           newTabPages: newTabPages, newTabTitle: newTabTitle) }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
+                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -50,8 +51,9 @@ public struct SidebarMapping {
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
     /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
     /// listed as `newTabTitle` when it is not empty.
+    /// `muted`: the workspace is in `notifications.mutedWorkspaces`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
+                    muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "") -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
@@ -87,6 +89,7 @@ public struct SidebarMapping {
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
             },
+            muted: muted,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(abbreviate)
         )

@@ -100,6 +100,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
+    /// The user muted the workspace's notifications
+    /// (`notifications.mutedWorkspaces`); the row draws a quiet mark.
+    public var muted: Bool
     /// The front tab's working directory, abbreviated (`~/src/app`): the
     /// bucket Group by Folder puts the row in. Nil when no tab reports one.
     public var folder: String?
@@ -127,6 +130,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
+        muted: Bool = false,
         folder: String? = nil
     ) {
         self.id = id
@@ -151,6 +155,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState
+        self.muted = muted
         self.folder = folder
     }
 }
