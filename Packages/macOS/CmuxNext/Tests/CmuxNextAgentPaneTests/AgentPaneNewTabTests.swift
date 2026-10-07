@@ -210,7 +210,7 @@ import Testing
     @Test func newTabRunsOnlyTheImportAndSyncAction() async {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
         var actions: [String] = []
-        model.onRunAction = { actions.append($0) }
+        model.onRunAction = { actions.append($0); return true }
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
         #expect(actions == ["palette.welcomeChecklist"])
@@ -221,13 +221,26 @@ import Testing
     @Test func aChatRunsOnlyTheConnectFlows() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var actions: [String] = []
-        model.onRunAction = { actions.append($0) }
+        model.onRunAction = { actions.append($0); return true }
         #expect(await model.respond(to: .runAction("remote.connect"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
         #expect(actions == ["remote.connect", "newCloudMachine"])
+    }
+
+    /// Signed out, cmux Cloud… is refused; the click starts sign-in instead
+    /// of doing nothing.
+    @Test func aRefusedCloudConnectStartsSignIn() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var actions: [String] = []
+        model.onRunAction = { id in
+            actions.append(id)
+            return id != "newCloudMachine"
+        }
+        #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
+        #expect(actions == ["newCloudMachine", "palette.auth.signIn"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a
