@@ -49,7 +49,7 @@ const longProjects: Project[] = [
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-browse"));
 };
 
 const noMatches: Play = async (ctx) => {
@@ -66,18 +66,21 @@ const typedPath: Play = async (ctx) => {
 
 const addProject: Play = async (ctx) => {
   await open(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-browse"));
   await ctx.click({ selector: ".acpmux-project-browse" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="environment"]'));
 };
 
 const sourcePicker: Play = async (ctx) => {
   await addProject(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
   await ctx.click({ selector: ".acpmux-add-project-item" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="source"]'));
 };
 
 const directoryBrowser: Play = async (ctx) => {
   await sourcePicker(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
   await ctx.click({ selector: ".acpmux-add-project-item" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="directory"]'));
 };
