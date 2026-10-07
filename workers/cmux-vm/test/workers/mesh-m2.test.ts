@@ -157,18 +157,18 @@ describe("enrollment codes", () => {
 
     const forOther = str((await newCode(admin, meshId))["code"]);
     expect((await codeEnroll("mesh_00000000000000000000000000", forOther, KEY_2, "elsewhere")).status).toBe(404);
-    // The refused attempt did not burn the code.
-    expect((await codeEnroll(meshId, forOther, KEY_2, "home")).status).toBe(201);
+    // M3: a code presented at another mesh is burned (the brute-force guard, mesh-m3.test.ts).
+    expect((await codeEnroll(meshId, forOther, KEY_2, "home")).status).toBe(404);
   });
 
-  it("refuses a code enroll with a bad signature without burning the code", async () => {
+  it("refuses a code enroll with a bad signature and burns the code (M3)", async () => {
     const admin = await h.addKey(A, ALL_SCOPES);
     const meshId = await createMesh(admin);
     const code = str((await newCode(admin, meshId))["code"]);
     const forged = await enrollBody(install, meshId, { name: "headless", wgPublicKey: KEY_1, code }, { signWith: await makeInstallKey() });
     expect((await anonymous(`/v1/meshes/${meshId}/device-enrollments`, forged)).status).toBe(403);
     expect(tunnelCreates()).toBe(0);
-    expect((await codeEnroll(meshId, code)).status).toBe(201);
+    expect((await codeEnroll(meshId, code)).status).toBe(404);
   });
 
   it("answers 404 with the experiment's own body when the experiment is off, before any provider call", async () => {

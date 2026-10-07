@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxNextOnboarding
 
-/// The first run is two screens that each change something: agent
-/// sign-ins, then browser import. Every other screen opens from its own
-/// entry point, with only the screens that belong with it.
+/// The first run is screens that each change something: agent sign-ins,
+/// the work found to bring over, then browser import. Every other screen
+/// opens from its own entry point, with only the screens that belong with it.
 @MainActor
 @Suite struct FirstRunFlowTests {
     /// Every optional screen available, so nothing is left out for lack of support.
@@ -20,6 +20,10 @@ import Testing
     @Test func theFirstRunIsSignInsThenImport() async {
         let services = everything()
         let model = OnboardingModel(services: services)
+        #expect(model.steps == [.accounts, .chats, .importData])
+        // No chats on this Mac: their screen drops out once the scan says so.
+        model.stepDidAppear()
+        for _ in 0..<200 where !model.chats.scanned { await Task.yield() }
         #expect(model.steps == [.accounts, .importData])
         #expect(model.step == .accounts)
         model.next()
@@ -40,8 +44,7 @@ import Testing
     @Test func skippingEveryScreenEndsTheRunAsCompleted() {
         let services = everything()
         let model = OnboardingModel(services: services)
-        model.skipStep()
-        model.skipStep()
+        for _ in model.steps { model.skipStep() }
         #expect(services.ended == true && services.plans.isEmpty)
     }
 
@@ -70,7 +73,7 @@ import Testing
 
     @Test func importFromBrowserOpensTheImportScreenOfTheFirstRun() {
         let model = OnboardingModel(services: everything(), start: .importData)
-        #expect(model.step == .importData && model.steps == [.accounts, .importData])
+        #expect(model.step == .importData && model.steps == [.accounts, .chats, .importData])
     }
 
     /// "2 of 4" only helps on a long run; two or three screens show none.
