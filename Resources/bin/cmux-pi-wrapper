@@ -43,6 +43,15 @@ if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then
     exec "$cmux_pi" "$@"
 fi
 
+# Pi dispatches these commands before parsing options. These one-shot flags do
+# not need extension loading either. Keep the command list in sync with Pi's
+# dispatcher when new subcommands are added.
+case "${1:-}" in
+    install|remove|uninstall|update|list|config|auth|mcp|--help|-h|--version|-v)
+        exec "$cmux_pi" "$@"
+        ;;
+esac
+
 cmux_pi_managed_extension() {
     local candidate="$1"
     [ -f "$candidate" ] || return 1

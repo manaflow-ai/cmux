@@ -15455,6 +15455,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15474,6 +15475,16 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15501,7 +15512,13 @@ struct SidebarFooterButtons: View {
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade) {
+            if shows(.upgrade),
+               SidebarFooterPresentationPolicy.isUpgradeVisible(
+                   featureFlagEnabled: accountFlow?.isProUpgradeAvailable
+                       ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: isProStatusKnownForUpgrade
+               ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15528,6 +15545,10 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 

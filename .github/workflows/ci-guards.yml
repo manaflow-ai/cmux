@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate gh-merge-green --revert
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green_revert.py
+
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_base_red_excuse.py

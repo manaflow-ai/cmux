@@ -71,6 +71,19 @@ struct SurfaceSocketCommandTests {
         #expect((error["message"] as? String)?.contains("cmux auth login") == true)
     }
 
+    @Test func tuiDaemonFailureExplainsHowToRecover() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-daemon-error", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.exited(status: 1, output: "daemon unavailable")
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
+        #expect((error["message"] as? String)?.contains("cmux-tui daemon") == true)
+        #expect((error["message"] as? String)?.contains("cmux vm workspace new") == true)
+    }
+
     @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
         let response = await Task.detached {
             TerminalController.shared.v2VmCall(id: "tunnel-error", timeoutSeconds: 5) {

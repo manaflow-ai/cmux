@@ -5344,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro je aktivan",
     "title": "Dobro došli u cmux Pro",
-    "body": "Pro funkcije su još u razvoju. Pristup oblaku stiže uskoro, uz kredite za korištenje koji se prikupljaju za svaki mjesec pretplate. Pro trenutno uključuje pristup cmux iOS aplikaciji putem TestFlighta.",
+    "body": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, kao i pristup cmux iOS-u putem TestFlighta.",
     "done": "Idi na kontrolnu ploču",
     "steps": {
       "iosApp": {
