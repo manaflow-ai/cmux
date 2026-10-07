@@ -7,7 +7,16 @@ import CmuxConversationCore
 final class MacConversationEntry {
     let id: String
     let store: ConversationStore
-    lazy var controller = MacConversationViewController(store: store)
+    private var loadedController: MacConversationViewController?
+    var controller: MacConversationViewController {
+        if let loadedController { return loadedController }
+        let controller = MacConversationViewController(store: store)
+        loadedController = controller
+        return controller
+    }
+    /// A fresh store on the same conversation, for File > Open Conversation
+    /// in New Window (each window keeps its own connection and read state).
+    private let reopen: (@MainActor () -> ConversationStore)?
 
     /// The simulator session, also New Message's directory (nil around a bare store).
     let backend: ConversationSimBackend?
@@ -17,14 +26,26 @@ final class MacConversationEntry {
         let backend = ConversationSimBackend(endpoint: endpoint)
         self.backend = backend
         store = ConversationStore(backend: backend, pageSize: ConversationStore.macPageSize)
+        // Open Conversation in New Window starts a fresh session on the same conversation.
+        reopen = { @MainActor in ConversationStore(backend: ConversationSimBackend(endpoint: endpoint), pageSize: ConversationStore.macPageSize) }
     }
 
     /// Around an existing store (tests); there is no New Message directory.
-    init(id: String, store: ConversationStore) {
+    init(id: String, store: ConversationStore, reopen: (@MainActor () -> ConversationStore)? = nil) {
         self.id = id
         self.store = store
+        self.reopen = reopen
         backend = nil
     }
+
+    var canReopen: Bool { reopen != nil }
+
+    func reopened() -> MacConversationEntry? {
+        reopen.map { MacConversationEntry(id: id, store: $0(), reopen: $0) }
+    }
+
+    /// Unsent text or attachments in the composer (View > Filter By > Drafts).
+    var hasDraft: Bool { loadedController?.composer.hasContent ?? false }
 }
 
 /// macOS Messages window: a sidebar of conversations, the transcript under a
@@ -43,6 +64,8 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     var titleNameLabel: NSTextField { titleView.nameLabel }
     private var contentItem: NSSplitViewItem!
     private(set) var selected: MacConversationEntry?
+    /// Conversation > Show Contact Card's popover.
+    var contactCard: NSPopover?
     /// Total unread across conversations (the Dock badge).
     private(set) lazy var unreadBadge = ConversationUnreadBadge(stores: entries.map(\.store))
     /// The New Message draft while one is open (see MacComposeDraft.swift).
@@ -62,6 +85,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         super.viewDidLoad()
         // Arrowing through the list keeps focus there; a click moves it to the composer.
         sidebar.onSelect = { [weak self] entry in self?.select(entry, focusComposer: !MacKeyboardNavigation.isActive) }
+        sidebar.onQueryChange = { [weak self] in self?.selected?.controller.clearFindHighlight() }
         // Every conversation stays live so the sidebar previews update.
         for entry in entries { entry.store.start() }
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -374,6 +398,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         case Self.composeItem:
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
             item.view = Self.circleButton("square.and.pencil", label: item.label)
+            // The same action as File > New Message (⌘N).
             (item.view as? NSButton)?.target = self
             (item.view as? NSButton)?.action = #selector(newMessage(_:))
             (item.view as? NSButton)?.setAccessibilityIdentifier("conversation.toolbar.compose")
@@ -519,6 +544,13 @@ final class MacTitleNameAccessoryView: MacFlippedView {
     }
 }
 
+/// View > Filter By in Messages' menu bar.
+enum MacConversationListFilter: String, CaseIterable {
+    case unread
+    case drafts
+    case sendLater
+}
+
 /// Sidebar conversation list, like the left column of Messages: pinned
 /// conversations as large avatars on top, then everything else newest first.
 @MainActor
@@ -652,24 +684,43 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         entries.first { $0.id == id }
     }
 
-    private var query: String { search.stringValue.trimmingCharacters(in: .whitespaces) }
+    var query: String { search.stringValue.trimmingCharacters(in: .whitespaces) }
 
-    /// Pins and list rows. While searching, every match is a list row.
+    /// View > Filter By (nil lists every conversation).
+    var filter: MacConversationListFilter? {
+        didSet { if filter != oldValue { refresh() } }
+    }
+
+    private func passes(_ filter: MacConversationListFilter, _ entry: MacConversationEntry) -> Bool {
+        // The open conversation stays listed, so reading it under Unread
+        // does not pull it out from under the reader.
+        if entry.id == selectedID { return true }
+        switch filter {
+        case .unread: return isUnread(entry)
+        case .drafts: return entry.hasDraft
+        // Seam: scheduled messages arrive with feat-imsg-send-later; this
+        // lists conversations holding one once the store exposes them.
+        case .sendLater: return false
+        }
+    }
+
+    /// Pins and list rows. While searching or filtering, every match is a list row.
     private func arrangement() -> (pinned: [MacConversationEntry], others: [MacConversationEntry]) {
         let query = query
-        let matching = query.isEmpty ? entries : entries.filter { entry in
+        let searched = query.isEmpty ? entries : entries.filter { entry in
             let store = entry.store
             if store.info?.title.localizedCaseInsensitiveContains(query) == true { return true }
             if store.info?.participants.contains(where: { !$0.isMe && $0.name.localizedCaseInsensitiveContains(query) }) == true { return true }
             return store.messages.contains { $0.text.localizedCaseInsensitiveContains(query) }
         }
+        let matching = filter.map { filter in searched.filter { passes(filter, $0) } } ?? searched
         let arranged = ConversationListArrangement.arrange(matching.map {
             ConversationListArrangement.Item(id: $0.id, state: $0.store.listState, lastActivity: lastActivity($0))
         })
         let byID = Dictionary(uniqueKeysWithValues: matching.map { ($0.id, $0) })
         let pins = arranged.pinned.compactMap { byID[$0] }
         let others = arranged.others.compactMap { byID[$0] }
-        guard query.isEmpty else {
+        guard query.isEmpty, filter == nil else {
             return ([], (pins + others).sorted { lastActivity($0) > lastActivity($1) })
         }
         return (pins, others)
@@ -706,7 +757,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     private func refresh(changed entry: MacConversationEntry? = nil) {
         let next = arrangement()
-        let showsPins = !next.pinned.isEmpty || (isDraggingRow && query.isEmpty)
+        let showsPins = !next.pinned.isEmpty || (isDraggingRow && query.isEmpty && filter == nil)
         let sameShape = next.pinned.map(\.id) == pinned.map(\.id) && next.others.map(\.id) == visible.map(\.id) && showsPins == pinsRowShown
         if sameShape, let entry {
             if let row = row(of: entry.id) {
@@ -719,7 +770,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         pinned = next.pinned
         visible = next.others
         pinsRowShown = showsPins
-        noResults.isHidden = !(visible.isEmpty && !query.isEmpty)
+        noResults.isHidden = !(visible.isEmpty && (!query.isEmpty || filter != nil))
         table.reloadData()
         syncTableSelection()
     }
@@ -741,13 +792,18 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     func controlTextDidChange(_ notification: Notification) {
         refresh()
+        onQueryChange?()
     }
 
     /// Lab hook: types into the search field as a person would.
     func setSearch(_ query: String) {
         search.stringValue = query
         refresh()
+        onQueryChange?()
     }
+
+    /// The search changed (a transcript drops its Find Next highlight).
+    var onQueryChange: (() -> Void)?
 
     /// Every listed conversation in order: pins, then list rows.
     var visibleIDs: [String] { pinned.map(\.id) + visible.map(\.id) }
@@ -812,6 +868,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     func markSelected(_ id: String) {
         selectedID = id
+        // A filtered list keeps only the open conversation outside the filter.
+        if filter != nil { refresh() }
         if let entry = entry(id), entry.store.listState.markedUnread {
             // Opening a conversation clears Mark as Unread.
             entry.store.updateListState(.init(markedUnread: false))
@@ -1359,6 +1417,43 @@ public enum MacConversationLab {
             return MacConversationEntry(id: id, endpoint: components.url!)
         }
         let split = MacConversationSplitController(entries: entries)
+        let window = makeWindow(split)
+        window.identifier = .init("cmux.conversationLab")
+        let windowController = NSWindowController(window: window)
+        windows.append(windowController)
+        // CMUX_LAB_HEADLESS=1 lays the window out offscreen and never orders it
+        // in (fleet runs render it with `png`, needing no display or capture).
+        if ProcessInfo.processInfo.environment["CMUX_LAB_HEADLESS"] != "1" { windowController.showWindow(nil) }
+        return entries[0].controller
+    }
+
+    /// Windows opened by File > Open Conversation in New Window. Lab hooks
+    /// keep addressing the main lab window.
+    private(set) static var conversationWindows: [NSWindow] = []
+
+    /// File > Open Conversation in New Window: the conversation alone in its
+    /// own window (no sidebar), on its own connection.
+    @discardableResult
+    static func openConversationWindow(_ entry: MacConversationEntry, from source: NSWindow?) -> NSWindow? {
+        guard let reopened = entry.reopened() else { return nil }
+        let split = MacConversationSplitController(entries: [reopened])
+        let window = makeWindow(split)
+        window.identifier = .init("cmux.conversationLab.conversation")
+        window.isReleasedWhenClosed = false
+        split.splitViewItems.first?.isCollapsed = true
+        if let source { window.setFrameTopLeftPoint(NSPoint(x: source.frame.minX + 28, y: source.frame.maxY - 28)) }
+        conversationWindows.append(window)
+        NotificationCenter.default.addObserver(MacConversationWindowCloser.shared, selector: #selector(MacConversationWindowCloser.windowWillClose(_:)),
+                                               name: NSWindow.willCloseNotification, object: window)
+        if source?.isVisible == true, ProcessInfo.processInfo.environment["CMUX_LAB_HEADLESS"] != "1" { window.makeKeyAndOrderFront(nil) }
+        return window
+    }
+
+    fileprivate static func forget(_ window: NSWindow) {
+        conversationWindows.removeAll { $0 === window }
+    }
+
+    private static func makeWindow(_ split: MacConversationSplitController) -> MacConversationWindow {
         let window = MacConversationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -1387,13 +1482,7 @@ public enum MacConversationLab {
            let screen = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(name) }) {
             window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.maxY - window.frame.height - 40))
         }
-        window.identifier = .init("cmux.conversationLab")
-        let windowController = NSWindowController(window: window)
-        windows.append(windowController)
-        // CMUX_LAB_HEADLESS=1 lays the window out offscreen and never orders it
-        // in (fleet runs render it with `png`, needing no display or capture).
-        if ProcessInfo.processInfo.environment["CMUX_LAB_HEADLESS"] != "1" { windowController.showWindow(nil) }
-        return entries[0].controller
+        return window
     }
 
     /// The selected conversation's controller in the frontmost lab window.
@@ -1525,5 +1614,15 @@ public enum MacConversationLab {
         return (try? data.write(to: URL(fileURLWithPath: path))) != nil
     }
 }
-#endif
+/// Drops a conversation window from the lab's list when it closes.
+@MainActor
+private final class MacConversationWindowCloser: NSObject {
+    static let shared = MacConversationWindowCloser()
 
+    @objc func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+        MacConversationLab.forget(window)
+    }
+}
+#endif

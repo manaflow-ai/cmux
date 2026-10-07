@@ -16,10 +16,16 @@ final class MacBubbleTextView: NSTextView {
             guard let textStorage, !textStorage.isEqual(to: newValue) else { return }
             // New text (a reused row, an edit) drops any selection in the old.
             setSelectedRange(NSRange(location: 0, length: 0))
+            findHighlightRange = nil
             textStorage.setAttributedString(newValue)
             needsDisplay = true
             needsLayout = true
         }
+    }
+    /// Edit > Search > Find Next / Previous: the current match, painted in
+    /// the system find highlight color behind the text.
+    var findHighlightRange: NSRange? {
+        didSet { if findHighlightRange != oldValue { needsDisplay = true } }
     }
     /// Keys explode and jitter randomness to the message.
     var effectSeed: UInt64 = 0
@@ -120,6 +126,19 @@ final class MacBubbleTextView: NSTextView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        var text = attributedText
+        if let find = findHighlightRange, NSMaxRange(find) <= text.length,
+           let manager = layoutManager, let container = textContainer {
+            let glyphs = manager.glyphRange(forCharacterRange: find, actualCharacterRange: nil)
+            NSColor.findHighlightColor.setFill()
+            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: glyphs, in: container) { rect, _ in
+                NSBezierPath(roundedRect: rect.insetBy(dx: -1, dy: 0), xRadius: 3, yRadius: 3).fill()
+            }
+            // The match reads dark on the find highlight, as AppKit's find does.
+            let marked = NSMutableAttributedString(attributedString: text)
+            marked.addAttribute(.foregroundColor, value: NSColor.black, range: find)
+            text = marked
+        }
         let range = selectedRange()
         if range.length > 0, let manager = layoutManager, let container = textContainer {
             let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -129,7 +148,7 @@ final class MacBubbleTextView: NSTextView {
                 rect.fill()
             }
         }
-        attributedText.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
+        text.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {

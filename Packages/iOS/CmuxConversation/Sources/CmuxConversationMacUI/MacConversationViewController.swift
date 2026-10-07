@@ -209,6 +209,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
+        NotificationCenter.default.addObserver(self, selector: #selector(textSizeDidChange), name: MacConversationTextSize.didChange, object: nil)
         installCatchUp()
         installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
@@ -723,6 +724,21 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NSAnimationContext.endGrouping()
     }
 
+    /// View > Make Text Bigger / Smaller: every bubble re-measures at the new
+    /// size, keeping the newest message (or the reader's place) in view.
+    @objc func textSizeDidChange() {
+        let anchor = captureAnchor()
+        layoutCache.invalidate()
+        programmatic {
+            withoutAnimation {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+            }
+            reconfigureVisibleRows()
+        }
+        updateInsets()
+        if isPinnedToBottom { scrollToBottom() } else { restore(anchor) }
+    }
+
     /// Re-lays out every on-screen row at the current width (live resize).
     private func reconfigureVisibleRows() {
         tableView.enumerateAvailableRowViews { rowView, index in
@@ -906,6 +922,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampRevealDistance = timestampRevealDistance
             applyMessageSelection(to: view.row)
+            applyFindHighlight(to: view.row)
             configureAccessibility(view.row, model: model)
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):

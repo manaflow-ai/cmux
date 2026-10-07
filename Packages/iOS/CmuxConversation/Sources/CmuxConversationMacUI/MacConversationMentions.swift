@@ -187,7 +187,7 @@ final class MacComposerMentionController {
         let base = textView?.baseTypingAttributes[.foregroundColor] as? NSColor ?? .labelColor
         MacMentionStyle.paint(storage, range: NSRange(location: 0, length: storage.length), color: base)
         for mention in ConversationMentionEditing.normalized(mentions, textLength: storage.length) {
-            MacMentionStyle.embolden(storage, range: mention.nsRange, fallback: MacConversationTheme.bodyFont)
+            MacMentionStyle.embolden(storage, range: mention.nsRange, fallback: MacConversationTheme.composerFont)
             MacMentionStyle.paint(storage, range: mention.nsRange, color: MacMentionStyle.accent)
         }
         if let query = decoratedQuery, NSMaxRange(query.nsRange) <= storage.length {

@@ -261,9 +261,12 @@ final class Lab {
 
     init() async throws {
         _ = NSApplication.shared
+        // `reopen` backs File > Open Conversation in New Window.
         let entries = [
-            MacConversationEntry(id: "direct", store: ConversationStore(backend: backend)),
-            MacConversationEntry(id: "group", store: ConversationStore(backend: MemoryBackend(id: "group", kind: .group))),
+            MacConversationEntry(id: "direct", store: ConversationStore(backend: backend),
+                                 reopen: { ConversationStore(backend: MemoryBackend(id: "direct", kind: .direct)) }),
+            MacConversationEntry(id: "group", store: ConversationStore(backend: MemoryBackend(id: "group", kind: .group)),
+                                 reopen: { ConversationStore(backend: MemoryBackend(id: "group", kind: .group)) }),
         ]
         split = MacConversationSplitController(entries: entries)
         window = MacConversationWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
@@ -432,6 +435,16 @@ final class MemoryBackend: ConversationBackend, @unchecked Sendable {
 
     private var _unsent: [String] = []
     var unsent: [String] { lock.withLock { _unsent } }
+
+    private var _listState = ConversationListState()
+    func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+        lock.withLock {
+            _listState = _listState.applying(change)
+            var confirmed = info
+            confirmed.listState = _listState
+            return confirmed
+        }
+    }
 
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
