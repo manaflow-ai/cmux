@@ -1,3 +1,5 @@
+mod capabilities;
+
 use super::id::StreamId;
 use super::operation_class::{OperationClass, operation_class};
 use super::ops;
@@ -6,6 +8,7 @@ use super::stream::{ResourceStream, StreamParts};
 use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
 use crate::{Error, Result};
+pub(crate) use capabilities::validate_capabilities;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -134,6 +137,8 @@ pub struct Config {
     pub max_response_bytes: usize,
     pub max_stream_items: usize,
     pub max_stream_bytes: usize,
+    /// Declared first on every connection the client opens (capabilities.rs).
+    pub capabilities: Vec<String>,
 }
 
 impl Config {
@@ -145,6 +150,7 @@ impl Config {
             max_response_bytes: DEFAULT_RESPONSE_BYTES,
             max_stream_items: DEFAULT_STREAM_ITEMS,
             max_stream_bytes: DEFAULT_STREAM_BYTES,
+            capabilities: Vec::new(),
         }
     }
 
@@ -214,7 +220,7 @@ impl Config {
                 "max_stream_bytes must be between 1 and {DEFAULT_STREAM_BYTES}"
             )));
         }
-        Ok(())
+        validate_capabilities(&self.capabilities)
     }
 }
 
@@ -231,6 +237,7 @@ struct SharedClient {
     control: Mutex<Option<JsonLineConnection>>,
     next_request: AtomicU64,
     closed: AtomicBool,
+    capabilities: Mutex<Vec<String>>,
 }
 
 /// Blocking, cloneable cmux resource client.
@@ -295,15 +302,18 @@ impl Client {
             connection = Ok(candidate);
         }
         let connection = connection?;
-        Ok(Self {
+        let capabilities = Mutex::new(config.capabilities.clone());
+        Self {
             shared: Arc::new(SharedClient {
                 config,
                 allow_legacy_fallback,
                 control: Mutex::new(Some(connection)),
                 next_request: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
+                capabilities,
             }),
-        })
+        }
+        .declared_on_control()
     }
 
     pub fn config(&self) -> &Config {
@@ -425,12 +435,7 @@ impl Client {
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
         let envelope = request_envelope(&id, operation, params.into_value(), None);
-        let mut connection = connect_with_budget(
-            &self.shared.config,
-            operation,
-            &budget,
-            self.shared.allow_legacy_fallback,
-        )?;
+        let mut connection = self.open_connection(operation, &budget)?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -582,12 +587,7 @@ impl Client {
         }
         if connection.is_none() {
             budget.check(operation)?;
-            *connection = Some(connect_with_budget(
-                &self.shared.config,
-                operation,
-                &budget,
-                self.shared.allow_legacy_fallback,
-            )?);
+            *connection = Some(self.open_connection(operation, &budget)?);
         }
         budget.check(operation)?;
         *dispatched = true;

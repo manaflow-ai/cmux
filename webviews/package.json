@@ -6,7 +6,8 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "vp check",
+    "check": "bun run check:browser-lanes && vp check",
+    "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
@@ -67,6 +68,7 @@
     "axe-core": "4.13.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "esbuild": "0.27.7",
+    "happy-dom": "^20.14.5",
     "jsdom": "^29.1.1",
     "oxc-transform-react": "0.145.0",
     "pixelmatch": "7.2.0",
