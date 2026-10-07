@@ -24,6 +24,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             exitEditMode()
             return
         }
+        if sendLaterIfNeeded(composer) { return }
         let text = composer.text
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)

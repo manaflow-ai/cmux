@@ -53,6 +53,13 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
     }
 
+    /// Send Later: the time chip at the top of the field, and its time.
+    let sendLaterChip = SendLaterChipView()
+    private(set) var sendLaterDate: Date?
+    var onSendLaterEdit: (() -> Void)?
+    var onSendLaterClose: (() -> Void)?
+    private var sendLaterHeight: CGFloat { sendLaterDate == nil ? 0 : SendLaterChipView.height + 10 }
+
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
     private let attachmentHeight: CGFloat = 120
     private let verticalPadding: CGFloat = 9
@@ -138,6 +145,34 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.isUserInteractionEnabled = false
         micButton.isAccessibilityElement = false
         fieldGlass.contentView.addSubview(micButton)
+
+        sendLaterChip.isHidden = true
+        sendLaterChip.onEdit = { [weak self] in self?.onSendLaterEdit?() }
+        sendLaterChip.onClose = { [weak self] in self?.onSendLaterClose?() }
+        fieldGlass.contentView.addSubview(sendLaterChip)
+    }
+
+    /// Turns Send Later on (a date) or off (nil): the chip appears at the top
+    /// of the field, which takes the Send Later fill and placeholder.
+    func setSendLaterDate(_ date: Date?, animated: Bool) {
+        let wasOn = sendLaterDate != nil
+        sendLaterDate = date
+        if let date {
+            sendLaterChip.configure(date: date, animated: animated)
+        }
+        guard wasOn != (date != nil) else { setNeedsLayout(); return }
+        sendLaterChip.isHidden = date == nil
+        fieldGlass.contentView.backgroundColor = date == nil ? nil : SendLaterStyle.fieldFill
+        updatePlaceholder()
+        updateHeight()
+        if animated, date != nil {
+            sendLaterChip.alpha = 0
+            sendLaterChip.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
+            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+                self.sendLaterChip.alpha = 1
+                self.sendLaterChip.transform = .identity
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -152,11 +187,18 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let fieldX = plusGlass.frame.maxX + t.composerFieldGap
         fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - t.composerSideInset + 1, height: fieldHeight)
         let field = fieldGlass.bounds
-        var textTop: CGFloat = 0
+        var textTop: CGFloat = sendLaterHeight
+        if sendLaterDate != nil {
+            let chip = sendLaterChip.sizeThatFits(CGSize(width: field.width - 20, height: SendLaterChipView.height))
+            UIView.performWithoutAnimation {
+                sendLaterChip.bounds.size = chip
+                sendLaterChip.center = CGPoint(x: 8 + chip.width / 2, y: 8 + chip.height / 2)
+            }
+        }
         if !attachments.isEmpty {
-            attachmentStrip.frame = CGRect(x: 0, y: 8, width: field.width, height: attachmentHeight)
-            attachmentSeparator.frame = CGRect(x: 0, y: attachmentHeight + 16, width: field.width, height: 0.5)
-            textTop = attachmentHeight + 16
+            attachmentStrip.frame = CGRect(x: 0, y: textTop + 8, width: field.width, height: attachmentHeight)
+            attachmentSeparator.frame = CGRect(x: 0, y: textTop + attachmentHeight + 16, width: field.width, height: 0.5)
+            textTop += attachmentHeight + 16
             layoutAttachments()
         }
         let trailing = sendSize.width + 10
@@ -189,7 +231,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private func updatePlaceholder() {
         placeholder.text = !attachments.isEmpty
             ? String(localized: "conversation.composer.addComment", defaultValue: "Add comment or Send", bundle: .module)
-            : (isReplyMode ? replyPlaceholderText : placeholderText)
+            : sendLaterDate != nil
+                ? String(localized: "conversation.sendLater.placeholder", defaultValue: "Send Later", bundle: .module)
+                : (isReplyMode ? replyPlaceholderText : placeholderText)
         placeholder.isHidden = !(textView.text ?? "").isEmpty
     }
 
@@ -211,6 +255,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
         if !attachments.isEmpty { natural += attachmentHeight + 16 }
+        natural += sendLaterHeight
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
         guard height != fieldHeight else { return }
@@ -291,7 +336,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let previous = fieldHeight
         let width = max(1, fieldGlass.bounds.width - fieldTextInset - sendSize.width - 10)
         _ = width
-        fieldHeight = ConversationTheme.composerMinHeight
+        fieldHeight = ConversationTheme.composerMinHeight + sendLaterHeight
         textView.isScrollEnabled = false
         guard previous != fieldHeight else {
             delegate?.composerDidChangeText(self)

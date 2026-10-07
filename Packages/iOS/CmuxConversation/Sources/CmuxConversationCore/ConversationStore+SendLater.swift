@@ -16,7 +16,7 @@ public enum ConversationScheduledActionFailure: Sendable, Equatable {
 /// identity while it turns from outlined (scheduled) to filled (sent).
 extension ConversationStore {
     /// Messages lets you schedule up to 14 days ahead.
-    public static let sendLaterHorizon: TimeInterval = 14 * 24 * 60 * 60
+    nonisolated public static let sendLaterHorizon: TimeInterval = 14 * 24 * 60 * 60
 
     /// Waiting or failed Send Later messages, earliest first.
     public var scheduledMessages: [ConversationMessage] {
@@ -26,7 +26,7 @@ extension ConversationStore {
     /// The time Messages proposes when Send Later is picked: the next whole
     /// hour at least 30 minutes out, or 9 AM the next morning when that falls
     /// at night. Lower-confidence heuristic (no reference capture possible).
-    public static func defaultSendLaterDate(now: Date = Date(), calendar: Calendar = .current) -> Date {
+    nonisolated public static func defaultSendLaterDate(now: Date = Date(), calendar: Calendar = .current) -> Date {
         let soon = now.addingTimeInterval(30 * 60)
         var components = calendar.dateComponents([.year, .month, .day, .hour], from: soon)
         components.hour = (components.hour ?? 0) + 1
@@ -37,6 +37,17 @@ extension ConversationStore {
             return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: base) ?? candidate
         }
         return candidate
+    }
+
+    /// "Tomorrow at 9:00 AM": the time shown on the composer chip and above a
+    /// scheduled bubble, in the system's relative date style.
+    nonisolated public static func sendLaterTimeText(_ date: Date, locale: Locale = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.doesRelativeDateFormatting = true
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     /// Appends the outlined row at once, then uploads and queues it on the server.

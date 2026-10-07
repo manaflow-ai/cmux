@@ -11,6 +11,8 @@ final class AppsMenuOverlay: UIView {
         var title: String
         var symbol: String
         var color: UIColor
+        /// Drawn instead of `symbol` on `color` (Send Later's dashed clock).
+        var customIcon: UIImage? = nil
         var handler: () -> Void
     }
 
@@ -31,7 +33,7 @@ final class AppsMenuOverlay: UIView {
         panel.contentView.addSubview(stack)
         for item in items {
             let row = UIButton(type: .custom)
-            let icon = UIImageView(image: UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)))
+            let icon = UIImageView(image: item.customIcon ?? UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)))
             icon.tintColor = .white
             icon.contentMode = .center
             icon.backgroundColor = item.color
@@ -112,6 +114,7 @@ extension ConversationViewController {
         items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .systemIndigo) { [weak self] in
             self?.presentFilePicker()
         })
+        items.append(sendLaterMenuItem())
         let anchor = composer.plusButton.convert(composer.plusButton.bounds, to: view)
         let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, items: items)
         view.addSubview(overlay)

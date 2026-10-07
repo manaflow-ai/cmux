@@ -9,6 +9,8 @@ enum ConversationRow: Hashable {
     case timestamp(id: String, date: Date)
     case message(MessageRowModel)
     case typing(participantIDs: [String])
+    /// "Send Later <time> Edit" above a scheduled message.
+    case sendLaterHeader(rowID: String, date: Date, failed: Bool)
 
     var id: String {
         switch self {
@@ -17,6 +19,7 @@ enum ConversationRow: Hashable {
         case let .timestamp(id, _): return id
         case let .message(model): return model.rowID
         case .typing: return "typing"
+        case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
         }
     }
 }
@@ -79,8 +82,17 @@ enum ConversationRowBuilder {
         let typingIDs = store.typingParticipantIDs
 
         let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingIDs)
+        var typingPlaced = typingIDs.isEmpty
         for (index, message) in messages.enumerated() {
             let entry = plan.entries[index]
+            if message.isScheduled, let scheduledAt = message.scheduledAt {
+                // Scheduled messages trail everything, typing included.
+                if !typingPlaced {
+                    rows.append(.typing(participantIDs: typingIDs))
+                    typingPlaced = true
+                }
+                rows.append(.sendLaterHeader(rowID: message.rowID, date: scheduledAt, failed: message.delivery?.isFailed == true))
+            }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
@@ -114,7 +126,7 @@ enum ConversationRowBuilder {
                 hasMyReaction: message.reactions.contains { $0.participantID == meID }
             )))
         }
-        if !typingIDs.isEmpty {
+        if !typingPlaced {
             rows.append(.typing(participantIDs: typingIDs))
         }
         return rows
