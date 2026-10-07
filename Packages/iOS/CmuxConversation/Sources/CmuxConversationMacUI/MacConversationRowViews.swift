@@ -183,6 +183,10 @@ final class MacMessageRowView: MacFlippedView {
         identifier: "conversation.image.save"
     )
     private var hoverArea: NSTrackingArea?
+    /// Poll card pieces, added on first use (MacConversationPolls.swift).
+    let pollCard = MacPollCardView()
+    let addChoiceLabel = makeMacLabel()
+    let pollFailedLabel = makeMacLabel()
     private var imageViews: [NSImageView] = []
     private var imageTasks: [Task<Void, Never>] = []
     private(set) var model: MacMessageRowModel?
@@ -324,6 +328,7 @@ final class MacMessageRowView: MacFlippedView {
 
         configureBadge(model, layout: layout)
         configureImages(model, layout: layout)
+        configurePoll(model, layout: layout)
 
         editedLabel.isHidden = layout.editedFrame == nil
         if let frame = layout.editedFrame {

@@ -353,6 +353,7 @@ extension ConversationViewController {
                 self?.store.retry(rowID: model.rowID)
             }, at: 1)
         }
+        items += pollMenuItems(for: model)
         items.append(.init(title: String(localized: "conversation.menu.more", defaultValue: "More…", bundle: .module), symbol: "ellipsis.circle") { [weak self] in
             self?.setSelecting(true, initial: model.rowID)
         })

@@ -53,6 +53,8 @@ struct MessageRowModel: Hashable {
     /// Distinct tapbacks in first-given order, and whether one of them is mine.
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
+    /// Set for poll messages (see ConversationPolls.swift).
+    var poll: PollRowModel? = nil
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -92,7 +94,7 @@ enum ConversationRowBuilder {
             let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
                 ReplyQuote(text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
             }
-            rows.append(.message(MessageRowModel(
+            rows.append(.message(PollRowModel.attach(to: MessageRowModel(
                 rowID: message.rowID,
                 message: message,
                 isOutgoing: isOutgoing,
@@ -112,7 +114,7 @@ enum ConversationRowBuilder {
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID }
-            )))
+            ), store: store)))
         }
         if !typingIDs.isEmpty {
             rows.append(.typing(participantIDs: typingIDs))

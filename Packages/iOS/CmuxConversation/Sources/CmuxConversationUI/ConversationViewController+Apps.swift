@@ -112,6 +112,7 @@ extension ConversationViewController {
         items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .systemIndigo) { [weak self] in
             self?.presentFilePicker()
         })
+        items.append(pollsAppsMenuItem())
         let anchor = composer.plusButton.convert(composer.plusButton.bounds, to: view)
         let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, items: items)
         view.addSubview(overlay)

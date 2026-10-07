@@ -24,6 +24,8 @@ struct MessageCellLayout {
     var failedBadgeFrame: CGRect?
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
+    /// Poll card, its "Add Choice" stamp and its "Poll vote failed." line.
+    var poll: PollCellLayout? = nil
 }
 
 @MainActor
@@ -97,6 +99,7 @@ extension MessageCellLayout {
 
     /// `margin` is the system layout margin (16 pt on 402-wide phones, 20 on 440).
     static func compute(model: MessageRowModel, width: CGFloat, margin: CGFloat, text: NSAttributedString) -> MessageCellLayout {
+        if model.poll != nil { return computePoll(model: model, width: width, margin: margin) }
         let t = ConversationTheme.self
         let message = model.message
         let avatarColumn = model.reservesAvatarColumn ? t.avatarSize + t.avatarGap : 0

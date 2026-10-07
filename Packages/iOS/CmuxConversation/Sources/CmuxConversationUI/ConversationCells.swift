@@ -24,6 +24,10 @@ final class MessageCell: UICollectionViewCell {
     let timeLabel = UILabel()
     let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.fill"))
     private(set) var imageViews: [UIImageView] = []
+    /// Poll card pieces, added on first use (ConversationPolls.swift).
+    let pollCard = PollCardView()
+    let addChoiceButton = UIButton(type: .system)
+    let pollFailedLabel = UILabel()
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
 
@@ -149,6 +153,7 @@ final class MessageCell: UICollectionViewCell {
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
+        configurePoll(model: model, layout: layout)
 
         if let bubbleFrame = layout.bubbleFrame, let textFrame = layout.textFrame {
             bubble.isHidden = false

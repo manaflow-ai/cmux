@@ -59,6 +59,8 @@ struct MacMessageRowModel: Hashable {
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
     var myReactions: Set<ConversationReaction> = []
+    /// Set for poll messages (see MacConversationPolls.swift).
+    var poll: MacPollRowModel? = nil
 }
 
 /// Builds rows from store state with the shared Messages grouping rules.
@@ -76,7 +78,7 @@ enum MacConversationRowBuilder {
         rows += messageRows(
             store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
             quote: { store.message(id: $0) }
-        )
+        ).map { MacPollRowModel.attach(to: $0, store: store) }
         if !store.typingParticipantIDs.isEmpty {
             rows.append(.typing(participantIDs: store.typingParticipantIDs))
         }
@@ -95,6 +97,7 @@ enum MacConversationRowBuilder {
             return plain
         }
         var rows = messageRows(thread, info: info, meID: store.meID, typingParticipantIDs: [], quote: { _ in nil }, footers: false)
+            .map { MacPollRowModel.attach(to: $0, store: store) }
         // The thread always opens with the root's timestamp.
         if let first = thread.first, rows.first.map({ if case .timestamp = $0 { return false } else { return true } }) ?? false {
             rows.insert(.timestamp(id: "ts:\(first.rowID)", date: first.sentAt), at: 0)
@@ -200,6 +203,8 @@ struct MacMessageLayout {
     var footerFrame: CGRect?
     var failedBadgeFrame: CGRect?
     var contentFrame: CGRect
+    /// Poll card, its "Add Choice" stamp and its "Poll vote failed." line.
+    var poll: MacPollCellLayout? = nil
 }
 
 @MainActor
@@ -262,6 +267,7 @@ extension MacMessageLayout {
     }
 
     static func compute(_ model: MacMessageRowModel, width: CGFloat, text: NSAttributedString) -> MacMessageLayout {
+        if model.poll != nil { return computePoll(model, width: width) }
         let t = MacConversationTheme.self
         let margin = t.sideMargin
         let avatarColumn = model.isGroup ? t.avatarSize + t.avatarGap : 0

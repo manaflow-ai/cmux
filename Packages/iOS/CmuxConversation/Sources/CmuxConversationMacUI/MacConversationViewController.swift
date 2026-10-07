@@ -732,6 +732,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         photos.image = NSImage(systemSymbolName: "photo.on.rectangle", accessibilityDescription: nil)
         photos.target = self
         menu.addItem(photos)
+        menu.addItem(pollsAppsMenuItem())
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: composer.appsButton.bounds.height + 4), in: composer.appsButton)
     }
 
@@ -908,6 +909,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showReactors(model, from: rowView.badge)
             return true
         }
+        if handlePollClick(model, rowView: rowView, local: local) { return true }
         if !rowView.repliesLabel.isHidden, rowView.repliesLabel.frame.contains(local) {
             showThread(rootID: model.message.id, from: rowView.repliesLabel)
             return true
@@ -1032,6 +1034,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.store.discardFailed(rowID: model.rowID) })
         }
+        addPollMenuItems(to: menu, model: model, rowView: rowView)
         // Messages darkens the bubble while its menu is open.
         menuHighlight.begin(rowView)
         menu.delegate = menuHighlight
@@ -1155,6 +1158,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                   let reaction = ConversationReaction(rawValue: bits[1]) else { return "error usage react <row-match> <reaction>" }
             store.react(messageID: model.message.id, reaction: reaction)
             return "ok"
+        case "poll":
+            return pollLabCommand(argument)
         case "escape":
             tapbackPopover?.close()
             exitReplyOrEdit()
