@@ -47,7 +47,7 @@ describe("app pro welcome page", () => {
 
     expect(html).toContain("Welcome to cmux Pro");
     expect(html).toContain("Pro features are still being built");
-    expect(html).toContain("usage credits accumulated for every month");
+    expect(html).toContain("Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM");
     expect(html).toContain("cmux iOS app");
     expect(html).toContain(
       'href="/dashboard/testflight?cmux_open_in_browser=split-right"',
