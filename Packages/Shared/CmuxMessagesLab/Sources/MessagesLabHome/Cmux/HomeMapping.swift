@@ -140,8 +140,9 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval:
-            // Agent session and approval cards are not MessagesLab rows: their text.
+        case .work, .approval, .question:
+            // Agent session, approval and question cards are not MessagesLab rows
+            // yet: their text. The question card moves to the custom-row seam.
             return .text(p.plainText, runs: [])
         }
     }

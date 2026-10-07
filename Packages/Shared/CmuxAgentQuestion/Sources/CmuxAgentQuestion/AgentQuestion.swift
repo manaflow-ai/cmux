@@ -170,3 +170,20 @@ extension AgentQuestion.Item {
         )
     }
 }
+
+extension AgentQuestion {
+    /// Plain text for transcripts that cannot host the card (search,
+    /// notifications, a placeholder row): each prompt with its numbered
+    /// options, or with the chosen answers once answered.
+    public var transcriptText: String {
+        items.map { item in
+            switch state {
+            case .answered(let answer):
+                return "\(item.prompt)\n✓ \(labels(item, answer.selections[item.id]).joined(separator: ", "))"
+            case .pending, .cancelled:
+                let options = item.options.enumerated().map { "\($0 + 1). \($1.label)" }
+                return ([item.prompt] + options).joined(separator: "\n")
+            }
+        }.joined(separator: "\n\n")
+    }
+}

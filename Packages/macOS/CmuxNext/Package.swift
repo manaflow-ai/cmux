@@ -143,6 +143,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
+                "CmuxNextAgentQuestion",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -927,7 +929,8 @@ let package = Package(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender")],
+                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

@@ -1,3 +1,4 @@
+public import CmuxAgentQuestion
 public import Foundation
 
 /// A typed change the client asks an owner to make. Every op travels with an
@@ -25,6 +26,9 @@ public enum HomeOp: Hashable, Sendable {
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
     case addReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
+    /// `question.answer`: the signed-in person answers the question part at
+    /// `partIndex`. Only the selections travel; the owner stamps who answered.
+    case answerQuestion(message: MessageID, conversation: ConversationID, partIndex: Int, answer: AgentQuestionAnswer)
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
@@ -35,6 +39,7 @@ public enum HomeOp: Hashable, Sendable {
         case .sendMessage(let conversation, _),
              .setReadCursor(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -50,6 +55,7 @@ public enum HomeOp: Hashable, Sendable {
              .setPinned(let conversation, _),
              .setMuted(let conversation, _),
              .addReaction(_, let conversation, _, _),
+             .answerQuestion(_, let conversation, _, _),
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:

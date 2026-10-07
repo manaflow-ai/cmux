@@ -152,3 +152,21 @@ extension AgentQuestion {
         }
     }
 }
+
+extension AgentQuestion {
+    /// The question answered with `answer`, as an owner commits it: the
+    /// answer must be valid (`problems`), the respondent and time come from
+    /// the owner. Option ids keep the items' order.
+    public func answering(_ answer: AgentQuestionAnswer, respondent: AgentQuestionAnswer.Respondent?, atMs: Int64?) throws -> AgentQuestion {
+        if let problem = answer.problems(for: self).first { throw problem }
+        var selections: [String: AgentQuestionAnswer.Selection] = [:]
+        for item in items {
+            let chosen = answer.selections[item.id] ?? .init()
+            let ids = item.options.map(\.id).filter { chosen.optionIDs.contains($0) }
+            selections[item.id] = AgentQuestionAnswer.Selection(optionIDs: ids, other: chosen.other)
+        }
+        var answered = self
+        answered.state = .answered(AgentQuestionAnswer(selections: selections, respondent: respondent, answeredAtMs: atMs))
+        return answered
+    }
+}

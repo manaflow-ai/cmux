@@ -67,7 +67,8 @@ extension AgentQuestion {
     /// Claude Code: `{question, header, options: [{label, description, preview}], multiSelect}`.
     /// Answers are keyed by question text, so items keep positional ids.
     static func claudeItem(_ value: AgentQuestionJSON, index: Int) -> Item? {
-        guard let prompt = value["question"]?.text else { return nil }
+        // The prompt keeps its exact text: Claude Code matches answers by it.
+        guard value["question"]?.text != nil, let prompt = value["question"]?.string else { return nil }
         let options = uniqueOptions((value["options"]?.array ?? []).compactMap { option -> Option? in
             guard let label = option["label"]?.text else { return nil }
             let preview = option["preview"]?.text.map { Preview(text: $0, format: .monospace) }
