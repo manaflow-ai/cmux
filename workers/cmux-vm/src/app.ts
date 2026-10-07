@@ -79,7 +79,8 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
       if (request.body === null || UPLOAD_PATH.test(new URL(request.url).pathname)) return web.handler(request);
       const declared = request.headers.get("content-length");
       if (declared !== null && Number(declared) > MAX_JSON_BODY_BYTES) return Promise.resolve(tooLarge());
-      return web.handler(new Request(request, { body: capped(request.body, MAX_JSON_BODY_BYTES) }));
+      const method = request.method;
+      return web.handler(new Request(request.url, { method, headers: request.headers, body: capped(request.body, MAX_JSON_BODY_BYTES) }));
     },
   };
 };

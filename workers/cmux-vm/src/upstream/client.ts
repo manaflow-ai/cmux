@@ -46,9 +46,9 @@ export interface CreatedResource {
 }
 
 export interface SizeRequest {
-  readonly vcpus?: number;
-  readonly memoryMib?: number;
-  readonly diskMib?: number;
+  readonly vcpus?: number | undefined;
+  readonly memoryMib?: number | undefined;
+  readonly diskMib?: number | undefined;
 }
 
 export interface CreateVmSpec {

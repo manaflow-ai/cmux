@@ -444,10 +444,10 @@ const parseLabelSelectors = (selectors: ReadonlyArray<string> | undefined): Read
 };
 
 const listVms = (params: {
-  readonly limit?: number;
-  readonly cursor?: string;
-  readonly state?: VmState;
-  readonly label?: ReadonlyArray<string>;
+  readonly limit?: number | undefined;
+  readonly cursor?: string | undefined;
+  readonly state?: VmState | undefined;
+  readonly label?: ReadonlyArray<string> | undefined;
 }) =>
   withCaller("vm:read", "read", (caller, scope) =>
     Effect.gen(function* () {

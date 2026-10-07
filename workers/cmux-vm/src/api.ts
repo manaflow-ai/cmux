@@ -48,21 +48,26 @@ const IDLE_DEFINITION =
   "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work, disk I/O and commands that produce no traffic do not keep it awake, while an open SSH, terminal or exec connection does. -1 never pauses for idleness.";
 
 /** Label keys and values: short, printable, safe in URLs. */
-const LabelKey = Schema.String.pipe(Schema.pattern(/^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/));
+const LABEL_KEY = /^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/u;
 const LabelValue = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:/@-]{0,63}$/));
 export const MAX_LABELS = 16;
-export const Labels = Schema.Record({ key: LabelKey, value: LabelValue })
-  .pipe(Schema.filter((labels) => Object.keys(labels).length <= MAX_LABELS, { message: () => `at most ${MAX_LABELS} labels` }))
+// Record key schemas only drop keys that do not match, so keys are checked by a filter that rejects.
+export const Labels = Schema.Record({ key: Schema.String, value: LabelValue })
+  .pipe(
+    Schema.filter((labels) => Object.keys(labels).length <= MAX_LABELS && Object.keys(labels).every((key) => LABEL_KEY.test(key)), {
+      message: () => `at most ${MAX_LABELS} labels, keys of lowercase letters, digits and . _ / -`,
+    }),
+  )
   .annotations({
     identifier: "Labels",
     description: `Up to ${MAX_LABELS} key/value labels for finding VMs (list filters by them). Keys: lowercase letters, digits and . _ / - (1-63 characters); values: letters, digits and . _ : / @ - (0-63 characters). Stored by cmux, not secret.`,
   });
 
-export class VmResources extends Schema.Class<VmResources>("VmResources")({
+export const VmResources = Schema.Struct({
   vcpus: Schema.Number,
   memoryMib: Schema.Number,
   diskMib: Schema.Number,
-}) {}
+}).annotations({ identifier: "VmResources" });
 
 export class Vm extends Schema.Class<Vm>("Vm")({
   id: VmId,
@@ -101,17 +106,15 @@ const AutoDeleteSeconds = Schema.Int.pipe(Schema.between(-1, 365 * 24 * 60 * 60)
 export const BASE_IMAGE_DESCRIPTION =
   "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.";
 
-export class RequestedResources extends Schema.Class<RequestedResources>("RequestedResources")(
-  {
-    vcpus: Schema.optional(Schema.Int.pipe(Schema.between(2, 32))),
-    memoryMib: Schema.optional(Schema.Int.pipe(Schema.between(4096, 65536))),
-    diskMib: Schema.optional(Schema.Int.pipe(Schema.between(16384, 131072))),
-  },
-  {
-    description:
-      "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
-  },
-) {}
+export const RequestedResources = Schema.Struct({
+  vcpus: Schema.optional(Schema.Int.pipe(Schema.between(2, 32))),
+  memoryMib: Schema.optional(Schema.Int.pipe(Schema.between(4096, 65536))),
+  diskMib: Schema.optional(Schema.Int.pipe(Schema.between(16384, 131072))),
+}).annotations({
+  identifier: "RequestedResources",
+  description:
+    "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
+});
 
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
@@ -157,14 +160,19 @@ export const GuestPath = Schema.String.pipe(
   }),
 ).annotations({ identifier: "GuestPath", description: "Absolute path inside the VM, without '..' segments." });
 
-/** POSIX environment variable name. */
-const EnvName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/));
+/** POSIX environment variable names; a filter so a bad name is rejected, not dropped. */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
+const Env = Schema.Record({ key: Schema.String, value: Schema.String.pipe(Schema.maxLength(32 * 1024)) }).pipe(
+  Schema.filter((env) => Object.keys(env).length <= 128 && Object.keys(env).every((key) => ENV_NAME.test(key)), {
+    message: () => "at most 128 variables with POSIX names",
+  }),
+);
 
 export class ExecRequest extends Schema.Class<ExecRequest>("ExecRequest")({
   command: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64 * 1024)).annotations({
     description: "The command line, run by the guest's shell. Never recorded in the audit log.",
   }),
-  env: Schema.optional(Schema.Record({ key: EnvName, value: Schema.String.pipe(Schema.maxLength(32 * 1024)) }).annotations({
+  env: Schema.optional(Env.annotations({
     description: "Extra environment variables; names are POSIX ([A-Za-z_][A-Za-z0-9_]*).",
   })),
   stdinBase64: Schema.optional(
