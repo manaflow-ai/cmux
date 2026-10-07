@@ -32,7 +32,9 @@ import Testing
 
         #expect(AgentPaneReplyLinkTests.code(await Self.load(model, root.appending(path: "notes.txt").path)) == "link.media_refused")
         #expect(AgentPaneReplyLinkTests.code(await Self.load(model, base.appending(path: "outside.mp4").path)) == "link.path_outside_roots")
-        #expect(AgentPaneReplyLinkTests.code(await Self.load(model, "https://example.com/demo.mp4")) == "link.media_refused")
+        // A web link is not a local file: it follows the web image setting (click by default; see
+        // aWebVideoFollowsTheImageSettingAndPlaysFromACheckedCopy).
+        #expect(AgentPaneReplyLinkTests.code(await Self.load(model, "https://example.com/demo.mp4")) == "link.gesture_required")
         #expect(AgentPaneSchemeHandler.mediaFile(for: try #require(URL(string: "cmux-agent://pane/__media/0000.mp4"))) == nil)
     }
 
