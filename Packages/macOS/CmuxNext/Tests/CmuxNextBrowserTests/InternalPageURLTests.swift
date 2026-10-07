@@ -57,6 +57,21 @@ import Testing
         #expect(webKit.url(for: typed) == nil)
     }
 
+    @Test func typedTextNamesAChromiumPageOnlyForItsSchemes() {
+        #expect(ChromiumInternalURL(typed: "About:Extensions")?.url.absoluteString == "chrome://extensions/")
+        #expect(ChromiumInternalURL(typed: "chrome://extensions")?.url.absoluteString == "chrome://extensions/")
+        #expect(ChromiumInternalURL(typed: "about:blank") == nil)
+        #expect(ChromiumInternalURL(typed: "https://example.com") == nil)
+        #expect(ChromiumInternalURL(typed: "extensions") == nil)
+    }
+
+    @Test func onlyChromiumSchemesNeedChromium() throws {
+        #expect(ChromiumInternalURL.needsChromium(try #require(URL(string: "chrome://extensions/"))))
+        #expect(ChromiumInternalURL.needsChromium(try #require(URL(string: "chrome-extension://abc/x.html"))))
+        #expect(!ChromiumInternalURL.needsChromium(try #require(URL(string: "about:blank"))))
+        #expect(!ChromiumInternalURL.needsChromium(try #require(URL(string: "https://example.com/"))))
+    }
+
     @Test func webKitTabsStillLoadAboutBlank() {
         #expect(webKit.url(for: "About:Blank")?.absoluteString == "about:blank")
     }

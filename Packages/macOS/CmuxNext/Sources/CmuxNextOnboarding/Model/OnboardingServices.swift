@@ -49,6 +49,8 @@ public protocol OnboardingServices: AnyObject {
     // Classic cmux session import
     var canImportClassicSessions: Bool { get }
     func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    /// The chat ids (`AgentChat.id`) classic cmux had open in its terminals.
+    func scanClassicOpenChats() async -> Set<String>
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
     /// The user's home folder (where the privacy-guarded folders are).
     var homeDirectory: URL { get }
@@ -87,9 +89,13 @@ public protocol OnboardingServices: AnyObject {
     // Lifecycle
     /// The window closed; `completed` is false when the user skipped.
     func onboardingDidEnd(completed: Bool)
+    /// The first run is at `step` (shown, or moved to): the App keeps it, so
+    /// a relaunch or a rebuilt window resumes there.
+    func onboardingDidReach(_ step: OnboardingModel.Step)
 }
 
 public extension OnboardingServices {
+    func onboardingDidReach(_ step: OnboardingModel.Step) {}
     var canRunFirstTask: Bool { false }
     var firstTaskFolder: FirstTaskFolder { .live() }
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }
@@ -109,6 +115,9 @@ public extension OnboardingServices {
     var canImportClassicSessions: Bool { false }
     func scanClassicSessions() async -> [ClassicSessionWorkspace] {
         await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    }
+    func scanClassicOpenChats() async -> Set<String> {
+        await Task.detached { (try? ClassicSessionImporter().readOpenChats()) ?? [] }.value
     }
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {}
     var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }

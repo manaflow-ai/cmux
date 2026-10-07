@@ -95,6 +95,24 @@ import Testing
         #expect(names == ["nvim", "claude", "ssh big-red", "me · main", "me · fix-names", "api", "me", "me 2"])
     }
 
+    /// The Claude Code and Codex chats classic had open in its terminals,
+    /// as chat ids; other agents and terminals without one are left out.
+    @Test func openChatsAreTheAgentsClassicTerminalsRan() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[{
+          "customTitle":"Agents","currentDirectory":"/work",
+          "panels":[
+            {"id":"a","terminal":{"workingDirectory":"/work","agent":{"kind":"claude","sessionId":"c-1"}}},
+            {"id":"b","terminal":{"workingDirectory":"/work","agent":{"kind":"codex","sessionId":"x-2"}}},
+            {"id":"c","terminal":{"workingDirectory":"/work","agent":{"kind":"gemini","sessionId":"g-3"}}},
+            {"id":"d","terminal":{"workingDirectory":"/work"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let chats = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).openChats(json)
+        #expect(chats == ["claudeCode:c-1", "codex:x-2"])
+    }
+
     /// Classic stable and classic NIGHTLY each keep their own snapshot; the
     /// one saved last is the session to bring over.
     @Test func readsTheNewestOfStableAndNightly() throws {

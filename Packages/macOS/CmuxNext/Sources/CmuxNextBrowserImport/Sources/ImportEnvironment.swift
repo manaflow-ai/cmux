@@ -16,14 +16,26 @@ public struct ImportEnvironment: Sendable {
     /// launches only; never the user's real profiles in tests).
     public static let fixtureHomeKey = "CMUX_NEXT_BROWSER_IMPORT_HOME"
 
-    /// The real home, or the fixture home from the environment. With a
-    /// fixture home, apps are not looked up, so the result does not depend
-    /// on what this Mac has installed.
+    /// Whether this build honors the fixture seams (`fixtureHomeKey`,
+    /// `FixtureSafeStorage.environmentKey`): DEBUG builds only, so a Release
+    /// build always reads the real home and the login Keychain.
+    public static var fixturesAllowed: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// The real home, or the fixture home from the environment (DEBUG
+    /// builds). With a fixture home, apps are not looked up, so the result
+    /// does not depend on what this Mac has installed.
     public static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        allowsFixtures: Bool = fixturesAllowed,
         locateApp: @escaping @Sendable (String) -> URL?
     ) -> ImportEnvironment {
-        if let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
+        if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
             return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
         }
         return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp)

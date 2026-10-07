@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
+    /// An unread dot instead of a count, in every look (What's New after an update).
+    public var unreadDot = false
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
@@ -58,6 +60,7 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
+        case .searchChats: "magnifyingglass"
         }
     }
 
@@ -75,6 +78,7 @@ extension SidebarBuiltIn {
         case .newBrowser: .browserNew
         case .newAgentChat: .agentChatNew
         case .customize: .theme
+        case .searchChats: .search
         }
     }
 
@@ -97,6 +101,7 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
+        case .searchChats: SectionStrings.searchChats
         }
     }
 

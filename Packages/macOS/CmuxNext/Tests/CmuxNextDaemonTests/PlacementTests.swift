@@ -6,7 +6,7 @@ import Testing
 /// New tabs and splits reserve the terminal id so the shell gets
 /// CMUX_WORKSPACE_ID and CMUX_SURFACE_ID naming itself.
 @Suite(.timeLimit(.minutes(1))) struct PlacementTests {
-    static let identify = ConnectionTests.identify.replacingOccurrences(of: #""attach-initial-size""#, with: #""attach-initial-size","terminal-env-v1""#)
+    static let identify = ConnectionTests.identify.replacingOccurrences(of: #""attach-initial-size""#, with: #""attach-initial-size","terminal-env-v1","tab-drag-v1""#)
     final class Log: Sendable {
         let entries = Mutex<[[String: JSONValue]]>([])
         func append(_ request: [String: JSONValue]) { entries.withLock { $0.append(request) } }

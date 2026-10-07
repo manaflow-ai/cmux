@@ -204,6 +204,14 @@ pub fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     Ok(PtyPair { master, slave })
 }
 
+/// Wrap an inherited PTY master, for example one received from a process
+/// that held it, as a master of a session this process did not spawn. Its
+/// writer never sends end-of-file to that session when dropped.
+#[cfg(unix)]
+pub fn adopt_master(master: OwnedFd) -> anyhow::Result<Box<dyn MasterPty + Send>> {
+    macos::adopt_master(master)
+}
+
 #[cfg(unix)]
 mod platform {
     pub(crate) use super::macos::{Slave, open, spawn};

@@ -40,6 +40,35 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return try decode(data)
     }
 
+    /// The Claude Code and Codex chats classic's terminals had open, as
+    /// `AgentChat.id`s; empty when classic cmux has no snapshot.
+    public func readOpenChats() throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
+        return try openChats(Data(contentsOf: fileURL, options: [.mappedIfSafe]))
+    }
+
+    /// Each terminal's `agent` (classic's restorable agent session) that is
+    /// a Claude Code or Codex chat.
+    public func openChats(_ data: Data) throws -> Set<String> {
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let windows = (root["windows"] as? [[String: Any]]) ?? []
+        let panels = windows.flatMap { window -> [[String: Any]] in
+            let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
+            return ((manager["workspaces"] as? [[String: Any]]) ?? []).flatMap { ($0["panels"] as? [[String: Any]]) ?? [] }
+        }
+        return Set(panels.compactMap { panel -> String? in
+            guard let agent = (panel["terminal"] as? [String: Any])?["agent"] as? [String: Any],
+                  let session = agent["sessionId"] as? String, !session.isEmpty else { return nil }
+            let app: AgentApp? = switch agent["kind"] as? String {
+            case "claude": .claudeCode
+            case "codex": .codex
+            default: nil
+            }
+            return app.map { "\($0.rawValue):\(session)" }
+        })
+    }
+
     /// Decodes only topology, names, directories, and titles from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]

@@ -96,7 +96,7 @@ describe("membership cache: positive answers only, 60 s", () => {
   it("a cache that fails is skipped: Stack answers", async () => {
     const fake = stack(false);
     const down = new StoreError({ operation: "membership", cause: null });
-    const failing = { fresh: () => Effect.fail(down), rememberMember: () => Effect.fail(down), revoke: () => Effect.fail(down) };
+    const failing = { fresh: () => Effect.fail(down), rememberMember: () => Effect.fail(down), revoke: () => Effect.fail(down), revokeUser: () => Effect.fail(down) };
     const service = makeStackTeamMembership({
       apiUrl: "https://stack.test",
       projectId: "project-test",
