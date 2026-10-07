@@ -202,14 +202,17 @@ class PathRoutingStructure(unittest.TestCase):
         """tests/test_cmux_next_route.py covers which paths reach which tier."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         route = jobs["path_route"]
-        for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
+        for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "release", "swift_filter",
+                       "swift_targets"):
             self.assertIn(output, route["outputs"])
         self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
         self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
-        self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
+        self.assertIn("needs.path_route.outputs.release == 'true'", jobs["release-compile"]["if"])
+        # The Release tier needs the diff's lines, for a removed DEBUG conditional.
+        self.assertIn("--diff", route["steps"][-1]["run"])
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
 
     def test_package_tests_never_wait_for_the_cmux_tui_tree(self):
