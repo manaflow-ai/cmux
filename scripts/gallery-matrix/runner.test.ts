@@ -100,6 +100,41 @@ test("a matrix reuses its browser while isolating and closing every case context
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("a case that never loads is recorded not ready, and the rest of the matrix still renders", async () => {
+  const { runLocal } = await import("./runner");
+  const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-case-timeout-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "stuck", path_or_url: "https://example.test/stuck" },
+    { id: "fine", path_or_url: "https://example.test/fine" },
+  ]));
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {},
+        goto: async (url: string) => { if (url.includes("stuck")) throw new Error("goto: Timeout 30000ms exceeded."); },
+        waitForFunction: async () => {},
+        evaluate: async () => null,
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => [r.id, r.ready, r.screenshot])).toEqual([["stuck", null, "stuck-chromium.png"], ["fine", null, "fine-chromium.png"]]);
+    expect(String(results[0]!.error)).toContain("Timeout");
+    expect(existsSync(join(dir, "fine-chromium.png"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toHaveLength(2);
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("allocation failure waits for late VM ids before finally cleanup", async () => {
   const { createAllVms } = await import("./runner");
   const late = Promise.withResolvers<void>();
