@@ -258,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods(services)
+                control.registerRemoteBrowserDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)
