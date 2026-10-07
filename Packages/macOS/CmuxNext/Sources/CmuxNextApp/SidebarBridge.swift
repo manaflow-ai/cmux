@@ -22,7 +22,6 @@ final class SidebarBridge {
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
     var cardsObservation: Task<Void, Never>?
-    private var whatsNewObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
     /// sidebar region ready for `LaunchReveal`.
@@ -73,7 +72,6 @@ final class SidebarBridge {
         observe()
         observeSections()
         observeCards()
-        whatsNewObservation = SidebarWhatsNewItemFeed.start(model: model, center: services.updater.whatsNew, state: state)
     }
 
     func teardown() {
@@ -83,7 +81,6 @@ final class SidebarBridge {
         profileObservation?.cancel()
         sectionsObservation?.cancel()
         cardsObservation?.cancel()
-        whatsNewObservation?.cancel()
     }
 
     private func observe() {

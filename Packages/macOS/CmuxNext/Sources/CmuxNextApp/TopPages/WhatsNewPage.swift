@@ -32,6 +32,11 @@ enum WhatsNewPage {
         return TopPages.show(route, services: services, in: state) != nil
     }
 
+    /// A click on a client-only sidebar item: the What's New item opens the page.
+    static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
+        if id == sidebarItemID { open(services, in: state) }
+    }
+
     static func register(_ services: AppServices) {
         if services.pages.provider(.whatsNew) == nil { services.pages.register(WhatsNewTopPage(services: services)) }
     }

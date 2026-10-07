@@ -16,14 +16,21 @@ nonisolated public struct WhatsNewTracker: Sendable, Equatable {
     /// newest first, one per version. None without a `lastSeen` (a fresh
     /// install) or after a downgrade below it.
     public func unseen(_ documents: [WhatsNewDocument]) -> [WhatsNewDocument] {
-        []
+        guard let lastSeen, lastSeen < current else { return [] }
+        return Self.newestFirst(documents.filter { document in
+            guard let version = document.parsedVersion, !document.entries.isEmpty else { return false }
+            return lastSeen < version && version <= current
+        })
     }
 
     /// The page's content when nothing is unseen (opened from the palette,
     /// the Help menu or `updates.whatsNew`): the newest `limit` documents
     /// with entries up to `current`.
     public func recent(_ documents: [WhatsNewDocument], limit: Int = 3) -> [WhatsNewDocument] {
-        []
+        Array(Self.newestFirst(documents.filter { document in
+            guard let version = document.parsedVersion, !document.entries.isEmpty else { return false }
+            return version <= current
+        }).prefix(limit))
     }
 
     /// Newest first; a version that two sources carry keeps the bundled copy.

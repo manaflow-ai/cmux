@@ -7,7 +7,7 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state)
     }
 }
 
@@ -20,6 +20,15 @@ enum SidebarCardFeed {
     static let testFeedCardID = "test-feed"
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
+
+    /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
+    /// one task, so the bridge cancels both together.
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?) -> Task<Void, Never> {
+        let cards = start(model: model, updater: updater)
+        guard let window else { return cards }
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, state: window)
+        return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
+    }
 
     static func start(model: SidebarModel, updater: UpdaterService) -> Task<Void, Never> {
         model.onCardAction = { [weak updater] id, action in
