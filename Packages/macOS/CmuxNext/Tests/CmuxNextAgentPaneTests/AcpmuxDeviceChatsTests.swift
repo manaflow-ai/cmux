@@ -1,4 +1,5 @@
 @testable import CmuxNextAgentPane
+import Foundation
 import Testing
 
 /// The daemon's device-wide chat index (`_acpmux/chats`): every harness's chats on this Mac,
