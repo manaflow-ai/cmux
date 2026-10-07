@@ -1,4 +1,4 @@
-import bundledCatalog from "./generated/model-catalog-snapshot.json";
+import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
 import { agentKey } from "../shared/agentKey";
@@ -236,6 +236,9 @@ export function buildPickerCatalog({
   session,
   provisional = false,
 }: PickerInputs): PickerCatalog {
+  // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
+  // folder profile must never stand in for a catalog harness of its family.
+  acpmux = acpmux.filter((entry) => !entry.folder);
   const layered = applyUserLayer(catalog, user);
   const join: Join = { catalog: layered, session, overrides: userOverrides(user) };
   const hidden = hiddenHarnesses(user);

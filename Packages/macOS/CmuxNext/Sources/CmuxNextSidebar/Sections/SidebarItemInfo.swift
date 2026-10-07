@@ -28,6 +28,10 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var brand: String?
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
+    /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
+    /// amendment 2): an icon-only item with an avatar draws its initial in
+    /// a circle with a small chevron, and a click opens the profile menu.
+    public var avatar: SidebarAvatar?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
@@ -42,6 +46,28 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
         self.badge = badge
         self.isActive = isActive
         self.isMissing = isMissing
+    }
+}
+
+/// A profile's avatar: the initial of its name in a tinted circle.
+public nonisolated struct SidebarAvatar: Hashable, Sendable {
+    /// The profile's name (tooltip and VoiceOver).
+    public var name: String
+    /// One user-visible character drawn in the circle.
+    public var initial: String
+    /// The profile's color; nil draws the neutral text color.
+    public var color: GroupColor?
+
+    public init(name: String, color: GroupColor? = nil) {
+        self.name = name
+        self.initial = Self.initial(of: name)
+        self.color = color
+    }
+
+    /// The first letter or digit of `name`, uppercased; "?" when it has none.
+    public static func initial(of name: String) -> String {
+        guard let first = name.first(where: { $0.isLetter || $0.isNumber }) else { return "?" }
+        return String(first).uppercased()
     }
 }
 

@@ -120,7 +120,7 @@ final class ImportProfileRow: NSView {
         avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
         name.stringValue = profile.browser.displayName
-        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit)
+        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore)
         let subtitle = requiresFullDiskAccess ? OnboardingStrings.fullDiskAccessSubtitle : (showsProfile ? profile.displayName : "")
         sub.stringValue = subtitle
         sub.alphaValue = subtitle.isEmpty ? 0 : 1

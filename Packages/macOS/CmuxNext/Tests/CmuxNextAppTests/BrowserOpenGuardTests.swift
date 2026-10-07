@@ -56,9 +56,9 @@ import Testing
 
     @Test func chromiumPagesAndChromiumRequestsNeverBecomeSessionLocalWebKitTabs() throws {
         let page = try #require(URL(string: "chrome://extensions/"))
-        #expect(!PaneController.allowsSessionLocalTab(url: page, requested: nil))
-        #expect(!PaneController.allowsSessionLocalTab(url: nil, requested: BrowserEngineTag.cef.rawValue))
-        #expect(PaneController.allowsSessionLocalTab(url: URL(string: "https://example.com/"), requested: nil))
-        #expect(PaneController.allowsSessionLocalTab(url: nil, requested: nil))
+        #expect(!PaneBrowserTabOpener.allowsSessionLocalTab(url: page, requested: nil))
+        #expect(!PaneBrowserTabOpener.allowsSessionLocalTab(url: nil, requested: BrowserEngineTag.cef.rawValue))
+        #expect(PaneBrowserTabOpener.allowsSessionLocalTab(url: URL(string: "https://example.com/"), requested: nil))
+        #expect(PaneBrowserTabOpener.allowsSessionLocalTab(url: nil, requested: nil))
     }
 }

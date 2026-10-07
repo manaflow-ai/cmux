@@ -511,6 +511,41 @@ CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int
 // REPLY with `reply` and browser 0 follows: a = 1 deleted, 0 not. Returns 0
 // when nothing was started (as above, or an empty id).
 CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply);
+// Password manager core (fork API 18: cmux_password_list, _remove,
+// _exception_remove, _set_username, _reveal, _export; the Passwords page,
+// plans/cmux-next/passwords.md 1.4). profile_cache_path is a persistent
+// profile (an off-the-record key returns 0). Ids are the store's decimal
+// primary keys, as listed. Each call returns 0 when nothing was started (bad
+// input, or the fork lacks the call); otherwise exactly one REPLY (browser 0,
+// request `reply`) follows on the main thread once the profile is
+// initialized. Passwords never travel in a REPLY, a CEF value or a log line.
+// 1 when this fork has all six calls.
+CMUX_SHIM_EXPORT int cmux_shim_password_core_available(void);
+// REPLY: a = 1 and s1 = the fork's JSON {"passwords":[{"id","site","url",
+// "username","created","last_used" (ms since 1970, 0 = never),"times_used",
+// "weak","reused"}],"exceptions":[{"id","site"}]} (metadata only), or a = 0.
+CMUX_SHIM_EXPORT int cmux_shim_password_list(const char* profile_cache_path, int reply);
+// Removes saved sign-ins by id. REPLY: a = removed count, or -1.
+CMUX_SHIM_EXPORT int cmux_shim_password_remove(const char* profile_cache_path, const char* const* ids, int count, int reply);
+// Removes one never-save site. REPLY: a = 1 removed, 0 not found, -1 failed.
+CMUX_SHIM_EXPORT int cmux_shim_password_exception_remove(const char* profile_cache_path, const char* id, int reply);
+// Changes one sign-in's username (UTF-8, may be empty). REPLY: a = 1 changed
+// (or equal), 0 not found, -2 another sign-in of the site has it, -1 failed.
+CMUX_SHIM_EXPORT int cmux_shim_password_set_username(const char* profile_cache_path, const char* id, const char* username,
+                                                     int reply);
+// One password for the native reveal sheet or the pasteboard, after the app
+// authenticated the device owner. NOT a REPLY: `done` runs exactly once on
+// the main thread with the UTF-8 bytes (not terminated) in a shim buffer that
+// is valid only during the call and zeroed after it; NULL and 0 when the id
+// is not found or the store failed. The app copies the bytes into SecretBytes
+// inside `done`. Returns 0 (and never calls `done`) when nothing was started.
+typedef void (*cmux_shim_password_reveal_fn)(void* ctx, const char* password, size_t length);
+CMUX_SHIM_EXPORT int cmux_shim_password_reveal(const char* profile_cache_path, const char* id,
+                                               cmux_shim_password_reveal_fn done, void* ctx);
+// Writes every saved sign-in as Chrome's password CSV to the absolute
+// file_path (the fork writes a 0600 temp file and renames it; a symlink is
+// replaced, never followed). REPLY: a = sign-ins written, or -1.
+CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* profile_cache_path, const char* file_path, int reply);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.
