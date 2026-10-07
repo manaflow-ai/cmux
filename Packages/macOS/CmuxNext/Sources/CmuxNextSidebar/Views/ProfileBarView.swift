@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The space switcher, centered at the bottom of the sidebar or under its
+/// The space switcher, leading at the bottom of the sidebar or under its
 /// titlebar row (`sidebar.spacesPosition`, R109). Each profile keeps
 /// its name, optional icon and tonal color in the shared daemon model. The
 /// full-height slots remain easy to click, while the visible mark carries the
@@ -12,7 +12,6 @@ final class ProfileBarView: NSView {
 
     private var hovered: Int?
     private var pressed: Int?
-    private var drag: (index: Int, x: CGFloat)?
     private var swipeTracker = ProfileSwipeTracker()
     private static let plusIndex = -1
 
@@ -22,6 +21,8 @@ final class ProfileBarView: NSView {
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
+        // Layer-backed so a selection change can crossfade its contents.
+        wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
@@ -37,7 +38,7 @@ final class ProfileBarView: NSView {
 
     private var slot: CGFloat { Metrics.roomDotSlot }
     /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
-    /// and the dots stay centered without it).
+    /// and the dots stay in place without it).
     private(set) var isPointerInside = false {
         didSet {
             guard isPointerInside != oldValue else { return }
@@ -46,10 +47,19 @@ final class ProfileBarView: NSView {
         }
     }
 
-    /// Slot rects: one per room, centered as a group, then the "+" slot
+    /// Where the first slot starts: the first dot sits on the rows' glyph
+    /// column, over the profile avatar.
+    static var leadingX: CGFloat { max(0, SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2 - Metrics.roomDotSlot / 2) }
+    /// Where this bar's first slot starts; nil uses `leadingX`. In the
+    /// footer row the bar starts right after the profile control, so its
+    /// dots follow the avatar (amendment 3).
+    var leadingInset: CGFloat? { didSet { if leadingInset != oldValue { needsDisplay = true; rebuildToolTips() } } }
+    var slotsLeading: CGFloat { leadingInset ?? Self.leadingX }
+
+    /// Slot rects: one per room from the leading edge, then the "+" slot
     /// trailing the last dot (it never shifts the dots).
     private func slotRects() -> [NSRect] {
-        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, width: bounds.width).map {
+        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, leading: slotsLeading).map {
             NSRect(x: $0, y: 0, width: slot, height: bounds.height)
         }
     }
@@ -72,9 +82,13 @@ final class ProfileBarView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             let rects = slotRects()
+            if let chip = hoverChip {
+                chip.fill.setFill()
+                let radius = SidebarStyle.rowCornerRadius
+                NSBezierPath(roundedRect: chip.rect, xRadius: radius, yRadius: radius).fill()
+            }
             for (offset, profile) in model.profiles.enumerated().prefix(drawnDotCount) {
-                var rect = rects[offset]
-                if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
+                let rect = rects[offset]
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rect, active: active, hovered: hovered == offset)
             }
@@ -94,7 +108,8 @@ final class ProfileBarView: NSView {
         }
         if let icon = profile.icon,
            let image = NSImage(systemSymbolName: icon, accessibilityDescription: profile.name)?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: active ? .medium : .regular)
+            // One weight for every state: a selection change never resizes a mark.
+            NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular)
            ) {
             let tinted = image.tinted(color.withAlphaComponent(1))
             let size = tinted.size
@@ -131,7 +146,22 @@ final class ProfileBarView: NSView {
                     from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
     }
 
+    /// The space the bar last drew as active: a change crossfades.
+    private var shownActive: ProfileKey?
+
     func refresh() {
+        // A selection change only changes fill and opacity (Leo 2026-10-07:
+        // no size or position jump): the slots are a pure function of the
+        // count and width, and the new contents fade in briefly. Reduce
+        // Motion snaps.
+        if model.activeProfileID != shownActive {
+            let wasShown = shownActive != nil
+            shownActive = model.activeProfileID
+            if wasShown, let layer, let old = layer.contents {
+                display()
+                if let new = layer.contents { _ = Motion.set(layer, "contents", to: new, fade: .crossfade, from: old) }
+            }
+        }
         needsDisplay = true
         rebuildToolTips()
         rebuildAccessibility()
@@ -167,36 +197,40 @@ final class ProfileBarView: NSView {
     /// The pointer entered or left (tests and the hover state of a drag).
     func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
-    private func setHovered(_ value: Int?) {
+    func setHovered(_ value: Int?) {
         guard hovered != value else { return }
         hovered = value
         needsDisplay = true
     }
 
-    override func mouseDown(with event: NSEvent) {
-        pressed = index(at: convert(event.locationInWindow, from: nil))
+    /// The hovered space's background (F2): its rect and fill; nil when no
+    /// space is hovered.
+    var hoverChip: (rect: NSRect, fill: NSColor)? {
+        guard let hovered else { return nil }
+        let rects = slotRects()
+        let index = hovered == Self.plusIndex ? model.profiles.count : hovered
+        guard rects.indices.contains(index) else { return nil }
+        let fill = performWithTheme { pressed == hovered ? Palette.pressedFill : Palette.hoverFill }
+        return (ProfileBarLogic.chipRect(slot: rects[index], inset: Metrics.space1), fill)
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard let pressed, pressed != Self.plusIndex, model.profiles.count > 1 else { return }
-        drag = (pressed, convert(event.locationInWindow, from: nil).x)
+    /// A press on a space (tests; the mouse sets it in `mouseDown`).
+    func setPressed(_ value: Int?) {
+        pressed = value
         needsDisplay = true
     }
 
+    override func mouseDown(with event: NSEvent) {
+        setPressed(index(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    // No drag: a dot cannot be dragged to reorder, and nothing drops on
+    // the dots (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3, for now). The
+    // space menu's Move Left / Move Right reorder spaces.
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
-            drag = nil
             needsDisplay = true
-        }
-        if let drag {
-            let rects = slotRects().prefix(model.profiles.count)
-            let insertion = ProfileBarLogic.insertionIndex(forX: Double(drag.x), centers: rects.map { Double($0.midX) })
-            let id = model.profiles[drag.index].id
-            if ProfileBarLogic.finalIndex(from: drag.index, insertion: insertion, count: model.profiles.count) != nil {
-                model.send(.reorderProfile(id, index: insertion))
-            }
-            return
         }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
@@ -271,7 +305,7 @@ private nonisolated final class ProfileDotElement: NSAccessibilityElement {
     }
 }
 
-private extension NSImage {
+extension NSImage {
     /// A copy drawn in `color` (symbol images are templates).
     func tinted(_ color: NSColor) -> NSImage {
         let image = NSImage(size: size, flipped: false) { rect in
