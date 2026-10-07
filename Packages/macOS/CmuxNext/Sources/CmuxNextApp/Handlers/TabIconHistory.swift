@@ -15,7 +15,12 @@ struct TabIconHistory {
 
     /// Changes the icon of tab `id` from `previous` to `icon` (nil removes it).
     func change(_ id: String, from previous: String?, to icon: String?, origin: ActionOrigin) {
-        _ = apply(id, icon.map { .set($0) } ?? .clear)
+        guard apply(id, icon.map { .set($0) } ?? .clear) else { return }
+        guard origin == .user, previous != icon else { return }
+        // The undo is the inverse change, which offers the redo the same way.
+        offerUndo(icon == nil ? TabIconStrings.undoRemove : TabIconStrings.undoSet) { [self] in
+            change(id, from: icon, to: previous, origin: .user)
+        }
     }
 }
 
