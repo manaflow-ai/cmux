@@ -9,7 +9,7 @@ import CmuxNextDesign
 // Chats section) scrolls above it and never pushes it out of view.
 extension SidebarView {
     /// Every region that draws layout items, the footer first.
-    var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, trailRegion, aboveRegion] }
+    var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, list.trailer.region, aboveRegion] }
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
@@ -21,7 +21,6 @@ extension SidebarView {
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
         }
-        list.trailer.view = trailRegion
         for region in bandRegions {
             region.liftHost = self
             region.onActivateWithModifiers = { [weak self, weak region] id, flags in
@@ -53,21 +52,15 @@ extension SidebarView {
         installCardStack()
     }
 
-    /// Gives the regions their sections: the band above the list,
-    /// the band below it without the footer section, and the footer section
-    /// alone (when it is in the band below).
+    /// Gives the regions their sections: the band above the list, the list's trail (Recents, under
+    /// its last row), the band below without the footer section, and the footer section alone.
     func updateBands() {
         let width = bounds.width
         let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
-        let room = model.activeProfileID?.rawValue
-        let (above, below) = model.layout.bands(room: room)
-        // The middle sections after the workspaces (Recents) draw in the list under its last row.
-        let trail = model.layout.listTrail(room: room)
-        let trailIDs = Set(trail.map(\.id))
+        let (above, trail, below) = model.layout.bandsAroundList(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
-        let shownTrail = trail.presenting(hidingItems: hidden, apps: apps)
-        let shownBelow = below.filter { !trailIDs.contains($0.id) }.presenting(hidingItems: hidden, apps: apps)
+        let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
@@ -80,10 +73,7 @@ extension SidebarView {
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
         }
         aboveRegion.update(content(shownAbove), width: width)
-        trailRegion.update(content(shownTrail), width: width)
-        // Recents under the list's last row (no gap); it scrolls with the list.
-        list.trailer.height = trailRegion.layoutResult.height
-        list.updateDocumentHeight()
+        list.trailer.show(content(trail.presenting(hidingItems: hidden, apps: apps)), width: width, in: list)
         belowRegion.update(content(shownBelow.filter { !isFooter($0) }), width: width)
         footerRegion.update(content(shownBelow.filter(isFooter)), width: width)
     }

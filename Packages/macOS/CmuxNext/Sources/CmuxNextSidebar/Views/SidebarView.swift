@@ -41,9 +41,6 @@ public final class SidebarView: NSView {
     /// at the bottom, under the band below (`footerRegion`).
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
-    /// The middle sections after the workspaces (Recents), drawn in the
-    /// list right under its last row (`SidebarListView.trailer`).
-    let trailRegion = SidebarRegionView(region: .middle)
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()

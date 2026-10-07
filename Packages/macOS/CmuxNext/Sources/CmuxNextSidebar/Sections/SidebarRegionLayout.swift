@@ -200,6 +200,14 @@ extension SidebarLayoutDocument {
         guard let split = middle.firstIndex(where: { $0.content == .workspaces }) else { return [] }
         return Array(middle[(split + 1)...])
     }
+
+    /// `bands(room:)` with the list's trail (`listTrail`) taken out of the band below.
+    public nonisolated func bandsAroundList(room: String?) -> (above: [LayoutSection], trail: [LayoutSection], below: [LayoutSection]) {
+        let (above, below) = bands(room: room)
+        let trail = listTrail(room: room)
+        let trailIDs = Set(trail.map(\.id))
+        return (above, trail, below.filter { !trailIDs.contains($0.id) })
+    }
 }
 
 extension Array where Element == LayoutSection {
