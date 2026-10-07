@@ -2356,7 +2356,12 @@ jobs:
             "$CHANNEL_APP_PATH"
 
       - name: Notarize app ticket through final DMG
+        # The notary wait is bounded at 25m; the step adds 15m for the DMG
+        # build and the post-notary staple, smoke and mounted-DMG checks, and
+        # the job's 80m leaves about 40m for every other step (about 5m).
+        timeout-minutes: 40
         env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 25m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}

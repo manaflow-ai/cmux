@@ -63,6 +63,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case openUpdateLink(URL)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
+    /// Workspace rows dropped on a top section (the pinned tiles or the top
+    /// rows) at `index`: the App adds each there as a layout item
+    /// (drop-to-pin, PINNED-ITEMS-END-TO-END P2). No local change.
+    case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
 }
