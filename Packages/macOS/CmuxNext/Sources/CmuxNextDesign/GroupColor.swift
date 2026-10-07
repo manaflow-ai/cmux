@@ -22,7 +22,7 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     /// `used`, never blue (the no-blue rule covers what the app picks by
     /// itself) or grey (no color). Nil when every such color is in use.
     public static func automatic(used: Set<String>) -> GroupColor? {
-        allCases.first { $0 != .grey && !used.contains($0.rawValue) }
+        allCases.first { $0 != .grey && $0 != .blue && !used.contains($0.rawValue) }
     }
 
     /// The color itself: swatches, group underlines, sidebar rails.
