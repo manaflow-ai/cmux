@@ -56,6 +56,9 @@ test("the chat's images are exactly the images the reply draws", () => {
     reply("b", `Press the \` key.\n\n![shot](${png("F")})\n\nRun \`ls\`.`),
     // A target with one level of parentheses, as Markdown.tsx reads it, and an image in bold.
     reply("c", `![chart](${svg("PHN2Zz4=(2)")}) and **![bold](${png("G")})**`),
+    // Notes draw under the reply in reference order; a data URL's scheme is any case.
+    reply("d", `Intro[^1]\n\n[^1]: ![note](${png("H")})\n\n![body](${png("I")})`),
+    reply("e", "![up](data:IMAGE/png;base64,J)"),
   ];
   const drawn = (text: string) => {
     const html = renderToStaticMarkup(createElement(Markdown, null, text));
@@ -65,7 +68,7 @@ test("the chat's images are exactly the images the reply draws", () => {
     }));
   };
   expect(chatImages(rows)).toEqual(rows.flatMap((row) => drawn(row.text!)));
-  expect(chatImages(rows).map((image) => image.alt)).toEqual(["after", "shot", "chart", "bold"]);
+  expect(chatImages(rows).map((image) => image.alt)).toEqual(["after", "shot", "chart", "bold", "body", "note", "up"]);
 });
 
 test("zooming keeps the point under the pointer still, stays in range and recenters when fitted", () => {
