@@ -2,7 +2,6 @@
   "comment": "Components and pages with no gallery entry yet (test/gallery-coverage.test.ts). Shrink it: add an entry, then rerun with CMUX_GALLERY_UPDATE_ALLOWLIST=1. `owners` names the lane that writes the entries under a path prefix; do not write those yourself.",
   "owners": {
     "agent-session/acpmux/ModelPicker": "Leo: composer pickers (entry agent-pane.model-picker)",
-    "agent-session/acpmux/summary/": "Leo: subagent group (entry agent-pane.subagents)",
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
