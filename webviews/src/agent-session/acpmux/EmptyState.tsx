@@ -1,7 +1,7 @@
 import React from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { type StringKey, useT } from "./i18n";
-import { projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel } from "./sessionList";
 
 /// Empty-state copy: keys of the pane's string table.
 export const EMPTY_STATE_LABELS = {
@@ -12,7 +12,7 @@ export const EMPTY_STATE_LABELS = {
 
 /// The hero's folder: the sidebar's project label, or nothing for no folder or the home folder.
 export function projectName(cwd: string | undefined): string | undefined {
-  if (!cwd?.replace(/\/+$/, "")) return undefined;
+  if (!cwd?.replace(/\/+$/, "") || isAgentHome(cwd)) return undefined;
   const label = projectLabel(cwd);
   return label === "~" ? undefined : label;
 }

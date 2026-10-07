@@ -236,9 +236,12 @@ test("an agent-home chat never shows its UUID folder: the button reads Choose fo
   await act(async () => button.click());
   expect(folderRows()).toEqual([]);
   expect(menuItems()).toEqual(["Choose folder…"]);
-  // Once the chat started, the locked label still never names the UUID.
-  await render({ cwd: home }, true, undefined, chats);
-  expect(folderButton().textContent).toBe("Choose folder");
+  // Once the chat started there is no folder to name or pick: only the computer shows.
+  await render({ cwd: home, turnCount: 1 }, true, undefined, chats);
+  expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((label) => label.textContent)).toEqual([
+    "This Mac",
+  ]);
+  expect(doc.querySelector(".acpmux-composer-context")?.textContent).not.toContain("6b16a112");
 });
 
 test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
