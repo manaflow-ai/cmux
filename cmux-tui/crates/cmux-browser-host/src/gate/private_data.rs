@@ -96,7 +96,8 @@ mod tests {
     fn cookie_clears_and_restores_are_logged_for_the_session_the_host_and_agent_activity() {
         let events: Arc<Mutex<Vec<DriverEvent>>> = Arc::default();
         let seen = events.clone();
-        let sink: crate::driver::EventSink = Arc::new(move |event| seen.lock().unwrap().push(event));
+        let sink: crate::driver::EventSink =
+            Arc::new(move |event| seen.lock().unwrap().push(event));
         let host_log = Arc::new(PrivateDataLog::default());
         let gate = Gate::new(
             Arc::new(CookieEngine),
