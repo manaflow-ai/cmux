@@ -164,9 +164,11 @@ impl Hub {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let harness = session.meta().harness;
-        if !live && self.config.read().await.profile(&harness).is_none() {
-            return Err(RpcError::invalid_params(format!("unknown harness {harness:?}")));
+        let m = session.meta();
+        if !live {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin)
+                .map_err(RpcError::invalid_params)?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
