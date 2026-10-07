@@ -72,6 +72,12 @@ export interface MeshStoreService {
   readonly getDevice: (tenantId: TenantId, deviceId: string) => Effect.Effect<Option.Option<MeshDeviceRow>, StoreError>;
   readonly getDeviceByTunnel: (tenantId: TenantId, tunnelId: string) => Effect.Effect<Option.Option<MeshDeviceRow>, StoreError>;
   readonly listDevices: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshDeviceRow>, StoreError>;
+  /**
+   * Any tenant's live device with this id (M3). Only the credential-free
+   * device routes use it: the device's install-key signature is the credential
+   * there, so the tenant comes from the device, never from the request.
+   */
+  readonly findDeviceForSignedRequest: (deviceId: string) => Effect.Effect<Option.Option<MeshDeviceRow & { readonly tenantId: TenantId }>, StoreError>;
   readonly markDeviceDeleted: (tenantId: TenantId, deviceId: string, at: Date) => Effect.Effect<void, StoreError>;
   /** Records a rotated WireGuard key; false when another live device of the mesh holds it. */
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
@@ -87,6 +93,18 @@ export interface MeshStoreService {
   /** Marks the code used, atomically; false when it was used or expired meanwhile. */
   readonly consumeEnrollmentCode: (codeSha256: string, meshId: string, now: Date) => Effect.Effect<boolean, StoreError>;
   readonly recordEnrollmentCodeDevice: (codeSha256: string, deviceId: string) => Effect.Effect<void, StoreError>;
+  /**
+   * Burns the code with this hash, in any mesh (M3): marks it used and ends its
+   * validity now, so a later restore cannot revive it. A code that made a
+   * device is left as it is; an unknown hash is a no-op.
+   */
+  readonly burnEnrollmentCode: (codeSha256: string, now: Date) => Effect.Effect<void, StoreError>;
+  /**
+   * Gives back the claim `consumeEnrollmentCode` made at `usedAt` (M3), after
+   * the enroll failed for a reason that was not the caller's authentication.
+   * Only that exact claim, only while no device was recorded for the code.
+   */
+  readonly restoreEnrollmentCode: (codeSha256: string, usedAt: Date) => Effect.Effect<void, StoreError>;
 
   /** False when the VM is already a member of a mesh. */
   readonly attachMember: (tenantId: TenantId, member: MeshMemberRow) => Effect.Effect<boolean, StoreError>;
@@ -120,6 +138,7 @@ const DeviceRow = Schema.Struct({
   created_by: Schema.String,
   created_at: When,
 });
+const TenantDeviceRow = Schema.Struct({ ...DeviceRow.fields, tenant_id: Schema.String });
 const CodeRow = Schema.Struct({
   code_sha256: Schema.String,
   tenant_id: Schema.String,
@@ -250,6 +269,17 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId],
           )
           .pipe(Effect.flatMap(decode(DeviceRow, "mesh.listDevices")), Effect.map((rows) => rows.map(toDevice))),
+      findDeviceForSignedRequest: (deviceId) =>
+        sql
+          .query(
+            "mesh.findDeviceForSignedRequest",
+            `SELECT tenant_id, ${DEVICE_COLUMNS} FROM cmux_vm.mesh_devices WHERE device_cmux_id = $1 AND deleted_at IS NULL LIMIT 1`,
+            [deviceId],
+          )
+          .pipe(
+            Effect.flatMap(decode(TenantDeviceRow, "mesh.findDeviceForSignedRequest")),
+            Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), (row) => ({ ...toDevice(row), tenantId: TenantIdBrand.make(row.tenant_id) }))),
+          ),
       markDeviceDeleted: (tenantId, deviceId, at) =>
         sql
           .query(
@@ -344,6 +374,26 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
       recordEnrollmentCodeDevice: (codeSha256, deviceId) =>
         sql
           .query("mesh.recordEnrollmentCodeDevice", `UPDATE cmux_vm.mesh_enrollment_codes SET device_cmux_id = $2 WHERE code_sha256 = $1`, [codeSha256, deviceId])
+          .pipe(Effect.asVoid),
+      burnEnrollmentCode: (codeSha256, now) =>
+        sql
+          .query(
+            "mesh.burnEnrollmentCode",
+            `UPDATE cmux_vm.mesh_enrollment_codes
+                SET used_at = COALESCE(used_at, $2::timestamptz),
+                    expires_at = LEAST(expires_at, GREATEST($2::timestamptz, created_at + interval '1 millisecond'))
+              WHERE code_sha256 = $1 AND device_cmux_id IS NULL`,
+            [codeSha256, now.toISOString()],
+          )
+          .pipe(Effect.asVoid),
+      restoreEnrollmentCode: (codeSha256, usedAt) =>
+        sql
+          .query(
+            "mesh.restoreEnrollmentCode",
+            `UPDATE cmux_vm.mesh_enrollment_codes SET used_at = NULL
+              WHERE code_sha256 = $1 AND used_at = $2::timestamptz AND device_cmux_id IS NULL`,
+            [codeSha256, usedAt.toISOString()],
+          )
           .pipe(Effect.asVoid),
       attachMember: (tenantId, member) =>
         sql

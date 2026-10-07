@@ -406,6 +406,9 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
+  /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
+  private promptAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
@@ -669,6 +672,10 @@ export class AcpmuxDirectClient {
             ...(data?.details === undefined ? {} : { details: data.details }),
             // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // A trust refusal names the folder it asks about (the folder acpmux resolved).
+            ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
+              ? { cwd: (data as { cwd: string }).cwd }
+              : {}),
           }),
         );
       } else request.resolve(message.result);
@@ -1106,7 +1113,10 @@ export class AcpmuxDirectClient {
           ...msg,
           promptId: fallbackPromptId,
         });
-        if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        if (fallbackPromptId) {
+          this.optimisticPromptTexts.delete(fallbackPromptId);
+          this.promptAccepts.get(fallbackPromptId)?.();
+        }
         this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
@@ -1360,10 +1370,14 @@ export class AcpmuxDirectClient {
   }
   /// Sends a prompt. `promptId` keys its optimistic row (`local-<promptId>`), so a prompt the
   /// pane drew while a harness started keeps its row once it goes out (harnessSwitch.ts).
+  /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
+  /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
+  /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
+    accepted?: () => void,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1387,6 +1401,14 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+    let taken = false;
+    const accept = () => {
+      this.promptAccepts.delete(promptId);
+      if (taken) return;
+      taken = true;
+      accepted?.();
+    };
+    this.promptAccepts.set(promptId, accept);
     this.emit();
     try {
       await this.request("session/prompt", {
@@ -1394,16 +1416,22 @@ export class AcpmuxDirectClient {
         prompt: promptBlocks(input, attachments),
         _meta: { acpmux: { promptId } },
       });
+      accept();
     } catch (error) {
+      this.promptAccepts.delete(promptId);
       const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
-      // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`): the
-      // prompt never went, so it leaves no bubble, and the pane puts it back in the composer.
-      if (isTrustRefusal(error)) {
+      // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
+      // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
+      // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
+      const held = !taken && accepted !== undefined;
+      if (isTrustRefusal(error) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
-        this.emit();
+        // The prompt is still in the composer, so Enter sends it again (no Retry button).
+        if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+        else this.emit();
         throw error;
       }
       const row = this.rows.get(rowId);
