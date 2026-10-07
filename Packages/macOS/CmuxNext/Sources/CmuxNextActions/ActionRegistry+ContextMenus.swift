@@ -60,12 +60,8 @@ extension ActionRegistry {
                       let item = makeMenuItem(for: id)
                 else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
-                // Context menus are built per click, so a disabled entry can
-                // say why (Chromium in a build without CEF).
-                if let reason = ActionTargetReasons.reason(for: descriptor.id, invocation: ActionInvocation(target: target, arguments: arguments), in: self) {
-                    item.subtitle = reason
-                    item.toolTip = reason
-                }
+                // Built per click: the item names the target's change (Pin or Unpin) and says why it is disabled.
+                ActionTargetTitles.decorate(item, id: descriptor.id, invocation: ActionInvocation(target: target, arguments: arguments), in: self)
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, arguments: arguments)

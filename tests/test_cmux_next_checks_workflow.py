@@ -22,6 +22,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
+TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
 GODFILES = ROOT / "scripts/cmux-next/check-no-godfiles.sh"
 JOB = "checks"
 
@@ -324,7 +326,8 @@ class PathRoutingStructure(unittest.TestCase):
         route = jobs["path_route"]
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
-        self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
+        route_step = next(step for step in route["steps"] if step.get("id") == "route")
+        self.assertIn("scripts/ci/cmux_next_route.py", route_step["run"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
@@ -594,7 +597,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "same-tree-cmux-tui", "swift-test"])
+                                           "swift-test"])
 
 
 
@@ -602,39 +605,105 @@ class SupersededCommitIsNotRed(unittest.TestCase):
     """A superseded commit's cmux-next run skips the jobs that need its tree.
 
     Queued cmux-tui artifacts runs of an older branch head are superseded by
-    design, so that commit's same-tree cmux-tui is never published. The gate
-    job runs `pin-cmux-tui.sh wait` on a Linux runner (no macOS runner waits
-    for a tree) and reports superseded=true; every job that fetches the tree
-    then ends skipped, not failed. A real publish failure fails the gate.
+    design, so that commit's same-tree cmux-tui is never published. Path
+    routing's probe (pin-cmux-tui.sh probe, covered by
+    scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh) reports
+    tree_state=superseded, and every job that fetches the tree runs only on
+    tree_state=ready: skipped, not failed. A tree that nothing will publish is
+    red in same-tree-cmux-tui.
     """
-
-    GATE = "same-tree-cmux-tui"
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
-    def test_the_gate_waits_for_the_tree_and_reports_superseded(self):
-        gate = self.jobs().get(self.GATE)
-        self.assertIsNotNone(gate, f"no {self.GATE} job")
-        self.assertEqual(gate.get("outputs", {}).get("superseded"), "${{ steps.wait.outputs.superseded }}")
-        runs = [step for step in gate["steps"] if "pin-cmux-tui.sh wait" in step.get("run", "")]
-        self.assertEqual(len(runs), 1)
-        self.assertEqual(runs[0].get("id"), "wait")
-        self.assertIn("ubuntu", gate["runs-on"])
-        self.assertNotIn("macos", gate["runs-on"])
-
-    def test_every_tree_fetching_job_skips_a_superseded_commit(self):
+    def test_every_tree_fetching_job_runs_only_on_a_ready_tree(self):
         fetching = {
             name: job for name, job in self.jobs().items()
             if any("pin-cmux-tui.sh fetch" in step.get("run", "") for step in job.get("steps", []))
         }
-        self.assertTrue(fetching)
+        self.assertEqual(sorted(fetching), sorted(TREE_JOBS))
         for name, job in fetching.items():
             with self.subTest(job=name):
-                self.assertIn(self.GATE, job["needs"])
                 condition = " ".join(job["if"].split())
-                self.assertIn(f"needs.{self.GATE}.result == 'success'", condition)
-                self.assertIn(f"needs.{self.GATE}.outputs.superseded != 'true'", condition)
+                self.assertIn("needs.path_route.outputs.tree_state == 'ready'", condition)
+                self.assertIn("path_route", job["needs"])
+
+
+
+class SameTreeIsAnEvent(unittest.TestCase):
+    """No runner waits for the same-tree cmux-tui.
+
+    The old gate job polled the CDN on a Blacksmith runner for up to 45
+    minutes (10,934 job-minutes on 2026-10-06). Now path routing probes once:
+    a published tree runs the tree jobs in the same run; an unpublished one
+    leaves a marker artifact, and the cmux-tui artifacts run that publishes
+    the key dispatches cmux-next's same-tree mode (cmux_next_tree_notify.py).
+    """
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_no_step_polls_for_the_tree(self):
+        for name, job in self.jobs().items():
+            for step in job.get("steps", []):
+                run = step.get("run", "")
+                with self.subTest(job=name, step=step.get("name")):
+                    self.assertNotIn("pin-cmux-tui.sh wait", run)
+                    if "pin-cmux-tui.sh fetch" in run:
+                        # The tree is published before a tree job starts: a download, not a wait.
+                        self.assertLessEqual(int(step["env"]["CMUX_TUI_TREE_WAIT_SECONDS"]), 120)
+
+    def test_path_route_probes_once_and_leaves_a_marker(self):
+        route = self.jobs()["path_route"]
+        self.assertIn("tree_state", route["outputs"])
+        runs = " ".join(step.get("run", "") for step in route["steps"])
+        self.assertIn("pin-cmux-tui.sh probe", runs)
+        uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
+        self.assertEqual(len(uploads), 1)
+        self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
+        self.assertEqual(route["permissions"].get("actions"), "read")
+
+    def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
+        jobs = self.jobs()
+        for name in TREE_JOBS:
+            job = jobs[name]
+            condition = " ".join(job["if"].split())
+            with self.subTest(job=name):
+                self.assertNotIn("same-tree-cmux-tui", job["needs"])
+                self.assertIn("needs.path_route.outputs.tree_state == 'ready'", condition)
+                self.assertIn("inputs.same_tree_state == 'ready'", condition)
+                checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+                self.assertIn("inputs.same_tree_sha", str(checkout["with"].get("ref", "")))
+
+    def test_same_tree_mode_runs_only_the_tree_jobs(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        inputs = document.get("on", document.get(True))["workflow_dispatch"]["inputs"]
+        for name in ("same_tree_sha", "same_tree_tiers", "same_tree_status_sha", "same_tree_state",
+                     "same_tree_reason", "same_tree_origin", "same_tree_origin_run"):
+            self.assertIn(name, inputs)
+        jobs = self.jobs()
+        for name in ("push-head-preflight", "path_route", "checks"):
+            with self.subTest(job=name):
+                self.assertIn("inputs.same_tree_sha == ''", jobs[name]["if"])
+
+    def test_an_unavailable_tree_is_red_without_waiting(self):
+        gate = self.jobs()["same-tree-cmux-tui"]
+        self.assertLessEqual(int(gate["timeout-minutes"]), 5)
+        self.assertIn("needs.path_route.outputs.tree_state == 'failed'", gate["if"])
+        self.assertIn("inputs.same_tree_state == 'failed'", gate["if"])
+        self.assertFalse([step for step in gate["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+
+    def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
+        jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name, state in (("publish-tree", "ready"), ("publish-pr-tree", "ready"), ("notify-unpublished-tree", "failed")):
+            job = jobs[name]
+            notify = [step for step in job["steps"] if "scripts/ci/cmux_next_tree_notify.py" in step.get("run", "")]
+            with self.subTest(job=name):
+                self.assertEqual(len(notify), 1)
+                self.assertIn(f"--state {state}", notify[0]["run"])
+                self.assertEqual(job["permissions"].get("actions"), "write")
+                # A notify failure must not turn a good publication red.
+                self.assertTrue(notify[0].get("continue-on-error"))
 
 
 if __name__ == "__main__":
