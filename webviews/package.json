@@ -6,7 +6,8 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "vp check",
+    "check": "bun run check:browser-lanes && vp check",
+    "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
@@ -27,7 +28,9 @@
     "typecheck": "vp check --no-fmt --no-lint",
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
-    "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
+    "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
+    "gallery:build": "vp build --config vite.config.gallery.ts",
+    "gallery:dev": "vp dev --config vite.config.gallery-dev.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
@@ -65,6 +68,7 @@
     "axe-core": "4.13.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "esbuild": "0.27.7",
+    "happy-dom": "^20.14.5",
     "jsdom": "^29.1.1",
     "oxc-transform-react": "0.145.0",
     "pixelmatch": "7.2.0",

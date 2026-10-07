@@ -81,6 +81,35 @@ enum HomeConversationStrings {
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .module) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .module) }
 
+    // MARK: Sidebar previews
+
+    static var yesterday: String { String(localized: "home.sidebar.yesterday", defaultValue: "Yesterday", bundle: .module) }
+    static var you: String { String(localized: "home.sidebar.you", defaultValue: "You", bundle: .module) }
+
+    /// "Lucas loved “Good luck!”", in the tapback's own words.
+    static func reaction(_ kind: Reaction.Kind, by who: String, to text: String) -> String {
+        switch kind {
+        case .tapback(.love):
+            String(format: String(localized: "home.sidebar.reaction.love", defaultValue: "%1$@ loved “%2$@”", bundle: .module), who, text)
+        case .tapback(.like):
+            String(format: String(localized: "home.sidebar.reaction.like", defaultValue: "%1$@ liked “%2$@”", bundle: .module), who, text)
+        case .tapback(.dislike):
+            String(format: String(localized: "home.sidebar.reaction.dislike", defaultValue: "%1$@ disliked “%2$@”", bundle: .module), who, text)
+        case .tapback(.laugh):
+            String(format: String(localized: "home.sidebar.reaction.laugh", defaultValue: "%1$@ laughed at “%2$@”", bundle: .module), who, text)
+        case .tapback(.emphasize):
+            String(format: String(localized: "home.sidebar.reaction.emphasize", defaultValue: "%1$@ emphasized “%2$@”", bundle: .module), who, text)
+        case .tapback(.question):
+            String(format: String(localized: "home.sidebar.reaction.question", defaultValue: "%1$@ questioned “%2$@”", bundle: .module), who, text)
+        case .emoji(let emoji):
+            String(format: String(localized: "home.sidebar.reaction.emoji", defaultValue: "%1$@ reacted %2$@ to “%3$@”", bundle: .module),
+                   who, emoji, text)
+        }
+    }
+
+    static var pin: String { String(localized: "home.sidebar.pin", defaultValue: "Pin", bundle: .module) }
+    static var unpin: String { String(localized: "home.sidebar.unpin", defaultValue: "Unpin", bundle: .module) }
+
     // MARK: Outcomes
 
     /// What the sheet says after a start or an invite; nil when it closes.
@@ -137,4 +166,7 @@ extension HomeComposeOutcome {
 extension NSMenuItem {
     /// The list row menu's Archive Chief title.
     public static var homeArchiveChiefTitle: String { HomeConversationStrings.archiveChief }
+    /// The sidebar row menu's Pin and Unpin titles.
+    public static var homePinTitle: String { HomeConversationStrings.pin }
+    public static var homeUnpinTitle: String { HomeConversationStrings.unpin }
 }

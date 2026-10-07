@@ -1,5 +1,5 @@
 {
-  "commit": "2199dc93ee3bf6ed9423dc5a814b079bba7d0ccf",
+  "commit": "3339f2adaf7d920a7717d1c1b19d7f63b92d0834",
   "dwarfdump": "Ubuntu LLVM version 18.1.3",
   "flags": [
     "-Demit-lib-vt=true",
@@ -13,7 +13,7 @@
   "targets": {
     "aarch64-linux-musl": {
       "generated_files": 30,
-      "ghostty_files": 200,
+      "ghostty_files": 201,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -29,7 +29,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 678,
+      "source_paths": 679,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 4,
@@ -48,7 +48,7 @@
     },
     "aarch64-macos": {
       "generated_files": 27,
-      "ghostty_files": 201,
+      "ghostty_files": 202,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -64,7 +64,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 765,
+      "source_paths": 766,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 6,
@@ -83,7 +83,7 @@
     },
     "x86_64-linux-musl": {
       "generated_files": 30,
-      "ghostty_files": 200,
+      "ghostty_files": 201,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -99,7 +99,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 688,
+      "source_paths": 689,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 6,
@@ -118,7 +118,7 @@
     },
     "x86_64-macos": {
       "generated_files": 30,
-      "ghostty_files": 201,
+      "ghostty_files": 202,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -134,7 +134,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 782,
+      "source_paths": 783,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 6,
@@ -153,7 +153,7 @@
     },
     "x86_64-windows-gnu": {
       "generated_files": 7,
-      "ghostty_files": 172,
+      "ghostty_files": 173,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs"
@@ -166,7 +166,7 @@
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI"
       ],
-      "source_paths": 463,
+      "source_paths": 464,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 5,

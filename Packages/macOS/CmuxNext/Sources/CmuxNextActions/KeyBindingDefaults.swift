@@ -50,6 +50,23 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface", when: webPage),
     ]
 
+    /// The Home top page (`topPage` home): Cmd-Shift-[ / ] move between
+    /// conversations instead of tabs. A Home conversation tab inside a
+    /// workspace (`surfaceKind` home there too) keeps tab switching.
+    static let homeShown = WhenClause.equals(KeyContext.topPage, .string("home"))
+    public static let homeNavigation: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "home.previousConversation", when: homeShown),
+        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "home.nextConversation", when: homeShown),
+    ]
+
+    /// Scoped defaults that replace a global default key in their context
+    /// (Home's Cmd-Shift-[ / ]): placed after the catalog's defaults, so in
+    /// their context they win and elsewhere the global key runs. Any page
+    /// adds its own keys here with a `when` that names it.
+    @MainActor static func scopedEntries(registry: ActionRegistry) -> [KeyBinding] {
+        homeNavigation.filter { registry.descriptor(for: $0.command) != nil && registry.disabledFeature(for: $0.command) == nil }
+    }
+
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.
@@ -91,7 +108,13 @@ public nonisolated struct KeyBindingDefaults {
     /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
     /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
     /// binding keeps its own `when`.
-    public static let yieldsToTerminal: Set<ActionID> = ["focusHistoryBack", "focusHistoryForward"]
+    /// Cmd-=/-/0 and Cmd-Shift-G are Ghostty's per-terminal font size and previous match in a
+    /// focused terminal, as in Ghostty and the shipping cmux (decision K1 follow-up, 2026-10-06).
+    public static let yieldsToTerminal: Set<ActionID> = [
+        "focusHistoryBack", "focusHistoryForward",
+        "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
+        "groupSelectedWorkspaces",
+    ]
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
@@ -123,7 +146,7 @@ public nonisolated struct KeyBindingDefaults {
             bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
             bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
             bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            bind("k", [.command], "paletteKey.toggleActions", open),
+            // Decision K1: no Cmd-K in the palette; Tab opens the Actions menu.
             bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
             bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
             bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),

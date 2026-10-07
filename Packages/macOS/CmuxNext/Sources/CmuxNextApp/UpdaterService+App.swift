@@ -25,6 +25,21 @@ extension UpdaterService {
     /// Sparkle's schedule and download behavior.
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
+        // The update card's Automatic Updates box writes the same setting
+        // as Settings > General (UPDATE-CARD); the change returns through
+        // the observation below.
+        writeAutomaticUpdates = { [weak self, weak settings] on in
+            guard let settings else { return }
+            let log = self?.log
+            // task-owner: one settings write that ends by itself; nothing to cancel.
+            Task { @MainActor in
+                do {
+                    try await settings.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(on), by: .user)
+                } catch {
+                    log?.append("automatic updates not written: \(error)")
+                }
+            }
+        }
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)

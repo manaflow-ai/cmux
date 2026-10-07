@@ -9,10 +9,31 @@ use acpmux::cli::entry::{self, Invocation};
 
 /// `cmux acp <args>`.
 pub(crate) fn run(args: Vec<OsString>) -> i32 {
+    if let [chats, open, rest @ ..] = args.as_slice()
+        && chats == "chats"
+        && open == "open"
+        && !rest.iter().any(|arg| arg == "--json" || arg == "-h" || arg == "--help")
+    {
+        let words: Vec<String> =
+            rest.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        return chats_open(&words);
+    }
     if args.first().is_some_and(|arg| arg == "open") {
         let words: Vec<String> =
             args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
         return open(&words);
+    }
+    if let [harness, run, rest @ ..] = args.as_slice()
+        && harness == "harness"
+        && run == "run"
+        && rest.iter().any(|arg| arg == "--tab")
+    {
+        let words: Vec<String> = rest
+            .iter()
+            .filter(|arg| *arg != "--tab")
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        return harness_tab(&words);
     }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let identity = crate::app_identity::AppIdentity::detect(
@@ -64,6 +85,105 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .into_iter()
         .map(str::to_owned)
         .collect())
+}
+
+/// `cmux harness run ID --tab`: a new tab in the current pane whose process
+/// is `cmux harness run ID --cwd DIR`, so the tab resolves the profile env
+/// itself and no secret is on a command line.
+fn harness_tab(words: &[String]) -> i32 {
+    let (exe, cwd) = match (std::env::current_exe(), std::env::current_dir()) {
+        (Ok(exe), Ok(cwd)) => (exe, cwd),
+        (Err(error), _) | (_, Err(error)) => {
+            eprintln!("cmux harness run: {error}");
+            return 1;
+        }
+    };
+    crate::cli::run(&harness_tab_command(words, &exe.to_string_lossy(), &cwd), "")
+}
+
+/// The `pane current run -- <exe> harness run …` arguments, with `--cwd`
+/// added when the caller gave none.
+fn harness_tab_command(words: &[String], exe: &str, cwd: &Path) -> Vec<String> {
+    let mut out: Vec<String> = ["pane", "current", "run", "--", exe, "harness", "run"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    out.extend(words.iter().cloned());
+    if !words.iter().any(|w| w == "--cwd" || w.starts_with("--cwd=")) {
+        out.push("--cwd".into());
+        out.push(cwd.to_string_lossy().into_owned());
+    }
+    out
+}
+
+/// `cmux chats open KEY [--cwd DIR]`: open a chat of any harness in a new
+/// tab of the current pane. acpmux plans it (`_acpmux/chat_open`): an
+/// adopted chat runs in a daemon session shown by `cmux acp attach`; a
+/// terminal chat runs its harness's resume command in its folder; a chat
+/// that no harness resumes opens read-only in `less`.
+fn chats_open(args: &[String]) -> i32 {
+    let messages = &crate::localization::catalog().app_control;
+    let (key, cwd) = match args {
+        [key] => (key, None),
+        [key, flag, cwd] | [flag, cwd, key] if flag == "--cwd" => (key, Some(PathBuf::from(cwd))),
+        _ => {
+            eprintln!("{}", messages.chats_open_usage);
+            return 2;
+        }
+    };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe.to_string_lossy().into_owned(),
+        Err(error) => {
+            eprintln!("cmux chats open: {error}");
+            return 1;
+        }
+    };
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
+    let acpmux_home = home.and_then(|home| tagged_home(tag.as_deref(), &home));
+    match acpmux::cli::chats::resolve_blocking(key, cwd.as_deref(), acpmux_home) {
+        Ok(outcome) => crate::cli::run(&chat_tab_command(&outcome, &exe), ""),
+        Err(error) => {
+            let usage = error
+                .downcast_ref::<acpmux::cli::errors::AppError>()
+                .is_some_and(|e| e.code == acpmux::cli::errors::Code::Usage);
+            eprintln!("cmux chats open: {error:#}");
+            if usage { 2 } else { 1 }
+        }
+    }
+}
+
+/// The `pane current run -- …` arguments that open a planned chat. Every
+/// value is its own argument: the folder, env and argv come from chat
+/// files, so none of them is ever part of the shell script (`sh -c` gets
+/// a fixed script and the values as `$1`, `$2`, …).
+fn chat_tab_command(outcome: &acpmux::cli::chats::OpenOutcome, exe: &str) -> Vec<String> {
+    use acpmux::cli::chats::OpenOutcome;
+    let mut out: Vec<String> =
+        ["pane", "current", "run", "--"].into_iter().map(str::to_owned).collect();
+    match outcome {
+        OpenOutcome::Session { session_id } => {
+            out.extend([exe, "acp", "attach", session_id.as_str()].map(str::to_owned));
+        }
+        OpenOutcome::Terminal { argv, env, cwd } => {
+            out.extend(
+                ["/bin/sh", "-c", r#"cd "$1" && shift && exec "$@""#, "sh"].map(str::to_owned),
+            );
+            out.push(cwd.to_string_lossy().into_owned());
+            out.push("/usr/bin/env".to_owned());
+            out.extend(env.iter().map(|(key, value)| format!("{key}={value}")));
+            out.extend(argv.iter().cloned());
+        }
+        OpenOutcome::ReadOnly { path } => {
+            out.extend(["/usr/bin/less", "--"].map(str::to_owned));
+            out.push(path.to_string_lossy().into_owned());
+        }
+    }
+    out
 }
 
 /// The binary started as `acpmux`. Its daemon is started from
@@ -126,6 +246,66 @@ fn sanitize_tag(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn harness_run_tab_runs_the_harness_in_a_new_tab_in_its_folder() {
+        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            harness_tab_command(&words(&["aider"]), "/b/cmux", Path::new("/repo")),
+            words(&[
+                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd",
+                "/repo"
+            ])
+        );
+        assert_eq!(
+            harness_tab_command(&words(&["aider", "--cwd", "/x"]), "/b/cmux", Path::new("/repo")),
+            words(&[
+                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd", "/x"
+            ])
+        );
+    }
+
+    #[test]
+    fn chats_open_runs_each_plan_in_a_new_tab_with_values_as_arguments() {
+        use acpmux::cli::chats::OpenOutcome;
+        use std::collections::BTreeMap;
+        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        let session = OpenOutcome::Session { session_id: "s_1".into() };
+        assert_eq!(
+            chat_tab_command(&session, "/b/cmux"),
+            words(&["pane", "current", "run", "--", "/b/cmux", "acp", "attach", "s_1"])
+        );
+        // A folder and a store path that hold shell syntax stay inert values.
+        let terminal = OpenOutcome::Terminal {
+            argv: words(&["claude", "--resume", "abc"]),
+            env: BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), "/h/a $(x)".to_owned())]),
+            cwd: PathBuf::from("/r/it's \"here\"; rm -rf ~"),
+        };
+        assert_eq!(
+            chat_tab_command(&terminal, "/b/cmux"),
+            words(&[
+                "pane",
+                "current",
+                "run",
+                "--",
+                "/bin/sh",
+                "-c",
+                r#"cd "$1" && shift && exec "$@""#,
+                "sh",
+                "/r/it's \"here\"; rm -rf ~",
+                "/usr/bin/env",
+                "CLAUDE_CONFIG_DIR=/h/a $(x)",
+                "claude",
+                "--resume",
+                "abc",
+            ])
+        );
+        let read_only = OpenOutcome::ReadOnly { path: PathBuf::from("/h/t.json") };
+        assert_eq!(
+            chat_tab_command(&read_only, "/b/cmux"),
+            words(&["pane", "current", "run", "--", "/usr/bin/less", "--", "/h/t.json"])
+        );
+    }
 
     #[test]
     fn open_runs_the_acpmux_tui_in_a_new_tab() {
