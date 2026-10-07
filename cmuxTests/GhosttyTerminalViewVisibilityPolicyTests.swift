@@ -119,9 +119,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
     @Test("A previously painted pane still needs a reveal fallback after renderer loss")
     func hiddenRendererRevealSchedulesFallbackRefresh() {
-        // This is the regression: the historical hasPresentedFrame bit must
-        // not suppress a refresh after the renderer is no longer presented.
-        #expect(GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: true))
+        #expect(GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: false))
+        #expect(!GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: true))
     }
     @Test func immediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         #expect(
