@@ -19,6 +19,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod proxy;
+pub use proxy::NameResolver;
 mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
@@ -68,6 +70,10 @@ pub struct Gate {
     tab_secrets: Arc<TabSecrets>,
     /// `automation.input` events for this lease session, if published.
     inputs: Option<crate::automation_input::InputEmitter>,
+    /// This machine's name resolver (the range rule for proxied sessions).
+    resolver: NameResolver,
+    /// The session's new tabs use a proxy (its last session.configure).
+    proxied: std::sync::atomic::AtomicBool,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -92,7 +98,16 @@ impl Gate {
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
+            resolver: proxy::system_resolver(),
+            proxied: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// The name resolver the range rule uses for a proxied session's URLs
+    /// (tests give their own).
+    pub fn with_resolver(mut self, resolver: NameResolver) -> Gate {
+        self.resolver = resolver;
+        self
     }
 
     /// Publishes `automation.input` for the inputs this session dispatches,
