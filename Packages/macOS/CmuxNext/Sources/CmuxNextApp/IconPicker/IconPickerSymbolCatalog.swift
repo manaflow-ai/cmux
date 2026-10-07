@@ -10,9 +10,10 @@ import Foundation
 /// ([{key, icon}]). The search and category tables list base names only (`heart`, not
 /// `heart.fill`), so a name takes the entry of its nearest dotted prefix.
 ///
-/// The bundled snapshot (Resources/IconPickerSymbols.txt) is the fallback: a missing or
-/// unreadable system catalog leaves its names, sorted, with no keywords or categories, so the
-/// tab is never empty.
+/// The catalog is read at run time from the user's own system only. The app ships no copy of
+/// Apple's symbol names, categories or keywords (SF Symbols license). Without
+/// `name_availability.plist` the names come from `symbol_order.plist`; with neither the
+/// catalog is empty and the page shows its empty state.
 nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
     nonisolated struct Category: Equatable, Sendable {
         /// The system's key (`objectsandtools`); the page localizes the title.
@@ -30,24 +31,25 @@ nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
 
     static let systemResources = URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources",
                                      isDirectory: true)
-    static var bundledSnapshot: URL? { Bundle.module.url(forResource: "IconPickerSymbols", withExtension: "txt") }
-
     /// The catalog, read off the main actor (five plist reads, about 1 MB).
-    @concurrent static func load(resources: URL = systemResources, snapshot: URL? = bundledSnapshot) async -> IconPickerSymbolCatalog {
-        // concurrency-allow: @concurrent, so the file reads in read(resources:snapshot:) never run on the main actor
-        read(resources: resources, snapshot: snapshot)
+    @concurrent static func load(resources: URL = systemResources) async -> IconPickerSymbolCatalog {
+        // concurrency-allow: @concurrent, so the file reads in read(resources:) never run on the main actor
+        read(resources: resources)
     }
 
-    /// The catalog from the plists in `resources` plus the names in `snapshot` (one per line).
-    /// Synchronous file reads: call it off the main actor (``load(resources:snapshot:)``).
-    static func read(resources: URL, snapshot: URL?) -> IconPickerSymbolCatalog {
-        var available = Set(lines(snapshot).filter(IconValue.isSymbolName))
+    /// The catalog from the plists in `resources`.
+    /// Synchronous file reads: call it off the main actor (``load(resources:)``).
+    static func read(resources: URL) -> IconPickerSymbolCatalog {
+        let order = plist(resources, "symbol_order") as? [String] ?? []
+        let available: Set<String>
         if let symbols = (plist(resources, "name_availability") as? [String: Any])?["symbols"] as? [String: Any] {
-            available.formUnion(symbols.keys.filter(IconValue.isSymbolName))
+            available = Set(symbols.keys.filter(IconValue.isSymbolName))
+        } else {
+            available = Set(order.filter(IconValue.isSymbolName))
         }
         var names: [String] = []
         var placed = Set<String>()
-        for name in plist(resources, "symbol_order") as? [String] ?? [] where available.contains(name) {
+        for name in order where available.contains(name) {
             if placed.insert(name).inserted { names.append(name) }
         }
         names += available.subtracting(placed).sorted()
@@ -97,14 +99,8 @@ nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
     }
 
     private static func plist(_ resources: URL, _ name: String) -> Any? {
-        // concurrency-allow: called only from read(resources:snapshot:), which load(resources:snapshot:) runs off the main actor
+        // concurrency-allow: called only from read(resources:), which load(resources:) runs off the main actor
         guard let data = try? Data(contentsOf: resources.appendingPathComponent("\(name).plist")) else { return nil }
         return try? PropertyListSerialization.propertyList(from: data, format: nil)
-    }
-
-    private static func lines(_ url: URL?) -> [String] {
-        // concurrency-allow: called only from read(resources:snapshot:), which load(resources:snapshot:) runs off the main actor
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").map(String.init)
     }
 }

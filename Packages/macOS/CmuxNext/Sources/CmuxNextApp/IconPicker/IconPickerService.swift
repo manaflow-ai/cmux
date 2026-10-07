@@ -4,8 +4,8 @@ import CmuxNextPages
 import CmuxNextSidebar
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
-/// reports the outcome. One warm picker (S3 d): the first open (or ``prewarm()``)
-/// loads the page into a hidden panel; every later open reuses that panel, page
+/// reports the outcome. One warm picker (S3 d): the first open loads the page
+/// into its panel; every later open reuses that panel, page
 /// and provider (a session swap, no cold load), and a close only hides the panel.
 /// One picker at a time: a new open cancels the previous one. ``open`` is what
 /// `debug.popups` lists, so preflights prove it opened.
@@ -86,22 +86,9 @@ final class IconPickerService {
         warm.page.focusPage()
     }
 
-    /// Loads the picker page into its hidden panel now, so the first open is warm too.
-    func prewarm() {
-        guard warm == nil else { return }
-        guard let catalog else {
-            loadCatalog { [weak self] in self?.prewarm() }
-            return
-        }
-        _ = makeWarm(catalog: catalog)
-    }
-
-    /// Whether the page is loaded and kept for the next open (``prewarm()`` or an earlier open).
-    var isWarm: Bool { warm != nil }
-
     /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
     private func loadCatalog(then: @escaping () -> Void) {
-        // task-owner: one load per first open or prewarm; it ends with the read, and the service outlives it weakly
+        // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
         Task { [weak self] in
             let loaded = await IconPickerSymbolCatalog.load()
             guard let self else { return }

@@ -9,8 +9,8 @@ import Testing
 /// receives with the first session.
 @MainActor
 struct IconPickerCatalogTests {
-    /// A CoreGlyphs-like Resources directory with the five plists, plus a snapshot file.
-    static func fixture() throws -> (resources: URL, snapshot: URL) {
+    /// A CoreGlyphs-like Resources directory with the five plists.
+    static func fixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("icon-catalog-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         func write(_ name: String, _ value: Any) throws {
@@ -29,18 +29,16 @@ struct IconPickerCatalogTests {
             ["key": "transportation", "icon": "car.fill"],
             ["key": "broken", "icon": "Not A Symbol"],
         ])
-        let snapshot = root.appendingPathComponent("snapshot.txt")
-        try "aa.snapshot.only\nstar\n".write(to: snapshot, atomically: true, encoding: .utf8)
-        return (root, snapshot)
+        return root
     }
 
     @Test func theSystemCatalogOrdersKeywordsAndCategorizesTheNames() throws {
-        let (resources, snapshot) = try Self.fixture()
+        let resources = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: resources) }
-        let catalog = IconPickerSymbolCatalog.read(resources: resources, snapshot: snapshot)
+        let catalog = IconPickerSymbolCatalog.read(resources: resources)
         // The system order first (only names this Mac has), then the rest sorted; invalid names dropped.
-        #expect(catalog.names == ["car", "star", "star.fill", "aa.snapshot.only", "zz.newer"])
-        #expect(catalog.keywords == ["automobile", "favorite vip", "favorite vip", "", ""])
+        #expect(catalog.names == ["car", "star", "star.fill", "zz.newer"])
+        #expect(catalog.keywords == ["automobile", "favorite vip", "favorite vip", ""])
         #expect(catalog.categories == [
             .init(key: "all", icon: "square.grid.2x2", members: []),
             .init(key: "multicolor", icon: "paintpalette", members: [1, 2]),
@@ -55,6 +53,15 @@ struct IconPickerCatalogTests {
     @Test func aMissingSystemCatalogIsEmpty() async {
         let catalog = await IconPickerSymbolCatalog.load(resources: URL(fileURLWithPath: "/nonexistent", isDirectory: true))
         #expect(catalog.names.isEmpty && catalog.keywords.isEmpty && catalog.categories.isEmpty)
+    }
+
+    /// Without name_availability.plist the system order lists the names.
+    @Test func theSystemOrderListsTheNamesWithoutAvailability() throws {
+        let resources = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: resources) }
+        try FileManager.default.removeItem(at: resources.appendingPathComponent("name_availability.plist"))
+        let catalog = IconPickerSymbolCatalog.read(resources: resources)
+        #expect(catalog.names == ["car", "star", "not.on.this.mac", "star.fill"])
     }
 
     /// The built app bundle carries no extracted symbol name list.

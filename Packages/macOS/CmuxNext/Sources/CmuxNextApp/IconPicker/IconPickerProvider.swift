@@ -65,8 +65,8 @@ final class IconPickerProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.sessionStream else { throw PageError.unknownOp(stream) }
         listener = onEvent
-        // The page subscribes once per load: the current session (an empty one when the page is
-        // only prewarmed) goes out at once, with the catalog.
+        // The page subscribes once per load: the current session (an empty one when no session is
+        // open) goes out at once, with the catalog.
         var first = session ?? IconPickerSession(id: "", current: nil)
         first.catalog = catalog
         first.maxEmojiVersion = maxEmojiVersion

@@ -45,7 +45,7 @@ export function symbolItems(names: readonly string[], keywords: readonly string[
   });
 }
 
-/** A bare name list (the bundled fallback) as a catalog with no keywords or categories. */
+/** A bare name list (tests, gallery mocks) as a catalog with no keywords or categories. */
 export function asCatalog(symbols: SymbolCatalog | readonly string[]): SymbolCatalog {
   return "names" in symbols ? symbols : { names: symbols };
 }
