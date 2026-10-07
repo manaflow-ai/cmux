@@ -129,8 +129,26 @@ export default keybindingsPageEntry({
       query: { record: true },
     },
     "conflicts-only": { note: "Only conflicting shortcuts are shown.", bindings, query: { conflictsOnly: true } },
-    unsupported: { note: "The host reports that shortcut writes are unavailable.", bindings, error: "unsupported" },
+    unsupported: {
+      note: "The host reports that shortcut writes are unavailable.",
+      bindings,
+      error: "unsupported",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".keys-remove:not(:disabled)"));
+        await ctx.click({ selector: ".keys-remove:not(:disabled)" });
+        await ctx.waitFor(() => ctx.document.querySelector(".keys-notice"));
+      },
+    },
     "network-error": { note: "The shortcut owner is disconnected.", bindings, error: "network" },
-    "not-found-error": { note: "A keymap import/export source is missing.", bindings, error: "not-found" },
+    "not-found-error": {
+      note: "A keymap import/export source is missing.",
+      bindings,
+      error: "not-found",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".keys-import:not(:disabled)"));
+        await ctx.click({ selector: ".keys-import:not(:disabled)" });
+        await ctx.waitFor(() => ctx.document.querySelector(".keys-notice"));
+      },
+    },
   },
 });

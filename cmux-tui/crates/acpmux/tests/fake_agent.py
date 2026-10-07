@@ -22,6 +22,9 @@ pending = {}
 known = set()
 
 
+LAST_MCP_SERVERS = None
+
+
 def send(obj):
     with lock:
         sys.stdout.write(json.dumps(obj) + "\n")
@@ -153,6 +156,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "mcp" replies with the mcpServers of the last session/new, load or fork.
+    if text == "mcp":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
     if text == "argv":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
@@ -244,6 +252,7 @@ def handle_prompt(rid, params):
 
 
 def main():
+    global LAST_MCP_SERVERS
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -269,6 +278,8 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m in ("session/new", "session/load", "session/fork"):
+            LAST_MCP_SERVERS = params.get("mcpServers")
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.

@@ -88,7 +88,14 @@ fn open_sets_the_screen_before_the_window_and_captures_once_the_browser_exists()
     let mut fake = Fake::default();
     let mut tab = HostTab::new(1, 41, "https://example.com/");
     let out = tab.control("v1", &open("v1", screen(1200, 800, 2.0)), &mut fake);
-    assert_eq!(out, vec![Control::Opened { session: 41, main_stream: 0 }]);
+    // rb.open carries the viewer's first screen as seq 0 (remote-tab-protocol.md section 2).
+    assert_eq!(
+        out,
+        vec![
+            Control::Opened { session: 41, main_stream: 0 },
+            Control::ScreenApplied { seq: 0, pixel_width: 2400, pixel_height: 1600, scale: 2.0 },
+        ]
+    );
     assert_eq!(
         fake.calls,
         vec!["set_screen 1200x800@2", "open_tab 1 https://example.com/ 1200x800"]
@@ -233,4 +240,54 @@ fn the_last_viewer_closing_pauses_and_close_reports_closed() {
         ]
     );
     assert_eq!(tab.state(), SessionState::Paused);
+}
+
+#[test]
+fn each_viewer_gets_its_own_last_screen_seq() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.control("v1", &Control::Screen { seq: 4, screen: screen(1000, 800, 2.0) }, &mut fake);
+    // A second viewer joins with a smaller screen: its reply echoes its seq 0,
+    // and v1 is owed the new size under v1's own last seq (4).
+    let out = tab.control("v2", &open("v2", screen(800, 600, 1.0)), &mut fake);
+    assert_eq!(
+        out.last(),
+        Some(&Control::ScreenApplied { seq: 0, pixel_width: 1600, pixel_height: 1200, scale: 2.0 })
+    );
+    assert_eq!(
+        tab.screen_applied("v1"),
+        Some(Control::ScreenApplied { seq: 4, pixel_width: 1600, pixel_height: 1200, scale: 2.0 })
+    );
+    assert_eq!(tab.screen_applied("v3"), None);
+}
+
+#[test]
+fn an_invalid_menu_choice_cancels_the_menu_in_chromium_and_on_the_viewer() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let menu = Menu {
+        kind: MenuKind::Context,
+        anchor: Rect { x: 10.0, y: 20.0, width: 0.0, height: 0.0 },
+        surface: 0,
+        items: vec![item(50150, "Copy", "command")],
+        selected: None,
+        multiple: false,
+        right_aligned: false,
+    };
+    tab.menu_opened(900, menu, &mut fake);
+    // A command the menu never showed: the host does not leave Chromium
+    // waiting on a viewer that sends bad answers.
+    let out = tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 999 } },
+        &mut fake,
+    );
+    assert_eq!(fake.calls, vec!["context_menu_result 900 None"]);
+    assert_eq!(out, vec![Control::MenuCancel { token: 1 }]);
+    tab.control(
+        "v1",
+        &Control::MenuResult { token: 1, choice: MenuChoice::Command { id: 50150 } },
+        &mut fake,
+    );
+    assert_eq!(fake.calls.len(), 1, "an answer after the cancel reached the shim");
 }

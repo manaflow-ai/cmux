@@ -245,6 +245,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // Profile files hot-reload (no polling); before startup work writes the config.
+    hub.start_harness_watch();
     {
         let hub = hub.clone();
         tokio::spawn(async move {

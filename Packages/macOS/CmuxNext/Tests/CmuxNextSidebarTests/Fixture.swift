@@ -8,7 +8,7 @@ import CoreGraphics
 let cloud = MachineID("cloud")
 
 func w(_ id: String, _ machine: MachineID = .local) -> SidebarWorkspace {
-    SidebarWorkspace(id: WorkspaceID(id), machineID: machine, title: id, subtitle: "sub-\(id)")
+    SidebarWorkspace(id: WorkspaceID(id), machineID: machine, title: id, directory: "sub-\(id)")
 }
 
 func id(_ s: String) -> WorkspaceID { WorkspaceID(s) }
