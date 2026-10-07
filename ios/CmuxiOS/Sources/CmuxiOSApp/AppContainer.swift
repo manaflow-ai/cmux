@@ -578,9 +578,15 @@ final class AppContainer {
     func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
         diagnostics.info("auth", "signed in")
         let switched = signedInAccount.map { $0.userID != account.userID } ?? false
+        let previousRemoteAccount = remoteConfigAccountID
         signedInAccount = account
         remoteConfigAccountID = account.userID
         remoteConfigFactory = remoteConfigFactoryForAccount?(account.userID)
+        // Account-scoped flags must not remain visible during an account
+        // switch while the new source performs its first network refresh.
+        if switched || previousRemoteAccount != account.userID {
+            applyRemoteConfig(remoteConfigCache.load(for: account.userID) ?? .empty)
+        }
         startLinks(resetting: switched)
         startRemoteConfig()
         let coordinator = auth.coordinator
