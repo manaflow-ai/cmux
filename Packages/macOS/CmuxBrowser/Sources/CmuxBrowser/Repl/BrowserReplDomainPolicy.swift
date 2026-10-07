@@ -677,6 +677,12 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             for scheme in ["data", "about"] { add("^\(scheme):", "ignore-previous-rules") }
             add("^blob:null/", "ignore-previous-rules")
         }
+        // An IPv4 address written as IPv6 (`[::ffff:c000:201]`) is refused
+        // natively while a policy is set (`addressSpellingRefusal`), so no
+        // allow filter (a universal host's IPv6 form) lets one load and no
+        // IPv4 pattern is passed by it. This also refuses the rare address
+        // whose fifth group is `ffff` after four zero groups.
+        add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?\\[[0:]*:ffff:[0-9a-f.:]*\\]", "block")
         for pattern in prohibited {
             for filter in Self.filters(pattern, allowing: false) { add(filter, "block") }
         }
@@ -720,17 +726,25 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     /// none of them allows nothing. A block filter matches every scheme
     /// the pattern names, which only refuses more.
     static func filters(_ pattern: BrowserReplDomainPattern, allowing: Bool) -> [String] {
-        let host: String
+        let hosts: [String]
         if pattern.host == "*" {
-            host = "[^/@:]+"
+            // Every host: a name or IPv4 address, and a bracketed IPv6
+            // address, whose colons the first excludes. Content-rule
+            // expressions have no alternation, so each is its own filter.
+            hosts = ["[^/@:]+", "\\[[^/@]+\\]"]
         } else if pattern.host.hasPrefix("*.") {
-            host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
+            hosts = ["([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"]
         } else if pattern.coversWWW {
             // A root domain also covers www (`hostMatches`).
-            host = "(www\\.)?" + escape(pattern.host) + "\\.?"
+            hosts = ["(www\\.)?" + escape(pattern.host) + "\\.?"]
         } else {
-            host = escape(pattern.host) + "\\.?"
+            hosts = [escape(pattern.host) + "\\.?"]
         }
+        return hosts.flatMap { filters(pattern, host: $0, allowing: allowing) }
+    }
+
+    /// ``filters(_:allowing:)`` for one host expression `host`.
+    private static func filters(_ pattern: BrowserReplDomainPattern, host: String, allowing: Bool) -> [String] {
         // `blob:` URLs carry their origin: `blob:https://host/<id>`.
         func head(_ scheme: String) -> String { "^(blob:)?" + scheme + "://([^/@]*@)?" + host }
         let schemes: [String]

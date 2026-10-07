@@ -3,7 +3,7 @@ import Testing
 
 @Suite struct BrowserReplHeldKeysTests {
     private func stroke(_ key: String, _ code: String, _ modifiers: [String] = []) throws -> BrowserReplKeyStroke {
-        try #require(BrowserReplKeyStroke.resolve(key: key, code: code, text: nil, modifiers: modifiers))
+        try #require(try BrowserReplKeyStroke.resolve(key: key, code: code, text: nil, modifiers: modifiers))
     }
 
     @Test func heldKeysReleaseLastPressedFirst() throws {
@@ -41,7 +41,7 @@ import Testing
 /// session's keys into Shift chords).
 @Suite struct BrowserReplHeldKeysBySessionTests {
     private func stroke(_ key: String, _ code: String) throws -> BrowserReplKeyStroke {
-        try #require(BrowserReplKeyStroke.resolve(key: key, code: code, text: nil, modifiers: []))
+        try #require(try BrowserReplKeyStroke.resolve(key: key, code: code, text: nil, modifiers: []))
     }
 
     @Test func aLeavingSessionReleasesOnlyItsOwnKeys() throws {

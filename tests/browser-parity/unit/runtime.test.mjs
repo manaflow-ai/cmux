@@ -474,6 +474,7 @@ function cancelFixture() {
     print: () => {},
     console: { error: () => {} },
     fsOp: (op) => (ops.push(op), op === "exists" ? false : null),
+    readResource: (path) => (ops.push("readResource"), path === "guide.md" ? "# guide" : null),
   };
   const driver = {
     call: async (method) => (ops.push(method), method === "tabs.list" ? [] : null),
@@ -534,6 +535,31 @@ test("cancel: a cancelled cell cannot reach the raw host or driver through a pro
   assert.deepEqual(lateOutcome, ["own:cancelled"]);
   assert.deepEqual(frozen, [true, true]);
   assert.deepEqual(ops.slice(before), []);
+});
+
+// r26 native#6: readResource is a host call like fs and secrets: a
+// cancelled cell's leftover work is refused it, and a live cell reaches it.
+test("cancel: a cancelled cell that resumes later is refused readResource", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "const h = page._session.host; await new Promise((r) => { globalThis.resumeCell = r; });" +
+      " try { h.readResource('guide.md'); globalThis.lateOutcome = 'read'; } catch (e) { globalThis.lateOutcome = e.code; }",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const before = ops.length;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.lateOutcome === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const outcome = globalThis.lateOutcome;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  assert.equal(outcome, "cancelled");
+  assert.deepEqual(ops.slice(before), []);
+  const live = await repl.evaluate("page._session.host.readResource('guide.md')", { id: 2 });
+  assert.equal(live.ok, true, live.error);
+  assert.deepEqual(ops.slice(before), ["readResource"]);
 });
 
 test("cancel: a page listener a cancelled cell registered never runs later", async () => {

@@ -22,13 +22,21 @@ public final class BrowserReplJSThread: @unchecked Sendable {
     public static let stackSize = 8 << 20
 
     /// Creates and starts the thread.
-    /// - Parameter name: Thread name shown in crash reports and samples.
-    public init(name: String) {
+    /// - Parameters:
+    ///   - name: Thread name shown in crash reports and samples.
+    ///   - onExit: Runs on the thread as the last thing it does, once its
+    ///     loop has ended and before ``waitUntilExited(timeout:)`` returns
+    ///     true: where a session gives back the stack it reserved, which is
+    ///     in use until then.
+    public init(name: String, onExit: @escaping @Sendable () -> Void = {}) {
         let box = RunLoopBox()
         let exited = DispatchSemaphore(value: 0)
         self.exited = exited
         thread = Thread {
-            defer { exited.signal() }
+            defer {
+                onExit()
+                exited.signal()
+            }
             box.set(CFRunLoopGetCurrent())
             // A port keeps `run(mode:before:)` from returning immediately
             // while no block is queued.

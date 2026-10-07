@@ -43,7 +43,9 @@ struct BrowserReplProcessBudgetTests {
 
         first.close()
         second.close()
-        // close() gives back the stack and what its holders had not released.
+        // close() gives back what its holders had not released, and each
+        // thread its stack once it has ended.
+        #expect(first.thread.waitUntilExited(timeout: .seconds(30)) && second.thread.waitUntilExited(timeout: .seconds(30)))
         #expect(process.held(.processMemoryBytes) == 0, "closed sessions still hold \(process.held(.processMemoryBytes))")
     }
 
@@ -61,5 +63,41 @@ struct BrowserReplProcessBudgetTests {
         #expect(result.error?.contains("all REPL sessions") == true, "\(result.error ?? "no error")")
         #expect(registry.list(workspaceID: nil).isEmpty, "a session that never started holds a slot")
         #expect(process.held(.processMemoryBytes) == BrowserReplJSThread.stackSize, "the refused session took a share")
+    }
+
+    /// r26 native#4: close() released the thread's stack from the ledger
+    /// before the thread ended (``BrowserReplJSThread/stop()`` only queues
+    /// the end behind the work already on it), so a session closed while
+    /// native work held its thread let a new session reserve a stack that
+    /// was still in use. The stack stays reserved until the thread ends.
+    @Test("A closed session's thread stack stays reserved until the thread has ended")
+    func stackStaysReservedUntilTheThreadEnds() throws {
+        let stack = BrowserReplJSThread.stackSize
+        // Room for one thread's stack only.
+        let process = BrowserReplResourceLedger(limits: BrowserReplResourceLimits.process.with(.processMemoryBytes, stack))
+        let session = makeSession(process)
+        #expect(!session.isClosed)
+        // Native work that holds the session's thread past close().
+        let running = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        session.thread.perform {
+            running.signal()
+            release.wait()
+        }
+        running.wait()
+        session.close()
+
+        #expect(process.held(.processMemoryBytes) == stack, "the stack of a thread still running was released: \(process.held(.processMemoryBytes))")
+        let replacement = makeSession(process)
+        #expect(replacement.isClosed, "a new session took a stack while the closed session's thread still ran")
+        replacement.close()
+
+        release.signal()
+        #expect(session.thread.waitUntilExited(timeout: .seconds(30)), "the closed session's thread did not end")
+        #expect(process.held(.processMemoryBytes) == 0, "the ended thread's stack is still reserved: \(process.held(.processMemoryBytes))")
+        let next = makeSession(process)
+        #expect(!next.isClosed, "no session starts once the old thread ended")
+        next.close()
+        #expect(next.thread.waitUntilExited(timeout: .seconds(30)))
     }
 }

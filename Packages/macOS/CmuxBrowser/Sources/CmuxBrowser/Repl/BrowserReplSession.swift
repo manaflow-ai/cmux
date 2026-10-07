@@ -601,7 +601,11 @@ public final class BrowserReplSession: @unchecked Sendable {
             ledger: ledger
         )
         self.sleeper = sleeper
-        self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
+        // The stack is in use until the thread ends, which close() only
+        // queues behind the work already on it: it is given back then.
+        self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)") {
+            ledger.releaseAll([.threadStackBytes])
+        }
         self.eventQueue = DispatchQueue(label: "com.cmux.browser-repl.events.\(id)", qos: .userInitiated)
         self.fetcher = BrowserReplFetcher(driver: driver, ledger: ledger)
         let writeBudget = BrowserReplWriteBudget(ledger: ledger)
@@ -940,10 +944,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedFetches.removeAll()
         requestPhaseFetches.removeAll()
         queuedDriverCalls.removeAll()
-        // What those held: their tasks no longer release it.
+        // What those held: their tasks no longer release it. The thread's
+        // stack goes when the thread ends (init's onExit).
         ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
-                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes,
-                           .threadStackBytes])
+                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -1977,9 +1981,23 @@ public final class BrowserReplSession: @unchecked Sendable {
             if let updated { self.driver.setDomainPolicy(updated) }
             return self.boundary.egress(.host(result))
         }
-        let readResource: @convention(block) (JSValue?) -> String? = { [weak self] path in
-            guard let self, let path = path?.toString() else { return nil }
-            return self.bundle.readResource(path)
+        // A host call like secrets and policy: the arguments are bounded
+        // and charged before they are copied (hostFunction), and the
+        // runtime refuses it to a cancelled cell's leftover work.
+        let readResource = hostFunction("readResource") { [weak self] op, arguments in
+            guard let self else { return nil }
+            let args = JSONSerialization.browserReplObject(arguments)
+            guard op == "read", let path = args["path"] as? String else {
+                return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "readResource: expected a path string"))))
+            }
+            // No bundled resource has a longer path (PATH_MAX, as fs).
+            guard path.utf8.count <= Self.maxResourcePathBytes else {
+                return self.boundary.egress(.host(.failure(BrowserReplDriverError(
+                    code: "invalid",
+                    message: "readResource: a path over \(Self.maxResourcePathBytes) bytes names no resource"
+                ))))
+            }
+            return self.boundary.egress(.host(.success(self.bundle.readResource(path) ?? NSNull())))
         }
 
         native.setObject(unsafeBitCast(print, to: AnyObject.self), forKeyedSubscript: "print" as NSString)
@@ -2055,6 +2073,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// hold: an fs call carries one write's bytes in Base64 (the fs write
     /// limit, 256 MiB, plus 1 MiB for the rest), any other call the
     /// ledger's own per-call limit.
+    /// The longest path `readResource` looks up, 1,024 bytes (`PATH_MAX`).
+    static let maxResourcePathBytes = 1024
+
     func hostCallLimit(isFileSystem: Bool) -> Int {
         let each = ledger.limits.each(.hostCallBytes) ?? .max
         guard isFileSystem, let write = ledger.limits.each(.fileBytesWritten) else { return each }

@@ -121,7 +121,13 @@ struct BrowserReplFetchEffectiveURLTests {
         func detach() {}
     }
 
-    private func cookies(allowing allowed: [String], fetching url: String) async throws -> [(url: String, cookie: String?)] {
+    private func fetched(
+        allowing allowed: [String],
+        fetching url: String,
+        method: String = "GET",
+        headers: [[String]] = [],
+        body: String? = nil
+    ) async throws -> (sent: [(url: String, cookie: String?)], result: Result<String, BrowserReplDriverError>) {
         CookieRecordingProtocol.reset()
         let fetcher = BrowserReplFetcher(driver: CookieDriver(), protocolClasses: [CookieRecordingProtocol.self])
         defer { fetcher.invalidate() }
@@ -129,29 +135,62 @@ struct BrowserReplFetchEffectiveURLTests {
         policy.allowed = try allowed.map { try BrowserReplDomainPattern.parse($0, title: "t") }
         policy.locked = true
         fetcher.setBlockReason { [policy] in policy.blockReason($0) }
-        let request: [String: Any] = ["url": url, "method": "GET"]
-        _ = await fetcher.fetch(requestJSON: JSONSerialization.browserReplString(request) ?? "{}")
-        return CookieRecordingProtocol.requests
+        var request: [String: Any] = ["url": url, "method": method, "headers": headers]
+        if let body { request["bodyBase64"] = Data(body.utf8).base64EncodedString() }
+        let result = await fetcher.fetch(requestJSON: JSONSerialization.browserReplString(request) ?? "{}")
+        return (CookieRecordingProtocol.requests, result)
     }
 
-    /// r25 native#1: CFNetwork upgrades an `http` request to a host it has
-    /// an HSTS entry for (one it saw, or the preloaded list) to `https`
-    /// before the request is sent, with the Cookie header the fetcher put
-    /// on it, and tells the delegate nothing until the response. An `http`
-    /// URL whose `https` form the policy blocks gets no cookies.
-    @Test("An http URL whose https form the policy blocks is sent without cookies")
-    func httpOnlyPolicySendsNoCookies() async throws {
-        let sent = try await cookies(allowing: ["http://upgrade.test"], fetching: "http://upgrade.test/x")
-        #expect(sent.map(\.url) == ["http://upgrade.test/x"])
-        #expect(sent.allSatisfy { $0.cookie == nil }, "\(sent)")
+    private func cookies(allowing allowed: [String], fetching url: String) async throws -> [(url: String, cookie: String?)] {
+        try await fetched(allowing: allowed, fetching: url).sent
     }
 
-    @Test("A redirect hop to an http URL whose https form the policy blocks gets no cookies")
-    func redirectToHTTPOnlySendsNoCookies() async throws {
-        let sent = try await cookies(allowing: ["https://hop.test", "http://upgrade.test"], fetching: "https://hop.test/start")
-        #expect(sent.map(\.url) == ["https://hop.test/start", "http://upgrade.test/landing"], "\(sent)")
-        #expect(sent.first?.cookie == "sid=tab-secret", "the allowed https URL keeps its cookies: \(sent)")
-        #expect(sent.last?.cookie == nil, "\(sent)")
+    /// r25 native#1, reversed by r26 native#2 (lane e5): CFNetwork upgrades
+    /// an `http` request to a host it has an HSTS entry for (one it saw, or
+    /// the preloaded list) to `https` before the request is sent, with its
+    /// method, headers and body, and tells the delegate nothing until the
+    /// response. Stripping cookies left the body and caller headers going
+    /// to the blocked `https` origin, so an `http` URL whose `https` form
+    /// the policy blocks is refused before anything is sent.
+    @Test("An http URL whose https form the policy blocks is refused before anything is sent")
+    func httpOnlyPolicyIsRefused() async throws {
+        let (sent, result) = try await fetched(
+            allowing: ["http://upgrade.test"],
+            fetching: "http://upgrade.test/x",
+            method: "POST",
+            headers: [["Authorization", "Bearer caller-token"], ["X-Custom", "caller-value"]],
+            body: "request-body-secret"
+        )
+        #expect(sent.isEmpty, "the request reached the network: \(sent)")
+        guard case .failure(let error) = result else {
+            Issue.record("the fetch succeeded: \(result)")
+            return
+        }
+        #expect(error.code == "blocked", "\(error)")
+        #expect(error.message.contains("https://upgrade.test/x"), "\(error.message)")
+        #expect(error.message.contains("allow"), "the refusal does not say to allow the https form: \(error.message)")
+    }
+
+    @Test("A redirect hop to an http URL whose https form the policy blocks fails the fetch")
+    func redirectToHTTPOnlyIsRefused() async throws {
+        let (sent, result) = try await fetched(allowing: ["https://hop.test", "http://upgrade.test"], fetching: "https://hop.test/start")
+        #expect(sent.map(\.url) == ["https://hop.test/start"], "the hop reached the network: \(sent)")
+        guard case .failure(let error) = result else {
+            Issue.record("the fetch succeeded: \(result)")
+            return
+        }
+        #expect(error.code == "blocked", "\(error)")
+        #expect(error.message.contains("https://upgrade.test/landing"), "\(error.message)")
+    }
+
+    /// HSTS never applies to an IP address, and a loopback request stays on
+    /// the machine, so those `http` URLs are requested as before.
+    @Test("An IP address or loopback host has no HSTS form to refuse")
+    func ipAndLoopbackAreNotUpgraded() {
+        for url in ["http://127.0.0.1/x", "http://[::1]:8080/x", "http://192.0.2.1/x", "http://localhost/x"] {
+            #expect(BrowserReplFetcher.hstsUpgraded(URL(string: url)!) == nil, "\(url)")
+        }
+        #expect(BrowserReplFetcher.hstsUpgraded(URL(string: "http://upgrade.test:80/x")!)?.absoluteString == "https://upgrade.test/x")
     }
 
     @Test("An http URL the policy allows on https too keeps its cookies")

@@ -112,3 +112,66 @@ private final class StagingObservation: @unchecked Sendable {
         lock.withLock { stored = Seen(staging: staging, listed: listed, readBack: readBack, copied: copied, navigable: navigable) }
     }
 }
+
+/// r26 native#1: `fs.copyFile` checked that no `secrets.load` protected
+/// its source, then published the copy in a later hold of
+/// ``BrowserReplFileSandbox/pathChangeLock``. `secrets.load` protects under
+/// that lock, so another session's load could land between the check and
+/// the publish and the copy published the source's raw bytes anyway. The
+/// check and the publish must be one hold of the lock.
+@Suite("Browser REPL copyFile source protection and publish", .serialized)
+struct BrowserReplCopyPublishProtectionTests {
+    @Test("A secrets.load that protects the source before the copy publishes refuses the copy")
+    func protectionBeforePublishRefusesTheCopy() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brepl-copy-publish-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = BrowserReplFileSandbox.canonicalize(directory.path)
+        var contents = Data(#"{"example.com":{"pw":"publish-race-secret-7731"}}"#.utf8)
+        contents.append(Data(count: 2 * BrowserReplFileSystem.chunkBytes))
+        try contents.write(to: URL(fileURLWithPath: root + "/secrets.json"))
+        let sourceIdentity = try #require(BrowserReplFileIdentity(path: root + "/secrets.json"))
+
+        let started = StagingObservation()
+        let held = DispatchSemaphore(value: 0)
+        let loaderDone = DispatchSemaphore(value: 0)
+        let copyDone = DispatchSemaphore(value: 0)
+        let copier = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: root),
+            temporaryDirectory: nil,
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: BrowserReplWriteBudget(),
+            isCancelled: {
+                guard started.begin() else { return false }
+                // Another session's secrets.load takes the lock it protects
+                // under while the copy writes, and protects the source while
+                // still holding it: after any check the copy made outside the
+                // lock, before any publish.
+                Thread.detachNewThread {
+                    BrowserReplFileSandbox.pathChangeLock.withLock {
+                        held.signal()
+                        // Bounds the test's time only: the copy cannot finish
+                        // while the lock is held.
+                        _ = copyDone.wait(timeout: .now() + 1)
+                        try? BrowserReplSecretSources.shared.protect(sourceIdentity)
+                    }
+                    loaderDone.signal()
+                }
+                held.wait()
+                return false
+            }
+        )
+
+        let result = copier.perform("copyFile", arguments: ["from": "secrets.json", "to": "copy.json"])
+        copyDone.signal()
+        loaderDone.wait()
+
+        var code: String?
+        if case .failure(let error) = result { code = error.code }
+        #expect(code == "denied", "the copy published after another session protected its source: \(result)")
+        let left = try FileManager.default.contentsOfDirectory(atPath: root).sorted()
+        #expect(left == ["secrets.json"], "files left after the refused copy: \(left)")
+    }
+}

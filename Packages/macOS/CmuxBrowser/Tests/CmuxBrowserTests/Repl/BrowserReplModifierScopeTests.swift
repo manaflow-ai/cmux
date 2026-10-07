@@ -22,7 +22,7 @@ struct BrowserReplModifierScopeTests {
     }
 
     private func stroke(_ key: String, _ code: String, text: String? = nil) throws -> BrowserReplKeyStroke {
-        try #require(BrowserReplKeyStroke.resolve(key: key, code: code, text: text, modifiers: []))
+        try #require(try BrowserReplKeyStroke.resolve(key: key, code: code, text: text, modifiers: []))
     }
 
     @Test func aModifierOneSessionHoldsDoesNotReachAnotherSessionsKeys() throws {
@@ -64,7 +64,7 @@ struct BrowserReplModifierScopeTests {
 @Suite struct BrowserReplHeldKeysPerSessionTests {
     @Test func theSameKeyHeldByTwoSessionsIsReleasedByEach() throws {
         var held = BrowserReplHeldKeys()
-        let shift = try #require(BrowserReplKeyStroke.resolve(key: "Shift", code: "ShiftLeft", text: nil, modifiers: []))
+        let shift = try #require(try BrowserReplKeyStroke.resolve(key: "Shift", code: "ShiftLeft", text: nil, modifiers: []))
         held.record(shift, keyDown: true, sessionID: "first")
         held.record(shift, keyDown: true, sessionID: "second")
         #expect(held.releaseAll(heldBy: "first") == [shift], "a second session's press took the first session's held key")
