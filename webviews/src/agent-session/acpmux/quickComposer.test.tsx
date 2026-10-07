@@ -192,7 +192,7 @@ test("⌘Return sends the prompt, then asks to open the chat in a window", async
   await type("summarize the diff");
   await key("Enter", { metaKey: true });
   expect(calls).toEqual([
-    ["chat.send", { text: "summarize the diff", attachments: [] }],
+    ["chat.send", { text: "summarize the diff", attachments: [], accepted: expect.any(Function) }],
     ["quick.openInWindow", { sessionId: "s1" }],
   ]);
   expect(prompt().value).toBe("");
@@ -209,7 +209,7 @@ test("⌘Return on a first prompt opens the window once its session has started"
     ),
   );
   expect(calls).toEqual([
-    ["chat.send", { text: "start something", attachments: [] }],
+    ["chat.send", { text: "start something", attachments: [], accepted: expect.any(Function) }],
     ["quick.openInWindow", { sessionId: "s2" }],
   ]);
 });
@@ -421,7 +421,7 @@ test("the first prompt starts the chat in the inline project's folder", async ()
   await key("Enter");
   expect(calls).toEqual([
     ["chat.new", { cwd: "/src/app" }],
-    ["chat.send", { text: "hello", attachments: [] }],
+    ["chat.send", { text: "hello", attachments: [], accepted: expect.any(Function) }],
   ]);
 });
 
