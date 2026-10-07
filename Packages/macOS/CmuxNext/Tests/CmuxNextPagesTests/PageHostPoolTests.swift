@@ -62,29 +62,33 @@ struct PageHostPoolTests {
     @Test func resettingAnUntouchedHostClearsThePreviousPagesStorage() async throws {
         let window = Self.window()
         defer { window.close() }
-        let pool = Self.pool()
+        var policy = PageHostPool.Policy()
+        policy.idleInput = .milliseconds(5)
+        policy.maximumHosts = 1 // Keep the spare slot free for the same host's reset.
+        let pool = PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()
         await Self.spareReady(pool)
 
-        let first = try #require(pool.claim(.settings, routes: [], window: window))
+        let first = try #require(pool.claim(.settings, routes: [], window: window, focus: false))
         await first.waitUntilLoaded()
-        _ = try await first.webKitView.callAsyncJavaScript(
-            "localStorage.setItem('reset-secret', 'a'); return localStorage.length;",
-            contentWorld: .page)
+        let originalView = first.webKitView
+        let originalStore = originalView.configuration.websiteDataStore
+        let probe = PageStorageProbe()
+        let wroteCache = try await probe.write(first)
         #expect(!first.touched)
         pool.release(first)
         #expect(pool.spareHost === first)
         await Self.spareReady(pool)
 
-        let second = try #require(pool.claim(.settings, routes: [], window: window))
+        let second = try #require(pool.claim(.settings, routes: [], window: window, focus: false))
+        #expect(second === first)
+        #expect(second.webKitView === originalView)
+        #expect(second.webKitView.configuration.websiteDataStore === originalStore)
         await second.waitUntilLoaded()
-        let count = try await second.webKitView.callAsyncJavaScript(
-            "return localStorage.length;", contentWorld: .page) as? Int
-        #expect(count == 0)
-
+        try await probe.expectEmpty(second, cacheWasAvailable: wroteCache)
         pool.release(second)
-        pool.dropSpare()
     }
 
     private static func pool() -> PageHostPool {

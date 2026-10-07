@@ -46,9 +46,16 @@ extension PageWebView {
         let script = """
         localStorage.clear();
         sessionStorage.clear();
+        if (globalThis.caches) {
+          for (const key of await caches.keys()) await caches.delete(key);
+        }
         if (indexedDB?.databases) {
           for (const database of await indexedDB.databases()) {
-            if (database.name) indexedDB.deleteDatabase(database.name);
+            if (!database.name) continue;
+            await new Promise((resolve) => {
+              const request = indexedDB.deleteDatabase(database.name);
+              request.onsuccess = request.onerror = request.onblocked = () => resolve();
+            });
           }
         }
         return true;
