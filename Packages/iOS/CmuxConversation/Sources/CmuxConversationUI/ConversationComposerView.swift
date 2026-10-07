@@ -305,10 +305,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             delegate?.composerDidChangeText(self)
             return
         }
-        // Collapse with a slight spring undershoot, settling by ~0.38 s.
-        // Measured against Messages' 40-line send: ~1.8% undershoot of the
-        // drop (434 -> 35 pt min) rather than bounce 0.28's ~4% (26 pt).
-        UIView.animate(springDuration: 0.31, bounce: 0.2, options: [.beginFromCurrentState]) {
+        // Collapse on Messages' spring: fitted to iOS 26 Messages' field top
+        // after an 8-line and a capped 40-line send (duration 0.40-0.41,
+        // bounce 0.15-0.18; ~1.2% overshoot, settled by ~0.35 s).
+        UIView.animate(springDuration: 0.4, bounce: 0.17, options: [.beginFromCurrentState]) {
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }
