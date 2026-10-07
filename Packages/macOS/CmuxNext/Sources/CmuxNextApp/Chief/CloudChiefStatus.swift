@@ -24,7 +24,10 @@ enum CloudChiefStatus {
     }
 
     /// The state the messages show (`HomeMessage` values, oldest first or not).
-    nonisolated static func status(chief: CloudChief, serverName: String, messages: [[String: Any]], now: Date) -> ChiefPlacementStatus {
+    /// `chiefReadSeq`: the Chief's read cursor in its main conversation
+    /// (`read_cursors[chief]`), nil when unknown.
+    nonisolated static func status(chief: CloudChief, serverName: String, messages: [[String: Any]], chiefReadSeq: Int? = nil,
+                                   now: Date) -> ChiefPlacementStatus {
         var lastReply: Date?
         var lastAsk: Date?
         for message in messages {
