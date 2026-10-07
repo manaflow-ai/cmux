@@ -155,6 +155,35 @@ struct InternalPageTabTests {
         #expect(pane.stripModel.selectedID == selected)
     }
 
+    /// nxdog62 (a): with Home shown, a focused `openSettings` added the tab to
+    /// the parked workspace and left the window on Home. SIDEBAR-SELECTION-ONE-MODEL:
+    /// the window has one selection, so showing the Settings tab selects the
+    /// workspace that holds it and the page goes.
+    @Test func aFocusedOpenSettingsLeavesTheTopPageForTheSettingsTab() async throws {
+        let (services, window, pane) = try await world()
+        let workspaceID = window.state.workspaceID
+        #expect(TopPages.show(.home, services: services, in: window.state) != nil)
+        #expect(window.shownTopPage == .home)
+
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation(origin: .user)))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        #expect(window.state.page == nil, "the window leaves Home")
+        #expect(window.shownTopPage == nil)
+        #expect(window.state.workspaceID == workspaceID, "the workspace that holds the tab is selected")
+        #expect(window.content?.panes.values.contains { $0 === pane } == true, "its content is shown again")
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+        #expect(pane.stripModel.selectedID?.rawValue == key, "the Settings tab is the selected tab")
+    }
+
+    /// Automation keeps the page (OWNERSHIP-PRINCIPLES): the tab opens behind it.
+    @Test func automationOpenSettingsKeepsTheTopPage() async throws {
+        let (services, window, _) = try await world()
+        TopPages.show(.home, services: services, in: window.state)
+        services.registry.perform("openSettings", invocation: ActionInvocation(origin: .cli))
+        #expect(services.pages.keys(of: .settings).count == 1)
+        #expect(window.shownTopPage == .home)
+    }
+
     @Test func closingTheTabDropsItsPage() async throws {
         let (services, _, pane) = try await world()
         services.registry.perform("openSettings", invocation: ActionInvocation())

@@ -8,9 +8,11 @@
 //! `adoption` (resuming a harness's own session on `session/new`).
 
 mod adoption;
+mod catalog_reload;
 mod fork;
 mod handoff;
 mod harness_view;
+mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -18,12 +20,15 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
+mod model_hint;
 mod paging;
 mod pool;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
 use shutdown::ShutdownPlan;
+#[cfg(test)]
+mod remote_sandbox_adopt_tests;
 mod spawn;
 mod stream;
 mod tap;
@@ -220,18 +225,8 @@ pub struct Session {
     pub(super) last_active: AtomicU64,
     /// Web control ended: the mode left the asking table (`web_control.rs`).
     pub(super) web_control_ended: AtomicBool,
-    /// The last turn was a Web turn: an agent request between turns is
-    /// held to the remote floor (`remote_floor.rs`).
-    pub(super) last_turn_web: AtomicBool,
-    /// The Web turn the remote floor cancelled: every later request in it
-    /// is cancelled, also after a local restore of an asking mode.
-    pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
-    /// A mode the harness reported while it declared no modes; the asking
-    /// check reads it (`remote_floor.rs`). Cleared when the agent exits.
-    pub(super) undeclared_mode: StdMutex<Option<String>>,
-    /// The agent process holds a lasting grant a client gave it ("allow
-    /// always"): Web control ends until the agent exits (`web_control.rs`).
-    pub(super) harness_grant: AtomicBool,
+    /// The remote floor's per-session marks (`remote_floor.rs`).
+    pub(super) floor: remote_floor::FloorState,
 }
 
 impl Session {
@@ -323,6 +318,7 @@ pub struct Hub {
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
+    pub(super) harness_watch: harness_watch::HarnessWatchState,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -396,6 +392,7 @@ impl Hub {
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
+            harness_watch: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -588,10 +585,7 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
-            last_turn_web: AtomicBool::new(false),
-            floor_cancelled_turn: StdMutex::new(None),
-            undeclared_mode: StdMutex::new(None),
-            harness_grant: AtomicBool::new(false),
+            floor: Default::default(),
         })
     }
 
