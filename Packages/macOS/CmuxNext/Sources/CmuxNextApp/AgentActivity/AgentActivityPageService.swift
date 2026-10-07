@@ -12,7 +12,6 @@ import Foundation
 @MainActor
 final class AgentActivityPageService {
     private unowned let services: AppServices
-    private var indicator: AgentActivityTitlebarIndicator?
 
     init(services: AppServices) {
         self.services = services
@@ -33,22 +32,7 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
-        installIndicator(for: page)
-        return page
-    }
-
-    private func installIndicator(for page: AgentActivityPageTab) {
-        guard let window = services.windows.active else { return }
-        let indicator = self.indicator ?? AgentActivityTitlebarIndicator()
-        self.indicator = indicator
-        indicator.onPress = { [weak self] in self?.open() }
-        indicator.update(from: page.model)
-        page.model.observeChanges { [weak indicator, weak page] in
-            guard let indicator, let page else { return }
-            indicator.update(from: page.model)
-        }
-        window.sidebar.container.sidebarView.titlebarAccessory = indicator
+        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
     }
 
     private func makeSource() -> any AgentActivitySource {

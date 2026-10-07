@@ -39,6 +39,7 @@ public actor AgentActivityStore {
     public func append(_ event: AgentActivityStoredEvent, thumbnail: (blob: String, data: Data, capturedAt: Date)? = nil) throws -> URL? {
         var thumbnailURL: URL?
         if let thumbnail {
+            guard Self.isBlobName(thumbnail.blob) else { throw CocoaError(.fileWriteInvalidFileName) }
             thumbnailURL = blobsURL.appendingPathComponent(thumbnail.blob)
             try thumbnail.data.write(to: thumbnailURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: thumbnailURL.path)
@@ -64,7 +65,7 @@ public actor AgentActivityStore {
     @discardableResult
     public func prune() throws -> AgentActivityRetentionPlan {
         let plan = planner.plan(events: events, frames: frames)
-        for blob in plan.frameBlobs {
+        for blob in plan.frameBlobs where Self.isBlobName(blob) {
             let url = blobsURL.appendingPathComponent(blob)
             try? fileManager.removeItem(at: url)
         }
@@ -81,6 +82,13 @@ public actor AgentActivityStore {
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: eventsURL.path)
         }
         return plan
+    }
+
+    /// A blob is one file name in `blobs/`: letters, digits, `.`, `_` and `-`, never a path or a
+    /// dot file, so no name reaches outside the store.
+    static func isBlobName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 128 && !name.hasPrefix(".")
+            && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
     }
 
     /// The root directory, useful for diagnostics without exposing pixels.

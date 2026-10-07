@@ -26,10 +26,6 @@ nonisolated enum AgentActivityStrings {
     static var openAgent: String { t("action.openAgent", "Open Agent") }
     static var openTarget: String { t("action.openTarget", "Open Target") }
     static var stopAll: String { t("action.stopAll", "Stop All") }
-    static func indicatorLabel(_ count: Int) -> String {
-        let label = String(localized: "indicator.live", defaultValue: "Computer use active", bundle: .module)
-        return count > 0 ? "\(label) (\(count))" : label
-    }
 
     static func status(_ status: AgentActivityStatus) -> String {
         switch status {

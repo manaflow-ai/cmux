@@ -23,6 +23,22 @@ struct AgentActivityRetentionTests {
         #expect(plan.eventIDs == ["old"])
         #expect(plan.frameBlobs == ["old-frame"])
     }
+
+    @Test("a thumbnail blob name never reaches outside the store")
+    func blobNamesStayInsideTheStore() async throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let store = try AgentActivityStore(applicationSupportDirectory: support, clock: TestAgentActivityClock(now: Date()))
+        let event = AgentActivityStoredEvent(id: "e", at: Date(), frameBlobs: [])
+        for name in ["../escape", "a/b", ".hidden", ""] {
+            await #expect(throws: (any Error).self) {
+                try await store.append(event, thumbnail: (blob: name, data: Data([1]), capturedAt: Date()))
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: support.appendingPathComponent("cmux/cua/escape").path))
+        let url = try await store.append(event, thumbnail: (blob: "abc123.png", data: Data([1]), capturedAt: Date()))
+        #expect(url?.lastPathComponent == "abc123.png")
+    }
 }
 
 private struct TestAgentActivityClock: AgentActivityClock {
