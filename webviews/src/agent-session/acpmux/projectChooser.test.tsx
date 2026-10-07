@@ -268,3 +268,35 @@ test("keeps the root project selectable", async () => {
   await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!.click());
   expect(picked).toEqual([["/", undefined]]);
 });
+
+test("automation opens the Location and Computer menus by their labels, as a click does", async () => {
+  const { openPicker, pickerLabels } = await import("./pickerOpeners");
+  // The fresh-chat folder menu.
+  await render({}, false, [{ cwd: "/Users/me/code/cmux", label: "cmux" }]);
+  expect(pickerLabels()).toEqual(expect.arrayContaining(["Location", "Computer"]));
+  let opened = false;
+  await act(async () => {
+    opened = openPicker("Location");
+  });
+  expect(opened).toBe(true);
+  expect(folderButton().getAttribute("aria-expanded")).toBe("true");
+  expect(doc.querySelectorAll('.acpmux-location-menu [role="menuitemradio"]').length).toBeGreaterThan(0);
+  // The folder field of a chat with no project choices.
+  await act(async () => root.unmount());
+  root = createRoot(doc.getElementById("root")!);
+  await render();
+  await act(async () => {
+    openPicker("Location");
+  });
+  expect(doc.querySelector(".acpmux-location-search")).not.toBeNull();
+  await act(async () => {
+    openPicker("Computer");
+  });
+  expect(doc.querySelector<HTMLButtonElement>('[aria-label="Computer"]')!.getAttribute("aria-expanded")).toBe("true");
+  // A started chat's location is a label: nothing to open.
+  await act(async () => root.unmount());
+  root = createRoot(doc.getElementById("root")!);
+  await render({ turnCount: 1 }, true);
+  expect(pickerLabels()).not.toContain("Location");
+  expect(openPicker("Location")).toBe(false);
+});
