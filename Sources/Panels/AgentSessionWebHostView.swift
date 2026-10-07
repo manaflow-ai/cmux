@@ -4,6 +4,8 @@ import WebKit
 @MainActor
 final class AgentSessionWebHostView: NSView {
     var onDidMoveToWindow: (() -> Void)?
+    /// Called when a retained agent web host is attached after its first pane attachment.
+    var onDidReattach: (() -> Void)?
     var onGeometryChanged: (() -> Void)?
     private(set) var geometryRevision: UInt64 = 0
     private var lastReportedAgentSessionWebHostGeometryState: AgentSessionWebHostGeometryState?
