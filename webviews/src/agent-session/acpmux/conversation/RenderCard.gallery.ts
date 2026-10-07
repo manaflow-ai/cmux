@@ -19,6 +19,8 @@ export default agentPaneEntry({
   title: "Render card",
   area: "Agent pane",
   covers: ["agent-session/acpmux/conversation/RenderCard.tsx"],
+  // Expand grows the card down the transcript; the composer and the header stay put.
+  anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
     chart: {
       note: "A chart the agent rendered, above its answer.",
@@ -35,6 +37,20 @@ export default agentPaneEntry({
         { html: pricingCard("Pro", "$20/mo", "#3b82f6", 30), title: "Pro plan" },
         "The card lists all 30 features; the button keeps the accent.",
       ),
+    },
+    expanded: {
+      note: "Play: Expand on the tall card; the whole page shows and the button reads Collapse.",
+      snapshot: turn(
+        "Mock the Pro plan card with every feature",
+        { html: pricingCard("Pro", "$20/mo", "#3b82f6", 30), title: "Pro plan" },
+        "The card lists all 30 features; the button keeps the accent.",
+      ),
+      play: async (ctx) => {
+        // The frame reports its height after it loads; Expand shows only once the page is taller.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-render-card-head button"));
+        await ctx.click({ role: "button", name: "Expand" });
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Collapse" }));
+      },
     },
     untitled: {
       note: "A render without a title reads Preview.",

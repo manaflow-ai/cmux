@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and render HTML), not shipped UI.
 // Several renders of one turn side by side (RenderGroup.tsx), one marked Recommended; Expand on
-// one shows it alone with Show all (that state needs a click, so it waits for play steps).
+// one shows it alone with Show all.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { listMock, pricingCard, renderTool } from "../../../gallery/fixtures/renders";
@@ -13,11 +13,24 @@ const options = (prompt: string, renders: Parameters<typeof renderTool>[0][], an
     summary(5, { status: "completed", toolCount: renders.length, durationMs: 64_000 }),
   ]);
 
+const threeOptions = () =>
+  options(
+    "Mock three pricing cards",
+    [
+      { html: pricingCard("Free", "$0", "#64748b"), title: "Free" },
+      { html: pricingCard("Pro", "$20/mo", "#3b82f6"), title: "Pro", recommended: true },
+      { html: pricingCard("Team", "$40/mo", "#8b5cf6"), title: "Team" },
+    ],
+    "Pro leads: it is the plan most people pick, so it gets the accent.",
+  );
+
 export default agentPaneEntry({
   id: "agent-pane.render-group",
   title: "Render options",
   area: "Agent pane",
   covers: ["agent-session/acpmux/conversation/RenderGroup.tsx"],
+  // Expand and Show all change the group in place; the composer and the header stay put.
+  anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
     "two-options": {
       note: "Two options, the first recommended.",
@@ -32,15 +45,26 @@ export default agentPaneEntry({
     },
     "three-options": {
       note: "Three plan cards in a row, the middle one recommended.",
-      snapshot: options(
-        "Mock three pricing cards",
-        [
-          { html: pricingCard("Free", "$0", "#64748b"), title: "Free" },
-          { html: pricingCard("Pro", "$20/mo", "#3b82f6"), title: "Pro", recommended: true },
-          { html: pricingCard("Team", "$40/mo", "#8b5cf6"), title: "Team" },
-        ],
-        "Pro leads: it is the plan most people pick, so it gets the accent.",
-      ),
+      snapshot: threeOptions(),
+    },
+    focused: {
+      note: "Play: Expand on the recommended option; it shows alone, opened, with Show all.",
+      snapshot: threeOptions(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-render-card").length === 3);
+        await ctx.click({ selector: ".acpmux-render-card:nth-child(2) .acpmux-render-card-head button" });
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Show all" }));
+      },
+    },
+    "show-all": {
+      note: "Play: Expand, then Show all; the three options are back side by side.",
+      snapshot: threeOptions(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-render-card").length === 3);
+        await ctx.click({ selector: ".acpmux-render-card:nth-child(2) .acpmux-render-card-head button" });
+        await ctx.click({ role: "button", name: "Show all" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-render-card").length === 3);
+      },
     },
     "five-options": {
       note: "More options than a row holds wrap to a second row; a tall one is capped.",
