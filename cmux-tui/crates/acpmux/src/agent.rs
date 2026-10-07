@@ -162,6 +162,12 @@ pub(crate) fn harness_command(
             (program.clone(), args.to_vec())
         }
     };
+    if profile.kind == crate::config::HarnessKind::Terminal && name.is_empty() {
+        return Err(anyhow!(
+            "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
+        ));
+    }
+    let env = resolved_profile_env(profile)?;
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
     crate::login_env::apply_tokio(&mut cmd);
@@ -181,7 +187,7 @@ pub(crate) fn harness_command(
             .env("ACPMUX_SOCKET", crate::config::socket_path());
     }
     cmd.args(args)
-        .envs(profile.env.iter())
+        .envs(env.iter())
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
@@ -194,6 +200,35 @@ pub(crate) fn harness_command(
         .process_group(0)
         .kill_on_drop(true);
     Ok(cmd)
+}
+
+/// The profile's env with its `${keychain:…}` and `${env:…}` references
+/// resolved (`config::profiles`). The secret store is asked only when a
+/// value holds a reference; the lookup blocks, so a multi-thread runtime
+/// moves it off its worker first.
+fn resolved_profile_env(
+    profile: &HarnessProfile,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut env = profile.env.clone();
+    if !crate::config::profiles::has_env_refs(&env) {
+        return Ok(env);
+    }
+    let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
+        crate::config::profiles::resolve_env_refs(
+            env,
+            &|var| crate::login_env::var(var).or_else(|| std::env::var(var).ok()),
+            &crate::config::profiles::keychain_lookup,
+        )
+    };
+    let multi_thread = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    let result = if multi_thread {
+        tokio::task::block_in_place(|| resolve(&mut env))
+    } else {
+        resolve(&mut env)
+    };
+    result.map_err(|e| anyhow!(e))?;
+    Ok(env)
 }
 
 /// The full environment `cmd` gives its child (inherited, then changed).

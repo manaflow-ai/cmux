@@ -60,6 +60,9 @@ impl Hub {
             current.auto_default = next.auto_default;
             current.auto_prefer = next.auto_prefer;
             current.unavailable = next.unavailable;
+            current.profile_meta = next.profile_meta;
+            current.profile_diagnostics = next.profile_diagnostics;
+            current.shadowed_config = next.shadowed_config;
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.web_asking_modes = next.web_asking_modes;
@@ -90,6 +93,9 @@ impl Hub {
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote)?
         };
         let agent = agent.as_str();
+        if profile.kind == crate::config::HarnessKind::Terminal {
+            return Err(terminal_harness_refusal(agent));
+        }
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
         let model = model.or(defaults.model);
@@ -252,6 +258,7 @@ impl Hub {
                 crate::config::HarnessKind::Acp => {
                     ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
                 }
+                crate::config::HarnessKind::Terminal => {}
             }
             if ids.contains(&spec)
                 || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
@@ -285,6 +292,7 @@ impl Hub {
                     .flatten()
                     .map(|(id, _)| id.clone()),
             ),
+            crate::config::HarnessKind::Terminal => {}
         }
         ids.dedup();
         ids
@@ -815,10 +823,14 @@ impl Hub {
         let known = self.known_models.lock().unwrap().clone();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
+            // A terminal harness has no models and no ACP session.
+            if profile.kind == crate::config::HarnessKind::Terminal {
+                continue;
+            }
             let mut models: Vec<Value> = profile
                 .models
                 .iter()
-                .map(|m| json!({"id": m.id(), "name": m.name(), "declared": true}))
+                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
                 .collect();
             let reported: Vec<Value> = match profile.kind {
                 crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
@@ -829,6 +841,7 @@ impl Hub {
                     .get(name)
                     .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
                     .unwrap_or_default(),
+                crate::config::HarnessKind::Terminal => Vec::new(),
             };
             for r in reported {
                 if !models.iter().any(|m| m["id"] == r["id"]) {
@@ -905,6 +918,35 @@ fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> S
 }
 
 /// Whether the harness takes its model on the command line or in env.
+/// A declared model as `_acpmux/models` lists it: id, name, `declared`, and
+/// the catalog fields its profile file gave (shortName, family, efforts…).
+pub fn declared_model_json(
+    model: &crate::config::DeclaredModel,
+    meta: Option<&crate::config::ProfileMeta>,
+) -> Value {
+    let mut v = json!({"id": model.id(), "name": model.name(), "declared": true});
+    if let Some(detail) =
+        meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id() && d.id.is_empty()))
+        && let (Some(out), Ok(Value::Object(extra))) =
+            (v.as_object_mut(), serde_json::to_value(detail))
+    {
+        for (k, x) in extra {
+            if k != "id" && k != "name" {
+                out.insert(k, x);
+            }
+        }
+    }
+    v
+}
+
+/// `session/new` for a terminal harness: it runs in a terminal tab.
+pub fn terminal_harness_refusal(name: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "harness.terminal: {name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
+    ))
+    .with_data(json!({"reason": "red", "harness": name}))
+}
+
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
     profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
