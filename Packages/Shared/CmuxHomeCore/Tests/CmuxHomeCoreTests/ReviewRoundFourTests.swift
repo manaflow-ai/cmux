@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
+import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
@@ -210,7 +211,4 @@ private func frameCount(_ data: Data) -> Int {
         store.stop()
     }
 
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<5_000 where !condition() { await Task.yield() }
-    }
 }

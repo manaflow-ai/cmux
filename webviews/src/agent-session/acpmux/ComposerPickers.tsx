@@ -260,10 +260,6 @@ export function ComposerPickers({
         </button>
       )}
       <span className="acpmux-chips-spacer" />
-      {/* A live chat keeps its ring from the first frame; usage fills it in place. */}
-      {(usage || summary?.sessionId) && (
-        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
-      )}
       {models.length > 0 && (
         <ModelPicker
           catalog={snapshot.catalog}
@@ -289,6 +285,10 @@ export function ComposerPickers({
           }
           measureRoom={measurePickerRoom}
         />
+      )}
+      {/* A live chat keeps its ring from the first frame; usage fills it in place. */}
+      {(usage || summary?.sessionId) && (
+        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
       )}
       {/* Without a model list the effort keeps a chip of its own. */}
       {models.length === 0 && effort && efforts.length > 0 && (

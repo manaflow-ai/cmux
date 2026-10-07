@@ -159,7 +159,7 @@ struct FilePageTabTests {
         #expect(shortcut("markdownSave") == Shortcut("s", modifiers: [.command]))
         #expect(shortcut("markdownBack") == Shortcut("[", modifiers: [.command]))
         #expect(shortcut("markdownForward") == Shortcut("]", modifiers: [.command]))
-        #expect(shortcut("markdownLink") == Shortcut("k", modifiers: [.command]))
+        #expect(shortcut("markdownLink") == Shortcut("k", modifiers: [.command, .shift]))
     }
 
     /// In the editor tab (codeEditorFocused) Cmd-S, word wrap and the file editor actions are the

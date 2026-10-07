@@ -122,7 +122,16 @@ pub fn drive(shared: &Arc<Shared>, st: &mut State) {
 }
 
 fn start(shared: &Arc<Shared>, st: &mut State, node: NodeId) {
-    let request = compact_request(&st.memory, &st.store, node, shared.system.clone());
+    let request = match compact_request(&st.memory, &st.store, node, shared.system.clone()) {
+        Ok(request) => request,
+        // A built node without its text: the store lost data; no model call
+        // may write a node from the stand-in, and no retry can bring it back.
+        Err(missing) => {
+            st.memory.fail(node);
+            st.set_fatal(format!("building node {}: {missing}", node.name()));
+            return;
+        }
+    };
     let sh = shared.clone();
     let spawned = thread::Builder::new()
         .name(format!("optchat-compact-{}", node.name()))
@@ -169,7 +178,9 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
             st.failing.remove(&node);
             {
                 let s = &mut *st;
-                s.memory.complete_in(node, &text, &s.store);
+                if let Err(e) = s.memory.complete_in(node, &text, &s.store) {
+                    s.set_fatal(format!("completing node {}: {e}", node.name()));
+                }
             }
             drive(&shared, &mut st);
             return shared.unlock(st);

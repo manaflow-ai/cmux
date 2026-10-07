@@ -17,11 +17,13 @@ mod render;
 
 pub use compact::{
     compact_request, cut_at_bytes, finish_line, size_check, size_check_in, CompactPrompt,
-    CompactRequest, SizeCheck, CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
+    CompactRequest, MissingNode, SizeCheck, CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
 };
-pub use memory::{Checkpoint, Memory, Store, Work};
+pub use memory::{Checkpoint, Memory, NotRunning, Store, Work};
 pub use node::{Kind, NodeId};
-pub use render::{cache_marks, cache_pieces, render_view, zoom, RenderedView, ZoomError};
+pub use render::{
+    cache_marks, cache_pieces, render_parts, render_view, view_line, zoom, RenderedView, ZoomError,
+};
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
 pub const NODE: usize = 512;

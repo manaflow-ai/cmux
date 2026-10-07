@@ -97,6 +97,7 @@ Five everyday commands, three groups for the rest:
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `daemon shutdown [--keep-agents]` | Stop the daemon and every agent host it owns; exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` leaves the user sessions' hosts running for the next daemon. |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -380,6 +381,12 @@ transcript, a drag that reaches the top or bottom edge keeps scrolling while the
 there, and a selection covers only the useful text: the gutter, role markers and trailing
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
+
+## Bring your own harness
+
+Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
+with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
 
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 

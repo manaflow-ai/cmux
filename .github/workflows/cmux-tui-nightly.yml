@@ -97,7 +97,7 @@ jobs:
       # Match stable native packages; the Cloudflare Worker deploys separately.
       # On-demand nightly packages are off the PR critical path: build the
       # macOS legs on the background lane. See docs/ci-runners.md.
-      macos_runner: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
