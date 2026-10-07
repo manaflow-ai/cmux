@@ -48,4 +48,10 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "keeps-running", "any-mac", "share-port", "team"])
         #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
     }
+
+    @Test("short clips dwell long enough to read before autoplay advances")
+    func shortMovieDwell() {
+        #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
+        #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
+    }
 }

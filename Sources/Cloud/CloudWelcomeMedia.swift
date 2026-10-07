@@ -85,6 +85,10 @@ struct CloudWelcomeMediaCarousel: View {
 
     /// How long a slide without a clip (or with an unreadable one) stays up.
     private static let fallbackDuration: Double = 4
+    /// Short draft clips still need enough time for the title and caption to be
+    /// read. They loop until this dwell has elapsed, then advance on a loop
+    /// boundary so the transition never cuts through a frame.
+    private static let minimumReadableMovieDwell: Double = 4
     private static let pillWidth: CGFloat = 36
     private static let dotSize: CGFloat = 6
 
@@ -449,7 +453,12 @@ struct CloudWelcomeMediaCarousel: View {
     /// A movie's first play ended (the looper wrapped around): next slide.
     private func clipFinished() {
         guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1 else { return }
+        guard Self.shouldAdvanceAfterMovie(elapsed: playback.elapsed(at: Date())) else { return }
         show((index + 1) % slides.count)
+    }
+
+    nonisolated static func shouldAdvanceAfterMovie(elapsed: Double) -> Bool {
+        elapsed >= minimumReadableMovieDwell
     }
 
     /// A slide without a movie (GIF, placeholder) waits out its duration, then
