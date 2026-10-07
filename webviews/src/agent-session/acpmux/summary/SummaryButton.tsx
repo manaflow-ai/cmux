@@ -56,7 +56,11 @@ export function SummaryButton({
       {summary ? (
         <Popover
           open={open}
-          onOpenChange={setOpen}
+          // This popover has no Base UI trigger. Opening is owned by the button and
+          // automation; Base UI only reports dismissals (Escape and outside press).
+          onOpenChange={(next) => {
+            if (!next) setOpen(false);
+          }}
           anchor={button.current}
           label={label}
           className="acpmux-summary-popover"
