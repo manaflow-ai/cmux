@@ -11,6 +11,7 @@ import type { AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { timestampTurns } from "./timestamps";
+import { isSubagentGroup } from "../subagents/subagentRows";
 import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -124,8 +125,10 @@ function shapeTurn(
     }
   const answer = final >= 0 ? body[final] : undefined;
   // Work before the answer folds away (all of it, when the turn ended without one); edits
-  // also close the turn as their card.
-  const work = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
+  // also close the turn as their card. Subagent groups stay out, under the fold's line.
+  const before = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
+  const work = before.filter((row) => !isSubagentGroup(row));
+  const groups = before.filter(isSubagentGroup);
   const after = final >= 0 ? body.slice(final + 1) : [];
   // Edits after the answer join the card too, so its Undo covers the whole turn.
   const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
@@ -149,7 +152,7 @@ function shapeTurn(
     if (open)
       shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
-  shaped.push(...renderRows(body, version));
+  shaped.push(...groups, ...renderRows(body, version));
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
   const preview = turnPreviewUrl(user, turn);
@@ -220,7 +223,8 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
       final = at;
       break;
     }
-  const work = final >= 0 ? rows.slice(0, final) : rows;
+  const before = final >= 0 ? rows.slice(0, final) : rows;
+  const work = before.filter((row) => !isSubagentGroup(row));
   if (work.length === 0) return rows;
   const id = `${WORKED}-${user.id}`;
   const open = expanded.has(id);
@@ -230,6 +234,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
+    ...before.filter(isSubagentGroup),
     ...(final >= 0 ? rows.slice(final) : []),
     ...editsCard(edits),
   ];

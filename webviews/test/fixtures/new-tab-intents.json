@@ -360,8 +360,85 @@
     {
       "input": "about:config",
       "intent": {
+        "kind": "url",
+        "url": "chrome://config/"
+      }
+    },
+    {
+      "input": "chrome://extensions",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/"
+      }
+    },
+    {
+      "input": "chrome://extensions/",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/"
+      }
+    },
+    {
+      "input": "CHROME://Extensions",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/"
+      }
+    },
+    {
+      "input": "chrome://extensions?id=abc",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/?id=abc"
+      }
+    },
+    {
+      "input": "chrome:extensions",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/"
+      }
+    },
+    {
+      "input": "chrome://settings/passwords",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://settings/passwords"
+      }
+    },
+    {
+      "input": "about:extensions",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://extensions/"
+      }
+    },
+    {
+      "input": "ABOUT:Version",
+      "intent": {
+        "kind": "url",
+        "url": "chrome://version/"
+      }
+    },
+    {
+      "input": "chrome-extension://ABCDEFGHIJKLMNOPABCDEFGHIJKLMNOP/options.html",
+      "intent": {
+        "kind": "url",
+        "url": "chrome-extension://abcdefghijklmnopabcdefghijklmnop/options.html"
+      }
+    },
+    {
+      "input": "chrome://",
+      "intent": {
         "kind": "prompt",
-        "text": "about:config"
+        "text": "chrome://"
+      }
+    },
+    {
+      "input": "chrome://user@extensions",
+      "intent": {
+        "kind": "prompt",
+        "text": "chrome://user@extensions"
       }
     },
     {

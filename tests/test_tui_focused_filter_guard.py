@@ -177,7 +177,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
 
 MACOS_RELAY_RUNNER = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "github.run_attempt == 1 && 'glaeda-aws-std-xcode-26.6' || "
+    "vars.CI_PR_POOL_OWNED == '1' && "
+    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+    "github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || "
     "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
 )
 
@@ -188,8 +190,8 @@ def test_macos_runs_the_chatmux_relay_tests() -> None:
     9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
     the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
     mode with the chatmux_relay selector). The relay job takes the owned AWS
-    runners on attempt 1, as the cmux-tui-artifacts macOS legs do (7e6904a4),
-    and a rerun returns to the background lane.
+    minis through CI_AWS_SIDE_RUNNER on attempt 1 (CI_SIDE_LANE_RUNNER when it
+    is empty), and a rerun returns to the background lane.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["macos-relay"]
@@ -214,3 +216,22 @@ def test_macos_runs_the_chatmux_relay_tests() -> None:
     assert gate["env"]["MACOS_RELAY_RESULT"] == "${{ needs.macos-relay.result }}"
     assert gate["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
     assert 'require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"' in gate_commands
+
+
+ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+
+
+def test_artifacts_macos_legs_take_the_aws_side_runner_on_attempt_one() -> None:
+    workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
+    builds = [
+        job for job in workflow["jobs"].values()
+        if isinstance(job, dict) and "macos_runner" in (job.get("with") or {})
+    ]
+    assert builds
+    for job in builds:
+        runner = job["with"]["macos_runner"]
+        assert runner.startswith("${{ inputs.macos_runner || ")
+        assert MACOS_RELAY_RUNNER.removeprefix("${{ ") in runner
+        assert job["with"]["macos_retry_runner"] == (
+            "${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+        )
