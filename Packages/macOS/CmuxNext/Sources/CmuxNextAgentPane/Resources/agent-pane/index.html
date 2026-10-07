@@ -303,9 +303,9 @@ select {
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-text);color:var(--acpmux-base)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The picker menus open above the field, aligned with its edges. */
@@ -2167,14 +2167,15 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
 }
 
-/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+/* Send and Stop: the one filled control, in the terminal theme's text color (never the ANSI blue);
+   its arrow is the opaque base; it steps toward the base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover,
 .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active,
 .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
