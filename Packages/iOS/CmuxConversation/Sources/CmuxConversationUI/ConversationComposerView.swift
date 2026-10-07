@@ -1,4 +1,6 @@
 #if canImport(UIKit)
+import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// A picked image waiting in the composer.
@@ -26,7 +28,20 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     let plusButton = UIButton(type: .system)
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
     let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerMinHeight / 2, interactive: false)
-    let textView = ComposerTextView()
+    /// TextKit 1, so the effect overlay can read glyph geometry.
+    /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
+    /// bypasses Swift's stored-property initialization in subclasses.)
+    let textView: ComposerTextView = {
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        manager.addTextContainer(container)
+        return ComposerTextView(frame: .zero, textContainer: container)
+    }()
+    /// Shown in place of the keyboard by the edit menu's Text Effects item.
+    private(set) lazy var textEffectsPalette = TextEffectsPaletteView(composer: self)
     private let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
     private let micButton = UIButton(type: .system)
@@ -112,11 +127,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentSeparator.isHidden = true
 
         textView.font = ConversationTheme.bodyFont
-        textView.typingAttributes = [
+        textView.baseTypingAttributes = [
             .font: ConversationTheme.bodyFont,
             .foregroundColor: UIColor.label,
             .paragraphStyle: ConversationTheme.bodyParagraph,
         ]
+        textView.typingAttributes = textView.baseTypingAttributes
+        textView.installTextEffects()
+        textView.onFormattingChanged = { [weak self] in self?.formattingDidChange() }
         textView.backgroundColor = .clear
         textView.textContainerInset = UIEdgeInsets(top: verticalPadding, left: 0, bottom: verticalPadding, right: 0)
         textView.textContainer.lineFragmentPadding = 0
@@ -191,6 +209,50 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     // MARK: Text
 
     func textViewDidChange(_ textView: UITextView) {
+        self.textView.restyle()
+        textDidChange()
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        textEffectsPalette.refreshState()
+        mentionController.selectionDidChange()
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        let effects = UIAction(
+            title: String(localized: "conversation.textEffects.title", defaultValue: "Text Effects", bundle: .module),
+            image: UIImage(systemName: "textformat")
+        ) { [weak self] _ in self?.showTextEffects() }
+        var children = suggestedActions
+        // After the standard Cut/Copy/Paste group, as Messages places it.
+        children.insert(effects, at: min(1, children.count))
+        return UIMenu(children: children)
+    }
+
+    /// Formatting of the draft, in the trimmed-later text's UTF-16 offsets.
+    var textRuns: [ConversationTextRun] { textView.textRuns }
+
+    /// Loads a draft with formatting (editing a sent message).
+    func setText(_ text: String, runs: [ConversationTextRun]) {
+        textView.setText(text, runs: runs)
+        textDidChange()
+    }
+
+    func showTextEffects() {
+        if !textView.isFirstResponder { textView.becomeFirstResponder() }
+        textEffectsPalette.refreshState()
+        textView.inputView = textEffectsPalette
+        textView.reloadInputViews()
+    }
+
+    func hideTextEffects() {
+        guard textView.inputView != nil else { return }
+        textView.inputView = nil
+        textView.reloadInputViews()
+    }
+
+    private func formattingDidChange() {
+        textEffectsPalette.refreshState()
         textDidChange()
     }
 
@@ -322,6 +384,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentSeparator.isHidden = true
         textView.text = ""
         mentionController.reset()
+        textView.resetFormatting()
+        hideTextEffects()
         updatePlaceholder()
         updateSendButton(animated: true)
         let previous = fieldHeight
@@ -361,6 +425,37 @@ final class ComposerTextView: UITextView {
     override func deleteBackward() {
         if deleteBackwardHandler?() == true { return }
         super.deleteBackward()
+    }
+
+    /// Plain body attributes; formatting is layered on through the semantic keys.
+    var baseTypingAttributes: [NSAttributedString.Key: Any] = [:]
+    var onFormattingChanged: (() -> Void)?
+    let effectLayer = ConversationTextEffectLayer()
+
+    override var keyCommands: [UIKeyCommand]? {
+        let format: [UIKeyCommand] = [
+            UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleBoldface(_:))),
+            UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleItalics(_:))),
+            UIKeyCommand(input: "u", modifierFlags: .command, action: #selector(toggleUnderline(_:))),
+        ]
+        format.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return (super.keyCommands ?? []) + format
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) || action == #selector(toggleUnderline(_:)) {
+            return isEditable
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func toggleBoldface(_ sender: Any?) { toggle(.bold) }
+    override func toggleItalics(_ sender: Any?) { toggle(.italic) }
+    override func toggleUnderline(_ sender: Any?) { toggle(.underline) }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        refreshEffects()
     }
 
     override func paste(_ sender: Any?) {

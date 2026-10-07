@@ -455,9 +455,10 @@ public final class ConversationStore {
         text: String,
         images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
         replyToID: String? = nil,
-        mentions: [ConversationMention] = []
+        mentions: [ConversationMention] = [],
+        textRuns: [ConversationTextRun] = []
     ) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
         let leading = text.prefix { $0.isWhitespace || $0.isNewline }.utf16.count
         let clientID = makeClientMessageID()
@@ -481,7 +482,8 @@ public final class ConversationStore {
             replyToID: replyToID,
             attachments: attachments,
             delivery: .sending,
-            mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count)
+            mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count),
+            textRuns: runs
         )
         upsert(pending)
         sortAndReindex()
@@ -559,7 +561,8 @@ public final class ConversationStore {
                     text: current.text,
                     replyToID: current.replyToID,
                     attachmentIDs: attachmentIDs,
-                    mentions: current.mentions
+                    mentions: current.mentions,
+                    textRuns: current.textRuns
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }
@@ -615,12 +618,16 @@ public final class ConversationStore {
     }
 
     /// Applies the edit at once; reverts if the backend refuses it.
-    public func edit(messageID: String, text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed,
+    /// `textRuns` are the edited text's formatting; omitting them clears it.
+    /// Mentions survive only where their text is unchanged.
+    public func edit(messageID: String, text: String, textRuns: [ConversationTextRun] = []) {
+        let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
+        guard !trimmed.isEmpty, let index = indexByID[messageID],
+              messages[index].text != trimmed || messages[index].textRuns != runs,
               canEdit(messages[index]) else { return }
         let original = messages[index]
         messages[index].text = trimmed
+        messages[index].textRuns = runs
         messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
         messages[index].editedAt = Date()
         messages[index].editCount += 1
@@ -628,7 +635,7 @@ public final class ConversationStore {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let updated = try await self.backend.edit(messageID: messageID, text: trimmed)
+                let updated = try await self.backend.edit(messageID: messageID, text: trimmed, textRuns: runs)
                 self.upsert(updated)
             } catch {
                 guard let index = self.indexByID[messageID] else { return }

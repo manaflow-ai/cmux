@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CmuxConversationGeometry
 import CmuxConversationCore
 
 /// One visual row of the macOS transcript.
@@ -226,7 +227,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, [ConversationMention], NSAttributedString)] = [:]
+    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -238,12 +239,14 @@ final class MacMessageLayoutCache {
     }
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
-        if let (text, outgoing, mentions, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing,
-           mentions == model.message.mentions {
+        if let (text, outgoing, mentions, runs, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing,
+           mentions == model.message.mentions, runs == model.message.textRuns {
             return value
         }
-        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID)
-        texts[model.rowID] = (model.message.text, model.isOutgoing, model.message.mentions, value)
+        let value = MacMessageLayout.attributedBody(
+            model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID, runs: model.message.textRuns
+        )
+        texts[model.rowID] = (model.message.text, model.isOutgoing, model.message.mentions, model.message.textRuns, value)
         return value
     }
 
@@ -260,13 +263,23 @@ extension NSAttributedString.Key {
 extension MacMessageLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool, mentions: [ConversationMention] = [], meID: String? = nil) -> NSAttributedString {
+    static func attributedBody(
+        _ text: String,
+        outgoing: Bool,
+        mentions: [ConversationMention] = [],
+        meID: String? = nil,
+        runs: [ConversationTextRun] = []
+    ) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: t.bodyFont,
             .foregroundColor: outgoing ? t.outgoingText : t.incomingText,
             .paragraphStyle: t.bodyParagraph,
         ])
+        if !runs.isEmpty {
+            ConversationRichText.apply(runs, to: result)
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: t.bodyFont, lineHeight: t.lineHeight)
+        }
         linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)

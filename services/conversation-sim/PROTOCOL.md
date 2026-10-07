@@ -21,9 +21,9 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged, lastReadSeq, unreadCount}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention]}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
-| `edit` | `{messageId, text}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
+| `edit` | `{messageId, text, textRuns?}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
@@ -70,8 +70,12 @@ Message {
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
   mentions?: [Mention]                           // omitted when none
+  textRuns?: [TextRun]                           // omitted when plain
 }
 Mention { participantId, location, length }      // UTF-16 range of text, sorted, non-overlapping
+TextRun = { start, length, styles?: [TextStyle], effect?: TextEffect }
+TextStyle  = "bold"|"italic"|"underline"|"strikethrough"
+TextEffect = "big"|"small"|"shake"|"nod"|"explode"|"ripple"|"bloom"|"jitter"
 ```
 
 A mention is the participant's first name in `text` (no "@"). `send` rejects
@@ -81,6 +85,13 @@ unknown participants and out-of-range or overlapping mentions with `-32602`.
 ```
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 ```
+
+`textRuns` carry iMessage formatting and animated text effects. `start` and
+`length` count UTF-16 code units of `text`. Runs are sorted, non-overlapping
+and non-empty; the server rejects out-of-range, overlapping or unknown values
+with `-32602` and drops runs with neither styles nor an effect. `styles` come
+back in the canonical order above. `edit` replaces the runs with its own, so an
+edit without `textRuns` clears the formatting.
 
 ## HTTP
 
@@ -118,5 +129,7 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
-  message ~5% of the time. In `group`, ~12% of bot messages mention someone
-  (half of those mention me); ~4% of group history mentions someone.
+  message ~5% of the time (an edit drops formatting). In `group`, ~12% of bot
+  messages mention someone (half of those mention me); ~4% of group history
+  mentions someone. About 6% of bot and history messages are formatted: half
+  animate the whole message with a random text effect, half style one word.

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Precomputed frames for one message row, in cell coordinates. Computing
@@ -38,7 +39,7 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (String, [ConversationMention], NSAttributedString)] = [:]
+    private var attributed: [String: (String, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -52,11 +53,14 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, mentions, value) = attributed[cacheKey], text == model.message.text, mentions == model.message.mentions {
+        if let (text, mentions, runs, value) = attributed[cacheKey], text == model.message.text,
+           mentions == model.message.mentions, runs == model.message.textRuns {
             return value
         }
-        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID)
-        attributed[cacheKey] = (model.message.text, model.message.mentions, value)
+        let value = MessageCellLayout.attributedBody(
+            model.message.text, outgoing: model.isOutgoing, mentions: model.message.mentions, meID: model.meID, runs: model.message.textRuns
+        )
+        attributed[cacheKey] = (model.message.text, model.message.mentions, model.message.textRuns, value)
         return value
     }
 
@@ -74,12 +78,22 @@ extension NSAttributedString.Key {
 extension MessageCellLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool, mentions: [ConversationMention] = [], meID: String? = nil) -> NSAttributedString {
+    static func attributedBody(
+        _ text: String,
+        outgoing: Bool,
+        mentions: [ConversationMention] = [],
+        meID: String? = nil,
+        runs: [ConversationTextRun] = []
+    ) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
             .foregroundColor: outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText,
             .paragraphStyle: ConversationTheme.bubbleParagraph,
         ])
+        if !runs.isEmpty {
+            ConversationRichText.apply(runs, to: result)
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bodyFont, lineHeight: ConversationTheme.lineHeight)
+        }
         let range = NSRange(text.startIndex..., in: text)
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match else { return }

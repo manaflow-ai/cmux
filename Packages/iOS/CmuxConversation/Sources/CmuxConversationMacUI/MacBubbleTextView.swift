@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CmuxConversationGeometry
 
 /// A bubble's text: drawn exactly as `MacMeasuredTextView` draws it (so
 /// bubbles keep the metrics `boundingRect` measured), but selectable like the
@@ -17,8 +18,13 @@ final class MacBubbleTextView: NSTextView {
             setSelectedRange(NSRange(location: 0, length: 0))
             textStorage.setAttributedString(newValue)
             needsDisplay = true
+            needsLayout = true
         }
     }
+    /// Keys explode and jitter randomness to the message.
+    var effectSeed: UInt64 = 0
+    /// Draws and loops text-effect glyphs, which `draw` leaves clear.
+    private let effectLayer = ConversationTextEffectLayer()
 
     init() {
         // TextKit 1, so hit testing and selection rects come from the same
@@ -45,6 +51,8 @@ final class MacBubbleTextView: NSTextView {
         selectedTextAttributes = [:]
         // The row is the accessibility element for the message.
         setAccessibilityElement(false)
+        layer?.addSublayer(effectLayer)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(reduceMotionChanged), name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -69,6 +77,46 @@ final class MacBubbleTextView: NSTextView {
     private var selectionColor: NSColor {
         // On the blue outgoing bubble the system highlight would vanish.
         isOutgoing ? NSColor.white.withAlphaComponent(0.35) : NSColor.selectedTextBackgroundColor
+    }
+
+    // MARK: Text effects
+
+    override func layout() {
+        super.layout()
+        refreshEffects(restart: false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshEffects(restart: true)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        refreshEffects(restart: true)
+    }
+
+    @objc private func reduceMotionChanged() {
+        refreshEffects(restart: true)
+    }
+
+    private func refreshEffects(restart: Bool) {
+        effectLayer.frame = bounds
+        let text = attributedText
+        guard text.length > 0, bounds.width > 0 else {
+            effectLayer.clear()
+            return
+        }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            effectLayer.update(
+                text: text,
+                textSize: bounds.size,
+                scale: window?.backingScaleFactor ?? 2,
+                animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                seed: effectSeed,
+                restart: restart
+            )
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {

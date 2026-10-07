@@ -21,6 +21,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     func composerDidTapSend(_ composer: ConversationComposerView) {
         let text = composer.text
         let mentions = composer.mentions
+        let textRuns = composer.textRuns
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)
         let textFrame = composer.textFrame(in: view)
@@ -34,7 +35,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns) else {
             pendingFlight = nil
             return
         }
@@ -89,7 +90,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
             bubble.fillColor = ConversationTheme.outgoingBubble
-            let label = UILabel()
+            let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
             // The text rides in a clip that moves with the bubble, so a draft

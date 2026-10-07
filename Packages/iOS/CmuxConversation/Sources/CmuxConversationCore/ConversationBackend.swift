@@ -42,8 +42,17 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func edit(messageID: String, text: String) async throws -> ConversationMessage
     /// Takes back one of my messages (Undo Send). The result carries `unsentAt`.
     func unsend(messageID: String) async throws -> ConversationMessage
+    /// Replaces the text and its formatting (an empty `textRuns` clears it).
+    func edit(messageID: String, text: String, textRuns: [ConversationTextRun]) async throws -> ConversationMessage
     func setTyping(_ isTyping: Bool) async
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment
     func close()
+}
+
+extension ConversationBackend {
+    /// Backends without rich text drop the formatting.
+    public func edit(messageID: String, text: String, textRuns: [ConversationTextRun]) async throws -> ConversationMessage {
+        try await edit(messageID: messageID, text: text)
+    }
 }

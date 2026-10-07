@@ -32,15 +32,64 @@ func makeMacLabel() -> NSTextField {
 /// Draws attributed text with the same metrics `boundingRect` measured, so
 /// bubbles size exactly (an NSTextField would add its own padding).
 final class MacMeasuredTextView: MacFlippedView {
-    var attributedText = NSAttributedString() { didSet { needsDisplay = true } }
+    var attributedText = NSAttributedString() {
+        didSet {
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+    /// Keys explode and jitter randomness to the message.
+    var effectSeed: UInt64 = 0
+    /// Draws and loops text-effect glyphs, which `draw` leaves clear.
+    private let effectLayer = ConversationTextEffectLayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        wantsLayer = true
+        layer?.addSublayer(effectLayer)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(reduceMotionChanged), name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        refreshEffects(restart: false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshEffects(restart: true)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        refreshEffects(restart: true)
+    }
+
+    @objc private func reduceMotionChanged() {
+        refreshEffects(restart: true)
+    }
+
+    private func refreshEffects(restart: Bool) {
+        effectLayer.frame = bounds
+        guard attributedText.length > 0, bounds.width > 0 else {
+            effectLayer.clear()
+            return
+        }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            effectLayer.update(
+                text: attributedText,
+                textSize: bounds.size,
+                scale: window?.backingScaleFactor ?? 2,
+                animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                seed: effectSeed,
+                restart: restart
+            )
+        }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         attributedText.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -249,6 +298,7 @@ final class MacMessageRowView: MacFlippedView {
             bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
             textLabel.isHidden = false
             textLabel.isOutgoing = model.isOutgoing
+            textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
             textLabel.frame = textFrame
         } else {

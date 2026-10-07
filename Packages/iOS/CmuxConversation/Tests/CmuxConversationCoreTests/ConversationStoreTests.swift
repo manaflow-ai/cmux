@@ -252,6 +252,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
     private var _sentClientIDs: [String] = []
+    private var _sentDrafts: [ConversationOutgoingDraft] = []
     private var _sendCount = 0
     private var _stampAcksWithServerNow = false
 
@@ -262,6 +263,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var failNextSend: Bool { get { lock.withLock { _failNextSend } } set { lock.withLock { _failNextSend = newValue } } }
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
+    var sentDrafts: [ConversationOutgoingDraft] { lock.withLock { _sentDrafts } }
     var sendCount: Int { lock.withLock { _sendCount } }
     /// Acks carry a server time later than any local send time, as a real server's do.
     var stampAcksWithServerNow: Bool { get { lock.withLock { _stampAcksWithServerNow } } set { lock.withLock { _stampAcksWithServerNow = newValue } } }
@@ -303,6 +305,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
         let (hold, fail) = lock.withLock { () -> (Bool, Bool) in
             _sentClientIDs.append(draft.clientMessageID)
+            _sentDrafts.append(draft)
             let fail = _failNextSend
             _failNextSend = false
             return (_holdSend, fail)
@@ -323,6 +326,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         message.clientMessageID = draft.clientMessageID
         message.text = draft.text
         message.mentions = draft.mentions
+        message.textRuns = draft.textRuns
         message.delivery = .sent
         if stampAcksWithServerNow { message.sentAt = Date().addingTimeInterval(5) }
         return message

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// One message: optional sender name, reply quote, images, text bubble or
@@ -13,7 +14,7 @@ final class MessageCell: UICollectionViewCell {
     let quoteLabel = UILabel()
     let threadLine = CAShapeLayer()
     let bubble = BubbleBackgroundView()
-    let textLabel = UILabel()
+    let textLabel = ConversationEffectLabel()
     let emojiLabel = UILabel()
     let avatar = ConversationAvatarView()
     let reactionBadge = ReactionBadgeView()
@@ -163,6 +164,7 @@ final class MessageCell: UICollectionViewCell {
                 : ConversationTheme.incomingBubble
             bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
             bubble.frame = bubbleFrame
+            textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
             textLabel.frame = textFrame
         } else {

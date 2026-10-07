@@ -857,7 +857,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     func composerDidSubmit(_ composer: MacComposerView) {
         tapbackPopover?.close()
         if let messageID = editingMessageID {
-            store.edit(messageID: messageID, text: composer.text)
+            store.edit(messageID: messageID, text: composer.text, textRuns: composer.textRuns)
             exitReplyOrEdit()
             composer.clearAfterSend()
             return
@@ -868,6 +868,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let replyTo = replyTarget?.id
         let text = composer.text
         let mentions = composer.mentions
+        let textRuns = composer.textRuns
         // The bubble flies from where the draft sits, captured before the
         // composer collapses; the collapse and insert land in one scroll.
         flightSource = (
@@ -878,7 +879,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         isSubmitting = true
         composer.clearAfterSend()
         trace("submit.cleared")
-        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions)
+        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns)
         isSubmitting = false
         if let rowID { registerUndoSend(rowID: rowID) }
         // The flight's scroll animates to the new bottom.
@@ -1041,7 +1042,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         editingMessageID = message.id
         composer.isReplyMode = false
         composer.isEditMode = true
-        composer.text = message.text
+        composer.setText(message.text, runs: message.textRuns)
         replyBanner.configure(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), text: message.text)
         replyBanner.isHidden = false
         updateInsets()

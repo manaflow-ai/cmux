@@ -297,10 +297,6 @@ extension ConversationComposerView {
         mentionController.shouldChange(range, replacement: text)
     }
 
-    func textViewDidChangeSelection(_ textView: UITextView) {
-        mentionController.selectionDidChange()
-    }
-
     /// The draft's mentions, captured before the composer clears on send.
     var mentions: [ConversationMention] { mentionController.mentions }
 }
