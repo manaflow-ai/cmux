@@ -1942,6 +1942,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
+			<key>pfm_name</key>
+			<string>sidebar.cards.tips</string>
+			<key>pfm_title</key>
+			<string>Show Tips</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
 			<string>The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.</string>

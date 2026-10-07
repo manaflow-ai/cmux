@@ -262,7 +262,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
-            if parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+            if parts.iter().any(Part::counts_as_turn) {
                 let author = head.participant(request.actor);
                 if author.is_some_and(|p| p.kind == ParticipantKind::Agent) {
                     next.agent_text_streak = head.agent_text_streak.saturating_add(1);
@@ -397,6 +397,8 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::InvalidPartIndex);
             };
             crate::question::answer(question, answer, actor, now)?;
+            // A person's answer is a human turn: the agent may go on.
+            next.agent_text_streak = 0;
             updated(message)
         }
         Op::TitleSet { title } => {

@@ -913,6 +913,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-server",
+ "cmux-server-core",
+ "libc",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [

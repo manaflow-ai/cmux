@@ -109,6 +109,15 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
                          peersFile: parseLinkPeersFile(show), install: install)
     }
 
+    /// The default link's config file (`cmux link init` writes it):
+    /// `<CMUX_TUI_STATE_DIR or ~/Library/Application Support/cmux-tui/sessions>/link/config.json`.
+    /// Its watch sits on the nearest existing directory until it appears.
+    static func defaultLinkSetupFile(environment: [String: String], home: String) -> String {
+        let state = environment["CMUX_TUI_STATE_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? home + "/Library/Application Support/cmux-tui/sessions"
+        return URL(fileURLWithPath: state).appendingPathComponent("link/config.json").path
+    }
+
     /// `cmux link show` JSON: the live link's socket, or nil when it is not running.
     static func parseLinkShow(_ data: Data) -> String? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
