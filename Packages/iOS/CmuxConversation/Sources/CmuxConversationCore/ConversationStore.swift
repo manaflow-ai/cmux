@@ -384,13 +384,25 @@ public final class ConversationStore {
         let hasPrevious = index > 0
         let hasNext = index + 1 < messages.count
         let inPlace: Bool
-        if let seq = message.seq {
+        if message.isScheduled {
+            // Send Later rows trail everything, earliest scheduled first.
+            let key = (message.scheduledAt ?? message.sentAt, message.sentAt)
+            let previousOK = !hasPrevious || !messages[index - 1].isScheduled
+                || (messages[index - 1].scheduledAt ?? messages[index - 1].sentAt, messages[index - 1].sentAt) <= key
+            let nextOK = !hasNext || (messages[index + 1].isScheduled
+                && key <= (messages[index + 1].scheduledAt ?? messages[index + 1].sentAt, messages[index + 1].sentAt))
+            inPlace = previousOK && nextOK
+        } else if let seq = message.seq {
             let previousOK = !hasPrevious || messages[index - 1].seq.map { $0 < seq } ?? false
-            let nextOK = !hasNext || messages[index + 1].seq.map { $0 > seq } ?? (messages[index + 1].delivery?.isFailed != true)
+            let nextOK = !hasNext || messages[index + 1].isScheduled
+                || messages[index + 1].seq.map { $0 > seq } ?? (messages[index + 1].delivery?.isFailed != true)
             inPlace = previousOK && nextOK
         } else if message.delivery?.isFailed != true {
-            let previousOK = !hasPrevious || messages[index - 1].seq != nil || messages[index - 1].sentAt <= message.sentAt
-            let nextOK = !hasNext || (messages[index + 1].seq == nil && messages[index + 1].sentAt >= message.sentAt)
+            // Below the acknowledged history, above any Send Later rows.
+            let previous = hasPrevious ? messages[index - 1] : nil
+            let previousOK = previous.map { !$0.isScheduled && ($0.seq != nil || $0.sentAt <= message.sentAt) } ?? true
+            let nextOK = !hasNext || messages[index + 1].isScheduled
+                || (messages[index + 1].seq == nil && messages[index + 1].delivery?.isFailed != true && messages[index + 1].sentAt >= message.sentAt)
             inPlace = previousOK && nextOK
         } else {
             inPlace = false
@@ -576,12 +588,15 @@ public final class ConversationStore {
     /// Drops loaded history above the newest `keepingNewest` acknowledged
     /// messages, for a reader resting at the bottom: those rows are far
     /// off screen and reload as pages when the reader scrolls back up.
-    /// Messages replied to by a kept message stay loaded with everything
-    /// below them, so no visible quote disappears; a failed send above the
-    /// cut stops the trim there. Returns whether anything was dropped
-    /// (observers get `.reset`).
+    /// The cut moves up to keep, with everything below it: messages in
+    /// `preserving` (message or row ids the UI holds open), the pending
+    /// catch-up target and the unread backlog (so read state stays exact),
+    /// polls with an unconfirmed vote or choice, and every message a kept
+    /// message quotes. Unacknowledged messages (a failed send's text exists
+    /// only here; Send Later rows) are never dropped. Returns whether
+    /// anything was dropped (observers get `.reset`).
     @discardableResult
-    public func trimOlder(keepingNewest keep: Int) -> Bool {
+    public func trimOlder(keepingNewest keep: Int, preserving pinned: Set<String> = []) -> Bool {
         guard hasLoadedNewest, keep > 0 else { return false }
         switch older {
         case .loading, .retrying: return false
@@ -597,6 +612,19 @@ public final class ConversationStore {
             }
         }
         guard ackedSeen == keep, cut > 0 else { return false }
+        // The catch-up arrow's target needs the window to reach its marker;
+        // an unread backlog keeps its first unread so the count stays exact.
+        for floorSeq in [catchUpMarker, unreadCount > 0 ? lastReadSeq : nil].compactMap({ $0 }) {
+            guard let first = messages[..<cut].firstIndex(where: { ($0.seq ?? 0) > floorSeq }) else { continue }
+            cut = max(0, first - 1)
+        }
+        if let held = messages[..<cut].firstIndex(where: { message in
+            pinned.contains(message.id) || pinned.contains(message.rowID)
+                || polls.pendingVotes[message.id]?.isEmpty == false
+                || polls.pendingOptions[message.id]?.isEmpty == false
+        }) {
+            cut = held
+        }
         // Keep every message a kept message quotes (and so everything below it).
         var scanned = messages.count
         while scanned > cut {
@@ -612,6 +640,10 @@ public final class ConversationStore {
             cut = firstLocal
         }
         guard cut > 0 else { return false }
+        for message in messages[..<cut] {
+            polls.server[message.id] = nil
+            polls.failures[message.id] = nil
+        }
         messages.removeFirst(cut)
         indexByID.removeAll(keepingCapacity: true)
         for (index, message) in messages.enumerated() {
@@ -620,6 +652,7 @@ public final class ConversationStore {
         older = .idle
         olderWanted = false
         notify(.reset)
+        refreshReadState()
         return true
     }
 
@@ -627,9 +660,9 @@ public final class ConversationStore {
     /// `windowTrimThreshold` (the gap keeps a reader moving near the bottom
     /// from trimming and refetching repeatedly).
     @discardableResult
-    public func trimOlderIfLarge() -> Bool {
+    public func trimOlderIfLarge(preserving pinned: Set<String> = []) -> Bool {
         guard messages.count > Self.windowTrimThreshold else { return false }
-        return trimOlder(keepingNewest: Self.windowKeepCount)
+        return trimOlder(keepingNewest: Self.windowKeepCount, preserving: pinned)
     }
 
     static func backoff(_ attempt: Int) -> Duration {

@@ -293,6 +293,7 @@ public final class ConversationViewController: UIViewController {
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             // Dynamic Type or Bold Text: every row re-measures at the new size.
             layoutCache.invalidateAll()
+            invalidateRowMetrics()
             layout.invalidateLayout()
             collectionView.reloadData()
             view.setNeedsLayout()
@@ -968,8 +969,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     /// as pages if the reader returns to them).
     func trimHistoryIfResting() {
         guard isPinnedToBottom, !collectionView.isTracking, !collectionView.isDecelerating,
-              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil, !isSelecting else { return }
-        store.trimOlderIfLarge()
+              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil,
+              !isSelecting, replyOverlay == nil else { return }
+        store.trimOlderIfLarge(preserving: selectedRowIDs)
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {

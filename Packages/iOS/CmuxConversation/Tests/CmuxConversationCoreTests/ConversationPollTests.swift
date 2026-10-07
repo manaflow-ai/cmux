@@ -58,6 +58,23 @@ import Testing
         #expect(store.message(rowID: rowID)?.poll?.options.map(\.id) == ["o1", "o2"])
     }
 
+    @Test func trimNeverDropsAPollWithAnUnconfirmedVote() async throws {
+        let backend = PollBackend()
+        let store = try await loaded(backend)
+        store.setViewing(true)
+        for seq in 2...6 {
+            store.apply(.message(ConversationMessage(id: "m\(seq)", seq: seq, clientMessageID: nil, senderID: "lc", sentAt: Date(), text: "\(seq)"), eventSeq: seq))
+        }
+        backend.holdVotes = true
+        store.togglePollVote(messageID: "p1", optionID: "o1")
+        #expect(!store.trimOlder(keepingNewest: 2))
+        #expect(store.message(id: "p1") != nil)
+        backend.releaseVotes()
+        // Once the backend confirms the vote, the poll may go like any other row.
+        try await waitUntil { store.trimOlder(keepingNewest: 2) }
+        #expect(store.message(id: "p1") == nil)
+    }
+
     @Test func voteAppliesAtOnceAndSurvivesARacingServerUpdate() async throws {
         let backend = PollBackend()
         let store = try await loaded(backend)

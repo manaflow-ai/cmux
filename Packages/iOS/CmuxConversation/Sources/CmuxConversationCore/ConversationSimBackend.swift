@@ -462,13 +462,13 @@ enum WireDecoding {
         if let system = raw["system"] as? [String: Any], systemEvent(system) == nil { return nil }
         let sentAt = date(raw["sentAt"]) ?? Date()
         let reactions = (raw["reactions"] as? [[String: Any]] ?? []).compactMap { r -> ConversationReactionMark? in
-            guard let participant = r["participantId"] as? String,
-                  let reaction = (r["reaction"] as? String).flatMap(ConversationReaction.init(rawValue:)) else { return nil }
+            guard let participant = native(r["participantId"]),
+                  let reaction = native(r["reaction"]).flatMap(ConversationReaction.init(rawValue:)) else { return nil }
             return ConversationReactionMark(participantID: participant, reaction: reaction)
         }
         let attachments = (raw["attachments"] as? [[String: Any]] ?? []).compactMap { attachment($0, base: base) }
         var delivery: ConversationDelivery?
-        switch raw["status"] as? String {
+        switch native(raw["status"]) {
         case "sent": delivery = .sent
         case "delivered": delivery = .delivered
         case "read": delivery = .read(date(raw["readAt"]))
@@ -477,7 +477,7 @@ enum WireDecoding {
         return ConversationMessage(
             id: id,
             seq: raw["seq"] as? Int,
-            clientMessageID: raw["clientMessageId"] as? String,
+            clientMessageID: native(raw["clientMessageId"]),
             senderID: senderID,
             sentAt: sentAt,
             text: native(raw["text"]) ?? "",
@@ -490,9 +490,9 @@ enum WireDecoding {
             attachments: attachments,
             delivery: delivery,
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
-            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
+            textRuns: textRuns(raw["textRuns"], text: native(raw["text"]) ?? ""),
             linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) },
-            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
+            effect: native(raw["effect"]).flatMap(ConversationMessageEffect.init(rawValue:)),
             poll: (raw["poll"] as? [String: Any]).flatMap(poll),
             systemEvent: (raw["system"] as? [String: Any]).flatMap(systemEvent),
             deliveredQuietly: raw["deliveredQuietly"] as? Bool ?? false,
@@ -503,13 +503,13 @@ enum WireDecoding {
     static func poll(_ raw: [String: Any]) -> ConversationPoll? {
         guard let options = raw["options"] as? [[String: Any]] else { return nil }
         return ConversationPoll(
-            question: raw["question"] as? String ?? "",
+            question: native(raw["question"]) ?? "",
             options: options.compactMap { option in
-                guard let id = option["id"] as? String else { return nil }
-                return ConversationPollOption(id: id, text: option["text"] as? String ?? "", addedByID: option["addedBy"] as? String)
+                guard let id = native(option["id"]) else { return nil }
+                return ConversationPollOption(id: id, text: native(option["text"]) ?? "", addedByID: native(option["addedBy"]))
             },
             votes: (raw["votes"] as? [[String: Any]] ?? []).compactMap { vote in
-                guard let participant = vote["participantId"] as? String, let option = vote["optionId"] as? String else { return nil }
+                guard let participant = native(vote["participantId"]), let option = native(vote["optionId"]) else { return nil }
                 return ConversationPollVote(participantID: participant, optionID: option, votedAt: date(vote["votedAt"]))
             }
         )
@@ -517,27 +517,27 @@ enum WireDecoding {
 
     /// `{kind, targetId?, name?}`.
     static func systemEvent(_ raw: [String: Any]) -> ConversationSystemEvent? {
-        guard let kind = (raw["kind"] as? String).flatMap(ConversationSystemEvent.Kind.init(rawValue:)) else { return nil }
-        return ConversationSystemEvent(kind: kind, targetID: raw["targetId"] as? String, name: raw["name"] as? String)
+        guard let kind = native(raw["kind"]).flatMap(ConversationSystemEvent.Kind.init(rawValue:)) else { return nil }
+        return ConversationSystemEvent(kind: kind, targetID: native(raw["targetId"]), name: native(raw["name"]))
     }
 
     static func linkPreview(_ raw: [String: Any], base: URL) -> ConversationLinkPreview? {
-        guard let url = (raw["url"] as? String).flatMap(URL.init(string:)) else { return nil }
+        guard let url = native(raw["url"]).flatMap(URL.init(string:)) else { return nil }
         func image(_ value: Any?) -> ConversationLinkPreview.Image? {
-            guard let raw = value as? [String: Any], let string = raw["url"] as? String,
+            guard let raw = value as? [String: Any], let string = native(raw["url"]),
                   let url = string.hasPrefix("/") ? URL(string: string, relativeTo: base)?.absoluteURL : URL(string: string) else { return nil }
             return ConversationLinkPreview.Image(url: url, width: raw["width"] as? Int ?? 0, height: raw["height"] as? Int ?? 0)
         }
         let state: ConversationLinkPreview.State
-        switch raw["state"] as? String {
+        switch native(raw["state"]) {
         case "loading": state = .loading
         case "tapToLoad": state = .tapToLoad
         default: state = .loaded
         }
         return ConversationLinkPreview(
             url: url,
-            title: raw["title"] as? String,
-            siteName: raw["siteName"] as? String,
+            title: native(raw["title"]),
+            siteName: native(raw["siteName"]),
             image: image(raw["image"]),
             icon: image(raw["icon"]),
             state: state
@@ -545,7 +545,7 @@ enum WireDecoding {
     }
 
     static func mention(_ raw: [String: Any]) -> ConversationMention? {
-        guard let participant = raw["participantId"] as? String,
+        guard let participant = native(raw["participantId"]),
               let location = raw["location"] as? Int, let length = raw["length"] as? Int else { return nil }
         return ConversationMention(participantID: participant, location: location, length: length)
     }
@@ -564,7 +564,7 @@ enum WireDecoding {
                 location: start,
                 length: length,
                 style: ConversationTextStyle(wireNames: entry["styles"] as? [String] ?? []),
-                effect: (entry["effect"] as? String).flatMap(ConversationTextEffect.init(rawValue:))
+                effect: native(entry["effect"]).flatMap(ConversationTextEffect.init(rawValue:))
             )
         }
         return ConversationRichText.normalized(runs, utf16Count: text.utf16.count)
@@ -582,22 +582,22 @@ enum WireDecoding {
     /// A Send Later entry: no seq, `scheduledAt` set, `.sent` while waiting
     /// (the server holds it) and `.failed` once it will not send.
     static func scheduled(_ raw: [String: Any], base: URL) -> ConversationMessage? {
-        guard let id = raw["id"] as? String, let senderID = raw["senderId"] as? String,
+        guard let id = native(raw["id"]), let senderID = native(raw["senderId"]),
               let scheduledAt = date(raw["scheduledAt"]) else { return nil }
-        let failed = raw["state"] as? String == "failed"
+        let failed = native(raw["state"]) == "failed"
         return ConversationMessage(
             id: id,
             seq: nil,
-            clientMessageID: raw["clientMessageId"] as? String,
+            clientMessageID: native(raw["clientMessageId"]),
             senderID: senderID,
             sentAt: date(raw["createdAt"]) ?? Date(),
-            text: raw["text"] as? String ?? "",
-            replyToID: raw["replyToId"] as? String,
+            text: native(raw["text"]) ?? "",
+            replyToID: native(raw["replyToId"]),
             attachments: (raw["attachments"] as? [[String: Any]] ?? []).compactMap { attachment($0, base: base) },
-            delivery: failed ? .failed(raw["error"] as? String ?? "not delivered") : .sent,
+            delivery: failed ? .failed(native(raw["error"]) ?? "not delivered") : .sent,
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
-            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
-            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
+            textRuns: textRuns(raw["textRuns"], text: native(raw["text"]) ?? ""),
+            effect: native(raw["effect"]).flatMap(ConversationMessageEffect.init(rawValue:)),
             scheduledAt: scheduledAt
         )
     }
@@ -607,12 +607,12 @@ enum WireDecoding {
     }
 
     static func attachment(_ raw: [String: Any], base: URL) -> ConversationAttachment? {
-        guard let id = raw["id"] as? String else { return nil }
+        guard let id = native(raw["id"]) else { return nil }
         var url: URL?
-        if let string = raw["url"] as? String {
+        if let string = native(raw["url"]) {
             url = string.hasPrefix("/") ? URL(string: string, relativeTo: base)?.absoluteURL : URL(string: string)
         }
-        let kind = ConversationAttachment.Kind(rawValue: raw["kind"] as? String ?? "") ?? .image
+        let kind = ConversationAttachment.Kind(rawValue: native(raw["kind"]) ?? "") ?? .image
         var audio: ConversationAudioInfo?
         if kind == .audio {
             let durationMs = raw["durationMs"] as? Double ?? (raw["durationMs"] as? Int).map(Double.init) ?? 0
@@ -623,7 +623,7 @@ enum WireDecoding {
             audio = ConversationAudioInfo(
                 duration: durationMs / 1000,
                 waveform: waveform,
-                transcript: (raw["transcript"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                transcript: native(raw["transcript"]).flatMap { $0.isEmpty ? nil : $0 },
                 expiresAt: date(raw["expiresAt"]),
                 isKept: raw["kept"] as? Bool ?? false
             )

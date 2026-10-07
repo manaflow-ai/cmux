@@ -757,6 +757,32 @@ extension ConversationStoreWindowTests {
         #expect(!store.trimOlder(keepingNewest: 5))
     }
 
+    @Test func trimKeepsRowsTheInterfaceHoldsOpen() async throws {
+        let (_, store) = try await loadedStore(total: 120, pages: 4)
+        #expect(store.trimOlder(keepingNewest: 10, preserving: ["s:m40"]))
+        #expect(store.messages.first?.seq == 40)
+        #expect(store.trimOlder(keepingNewest: 10, preserving: ["m90"]))
+        #expect(store.messages.first?.seq == 90)
+    }
+
+    @Test func trimKeepsThePendingCatchUpTargetAndExactUnreadCount() async throws {
+        let (backend, store) = try await loadedStore(total: 120, pages: 4)
+        store.apply(.readState(ConversationReadState(lastReadSeq: 50, unreadCount: 46, headSeq: 120)))
+        store.setViewing(true)
+        #expect(store.catchUpTarget?.seq == 52)
+        #expect(store.trimOlder(keepingNewest: 10))
+        // The marker message stays so the target is still known to be first.
+        #expect(store.messages.first?.seq == 50)
+        #expect(store.catchUpTarget?.seq == 52)
+        store.dismissCatchUp()
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.first?.seq == 111)
+        #expect(store.unreadCount == 0)
+        store.setViewing(false)
+        store.apply(.message(backend.makeMessage(seq: 121, sender: "lc"), eventSeq: 1))
+        #expect(store.unreadCount == 1)
+    }
+
     @Test func trimIfLargeOnlyAboveThreshold() async throws {
         let (_, store) = try await loadedStore(total: 100, pages: 2)
         #expect(!store.trimOlderIfLarge())

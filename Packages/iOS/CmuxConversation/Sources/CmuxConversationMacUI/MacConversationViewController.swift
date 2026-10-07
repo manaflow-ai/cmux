@@ -393,7 +393,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private func trimHistoryIfResting() {
         guard isPinnedToBottom, !isLiveScrolling, !isSubmitting, pendingFlightRowIDs.isEmpty,
               replyTarget == nil, editingMessageID == nil, replyFocus == nil, threadFocus == nil else { return }
-        store.trimOlderIfLarge()
+        store.trimOlderIfLarge(preserving: Set([keyboard.selectedRowID, keyboard.findMatch?.rowID].compactMap { $0 }))
     }
 
     @objc private func boundsDidChange() {

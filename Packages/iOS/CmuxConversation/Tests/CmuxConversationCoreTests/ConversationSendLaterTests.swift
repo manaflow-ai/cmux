@@ -12,6 +12,20 @@ import Testing
         return store
     }
 
+    @Test func aSendAndATrimLeaveTheScheduledRowLast() async throws {
+        let backend = SendLaterBackend(total: 40)
+        let store = try await connectedStore(backend)
+        try #require(store.scheduleSend(text: "later", at: Date().addingTimeInterval(3600)))
+        try await waitUntil { store.messages.last?.id == "sched-c-1" }
+        let rowID = try #require(store.send(text: "now"))
+        #expect(store.messages.map(\.rowID).suffix(2) == [rowID, "c:c-1"])
+        try await waitUntil { store.message(rowID: rowID)?.seq != nil }
+        #expect(store.messages.last?.id == "sched-c-1")
+        #expect(store.trimOlder(keepingNewest: 5))
+        #expect(store.messages.last?.id == "sched-c-1")
+        #expect(store.messages.compactMap(\.seq).count == 5)
+    }
+
     @Test func scheduledRowSitsBelowLiveTrafficAndKeepsIdentityWhenSent() async throws {
         let backend = SendLaterBackend(total: 5)
         let store = try await connectedStore(backend)
