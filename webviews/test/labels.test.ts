@@ -1,11 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import {
   createDiffViewerLabelResolver,
   DEFAULT_DIFF_VIEWER_LABELS,
   diffViewerLanguage,
-  JAPANESE_DIFF_VIEWER_LABELS,
+  diffViewerLabelsFor,
+  loadDiffViewerLabels,
   type DiffViewerLabelKey,
 } from "../src/labels";
+
+beforeAll(async () => {
+  await loadDiffViewerLabels("ja");
+  await loadDiffViewerLabels("de");
+});
 
 describe("createDiffViewerLabelResolver", () => {
   test("uses localized payload labels first", () => {
@@ -43,7 +49,7 @@ describe("Japanese labels", () => {
   test("the Japanese table covers every key and keeps placeholders", () => {
     for (const key of Object.keys(DEFAULT_DIFF_VIEWER_LABELS) as DiffViewerLabelKey[]) {
       const english = DEFAULT_DIFF_VIEWER_LABELS[key];
-      const japanese = JAPANESE_DIFF_VIEWER_LABELS[key];
+      const japanese = diffViewerLabelsFor("ja")[key];
       expect(japanese.trim()).not.toBe("");
       expect(japanese.match(/\{[a-z]+\}/g)?.sort() ?? []).toEqual(english.match(/\{[a-z]+\}/g)?.sort() ?? []);
     }
