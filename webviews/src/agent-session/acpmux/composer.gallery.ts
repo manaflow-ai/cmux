@@ -5,6 +5,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
+const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
@@ -16,8 +17,9 @@ export default agentPaneEntry({
   title: "Composer",
   area: "Agent pane",
   height: 420,
-  // The transcript must not move while a play step opens a menu over it.
-  anchors: [{ selector: ".acpmux-scroll" }],
+  // The transcript must not move while a play step opens a menu over it, and the composer box
+  // must not move when queued prompts come and go above it.
+  anchors: [{ selector: ".acpmux-scroll" }, { selector: ".acpmux-composer-box" }],
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -26,6 +28,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
+    "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
     "new-chat": {
@@ -56,9 +59,38 @@ export default agentPaneEntry({
     },
     working: {
       note: "A turn running: Send becomes Stop.",
-      snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
+      snapshot: chat(working, { isWorking: true }),
+    },
+    queued: {
+      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      snapshot: chat(working, {
         isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
       }),
+    },
+    "queued-long": {
+      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          {
+            id: "q2",
+            prompt:
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+          },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ text: /^Once the retries land/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
     },
     "codex-model": {
       note: "Another harness and model in the chips.",

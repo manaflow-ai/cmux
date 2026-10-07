@@ -6,6 +6,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import { ComposerQueue } from "./ComposerQueue";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -51,8 +52,6 @@ export const COMPOSER_LABELS = {
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
-  queue: "composer.queue",
-  queued: "composer.queued",
 } as const satisfies Record<string, StringKey>;
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -520,18 +519,6 @@ export function Composer({
       }}
       onBlur={blur}
     >
-      {snapshot.queue.length > 0 && (
-        <ol className="acpmux-composer-queue" aria-label={t(COMPOSER_LABELS.queue)}>
-          {snapshot.queue.map((entry) => (
-            <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
-              <span className="acpmux-queued-label" aria-hidden="true">
-                {t(COMPOSER_LABELS.queued)}
-              </span>
-              <span className="acpmux-queued-text">{entry.prompt}</span>
-            </li>
-          ))}
-        </ol>
-      )}
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -586,6 +573,7 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box">
+        <ComposerQueue queue={snapshot.queue} t={t} />
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
           <SlashMenu
