@@ -1073,6 +1073,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_macos_cross_shadow_jobs.py
 
+      - name: Validate the cmux-tui tree publishes the Linux daemon
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_cmux_tui_tree_targets.py
+
       - name: Validate runner capability resolution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_runner_capability_resolver.py

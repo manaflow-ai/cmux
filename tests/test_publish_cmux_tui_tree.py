@@ -134,3 +134,28 @@ def test_list_companions_is_the_one_list_the_workflow_reads() -> None:
     result = subprocess.run([sys.executable, str(SCRIPT), "--list-companions"],
                             text=True, capture_output=True, check=True)
     assert tuple(result.stdout.split()) == publisher.COMPANION_NAMES
+
+
+def test_completion_json_keeps_the_pre_linux_bytes(tmp_path: Path) -> None:
+    # completion.json is immutable. A republication of a tree published before
+    # the Linux targets must write the same bytes, so it attests only the macOS
+    # three; the Linux digests go to completion-linux.json.
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    uploader.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "def value(name): return args[args.index(name) + 1]\n"
+        'pathlib.Path(__file__).with_name("contents.jsonl").open("a").write(json.dumps({"key": value("--key"), "text": pathlib.Path(value("--file")).read_bytes().decode("latin-1")}) + "\\n")\n'
+    )
+    publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                           endpoint_url="https://r2.example", bucket="cmux-binaries",
+                           manifest_file=manifest, source_file=source)
+    uploads = [json.loads(line) for line in (tmp_path / "contents.jsonl").read_text().splitlines()]
+    by_key = {item["key"].rsplit("/", 1)[-1]: item["text"] for item in uploads}
+    gate = json.loads(by_key["completion.json"])
+    assert sorted(gate["binaries"]) == sorted(publisher.COMPANION_NAMES[:3])
+    linux = json.loads(by_key["completion-linux.json"])
+    assert sorted(linux["binaries"]) == sorted(LINUX_TREE_NAMES)
+    # completion.json is written last: it is what the gate reads as complete.
+    assert uploads[-1]["key"].endswith("/completion.json")

@@ -20,6 +20,8 @@ cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$TMP/src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$TMP/src/scripts/cmux-next/"
 echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo one > "$TMP/src/cmux-tui/a"
+# As in the repository: fetched binaries under cmux-tui/target are ignored.
+echo 'target/' > "$TMP/src/cmux-tui/.gitignore"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m one
 git_q -C "$TMP/src" branch -M feat-cmux-next
@@ -98,7 +100,7 @@ $out"
 
 # Gate commands keep reading the macOS binary on a Linux runner.
 out=$(run Linux x86_64 probe) || true
-grep -q 'tree_state=ready' <<<"$out" || fail "probe on a Linux runner no longer reads the macOS tree:
+grep -q ': ready (published)' <<<"$out" || fail "probe on a Linux runner no longer reads the macOS tree:
 $out"
 
 # The tree now carries both Linux targets.
@@ -112,8 +114,8 @@ for host in "x86_64 x86_64" "aarch64 aarch64" "arm64 aarch64"; do
   set -- $host
   out=$(run Linux "$1" fetch) || fail "fetch on Linux $1 failed:
 $out"
-  bin=$(run Linux "$1" path)
-  host_dir=$(run Linux "$1" app-host-path)
+  bin=$(run Linux "$1" path | tail -n 1)
+  host_dir=$(run Linux "$1" app-host-path | tail -n 1)
   [[ "$(cat "$bin")" == "linux-$2-daemon" ]] || fail "Linux $1 fetched $(cat "$bin" 2>/dev/null) into $bin, not the $2 musl daemon:
 $out"
   [[ "$(cat "$host_dir")" == "linux-$2-app-host" ]] || fail "Linux $1 app host is $(cat "$host_dir" 2>/dev/null), not the $2 one:
@@ -123,7 +125,7 @@ done
 # macOS keeps its path and binary.
 out=$(run Darwin arm64 fetch) || fail "fetch on macOS failed:
 $out"
-bin=$(run Darwin arm64 path)
+bin=$(run Darwin arm64 path | tail -n 1)
 [[ "$bin" == "$TMP/src/cmux-tui/target/hosted/tree/$key/cmux-tui" ]] || fail "macOS path moved to $bin"
 [[ "$(cat "$bin")" == mac-daemon ]] || fail "macOS fetched $(cat "$bin")"
 
