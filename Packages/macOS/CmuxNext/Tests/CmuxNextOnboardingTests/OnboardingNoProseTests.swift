@@ -9,7 +9,15 @@ import Testing
 @MainActor
 @Suite(.serialized) struct OnboardingNoProseTests {
     static let prose = ["Sign-ins cmux found", "Nothing is uploaded", "Nothing leaves this Mac", "Each profile becomes",
-                         "macOS asks before"]
+                         "macOS asks before", "Saved commands are never run", "newest first"]
+
+    /// Every shown text field under `view`.
+    static func fields(_ view: NSView) -> [NSTextField] {
+        var found: [NSTextField] = []
+        if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field) }
+        for child in view.subviews { found += fields(child) }
+        return found
+    }
 
     static func shownText(_ view: NSView) -> [String] {
         var found: [String] = []
@@ -18,9 +26,10 @@ import Testing
         return found
     }
 
-    @Test(arguments: [OnboardingModel.Step.accounts, .importData])
+    @Test(arguments: [OnboardingModel.Step.accounts, .importData, .classicSessions, .chats])
     func theDefaultScreenHasNoProse(_ step: OnboardingModel.Step) async {
         let services = MockOnboardingServices.gallerySample(themes: [], accountsView: NSView())
+        services.canImportClassicSessions = true
         let model = OnboardingModel(services: services, start: step)
         let controller = OnboardingWindowController(model: model, variant: step.variants[0])
         guard let window = controller.window, let content = window.contentView else {

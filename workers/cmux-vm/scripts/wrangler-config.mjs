@@ -49,6 +49,19 @@ if (target === "preview" && lane) {
   }
   env.name = `cmux-vm-preview-${lane}`;
 }
+// Custom domains are attached by scripts/custom-domains.sh through the account
+// Workers domains API, not by wrangler: with routes in its config, wrangler
+// also reads the zone's route list, which needs a zone-scoped permission the
+// deploy token does not have (staging deploy 2026-10-07: "No access").
+const customDomains = (env.routes ?? []).map((route) => {
+  if (typeof route !== "object" || route.custom_domain !== true || typeof route.pattern !== "string") {
+    console.error("only custom-domain routes are supported; add other routes deliberately");
+    process.exit(1);
+  }
+  return route.pattern;
+});
+delete env.routes;
 delete config.$schema;
 writeFileSync(new URL("wrangler.generated.json", root), `${JSON.stringify(config, null, 2)}\n`);
+writeFileSync(new URL("custom-domains.generated.txt", root), customDomains.map((host) => `${host}\n`).join(""));
 console.log(`wrote wrangler.generated.json for ${target} (Worker ${env.name})`);

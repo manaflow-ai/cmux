@@ -24,6 +24,10 @@ import type { ApiKeyAdminStore } from "./db/api-keys.ts";
 import type { SnapshotStore } from "./db/snapshots.ts";
 import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
 import type { UpstreamTerminals } from "./upstream/terminals.ts";
+import { meshDeviceHandlers, meshEnrollHandlers, meshHandlers } from "./handlers/mesh.ts";
+import type { MeshStore } from "./db/mesh.ts";
+import type { MeshConfig } from "./mesh/config.ts";
+import type { UpstreamMesh } from "./upstream/mesh.ts";
 
 export type Services =
   | OwnershipStore
@@ -35,7 +39,11 @@ export type Services =
   | TenantLimits
   | TenantPolicy
   | Entitlements
-  | S3aServices;
+  | S3aServices
+  | MeshServices;
+
+/** Mesh experiment (cx-0op). */
+type MeshServices = MeshStore | UpstreamMesh | MeshConfig;
 
 /** Snapshots and terminals (slice S3a). */
 type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin;
@@ -80,6 +88,11 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(snapshotsHandlers)),
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
+    Layer.provide(authenticated(meshHandlers)),
+    // The one-time enrollment code is the credential (mesh M2, cx-0op.4).
+    Layer.provide(meshEnrollHandlers),
+    // The device's install-key signature is the credential (mesh M3, cx-0op.5).
+    Layer.provide(meshDeviceHandlers),
     Layer.provide(services),
   );
   const perRequest = options.perRequest;
