@@ -53,6 +53,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     var onRemoveAttachment: ((UUID) -> Void)?
     /// Mention ranges, the gray candidate and suggestions for the draft.
     private(set) lazy var mentionController = ComposerMentionController(textView: textView)
+    /// Pending rich link card for a URL that opens or ends the draft.
+    let linkPreview = ComposerLinkPreview()
 
     /// Set by the controller: the field may grow until it reaches the header.
     var maximumFieldHeight: CGFloat = 600 { didSet { if oldValue != maximumFieldHeight { updateHeight() } } }
@@ -129,6 +131,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         fieldGlass.layer.borderColor = UIColor.separator.cgColor
         fieldGlass.contentView.addSubview(attachmentStrip)
         fieldGlass.contentView.addSubview(attachmentSeparator)
+        fieldGlass.contentView.addSubview(linkPreview.container)
+        linkPreview.onChange = { [weak self] in
+            self?.setNeedsLayout()
+            self?.updateHeight()
+        }
         attachmentSeparator.backgroundColor = .separator
         attachmentStrip.showsHorizontalScrollIndicator = false
         attachmentStrip.isHidden = true
@@ -204,6 +211,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             attachmentSeparator.frame = CGRect(x: 16, y: attachmentBand, width: field.width - 32, height: 0.5)
             textTop = attachmentBand
             layoutAttachments()
+        }
+        if linkPreview.preview != nil {
+            linkPreview.layout(fieldWidth: field.width)
+            linkPreview.container.frame.origin.y = textTop
+            textTop += linkPreview.container.frame.height
         }
         let trailing = sendSize.width + 10
         textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
@@ -297,6 +309,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         updatePlaceholder()
         updateSendButton(animated: true)
         updateHeight()
+        linkPreview.textChanged(text)
         delegate?.composerDidChangeText(self)
     }
 
@@ -365,6 +378,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
         if emojiPointSize != nil { natural = max(ConversationTheme.composerMinHeight, ceil(textSize.height)) }
         if !attachments.isEmpty { natural += attachmentBand }
+        natural += linkPreview.height(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
         guard height != fieldHeight else { return }
@@ -464,6 +478,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.resetFormatting()
         hideTextEffects()
         updateEmojiScale()
+        linkPreview.reset()
         updatePlaceholder()
         // Messages swaps send for the mic in the send frame; the flying
         // bubble starts translucent over the cleared field.

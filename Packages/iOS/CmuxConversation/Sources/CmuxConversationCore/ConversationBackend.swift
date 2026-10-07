@@ -53,6 +53,8 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func close()
     /// Applies a conversation list action and returns the updated conversation.
     func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo
+    /// Fetches rich link metadata for `url` (composer preview, tap to load).
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview?
 }
 
 extension ConversationBackend {
@@ -100,4 +102,8 @@ public protocol ConversationAudioBackend: ConversationBackend {
     func uploadAudioRecording(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment
     func keepAudioMessage(messageID: String) async throws -> ConversationMessage
     func markAudioPlayed(messageID: String) async
+}
+
+public extension ConversationBackend {
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
 }

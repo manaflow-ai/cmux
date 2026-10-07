@@ -174,6 +174,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         composer.delegate = self
         installKeyboardSupport()
         installMentions()
+        composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
         replyBanner.translatesAutoresizingMaskIntoConstraints = false
         replyBanner.isHidden = true
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
@@ -882,6 +883,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let text = composer.text
         let mentions = composer.mentions
         let textRuns = composer.textRuns
+        let linkPreview = composer.linkPreview.sendablePreview
         // The bubble flies from where the draft sits, captured before the
         // composer collapses; the collapse and insert land in one scroll.
         flightSource = (
@@ -892,7 +894,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         isSubmitting = true
         composer.clearAfterSend()
         trace("submit.cleared")
-        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns)
+        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview)
         isSubmitting = false
         if let rowID { registerUndoSend(rowID: rowID) }
         // The flight's scroll animates to the new bottom.
@@ -1119,6 +1121,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
            let participantID: String = textAttribute(.macConversationMention, in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
             showMentionCard(participantID: participantID, at: local, in: rowView)
+            return true
+        }
+        if let card = rowView.rowLayout?.linkCardFrame, card.contains(local), let preview = model.message.linkPreview {
+            if isHold(after: event) {
+                if model.message.seq != nil { showReactionFocus(model, in: rowView) }
+                return true
+            }
+            switch preview.state {
+            case .tapToLoad: store.loadLinkPreview(messageID: model.message.id)
+            case .loaded, .loading: NSWorkspace.shared.open(preview.url)
+            }
             return true
         }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),

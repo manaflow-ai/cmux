@@ -32,6 +32,11 @@ struct MessageCellLayout {
     var audioFrame: CGRect? = nil
     /// Audio messages: "Expires in 2m · Keep" (or "Kept") under the bubble.
     var audioExpiryFrame: CGRect? = nil
+    /// Rich link balloon (tail area included, like `bubbleFrame`) and its inner layout.
+    var linkCardFrame: CGRect? = nil
+    var linkCard: ConversationLinkCardLayout? = nil
+    /// The card is the last balloon, so it (not the text bubble) carries the tail.
+    var linkCardIsLast = false
 }
 
 @MainActor
@@ -57,11 +62,14 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        // Audio bubbles show the transcript; mentions and formatting index `text`.
-        let body = model.message.bodyText
+        // Audio bubbles show the transcript; a link card takes its URL out of
+        // the text bubble. Mentions and formatting index the full `text`, so
+        // they apply only when the bubble shows it whole.
         let isAudio = model.message.audioAttachment != nil
-        let mentions = isAudio ? [] : model.message.mentions
-        let runs = isAudio ? [] : model.message.textRuns
+        let body = isAudio ? model.message.bodyText : model.bodyText
+        let whole = !isAudio && model.linkSplit == nil
+        let mentions = whole ? model.message.mentions : []
+        let runs = whole ? model.message.textRuns : []
         if let (text, cachedMentions, cachedRuns, value) = attributed[cacheKey], text == body,
            cachedMentions == mentions, cachedRuns == runs {
             return value
@@ -83,7 +91,7 @@ extension NSAttributedString.Key {
 }
 
 extension MessageCellLayout {
-    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
 
     static func attributedBody(
         _ text: String,
@@ -106,7 +114,7 @@ extension MessageCellLayout {
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-            if let url = match.url { result.addAttribute(.conversationLink, value: url, range: match.range) }
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
         }
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
         return result
@@ -191,6 +199,23 @@ extension MessageCellLayout {
             y += message.text.isEmpty ? -imageSpacing : t.groupedSpacing - imageSpacing
         }
 
+        var linkCardFrame: CGRect?
+        var linkCard: ConversationLinkCardLayout?
+        let bodyText = model.bodyText
+        /// Messages' rich link width: the preview balloon max for this transcript.
+        func placeLinkCard() {
+            guard let split = model.linkSplit, let preview = message.linkPreview else { return }
+            let reserved = model.isGroup && !model.isOutgoing ? t.avatarSize + t.avatarGap : 0
+            let cardMax = 0.85 * (width - 2 * margin - reserved) - 27.83
+            let card = ConversationLinkPreviewView.layout(for: preview, maxWidth: cardMax)
+            if split.cardFirst == false, !bodyText.isEmpty { y += t.groupedSpacing }
+            linkCard = card
+            linkCardFrame = bubbleRect(bodyWidth: card.size.width, y: y, height: card.size.height)
+            y += card.size.height
+            if split.cardFirst, !bodyText.isEmpty { y += t.groupedSpacing }
+        }
+        if model.linkSplit?.cardFirst == true { placeLinkCard() }
+
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
@@ -214,7 +239,7 @@ extension MessageCellLayout {
                 y: y, width: size.width, height: size.height
             )
             y += size.height
-        } else if !message.text.isEmpty {
+        } else if !bodyText.isEmpty {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
             // Unrounded, as ChatKit sizes balloons ("Hello there" is 110.83 pt wide).
             let size = text.boundingRect(
@@ -236,12 +261,14 @@ extension MessageCellLayout {
             )
             y += h
         }
+        if model.linkSplit?.cardFirst == false { placeLinkCard() }
+        let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
 
-        let primary = bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
-        let firstContent = imageFrames.first ?? bubbleFrame ?? emojiFrame ?? primary
+        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
+        let firstContent = imageFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
         // Body rect (no tail) of the first content block.
         let firstBody: CGRect = {
-            guard bubbleFrame != nil || !imageFrames.isEmpty else { return firstContent }
+            guard bubbleFrame != nil || linkCardFrame != nil || !imageFrames.isEmpty else { return firstContent }
             var body = firstContent
             body.size.width -= t.tailWidth
             if !model.isOutgoing { body.origin.x += t.tailWidth }
@@ -322,13 +349,14 @@ extension MessageCellLayout {
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
+        if let linkCardFrame { content = content.union(linkCardFrame) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
         // A photo-only row (no text bubble, no emoji) tails its last photo; the
         // tail hangs below the full-height photo (Messages), so reserve it.
-        let tailedImage = bubbleFrame == nil && emojiFrame == nil && !imageFrames.isEmpty
+        let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && !imageFrames.isEmpty
         var tailOverhang: CGFloat = 0
-        if model.showsTail, bubbleFrame != nil || tailedImage {
+        if model.showsTail, bubbleFrame != nil || linkCardFrame != nil || tailedImage {
             let tailBottom = primary.maxY + t.tailDrop
             tailOverhang = max(0, tailBottom - y)
             y = max(y, tailBottom)
@@ -354,7 +382,10 @@ extension MessageCellLayout {
             tailOverhang: tailOverhang,
             contentFrame: content,
             audioFrame: audioFrame,
-            audioExpiryFrame: audioExpiryFrame
+            audioExpiryFrame: audioExpiryFrame,
+            linkCardFrame: linkCardFrame,
+            linkCard: linkCard,
+            linkCardIsLast: linkCardIsLast
         )
     }
 }

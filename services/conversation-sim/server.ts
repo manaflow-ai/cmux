@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, mentionText, messageText, pick, randInt, replyText, type Rng } from "./corpus";
 import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
+import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
 
 // ---------------------------------------------------------------- types
 
@@ -105,6 +106,8 @@ const DIRECT_COUNT = Number(process.env.DIRECT_MESSAGES ?? 5_000);
 // Messages from others left unread at boot (the catch-up backlog).
 const GROUP_UNREAD = Number(process.env.GROUP_UNREAD ?? 60);
 const DIRECT_UNREAD = Number(process.env.DIRECT_UNREAD ?? 3);
+// Senders not in my contacts: their links arrive as "Tap to Load Preview".
+const STRANGERS = new Set((process.env.STRANGERS ?? "austin").split(",").filter(Boolean));
 
 const knobs = {
   latencyScale: 1,
@@ -113,6 +116,7 @@ const knobs = {
   duplicateRate: 0.02,
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
+  botLinkRate: 0.05,
 };
 type Knobs = typeof knobs;
 
@@ -641,6 +645,41 @@ function wireMessage(m: Message, base: string) {
   if (m.readAt) out.readAt = m.readAt;
   if (m.mentions?.length) out.mentions = m.mentions;
   if (m.textRuns?.length) out.textRuns = m.textRuns;
+  const preview = linkPreviewFor(m);
+  if (preview) out.linkPreview = wireLinkPreview(preview, base);
+  return out;
+}
+
+// ---------------------------------------------------------------- link previews
+
+const unfurlCache = new Map<string, LinkPreview>();
+function unfurlCached(url: string): LinkPreview {
+  let p = unfurlCache.get(url);
+  if (!p) {
+    p = unfurl(url);
+    for (const img of previewImages(p)) {
+      if (!media.has(img.id)) media.set(img.id, { width: img.width, height: img.height, ext: "png", mime: "image/png" });
+    }
+    unfurlCache.set(url, p);
+    if (unfurlCache.size > 2000) unfurlCache.delete(unfurlCache.keys().next().value!);
+  }
+  return p;
+}
+
+function linkPreviewFor(m: Message): LinkPreview | undefined {
+  const url = previewURL(m.text);
+  if (!url) return undefined;
+  if (STRANGERS.has(m.senderId)) return { url, state: "tapToLoad" };
+  return unfurlCached(url);
+}
+
+function wireLinkPreview(p: LinkPreview, base: string) {
+  const image = (i: LinkPreview["image"]) => i && { url: `${base}/media/${i.id}.png`, width: i.width, height: i.height };
+  const out: Record<string, unknown> = { url: p.url, state: p.state ?? "loaded" };
+  if (p.title) out.title = p.title;
+  if (p.siteName) out.siteName = p.siteName;
+  if (p.image) out.image = image(p.image);
+  if (p.icon) out.icon = image(p.icon);
   return out;
 }
 
@@ -821,6 +860,11 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       store.broadcastConversation();
       return { conversation: wireConversation(conv) };
     }
+    case "unfurl": {
+      if (typeof p?.url !== "string" || !/^https?:\/\//i.test(p.url)) throw invalid("url");
+      await sleep(lat(300, 1200));
+      return { linkPreview: wireLinkPreview(unfurlCached(p.url), conn.base) };
+    }
     case "markRead":
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
       // The read receipt: on direct, the other side would now see "Read".
@@ -956,6 +1000,7 @@ function randomBotMessage(store: Store, bot: Participant): { text: string; opts:
     opts.attachments = [makeAudioAttachment(`aud_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`, R)];
     return { text: "", opts };
   }
+  if (R() < knobs.botLinkRate) return { text: pick(R, LINK_MESSAGES), opts };
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
@@ -1171,6 +1216,17 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     }
     log(`admin audio conv=${conv} sender=${bot.id} count=${count}`);
     return json({ ok: true, conversation: conv, sender: bot.id, messageIds: created });
+  }
+  if (path === "/admin/say" && req.method === "POST") {
+    // Scripted message from a participant: {conversation, senderId, text}.
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const store = stores.get(String(body.conversation ?? "group"));
+    if (!store) return json({ error: "unknown conversation" }, 404);
+    const sender = store.conv.participants.find((p) => p.id === body.senderId) ?? store.bots()[0];
+    if (typeof body.text !== "string" || !body.text) return json({ error: "text" }, 400);
+    const m = store.create(sender.id, body.text);
+    if (sender.isMe) afterMySend(store, m);
+    return json({ message: wireMessage(m, base) });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

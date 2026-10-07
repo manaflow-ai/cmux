@@ -27,6 +27,7 @@ process and keep growing.
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
+| `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
 | `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
 | `audioPlayed` | `{messageId}` | `{}` |
@@ -93,6 +94,11 @@ Message {
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
   mentions?: [Mention]                           // omitted when none
   textRuns?: [TextRun]                           // omitted when plain
+  linkPreview?: LinkPreview   // when a URL opens or ends `text`
+}
+LinkPreview {
+  url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
+  image?: {url, width, height}, icon?: {url, width, height}
 }
 Attachment {
   id, kind: "image"|"audio", width, height, url,
@@ -146,8 +152,22 @@ edit without `textRuns` clears the formatting.
 - `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
   one participant sends `n` audio messages back to back (auto-play testing).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
+- `POST /admin/say` JSON `{conversation, senderId, text}`: one scripted message
+  from a participant (deterministic link, data detector and layout fixtures).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate}`.
+
+## Link previews
+
+Messages turns a URL that opens or ends a message into a rich link card; a URL
+in the middle stays inline text. The server attaches `linkPreview` to such
+messages from canned, offline metadata (`links.ts`: GitHub PRs/issues/repo,
+apple.com/iphone, YouTube, Spotify, Wikipedia, Hacker News) and a bare domain
+card for anything else. Images are procedural PNGs at `/media/og_*.png`.
+Messages from senders in `STRANGERS` (env, comma separated, default `austin`)
+carry only `{url, state: "tapToLoad"}`; the client fetches the card with
+`unfurl` when tapped. `unfurl` also backs the composer's pending preview
+(300 to 1200 ms latency). Bots send link messages at `botLinkRate`.
 
 ## Simulated traffic
 

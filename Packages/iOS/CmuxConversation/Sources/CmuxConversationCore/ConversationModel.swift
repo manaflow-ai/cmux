@@ -185,6 +185,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var mentions: [ConversationMention]
     /// Formatting and animated text effects over `text`. Empty when plain.
     public var textRuns: [ConversationTextRun]
+    /// Rich link card for the URL that opens or ends `text`, if any.
+    public var linkPreview: ConversationLinkPreview?
 
     public init(
         id: String,
@@ -202,7 +204,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         attachments: [ConversationAttachment] = [],
         delivery: ConversationDelivery? = nil,
         mentions: [ConversationMention] = [],
-        textRuns: [ConversationTextRun] = []
+        textRuns: [ConversationTextRun] = [],
+        linkPreview: ConversationLinkPreview? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -220,6 +223,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.delivery = delivery
         self.mentions = mentions
         self.textRuns = textRuns
+        self.linkPreview = linkPreview
     }
 
     /// Identity that survives the pending to acknowledged transition, so the

@@ -2410,6 +2410,40 @@
           }
         }
       }
+    },
+    "conversation.link.clickToLoad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to Load Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックしてプレビューを読み込む"
+          }
+        }
+      }
+    },
+    "conversation.link.removePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove link preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクプレビューを削除"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

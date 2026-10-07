@@ -270,6 +270,12 @@ public final class ConversationStore {
             result.attachments = []
             result.reactions = []
         }
+        // A preview loaded here (composer, tap to load) outlives an echo that lacks it.
+        if let local = existing.linkPreview, local.state != .tapToLoad,
+           incoming.linkPreview == nil || (incoming.linkPreview?.state == .tapToLoad && incoming.linkPreview?.url == local.url),
+           ConversationLinkSplit.split(text: incoming.text, preview: local) != nil {
+            result.linkPreview = local
+        }
         return result
     }
 
@@ -465,7 +471,8 @@ public final class ConversationStore {
         images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
         replyToID: String? = nil,
         mentions: [ConversationMention] = [],
-        textRuns: [ConversationTextRun] = []
+        textRuns: [ConversationTextRun] = [],
+        linkPreview: ConversationLinkPreview? = nil
     ) -> String? {
         let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
@@ -492,7 +499,8 @@ public final class ConversationStore {
             attachments: attachments,
             delivery: .sending,
             mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count),
-            textRuns: runs
+            textRuns: runs,
+            linkPreview: linkPreview
         )
         upsert(pending)
         sortAndReindex()
@@ -674,6 +682,29 @@ public final class ConversationStore {
         guard let message = message(id: messageID), message.seq != nil, message.senderID != meID,
               message.audioAttachment?.audio?.isKept != true else { return }
         Task { [backend] in await backend.audioPlayed(messageID: messageID) }
+    }
+
+    // MARK: Link previews
+
+    /// Composer preview for a URL being typed, fetched through the backend.
+    public func fetchLinkPreview(for url: URL) async -> ConversationLinkPreview? {
+        try? await backend.linkPreview(for: url)
+    }
+
+    /// Tap to Load Preview: fetches the card for a message from an unknown sender.
+    public func loadLinkPreview(messageID: String) {
+        guard let index = indexByID[messageID], let preview = messages[index].linkPreview, preview.state == .tapToLoad else { return }
+        messages[index].linkPreview?.state = .loading
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            let loaded = try? await self.backend.linkPreview(for: preview.url)
+            guard let index = self.indexByID[messageID] else { return }
+            var result = loaded ?? ConversationLinkPreview(url: preview.url)
+            result.state = .loaded
+            self.messages[index].linkPreview = result
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
+        }
     }
 
     // MARK: Reactions, typing, read

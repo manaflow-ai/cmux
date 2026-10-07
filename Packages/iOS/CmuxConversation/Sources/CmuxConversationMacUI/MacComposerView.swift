@@ -193,6 +193,8 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     private(set) var attachments: [MacComposerAttachment] = []
     /// Mention ranges, the gray candidate and the suggestion list for the draft.
     private(set) lazy var mentionController = MacComposerMentionController(textView: textView)
+    /// Pending rich link card for a URL that opens or ends the draft.
+    let linkPreview = MacComposerLinkPreview()
     var placeholderText = String(localized: "conversation.composer.placeholder", defaultValue: "iMessage", bundle: .module) {
         didSet { updatePlaceholder() }
     }
@@ -249,6 +251,11 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
             field.addSubview(fieldContent)
         }
         fieldContent.addSubview(attachmentStrip)
+        fieldContent.addSubview(linkPreview.container)
+        linkPreview.onChange = { [weak self] in
+            self?.needsLayout = true
+            self?.updateHeight()
+        }
 
         // Rich so the storage keeps per-run fonts; paste stays plain.
         textView.isRichText = true
@@ -432,6 +439,11 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
                 x += w + 6
             }
         }
+        if linkPreview.preview != nil {
+            linkPreview.layout(contentWidth: content.width)
+            linkPreview.container.frame.origin.y = textTop
+            textTop += linkPreview.container.frame.height
+        }
         let textInset: CGFloat = 11
         let verticalInset = (minFieldHeight - lineHeight) / 2
         scrollView.frame = CGRect(x: textInset, y: textTop + verticalInset, width: content.width - textInset - 34, height: content.height - textTop - verticalInset)
@@ -465,6 +477,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         updatePlaceholder()
         needsLayout = true
         updateHeight()
+        linkPreview.textChanged(text)
         delegate?.composerDidChangeText(self)
     }
 
@@ -485,6 +498,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         let lines = max(1, round(used / lineHeight))
         var natural = minFieldHeight + (lines - 1) * lineHeight
         if !attachments.isEmpty { natural += attachmentHeight + 10 }
+        natural += linkPreview.height(forContentWidth: fieldContent.bounds.width > 0 ? fieldContent.bounds.width : bounds.width - 100)
         let height = min(natural, maximumFieldHeight)
         guard height != fieldHeight else { return }
         fieldHeight = height
@@ -498,6 +512,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         textView.string = ""
         mentionController.reset()
         textView.resetFormatting()
+        linkPreview.reset()
         attachments = []
         attachmentStrip.subviews.forEach { $0.removeFromSuperview() }
         updatePlaceholder()

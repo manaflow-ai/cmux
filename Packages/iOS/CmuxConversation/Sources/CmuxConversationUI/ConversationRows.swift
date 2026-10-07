@@ -59,6 +59,11 @@ struct MessageRowModel: Hashable {
     var hasMyReaction: Bool
     /// Mentions of this participant are highlighted in incoming bubbles.
     var meID: String? = nil
+    /// Rich link card and the text left beside it, when the message has one.
+    var linkSplit: ConversationLinkSplit? = nil
+
+    /// Text bubble content: the message text, minus a URL shown as a card.
+    var bodyText: String { linkSplit?.bodyText ?? message.text }
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -120,12 +125,13 @@ enum ConversationRowBuilder {
                 isFirstInGroup: !groupedWithPrevious,
                 footer: footer,
                 replyQuote: quote,
-                isEmojiOnly: message.attachments.isEmpty && isEmojiOnly(message.text),
+                isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
                 reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
-                meID: meID
+                meID: meID,
+                linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview)
             )))
         }
         if !typingIDs.isEmpty {

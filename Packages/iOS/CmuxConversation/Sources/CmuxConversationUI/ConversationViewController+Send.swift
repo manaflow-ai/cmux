@@ -31,6 +31,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let fieldFrame = composer.fieldFrame(in: view)
         let textFrame = composer.textFrame(in: view)
         let replyTo = replyTarget?.id
+        let linkPreview = composer.linkPreview.sendablePreview
         let images = attachments.map { attachment in
             (data: attachment.data, width: Int(attachment.image.size.width * attachment.image.scale), height: Int(attachment.image.size.height * attachment.image.scale), mimeType: attachment.mimeType)
         }
@@ -40,7 +41,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview) else {
             pendingFlight = nil
             return
         }

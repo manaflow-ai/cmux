@@ -99,6 +99,12 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         return info
     }
 
+    public func linkPreview(for url: URL) async throws -> ConversationLinkPreview? {
+        let result = try await core.request("unfurl", params: JSONBox(["url": url.absoluteString]), timeout: .seconds(15)).value
+        let base = await core.httpBase
+        return (result["linkPreview"] as? [String: Any]).flatMap { WireDecoding.linkPreview($0, base: base) }
+    }
+
     // MARK: -
 
     actor Core {
@@ -372,7 +378,31 @@ enum WireDecoding {
             attachments: attachments,
             delivery: delivery,
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
-            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? "")
+            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
+            linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) }
+        )
+    }
+
+    static func linkPreview(_ raw: [String: Any], base: URL) -> ConversationLinkPreview? {
+        guard let url = (raw["url"] as? String).flatMap(URL.init(string:)) else { return nil }
+        func image(_ value: Any?) -> ConversationLinkPreview.Image? {
+            guard let raw = value as? [String: Any], let string = raw["url"] as? String,
+                  let url = string.hasPrefix("/") ? URL(string: string, relativeTo: base)?.absoluteURL : URL(string: string) else { return nil }
+            return ConversationLinkPreview.Image(url: url, width: raw["width"] as? Int ?? 0, height: raw["height"] as? Int ?? 0)
+        }
+        let state: ConversationLinkPreview.State
+        switch raw["state"] as? String {
+        case "loading": state = .loading
+        case "tapToLoad": state = .tapToLoad
+        default: state = .loaded
+        }
+        return ConversationLinkPreview(
+            url: url,
+            title: raw["title"] as? String,
+            siteName: raw["siteName"] as? String,
+            image: image(raw["image"]),
+            icon: image(raw["icon"]),
+            state: state
         )
     }
 

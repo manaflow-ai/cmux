@@ -256,6 +256,21 @@ async function main() {
   }
   check(formattedSeen, "generated history includes formatted messages");
 
+  console.log("link previews");
+  const pr = (await c.call("unfurl", { url: "https://github.com/manaflow-ai/cmux/pull/123" })).linkPreview;
+  check(pr.title === "Pull Request #123 · manaflow-ai/cmux" && pr.image.width === 1200 && pr.state === "loaded", "unfurl returns canned GitHub card");
+  const og = await fetch(pr.image.url);
+  const ogBytes = new Uint8Array(await og.arrayBuffer());
+  check(og.ok && sniffImageSize(ogBytes)?.width === 1200, "preview image is served as a PNG at its size");
+  const bare = (await c.call("unfurl", { url: "https://example.com/x" })).linkPreview;
+  check(bare.url === "https://example.com/x" && !bare.title && !bare.image, "unknown URL unfurls to a bare card");
+  check((await c.raw("unfurl", { url: "nope" })).error?.code === -32602, "unfurl rejects a non-http URL");
+  const linkMsg = (await c.call("send", { clientMessageId: `l-${crypto.randomUUID()}`, text: "look https://www.apple.com/iphone/" })).message;
+  check(linkMsg.linkPreview?.title?.startsWith("iPhone") && linkMsg.linkPreview.image.height === 630, "a trailing URL in a send carries a preview");
+  const midMsg = (await c.call("send", { clientMessageId: `l-${crypto.randomUUID()}`, text: "see https://www.apple.com/iphone/ later" })).message;
+  check(!midMsg.linkPreview, "a URL in the middle of text carries no preview");
+  check(newest.messages.concat(older.messages).every((m: any) => !m.linkPreview || typeof m.linkPreview.url === "string"), "history previews are well formed");
+
   console.log("resume");
   await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.text === "edited text"), 3000, "edit event");
   await sleep(300);
