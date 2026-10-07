@@ -69,4 +69,12 @@ describe("render calls", () => {
     expect(html).not.toContain("<p>x</p>");
     expect(renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }))).toContain(">Preview</span>");
   });
+
+  test("the card's classes leave the row's own class alone", () => {
+    // A row is `acpmux-row acpmux-<kind>`, absolutely placed by the virtual transcript; a card
+    // styled under that class would take the row out of its place and hide the rows below it.
+    const html = renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }));
+    for (const [, name] of html.matchAll(/class="([^"]+)"/g))
+      expect(name!.split(" ")).not.toContain(`acpmux-${RENDER}`);
+  });
 });
