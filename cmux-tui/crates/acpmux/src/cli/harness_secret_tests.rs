@@ -168,3 +168,35 @@ fn a_piped_value_is_read_into_one_buffer_sized_before_the_read() {
     let mut bad: &[u8] = &[0xff, 0xfe];
     assert!(read_secret_from(&mut bad).is_err());
 }
+
+/// A folder profile of the command's folder is a known id: the secret is
+/// stored and the line is left for the user (the repository file is never
+/// edited).
+#[test]
+fn a_folder_profile_of_the_cwd_is_known_and_its_file_is_not_edited() {
+    let (cfg, _) = config_with("folder-known", &format!("{BASE}\n[env]\n"));
+    let repo = temp("folder-known-repo");
+    let dir = crate::config::folder_profiles::profile_dir(&repo);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("repo-tool.toml");
+    std::fs::write(&file, "schema = 1\nid = \"repo-tool\"\ncommand = \"/bin/echo\"\n").unwrap();
+    let inside = repo.join("src");
+    std::fs::create_dir_all(&inside).unwrap();
+    let stored = std::cell::Cell::new(false);
+    let change = secret_set_in("repo-tool", "TOKEN", SECRET, &cfg, Some(&inside), &|_| {
+        stored.set(true);
+        Ok(())
+    })
+    .unwrap();
+    assert!(stored.get());
+    assert!(
+        matches!(&change, FileChange::Manual { path: Some(p), .. } if p == &file.display().to_string()),
+        "{change:?}"
+    );
+    assert!(!std::fs::read_to_string(&file).unwrap().contains("TOKEN"));
+    // Outside that folder the id is unknown again.
+    let outside = temp("folder-known-outside");
+    assert!(
+        secret_set_in("repo-tool", "TOKEN", SECRET, &cfg, Some(&outside), &|_| Ok(())).is_err()
+    );
+}
