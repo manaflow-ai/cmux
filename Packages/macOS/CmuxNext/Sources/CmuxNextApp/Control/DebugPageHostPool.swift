@@ -1,5 +1,6 @@
 import CmuxNextPages
 import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 
 /// Reports the pooled React page hosts and claim/build timings (`debug.page_host_pool`).
