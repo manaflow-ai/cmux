@@ -11,6 +11,7 @@ public final class NotificationAuthorizationRefreshCoordinator {
     private var hasPendingRefresh = false
     private var pendingState: NotificationAuthorizationState?
     private var publishedState: NotificationAuthorizationState = .unknown
+    private var readGeneration: UInt64 = 0
     @ObservationIgnored private let statusProvider: @MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
     @ObservationIgnored private let publish: @MainActor (NotificationAuthorizationState) -> Void
 
@@ -34,14 +35,15 @@ public final class NotificationAuthorizationRefreshCoordinator {
         isWindowSetupComplete = true
         if let pendingState {
             self.pendingState = nil
-            accept(pendingState)
+            publishOrRetain(pendingState)
         }
         guard hasPendingRefresh else { return nil }
         hasPendingRefresh = false
         return refresh()
     }
 
-    /// Coalesces pre-setup refreshes, or reads and publishes through the shared gate.
+    /// Coalesces pre-setup refreshes, or publishes the latest admitted status read.
+    /// Later reads and direct outcomes supersede older in-flight completions.
     /// - Returns: A task callers can await for an admitted read.
     @discardableResult
     public func refresh() -> Task<Void, Never> {
@@ -49,19 +51,28 @@ public final class NotificationAuthorizationRefreshCoordinator {
             hasPendingRefresh = true
             return Task {}
         }
+        readGeneration &+= 1
+        let generation = readGeneration
         return Task { @MainActor [weak self, statusProvider] in
             let result = await statusProvider()
-            guard let self else { return }
+            guard let self, generation == self.readGeneration else { return }
             switch result {
-            case .success(let status): accept(NotificationAuthorizationState(status: status))
-            case .failure: accept(.unknown)
+            case .success(let status): publishOrRetain(NotificationAuthorizationState(status: status))
+            case .failure: publishOrRetain(.unknown)
             }
         }
     }
 
     /// Retains an early delivery outcome or publishes a changed ready outcome.
+    /// Even an unchanged direct outcome invalidates older admitted status reads.
     /// - Parameter state: The effective outcome, independent of the UI's cached state.
     public func accept(_ state: NotificationAuthorizationState) {
+        readGeneration &+= 1
+        publishOrRetain(state)
+    }
+
+    /// Applies an eligible read or direct outcome without admitting another generation.
+    private func publishOrRetain(_ state: NotificationAuthorizationState) {
         guard isWindowSetupComplete else {
             pendingState = state
             return
