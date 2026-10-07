@@ -21487,6 +21487,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.proxiedTabStaysInChromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض علامة التبويب هذه localhost لجهاز سحابي عبر الوكيل الخاص به، لذا تبقى في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj tab prikazuje localhost cloud mašine preko njenog proxyja, pa ostaje u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane viser en cloudmaskines localhost via dens proxy, så den bliver i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab zeigt den localhost einer Cloud-Maschine über deren Proxy und bleibt deshalb in Chromium."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña muestra el localhost de una máquina en la nube a través de su proxy, así que se queda en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet affiche le localhost d’une machine cloud via son proxy, il reste donc dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda mostra il localhost di una macchina cloud tramite il suo proxy, quindi resta in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはクラウドマシンの localhost をプロキシ経由で表示しているため、Chromium のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថេបនេះបង្ហាញ localhost របស់ម៉ាស៊ីនក្លោដតាមរយៈ proxy របស់វា ដូច្នេះវានៅក្នុង Chromium។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭은 프록시를 통해 클라우드 머신의 localhost를 표시하므로 Chromium에 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen viser localhost på en skymaskin via proxyen, så den blir i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta pokazuje localhost maszyny w chmurze przez jej proxy, więc pozostaje w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba mostra o localhost de uma máquina na nuvem pelo proxy dela, então ela continua no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка показывает localhost облачной машины через её прокси, поэтому остаётся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้แสดง localhost ของเครื่องคลาวด์ผ่านพร็อกซีของเครื่องนั้น จึงอยู่ใน Chromium ต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme bir bulut makinesinin localhost'unu proxy'si üzerinden gösterir, bu yüzden Chromium'da kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка показує localhost хмарної машини через її проксі, тому залишається в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab này hiển thị localhost của máy đám mây qua proxy của máy đó, nên nó vẫn ở trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页通过代理显示云机器的 localhost，因此保留在 Chromium 中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁透過代理伺服器顯示雲端機器的 localhost，因此保留在 Chromium 中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

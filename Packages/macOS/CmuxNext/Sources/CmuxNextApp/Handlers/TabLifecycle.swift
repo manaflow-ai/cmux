@@ -143,6 +143,9 @@ enum TabLifecycle {
         guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
         let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
         guard current != engine else { return }
+        if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
+            return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
+        }
         if engine == .cef, let reason = ctx.services.cache.browserTabs?.cefUnavailableReason() {
             return ctx.refuse(reason)
         }
@@ -270,10 +273,11 @@ enum TabLifecycle {
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            // The user's Cmd-W keeps a pinned tab (Chrome parity, PINNED-ITEMS-END-TO-END P3);
-            // the tab menu, the CLI and MCP name the tab and close it.
+            // The user's Cmd-W keeps a pinned tab (Chrome parity, PINNED-ITEMS-END-TO-END P3) unless
+            // `tabs.cmdWClosesPinnedTabs` is on; the tab menu, the CLI and MCP name the tab and close it.
             if invocation.origin == .user {
-                switch pane.stripModel.keyboardClose(id) {
+                let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
+                switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
                 case .close: break
                 case .select(let next): return pane.select(next)
                 case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)

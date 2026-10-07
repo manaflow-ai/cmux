@@ -23,7 +23,10 @@ enum ControlTopologyMapper {
         case .disconnected: "disconnected"
         case .failed: "failed"
         }
-        topology.workspaceGroups = store.groups.map { group in
+        // The groups the sidebar draws: the home session's personal groups
+        // when it serves them (cx-qno.17), else the daemon's shared groups.
+        let groups = store.personal.isLoaded ? store.personal.groups : store.groups
+        topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
         topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab) }

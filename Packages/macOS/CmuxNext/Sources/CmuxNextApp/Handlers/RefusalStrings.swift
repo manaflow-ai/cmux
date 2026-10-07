@@ -62,6 +62,10 @@ nonisolated enum RefusalStrings {
         String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
     }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
+    /// Open in WebKit on a Cloud proxied tab: WebKit would load this Mac's localhost.
+    static var proxiedTabStaysInChromium: String {
+        text("handlers.refusal.proxiedTabStaysInChromium", "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium.")
+    }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
     static var directionUp: String { text("handlers.refusal.directionUp", "up") }

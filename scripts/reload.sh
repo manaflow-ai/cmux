@@ -1529,17 +1529,13 @@ fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
-# app) are built from the sources before the compile, so the app never ships a
-# stale or missing copy (cx-vn5). A warm tree skips the build in about a second.
-# Until the committed copies are deleted, a host without the pinned bun or
-# node (fleet hosts before the recipe provides them) warns and builds with the
-# committed bundles: CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 makes a missing tool a
-# warning, so the log shows no "error:" line that is not the build's failure.
+# app) are build output, not committed: they are built from the sources before
+# the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
+# tree skips the build in about a second. The Xcode "Verify web bundles" phase
+# refuses an app build that skipped this.
 if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
   echo "==> cmux-next: web bundles"
-  if ! CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 "$PWD/scripts/cmux-next/build-web-bundles.sh"; then
-    echo "warning: the web bundles were not built from the sources (error above); this build ships the committed bundles" >&2
-  fi
+  "$PWD/scripts/cmux-next/build-web-bundles.sh" || exit 1
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
