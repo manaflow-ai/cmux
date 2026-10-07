@@ -1754,6 +1754,28 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
 }
 
 /**
+ * Whether the caller can see any account of the pool, in any state. A team
+ * with none has nothing to wait for, unlike one whose accounts are cooling,
+ * refreshing, or broken.
+ */
+export async function hasConfiguredAccount(input: {
+  teamId: string;
+  provider: ProviderPool;
+  signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
+}): Promise<boolean> {
+  const result = await runWithCloudDbQuerySignal(input.signal, () => cloudDb().execute(sql`
+      select 1 as "found"
+      from "coderouter_accounts" as account
+      where account."team_id" = ${input.teamId}
+        and ${nativeAccess(input.access, true)}
+        and ${providerMatch(sql`account."provider"`, input.provider)}
+      limit 1
+    `));
+  return databaseRows(result).length > 0;
+}
+
+/**
  * When the soonest account of the pool cooling down for a transient reason
  * (capacity, rate limit, outage) becomes usable again; `null` when none is.
  * The Codex proxy holds a request for capacity only while this is in reach.

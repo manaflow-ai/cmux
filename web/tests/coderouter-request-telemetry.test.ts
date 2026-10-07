@@ -65,6 +65,7 @@ describe("classifyCoderouterFault", () => {
     expect(classifyCoderouterFault({ outcome: "provider_unavailable", failureStage: "upstream_transport", status: 502 })).toBe("upstream");
     expect(classifyCoderouterFault({ outcome: "provider_unavailable", failureStage: "provider_config", status: 502 })).toBe("operator");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "provider_config", status: 503 })).toBe("tenant");
+    expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "provider_config", status: 403 })).toBe("tenant");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "account_selection", status: 503 })).toBe("tenant");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "credential_refresh", status: 503 })).toBe("upstream");
     expect(classifyCoderouterFault({ outcome: "upstream_error", failureStage: "upstream_response", status: 529 })).toBe("upstream");
