@@ -76,6 +76,7 @@ public nonisolated enum ActionCatalog {
         ThemeActionCatalog.self,
         PaneActionCatalog.self,
         TabActionCatalog.self,
+        TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,
         TabGroupActionCatalog.self,
