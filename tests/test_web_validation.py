@@ -35,7 +35,7 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
         self.assertIn(
             "jobs:\n  web:\n    uses: ./.github/workflows/ci-web.yml\n    with:\n"
-            "      web: \"true\"\n      macos: \"false\"\n      agent_session_web: \"true\"\n",
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,
         )
 
