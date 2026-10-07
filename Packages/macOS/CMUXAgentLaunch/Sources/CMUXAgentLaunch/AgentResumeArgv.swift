@@ -126,7 +126,18 @@ public struct AgentResumeArgv: Sendable, Equatable {
         guard let first = commandArgs.first, first == "resume" || first == "fork" else {
             return ["--remote", appServerURL] + commandArgs
         }
-        let preserved = commandArgs.dropFirst().filter { $0 != "--dangerously-bypass-approvals-and-sandbox" }
+        var preserved: [String] = []
+        var isAfterArgumentSeparator = false
+        for argument in commandArgs.dropFirst() {
+            if !isAfterArgumentSeparator,
+               argument == "--dangerously-bypass-approvals-and-sandbox" {
+                continue
+            }
+            preserved.append(argument)
+            if argument == "--" {
+                isAfterArgumentSeparator = true
+            }
+        }
         return [first, "--remote", appServerURL] + preserved
     }
 

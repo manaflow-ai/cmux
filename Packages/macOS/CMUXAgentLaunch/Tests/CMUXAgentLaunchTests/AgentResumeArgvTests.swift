@@ -213,6 +213,18 @@ struct AgentResumeArgvTests {
                 commandArgs: ["fork", "THREAD", "--model", "gpt-5", bypassFlag]
             ) == ["fork", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
         )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", "--", bypassFlag]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
     }
 
     @Test("Codex Teams fresh remote launches preserve the permission override")
