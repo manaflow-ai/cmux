@@ -20,8 +20,12 @@ pub mod flags {
     pub const REFINE: u8 = 0b0010;
     /// The frame recovers from a loss by referencing an acknowledged frame.
     pub const RECOVERY: u8 = 0b0100;
+    /// The frame is a lossless tile top-off (rd change C3) on a tile stream:
+    /// standalone (no reference chain); `ref_frame` names the video frame of
+    /// the surface stream it applies on top of. Sent only with the `tile` cap.
+    pub const TILE: u8 = 0b1000;
     /// Every defined flag.
-    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY;
+    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY | TILE;
 }
 
 /// What a datagram carries.

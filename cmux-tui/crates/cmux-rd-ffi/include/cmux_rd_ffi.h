@@ -40,6 +40,7 @@ extern "C" {
 #define CMUX_RD_FLAG_KEYFRAME 0x01u
 #define CMUX_RD_FLAG_REFINE 0x02u
 #define CMUX_RD_FLAG_RECOVERY 0x04u
+#define CMUX_RD_FLAG_TILE 0x08u      /* lossless tile top-off (tile streams, cap "tile"); ref_frame names the surface stream's video frame */
 
 /* Return codes. Non-negative values are results. */
 #define CMUX_RD_OK 0
