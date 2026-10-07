@@ -703,6 +703,76 @@ fn move_tab_to_column_refuses_a_pin_when_the_closing_source_column_scrolled() {
     assert_eq!(wire.dock(), vec![dock("right", "docked"), None]);
 }
 
+#[test]
+fn dock_column_role_capability_is_advertised() {
+    let mut wire = Wire::new();
+    let identify = wire.ok(json!({"cmd": "identify"}));
+    let capabilities = identify["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!("dock-column-role-v1")));
+}
+
+/// `dock-column-role-v1`: the agent chat role is kept with the pin, sent in
+/// the same `dock` field, replaced by a pin without one and dropped with it.
+#[test]
+fn dock_column_role_is_kept_with_the_pin_and_dropped_with_it() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    let data = wire.ok(json!({
+        "cmd": "set-column-dock",
+        "pane": panes[0],
+        "dock": true,
+        "edge": "left",
+        "role": "agent_chat",
+    }));
+    let chat = json!({"edge": "left", "mode": "docked", "role": "agent_chat"});
+    assert_eq!(data["dock"], chat);
+    assert_eq!(wire.dock(), vec![Some(chat.clone()), None]);
+
+    wire.set_dock(panes[0], "left", "docked");
+    assert_eq!(wire.dock(), vec![dock("left", "docked"), None], "a pin without a role clears it");
+
+    wire.ok(json!({
+        "cmd": "set-column-dock",
+        "pane": panes[0],
+        "dock": true,
+        "edge": "left",
+        "role": "agent_chat",
+    }));
+    wire.ok(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": false}));
+    assert_eq!(wire.dock(), vec![None, None]);
+    let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    assert_eq!(undone["undone"], true, "{undone}");
+    assert_eq!(wire.dock(), vec![Some(chat), None], "undo restores the role with the pin");
+}
+
+#[test]
+fn dock_column_rejects_an_unknown_role() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    let response = wire.send(json!({
+        "cmd": "set-column-dock",
+        "pane": panes[0],
+        "dock": true,
+        "role": "sidebar",
+    }));
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error_code"], "invalid-argument");
+    assert_eq!(wire.dock(), vec![None, None]);
+}
+
+#[test]
+fn move_tab_to_column_pins_the_new_column_with_its_role() {
+    let (mut wire, panes) = Wire::with_columns(1);
+    let chat = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
+    wire.ok(json!({
+        "cmd": "move-tab-to-column",
+        "surface": chat.id,
+        "pane": panes[0],
+        "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
+    }));
+    let columns = wire.columns();
+    assert_eq!(columns.len(), 2);
+    assert_eq!(columns[1]["dock"], json!({"edge": "left", "mode": "docked", "role": "agent_chat"}));
+}
+
 // `permanent-dock-v1` (Home's conversation list, 2026-10-06): a docked
 // column marked permanent stays docked on its edge for every client, CLI
 // included. Its mode may change; undocking, moving it to another edge,
@@ -795,10 +865,12 @@ fn permanent_dock_column_refuses_a_tab_move_that_empties_it() {
 #[test]
 fn permanent_flag_is_stored_only_when_set() {
     use crate::model::{ColumnDock, DockEdge, DockMode};
-    let pinned = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, permanent: true };
+    let pinned =
+        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: true };
     let text = serde_json::to_string(&pinned).unwrap();
     assert!(text.contains("\"permanent\":true"), "{text}");
-    let plain = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, permanent: false };
+    let plain =
+        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: false };
     assert!(!serde_json::to_string(&plain).unwrap().contains("permanent"), "omitted when false");
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.permanent, "a record written before the flag reads as not permanent");

@@ -81,7 +81,7 @@ fn send(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Result<Val
 }
 
 fn flag(edge: DockEdge, mode: DockMode) -> Option<ColumnDock> {
-    Some(ColumnDock { edge, mode, permanent: false })
+    Some(ColumnDock::new(edge, mode))
 }
 
 #[test]

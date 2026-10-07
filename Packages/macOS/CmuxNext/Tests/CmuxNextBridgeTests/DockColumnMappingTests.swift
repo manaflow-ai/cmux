@@ -34,6 +34,20 @@ struct DockColumnMappingTests {
         #expect(dock == DockSnapshot(edge: .right, mode: .docked))
     }
 
+    /// `dock-column-role-v1`: the agent chat role survives the trip through
+    /// the layout model and back to the daemon; an unknown role is dropped.
+    @Test func theAgentChatRoleSurvivesTheLayout() throws {
+        func role(_ json: String) throws -> String? {
+            let dock = try #require(try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":"# + json + "}").dock)
+            let request = SetColumnDockRequest(pane: 4, dock: LayoutMapping.snapshot(LayoutMapping.dock(dock)))
+            let sent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+            return sent?["role"] as? String
+        }
+        #expect(try role(#"{"edge":"left","mode":"docked","role":"agent_chat"}"#) == "agent_chat")
+        #expect(try role(#"{"edge":"left","mode":"docked","role":"notes"}"#) == nil)
+        #expect(try role(#"{"edge":"left","mode":"docked"}"#) == nil)
+    }
+
     @Test func roundTripsThroughTheLayout() {
         for edge in DockEdge.allCases {
             for mode in DockMode.allCases {

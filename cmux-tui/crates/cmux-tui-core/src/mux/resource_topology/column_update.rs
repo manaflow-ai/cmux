@@ -27,7 +27,7 @@ impl ColumnUpdate {
         let mode = fields.get("mode").and_then(Value::as_str);
         let dock = match fields.get("dock").and_then(Value::as_bool) {
             Some(dock) => Some(
-                parse_column_dock(dock, edge, mode)
+                parse_column_dock(dock, edge, mode, None)
                     .map_err(|error| invalid("dock", error.to_string()))?,
             ),
             None if edge.is_some() || mode.is_some() => {
