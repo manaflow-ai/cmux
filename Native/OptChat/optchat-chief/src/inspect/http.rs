@@ -30,12 +30,19 @@ use super::Inspector;
 /// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh).
 pub const PAGE: &str = include_str!("../../inspector/index.html");
 
-const COOKIE: &str = "optchat_inspector";
+/// The session cookie's name, with the port in it: a browser sends a
+/// 127.0.0.1 cookie to every port, so two Chiefs (two tags) must not share it.
+fn cookie_name(port: u16) -> String {
+    format!("optchat_inspector_{port}")
+}
+/// How long a session cookie stays valid.
+const SESSION_LIFE: Duration = Duration::from_secs(12 * 3600);
 /// How long a ticket from `/api/ticket` can be spent.
 const TICKET_LIFE: Duration = Duration::from_secs(60);
 /// Connections served at once; more are answered 503.
 const MAX_CONNECTIONS: usize = 32;
 const MAX_HEAD: usize = 16 * 1024;
+/// The whole request head must arrive within this (not each read).
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A running server.
@@ -57,7 +64,7 @@ struct Shared {
     token: String,
     port: u16,
     tickets: Mutex<HashMap<String, Instant>>,
-    sessions: Mutex<Vec<String>>,
+    sessions: Mutex<Vec<(String, Instant)>>,
     live: AtomicUsize,
 }
 
@@ -99,7 +106,16 @@ pub fn start(inspector: Arc<Inspector>, bind: SocketAddr, token: String) -> io::
     std::thread::Builder::new()
         .name("optchat-inspector".into())
         .spawn(move || {
-            for conn in listener.incoming().flatten() {
+            for conn in listener.incoming() {
+                let conn = match conn {
+                    Ok(conn) => conn,
+                    Err(_) => {
+                        // Out of descriptors (EMFILE) or the like: an accept
+                        // loop that retries at once would spin a core.
+                        std::thread::sleep(Duration::from_millis(200));
+                        continue;
+                    }
+                };
                 let shared = shared.clone();
                 if shared.live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
                     shared.live.fetch_sub(1, Ordering::SeqCst);
@@ -164,8 +180,23 @@ impl Request {
 }
 
 fn read_head(conn: &TcpStream) -> io::Result<Request> {
+    let deadline = Instant::now() + IO_TIMEOUT;
+    // Each read may wait only what is left of the head's deadline, so a
+    // client that trickles bytes cannot hold a connection thread.
+    let left = || {
+        let rest = deadline.saturating_duration_since(Instant::now());
+        if rest.is_zero() {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "request head too slow",
+            ))
+        } else {
+            conn.set_read_timeout(Some(rest))
+        }
+    };
     let mut reader = BufReader::new(conn.take(MAX_HEAD as u64));
     let mut line = String::new();
+    left()?;
     reader.read_line(&mut line)?;
     let mut words = line.split_whitespace();
     let (Some(method), Some(target), Some(version)) = (words.next(), words.next(), words.next())
@@ -187,6 +218,7 @@ fn read_head(conn: &TcpStream) -> io::Result<Request> {
     };
     loop {
         let mut h = String::new();
+        left()?;
         if reader.read_line(&mut h)? == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -262,14 +294,16 @@ impl Shared {
         if self.bearer_ok(req) {
             return true;
         }
-        let Some(session) = cookie(req, COOKIE) else {
+        let name = cookie_name(self.port);
+        let Some(session) = cookie(req, &name) else {
             return false;
         };
-        let sessions = self
+        let mut sessions = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        sessions.iter().any(|s| same(s, session))
+        sessions.retain(|(_, at)| at.elapsed() < SESSION_LIFE);
+        sessions.iter().any(|(s, _)| same(s, session))
     }
 
     fn host_ok(&self, req: &Request) -> bool {
@@ -309,7 +343,7 @@ impl Shared {
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        sessions.push(session.clone());
+        sessions.push((session.clone(), Instant::now()));
         let excess = sessions.len().saturating_sub(16);
         sessions.drain(..excess);
         Some(session)
@@ -364,14 +398,18 @@ fn route(shared: &Shared, req: &Request) -> Reply {
             }
         }
         "/" | "/index.html" => {
-            if let Some(ticket) = req.query("ticket") {
+            // Only a GET spends a ticket (a HEAD, a prefetch check, does not).
+            if let Some(ticket) = req.query("ticket").filter(|_| req.method == "GET") {
                 return match shared.spend_ticket(ticket) {
                     Some(session) => {
                         let mut r = reply(303, "text/plain", "");
                         r.headers.push(("Location".into(), "/".into()));
                         r.headers.push((
                             "Set-Cookie".into(),
-                            format!("{COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict"),
+                            format!(
+                                "{}={session}; Path=/; HttpOnly; SameSite=Strict",
+                                cookie_name(shared.port)
+                            ),
                         ));
                         r
                     }
@@ -401,7 +439,6 @@ fn serve(conn: TcpStream, shared: &Shared) {
     if !peer_ok {
         return;
     }
-    let _ = conn.set_read_timeout(Some(IO_TIMEOUT));
     let _ = conn.set_write_timeout(Some(IO_TIMEOUT));
     let Ok(req) = read_head(&conn) else {
         let _ = respond(&conn, 400, "text/plain", b"bad request", &[]);

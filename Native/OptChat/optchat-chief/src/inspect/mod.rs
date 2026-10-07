@@ -13,6 +13,7 @@
 //! `http.rs` serves it on 127.0.0.1 behind a per-launch token.
 
 pub mod http;
+mod trace_cache;
 mod tree;
 mod turns;
 
@@ -33,6 +34,7 @@ pub struct Inspector {
     pub settle_status: PathBuf,
     /// The turn sessions' system text as this host built it (prompt.rs).
     pub system_text: String,
+    trace: trace_cache::TraceCache,
 }
 
 /// An API answer: a JSON body, or an HTTP status and a plain reason.
@@ -47,6 +49,26 @@ pub(crate) fn not_found(why: impl Into<String>) -> (u16, String) {
 }
 
 impl Inspector {
+    pub fn new(
+        chat: Arc<OptChat>,
+        traces: PathBuf,
+        settle_status: PathBuf,
+        system_text: String,
+    ) -> Inspector {
+        Inspector {
+            chat,
+            traces,
+            settle_status,
+            system_text,
+            trace: trace_cache::TraceCache::default(),
+        }
+    }
+
+    /// Recent trace events (the timeline's window), parsed once per line.
+    fn recent(&self) -> Vec<Value> {
+        self.trace.events(&self.traces, since_ms(RECENT_DAYS))
+    }
+
     /// Answers one GET request: `path` without the query, `query` decoded.
     pub fn answer(&self, path: &str, query: &[(String, String)]) -> Answer {
         let q = |key: &str| {
@@ -74,7 +96,7 @@ impl Inspector {
         let settle = std::fs::read(&self.settle_status)
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-        let events = crate::report::read(&self.traces, since_ms(RECENT_DAYS)).unwrap_or_default();
+        let events = self.recent();
         let summaries = turns::summaries(&events);
         let running = summaries
             .iter()
@@ -122,7 +144,7 @@ impl Inspector {
 
     fn turns(&self, limit: Option<&str>) -> Answer {
         let limit = parse_or(limit, 200usize)?.clamp(1, 2000);
-        let events = crate::report::read(&self.traces, since_ms(RECENT_DAYS)).unwrap_or_default();
+        let events = self.recent();
         let all = turns::summaries(&events);
         let more = all.len() > limit;
         let page: Vec<Value> = all[all.len().saturating_sub(limit)..].to_vec();
@@ -133,16 +155,19 @@ impl Inspector {
         if key == "now" {
             return Ok(turns::current(self));
         }
-        let events = crate::report::read(&self.traces, 0).map_err(not_found)?;
-        let start = events
-            .iter()
-            .rev()
-            .find(|e| e["ev"] == "turn.start" && e["turn"] == key)
+        let mut start = self
+            .trace
+            .turn_start(&self.traces, key)
             .ok_or_else(|| not_found(format!("no turn {key} in the trace")))?;
-        let prompt = turn_prompt(&self.chat, start, &self.system_text);
-        let mut out = turns::prompt_json(&prompt, start);
+        let events = crate::report::for_turn(&self.trace.events(&self.traces, 0), key);
+        // A turn Claude Code refused the marker on ran again without it.
+        if events.iter().any(|e| e["ev"] == "turn.unmarked") {
+            start["layout"]["marker"] = json!(false);
+        }
+        let prompt = turn_prompt(&self.chat, &start, &self.system_text);
+        let mut out = turns::prompt_json(&prompt, &start);
         self.decorate(&mut out, &prompt);
-        out["events"] = json!(crate::report::for_turn(&events, key));
+        out["events"] = json!(events);
         Ok(out)
     }
 

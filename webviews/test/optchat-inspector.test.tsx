@@ -83,6 +83,19 @@ test("the store fetches once per URL and reports errors", async () => {
   store.get("/bad");
   await new Promise((r) => setTimeout(r, 0));
   expect(store.get("/bad").error).toBe("missing or wrong token");
+  // Idle answers beyond the cap are evicted, oldest first; subscribed ones stay.
+  const keep = store.subscribe("/a", () => {});
+  for (let i = 0; i < 40; i++) store.get(`/n${i}`);
+  await new Promise((r) => setTimeout(r, 0));
+  const before = calls;
+  store.get("/a");
+  store.get("/n39");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(calls).toBe(before);
+  store.get("/n0");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(calls).toBe(before + 1);
+  keep();
 });
 
 const VIEW = "<chat>\n0+4|summary of the start\n4+2|two messages\n6+1|user: hello\n</chat>";

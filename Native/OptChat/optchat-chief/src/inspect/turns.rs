@@ -83,6 +83,12 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let messages_match = !ids.is_empty()
         && messages.len() == traced.len()
         && messages.iter().zip(&traced).all(|(m, h)| hash(&m.2) == *h);
+    let images = start["layout"]["images"].as_u64().unwrap_or(0);
+    if images > 0 && note.is_none() {
+        note = Some(format!(
+            "This turn also sent {images} image block(s) before its messages; they are not shown."
+        ));
+    }
     if ids.is_empty() && note.is_none() {
         note = Some(
             "This turn ran before the trace recorded its message ids; its messages are not shown."
@@ -184,7 +190,7 @@ pub fn system_parts(system_text: &str) -> Vec<Value> {
 pub(crate) fn view_lines(chat: &OptChat, view: &str, parts: &[NodeId]) -> Vec<Value> {
     let mut offset = "<chat>\n".len();
     let mut lines = Vec::with_capacity(parts.len());
-    for (part, line) in parts.iter().zip(view.lines().skip(1)) {
+    for (part, line) in parts.iter().zip(view.split('\n').skip(1)) {
         let built = chat.node(*part).is_some();
         lines.push(json!({
             "name": part.name(),
@@ -273,7 +279,10 @@ pub(crate) fn current(inspector: &Inspector) -> Value {
         system_matches: true,
         messages_match: true,
         note: Some(
-            "The view as it stands now: the next turn reads it, then its new messages.".to_owned(),
+            "The view as it stands now: the next turn reads it, then its new messages. Shown in \
+             the cached layout with its marker (a Claude harness); a Codex turn sends the view \
+             as plain blocks."
+                .to_owned(),
         ),
     };
     let mut out = prompt_json(&prompt, &json!({"turn": "now", "view": {}}));
@@ -317,7 +326,7 @@ pub fn summaries(events: &[Value]) -> Vec<Value> {
                     "view_bytes": e["view"]["bytes"],
                     "view_lines": e["view"]["lines"],
                     "unchanged_prefix_bytes": e["view"]["unchanged_prefix_bytes"],
-                    "parts_recorded": e["view"]["parts"].is_array(),
+                    "parts_recorded": e["view"]["parts_recorded"].as_bool().unwrap_or(false),
                     "sources": e["sources"],
                     "messages": e["messages"].as_array().map_or(0, Vec::len),
                     "nodes_before": nodes_since_turn,

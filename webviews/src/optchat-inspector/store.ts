@@ -9,7 +9,12 @@ type Slot = {
   listeners: Set<() => void>;
   timer?: ReturnType<typeof setInterval>;
   every?: number;
+  /** When the last listener left (0 while subscribed): idle slots are evicted oldest first. */
+  idleSince: number;
 };
+
+/** Idle answers kept for a quick return (a turn's prompt can be 100 KB or more). */
+const KEEP_IDLE = 24;
 
 export type Fetcher = (url: string) => Promise<unknown>;
 
@@ -27,8 +32,9 @@ export class ApiStore {
   private slot(url: string): Slot {
     let s = this.slots.get(url);
     if (!s) {
-      s = { entry: { loading: true }, listeners: new Set() };
+      s = { entry: { loading: true }, listeners: new Set(), idleSince: Date.now() };
       this.slots.set(url, s);
+      this.evict();
       void this.load(url);
     }
     return s;
@@ -56,6 +62,7 @@ export class ApiStore {
   subscribe(url: string, listener: () => void, every?: number): () => void {
     const s = this.slot(url);
     s.listeners.add(listener);
+    s.idleSince = 0;
     if (every && !s.timer) {
       s.every = every;
       s.timer = setInterval(() => {
@@ -64,10 +71,20 @@ export class ApiStore {
     }
     return () => {
       s.listeners.delete(listener);
-      if (s.listeners.size === 0 && s.timer) {
-        clearInterval(s.timer);
+      if (s.listeners.size === 0) {
+        if (s.timer) clearInterval(s.timer);
         s.timer = undefined;
+        s.idleSince = Date.now();
+        this.evict();
       }
     };
+  }
+
+  /** Drops the oldest idle answers beyond `KEEP_IDLE`. */
+  private evict(): void {
+    const idle = [...this.slots]
+      .filter(([, s]) => s.listeners.size === 0)
+      .sort((a, b) => a[1].idleSince - b[1].idleSince);
+    for (const [url] of idle.slice(0, Math.max(0, idle.length - KEEP_IDLE))) this.slots.delete(url);
   }
 }

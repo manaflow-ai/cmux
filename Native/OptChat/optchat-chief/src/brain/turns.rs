@@ -128,6 +128,8 @@ impl Brain {
                         match &outcome.error {
                             Some(e) if marked && is_marker_limit_error(e) => {
                                 marker_refused.store(true, Ordering::SeqCst);
+                                // The inspector lays this turn out unmarked.
+                                trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
                                     "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
                                     start.key
@@ -309,6 +311,7 @@ impl Brain {
                 (turn_blocks(&view.text, &texts), None, preset)
             }
         };
+        let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
@@ -323,11 +326,12 @@ impl Brain {
         // How the prompt was laid out, so the inspector can lay it out again
         // from the trace (inspect.rs): the cached layout and its marker, or
         // the view's pieces then the messages.
-        let layout = if system_prompt.is_some() {
+        let mut layout = if system_prompt.is_some() {
             serde_json::json!({"kind": "cached", "marker": marker})
         } else {
             serde_json::json!({"kind": "blocks"})
         };
+        layout["images"] = serde_json::json!(image_count);
         self.trace_start(
             &key,
             first,

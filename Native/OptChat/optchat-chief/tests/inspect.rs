@@ -32,12 +32,12 @@ fn harness(cached: bool, preload: usize) -> Harness {
 }
 
 fn inspector(h: &Harness) -> Arc<Inspector> {
-    Arc::new(Inspector {
-        chat: h.chat.clone(),
-        traces: h.dir.path().join("traces"),
-        settle_status: h.dir.path().join("state").join("settle.json"),
-        system_text: optchat_chief::prompt::claude_md(None),
-    })
+    Arc::new(Inspector::new(
+        h.chat.clone(),
+        h.dir.path().join("traces"),
+        h.dir.path().join("state").join("settle.json"),
+        optchat_chief::prompt::claude_md(None),
+    ))
 }
 
 fn starts(h: &Harness) -> Vec<Value> {
@@ -282,8 +282,16 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
     let ticket: Value =
         serde_json::from_str(&get(addr, "GET", "/api/ticket", &host, &bearer).body).unwrap();
     let ticket = ticket["ticket"].as_str().unwrap();
+    let probe = get(addr, "HEAD", &format!("/?ticket={ticket}"), &host, "");
+    assert_eq!(probe.status, 401, "a HEAD does not spend the ticket");
     let spent = get(addr, "GET", &format!("/?ticket={ticket}"), &host, "");
     assert_eq!(spent.status, 303);
+    assert!(
+        spent
+            .headers
+            .contains(&format!("optchat_inspector_{}=", addr.port())),
+        "the cookie is per port"
+    );
     let cookie = spent
         .headers
         .lines()

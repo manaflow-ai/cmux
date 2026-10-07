@@ -42,7 +42,9 @@ enum ChiefInspectorHandlers {
         let handle = pane.pane.handle
         let connection = try context.requireConnection()
         guard let browserTabs = context.services.cache.browserTabs,
-              case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+              case .open(let choice) = browserTabs.resolve(requested: nil) else {
+            throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
+        }
         let surface = try await browserTabs.open(choice, in: handle, url: url.absoluteString, profile: nil)
         let spawn = context.services.newColumnWidth(nextTo: pane.pane)
         do {
@@ -58,6 +60,9 @@ enum ChiefInspectorHandlers {
 nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
     let url: URL
     let token: String
+    /// The host process; a file whose host has exited is stale (its port may
+    /// belong to another program now, so its token is never sent there).
+    let pid: Int32?
 
     /// No usable `inspector.json`: no local Chief host, or one without an inspector.
     struct Missing: Error {}
@@ -70,10 +75,15 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
         // concurrency-allow: nonisolated; the action reads it in Task.detached (bind above)
         guard let data = try? Data(contentsOf: file),
               let endpoint = try? JSONDecoder().decode(ChiefInspectorEndpoint.self, from: data),
-              endpoint.url.host == "127.0.0.1" else {
+              endpoint.url.host == "127.0.0.1",
+              endpoint.pid.map(Self.isRunning) ?? true else {
             throw Missing()
         }
         return endpoint
+    }
+
+    nonisolated static func isRunning(_ pid: Int32) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
     }
 
     /// The page's URL with a fresh one-time ticket (`GET /api/ticket` with the token).

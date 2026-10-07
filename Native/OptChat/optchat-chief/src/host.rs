@@ -977,12 +977,12 @@ fn start_inspector(paths: &Paths, chat: &Arc<OptChat>, system_text: &str) {
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return;
     }
-    let inspector = Arc::new(crate::inspect::Inspector {
-        chat: chat.clone(),
-        traces: paths.traces.clone(),
-        settle_status: paths.settle_status.clone(),
-        system_text: system_text.to_owned(),
-    });
+    let inspector = Arc::new(crate::inspect::Inspector::new(
+        chat.clone(),
+        paths.traces.clone(),
+        paths.settle_status.clone(),
+        system_text.to_owned(),
+    ));
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         crate::inspect::http::start(inspector, bind, token)

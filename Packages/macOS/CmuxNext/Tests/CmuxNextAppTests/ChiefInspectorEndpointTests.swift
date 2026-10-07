@@ -14,7 +14,8 @@ import Testing
     }
 
     @Test @MainActor func readsTheLoopbackEndpoint() throws {
-        let home = try home(with: #"{"url":"http://127.0.0.1:52011/","token":"\#(String(repeating: "a", count: 64))","pid":42}"#)
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let home = try home(with: #"{"url":"http://127.0.0.1:52011/","token":"\#(String(repeating: "a", count: 64))","pid":\#(pid)}"#)
         let endpoint = try ChiefInspectorEndpoint.read(muxHome: home)
         #expect(endpoint.url.port == 52011)
         let page = ChiefInspectorEndpoint.pageURL(base: endpoint.url, ticket: "t1")
@@ -26,5 +27,8 @@ import Testing
         #expect(throws: (any Error).self) { try ChiefInspectorEndpoint.read(muxHome: try home(with: nil)) }
         let remote = try home(with: #"{"url":"http://10.0.0.5:52011/","token":"x"}"#)
         #expect(throws: (any Error).self) { try ChiefInspectorEndpoint.read(muxHome: remote) }
+        // A host that exited leaves a stale file: its token is never sent.
+        let stale = try home(with: #"{"url":"http://127.0.0.1:52011/","token":"x","pid":2147483000}"#)
+        #expect(throws: (any Error).self) { try ChiefInspectorEndpoint.read(muxHome: stale) }
     }
 }
