@@ -215,25 +215,35 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
         header.setStatus(statusText)
         navigationItem.rightBarButtonItem?.menu = makeMenu()
         navigationController?.tabBarItem.badgeValue = store.counts.badge > 0 ? "\(store.counts.badge)" : nil
-        setNeedsUpdateContentUnavailableConfiguration()
+        renderEmptyState()
     }
 
-    override public func updateContentUnavailableConfiguration(using state: UIContentUnavailableConfigurationState) {
-        guard sections.isEmpty else {
-            contentUnavailableConfiguration = nil
+    /// The empty, loading and offline states sit behind the list (its
+    /// background view), so the filter above stays usable.
+    private func renderEmptyState() {
+        guard sections.isEmpty, let config = emptyConfiguration() else {
+            collectionView.backgroundView = nil
             return
         }
+        if let view = collectionView.backgroundView as? UIContentUnavailableView {
+            view.configuration = config
+        } else {
+            let view = UIContentUnavailableView(configuration: config)
+            view.accessibilityIdentifier = "feed.empty"
+            collectionView.backgroundView = view
+        }
+    }
+
+    private func emptyConfiguration() -> UIContentUnavailableConfiguration? {
         if !store.isLive, case .offline = store.connection {
             var config = UIContentUnavailableConfiguration.empty()
             config.image = UIImage(systemName: "wifi.slash")
             config.text = FeedText.offlineTitle
             config.secondaryText = FeedText.offlineBody
-            contentUnavailableConfiguration = config
-            return
+            return config
         }
         if !store.isLive, store.items.isEmpty {
-            contentUnavailableConfiguration = UIContentUnavailableConfiguration.loading()
-            return
+            return UIContentUnavailableConfiguration.loading()
         }
         var config = UIContentUnavailableConfiguration.empty()
         config.image = UIImage(systemName: store.filter == .needsInput ? "checkmark.circle" : "tray")
@@ -245,7 +255,7 @@ public final class FeedViewController: UIViewController, UICollectionViewDelegat
             config.button = button
             config.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.setFilter(.all) }
         }
-        contentUnavailableConfiguration = config
+        return config
     }
 
     private func configure(_ cell: UICollectionViewListCell, id: FeedItem.ID) {
