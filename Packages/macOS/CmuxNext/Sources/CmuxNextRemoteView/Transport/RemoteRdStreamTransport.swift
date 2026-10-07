@@ -3,19 +3,6 @@ import CmuxNextWakeups
 import Network
 import Synchronization
 
-/// A development host on this Mac's loopback interface (remote-desktop.md
-/// 11.0: phase-1 hosts listen only on loopback). The transport connects to a
-/// literal 127.0.0.1, never a resolved name.
-public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
-    public let port: UInt16
-
-    /// Nil for a privileged port (the host refuses ports below 1024 too).
-    public init?(port: UInt16) {
-        guard port >= 1024 else { return nil }
-        self.port = port
-    }
-}
-
 /// The in-app `cmux.rd/1` transport over the stream carrier: one TCP
 /// connection carries control JSON and datagrams as `u8 type, u32 len`
 /// frames (until the overlay datagram service carries media). The shared Rust
@@ -28,26 +15,33 @@ public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
 /// contract; the pane drives it through `RemoteUpstreamControl`.
 public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, RemoteUpstreamControl {
     private let endpoint: RemoteRdLoopbackEndpoint
-    private let hello: RemoteRdHello
+    // internal for the +Service extension file
+    let hello: RemoteRdHello
     private let startKey: String
     private let control: Bool
     private let nowMicros: @Sendable () -> UInt64
-    private let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
+    // internal for the +Service extension file
+    let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
-    private let state: Mutex<Continuations>
+    // internal for the +Service extension file
+    let state: Mutex<Continuations>
+    // internal for the +Service extension file
     // crash-allow: confined to the serial `queue`; every access runs in a queue block or an NWConnection callback started on it.
-    private nonisolated(unsafe) let engine: Engine
+    nonisolated(unsafe) let engine: Engine
 
-    private struct Continuations {
+    // internal for the +Service extension file
+    struct Continuations {
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
+        var services: AsyncStream<RemoteRdJSON>.Continuation?
         var status = RemoteViewStatus(state: .connecting)
     }
 
     /// Queue-confined session state: the Rust core, the input channel, the
     /// handshake and the connection.
-    private nonisolated final class Engine {
+    // internal for the +Service extension file
+    nonisolated final class Engine {
         let core: RemoteRdCore
         let input: RemoteRdInput
         var handshake: RemoteRdHandshake
@@ -254,7 +248,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     /// Hands out ready frames and messages, sends due feedback and input, and
     /// arms the one timer for the next deadline.
-    private func pump() {
+    // internal for the +Service extension file
+    func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
         while let unit = try? engine.core.popAccessUnit(codec: .h264) {
@@ -264,6 +259,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             switch message {
             case let .control(json):
                 guard let control = try? RemoteRdControl.parse(json) else { continue }
+                if case let .service(service, body) = control, service == hello.service, !engine.handshake.isEnded {
+                    _ = state.withLock { $0.services?.yield(body) }
+                }
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
@@ -328,7 +326,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
-    private func sendControl(_ control: RemoteRdControl) {
+    // internal for the +Service extension file
+    func sendControl(_ control: RemoteRdControl) {
         guard let json = try? control.json(), let frame = try? RemoteRdCore.streamFrame(json, control: true) else { return }
         sendRaw(frame)
     }
@@ -368,6 +367,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         state.withLock { state in
             state.units?.finish()
             state.cursors?.finish()
+            state.services?.finish()
             state.statuses?.finish()
         }
     }
