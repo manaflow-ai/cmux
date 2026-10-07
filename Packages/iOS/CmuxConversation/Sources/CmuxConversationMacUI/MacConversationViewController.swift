@@ -463,6 +463,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let previousNew = index > 0 ? newRows[index - 1].isMessage : false
             if old.row != row || previousOld != previousNew { changed.insert(index) }
         }
+        layoutCache.forget(rowIDs: removals.lazy.map { oldIDs[$0] })
         withoutAnimation {
             tableView.beginUpdates()
             if !removals.isEmpty { tableView.removeRows(at: removals, withAnimation: []) }

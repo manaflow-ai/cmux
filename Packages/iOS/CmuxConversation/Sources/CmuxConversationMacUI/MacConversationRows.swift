@@ -226,6 +226,15 @@ final class MacMessageLayoutCache {
         return value
     }
 
+    /// Drops entries for rows that left the transcript (a trimmed or rebased
+    /// window), so the cache tracks the loaded window instead of the session.
+    func forget(rowIDs: some Sequence<String>) {
+        for rowID in rowIDs {
+            layouts[rowID] = nil
+            texts[rowID] = nil
+        }
+    }
+
     func invalidate() {
         layouts.removeAll()
         texts.removeAll()

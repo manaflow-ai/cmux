@@ -418,6 +418,7 @@ public final class ConversationViewController: UIViewController {
         // (spacing, tail, sender name); rows that move a few points glide.
         let screenBefore = animateLive ? [:] : visibleScreenTops()
 
+        layoutCache.forget(rowIDs: deleted.lazy.map { oldIDs[$0.item] })
         let carriedMetrics = structural ? carriedRowMetrics(newIDs: newIDs, oldIndex: oldIndex, updated: updated) : nil
         let updates = {
             self.rows = newRows
