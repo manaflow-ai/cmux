@@ -9,11 +9,12 @@
 //! request is ever left in flight while parked.
 
 use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 /// The link-local metadata address.
-pub const DEFAULT_ADDR: &str = "169.254.169.254:80";
+pub const DEFAULT_ADDR: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)), 80);
 /// Budget for one attempt (token plus id).
 pub const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
 /// Attempts per wake.

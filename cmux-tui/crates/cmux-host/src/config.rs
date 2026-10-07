@@ -124,7 +124,7 @@ impl Config {
     pub fn production() -> Self {
         Self {
             paths: Paths::new("/"),
-            metadata_addr: crate::metadata::DEFAULT_ADDR.parse().expect("static address"),
+            metadata_addr: crate::metadata::DEFAULT_ADDR,
             metadata_attempts: crate::metadata::DEFAULT_ATTEMPTS,
             metadata_timeout: crate::metadata::ATTEMPT_TIMEOUT,
             daemon: DaemonOverride::default(),

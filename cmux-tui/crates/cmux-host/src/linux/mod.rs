@@ -105,13 +105,15 @@ impl LinuxPlatform {
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
-                Some(file) if file.parent().is_some_and(std::path::Path::is_dir) => {
-                    let dir = file.parent().expect("checked");
-                    let name =
-                        file.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
-                    Some((inotify.watch_dir(dir)?, name))
-                }
-                _ => None,
+                Some(file) => match file.parent().filter(|dir| dir.is_dir()) {
+                    Some(dir) => {
+                        let name =
+                            file.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+                        Some((inotify.watch_dir(dir)?, name))
+                    }
+                    None => None,
+                },
+                None => None,
             };
         let metadata = Box::new(Mmds { addr: cfg.metadata_addr, timeout: cfg.metadata_timeout });
         let platform = Self {
@@ -169,11 +171,11 @@ impl LinuxPlatform {
     }
 
     fn layout(&mut self) -> io::Result<&DaemonLayout> {
-        let stale = self.layout.as_ref().is_none_or(|l| !spawn::is_executable(&l.bin));
-        if stale {
-            self.layout = Some(spawn::select_layout(&self.cfg)?);
-        }
-        Ok(self.layout.as_ref().expect("selected above"))
+        let layout = match self.layout.take() {
+            Some(layout) if spawn::is_executable(&layout.bin) => layout,
+            _ => spawn::select_layout(&self.cfg)?,
+        };
+        Ok(self.layout.insert(layout))
     }
 
     fn inotify_wakes(&mut self, out: &mut Vec<Wake>) -> io::Result<()> {
