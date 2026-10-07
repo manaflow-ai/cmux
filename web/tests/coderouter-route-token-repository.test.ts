@@ -150,7 +150,8 @@ describe("coderouter route token VM binding", () => {
     }
     expect(rendered(signed?.where ?? null).sql).not.toContain("expires_at");
     // An unbound CLI session still expires; a machine-bound one does not.
-    expect(rendered(legacy?.where ?? null).sql).toContain('("coderouter_route_tokens"."vm_id" is not null or "coderouter_route_tokens"."expires_at" > $');
+    expect(rendered(legacy?.where ?? null).sql)
+      .toMatch(/\(+"coderouter_route_tokens"\."vm_id" is not null\)+ or \("coderouter_route_tokens"\."expires_at" > \$\d+\)/);
   });
 
   test("a signed VM claim that is not a uuid fails closed before querying", async () => {
