@@ -113,6 +113,8 @@ extension SidebarBridge {
             SidebarCardFeed.openUpdateLink(url, services: services)
         case .layout(let op):
             applyLayoutOp(op)
+        case .dropOnLayoutSection(let ids, let section, let index):
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
         case .setIcon, .setGroupPinned, .openGroup:

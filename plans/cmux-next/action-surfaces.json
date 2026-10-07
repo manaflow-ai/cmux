@@ -74,7 +74,14 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "opt",
+          "shift",
+          "cmd"
+        ]
+      },
       "id" : "newIncognitoWindow",
       "mcp" : "offered",
       "palette" : "offered",
@@ -2700,6 +2707,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace toggle-top",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.toggleTop",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Workspace to Top\/Remove from Top",
+      "title_key" : "action.workspace.toggleTop",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace move-to-bottom",
       "context_menu" : "offered",
       "context_menus" : [
@@ -3733,8 +3766,7 @@
       "cli_name" : "space create",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground",
-        "profile"
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -3758,9 +3790,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space new-window",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -3784,9 +3816,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space new-workspace",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -4148,9 +4180,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space clear-icon",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -4174,9 +4206,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space set-defaults",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -4195,6 +4227,32 @@
       },
       "title" : "Set Space Terminal Defaults…",
       "title_key" : "action.space.setDefaults",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space new-group",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "profile"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.newGroup",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Group in Space",
+      "title_key" : "action.space.newGroup",
       "title_table" : "ProfileActions"
     },
     {
@@ -4226,9 +4284,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space move-left",
-      "context_menu" : "offered",
+      "context_menu" : "dragGesture",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -4252,9 +4310,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space move-right",
-      "context_menu" : "offered",
+      "context_menu" : "dragGesture",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -8286,7 +8344,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Save Tab Group",
+      "title" : "Pin Group",
       "title_key" : "action.tabGroup.save",
       "title_table" : "ActionCatalog"
     },
@@ -8312,7 +8370,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Unsave Tab Group",
+      "title" : "Unpin Group",
       "title_key" : "action.tabGroup.unsave",
       "title_table" : "ActionCatalog"
     },
@@ -11671,7 +11729,7 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "browser import-data",
+      "cli_name" : "action import-from-browser",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -14488,9 +14546,9 @@
     {
       "cli" : "offered",
       "cli_name" : "browser-profile clear-space-default",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "profile"
+
       ],
       "default_aliases" : [
 
@@ -14588,6 +14646,58 @@
       "title" : "Manage Extensions in Browser Profile…",
       "title_key" : "action.browserProfile.manageExtensions",
       "title_table" : "BrowserProfileActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "sidebar profile-menu",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.profileMenu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Profile Menu",
+      "title_key" : "action.sidebar.profileMenu",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser downloads-folder",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.showFolder",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Downloads Folder",
+      "title_key" : "action.browser.downloads.showFolder",
+      "title_table" : "ProfileActions"
     },
     {
       "cli" : "guiOnly",
@@ -15989,6 +16099,32 @@
       },
       "title" : "Quick Agent Chat…",
       "title_key" : "action.palette.quickAgentChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-add-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.addHarness",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Harness…",
+      "title_key" : "action.palette.addHarness",
       "title_table" : "ActionCatalog"
     },
     {
@@ -18297,6 +18433,32 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action remote-open-browser-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.openBrowserTab",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Open Remote Browser Tab",
+      "title_key" : "action.remote.openBrowserTab",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "settings reload-configuration",
       "context_menu" : "noObject",
@@ -18911,6 +19073,32 @@
       },
       "title" : "Onboarding…",
       "title_key" : "action.palette.onboarding",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings continue-setup",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "onboarding.continueSetup",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Continue Setup…",
+      "title_key" : "action.onboarding.continueSetup",
       "title_table" : "ActionCatalog"
     },
     {
@@ -21947,6 +22135,32 @@
       },
       "title" : "Import Bookmarks…",
       "title_key" : "action.bookmark.import",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "bookmark import-from-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.importFromBrowser",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Import Bookmarks from Browser…",
+      "title_key" : "action.bookmark.importFromBrowser",
       "title_table" : "BookmarkActions"
     },
     {
@@ -26298,8 +26512,9 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "space.newWindow",
+          "id" : "space.setIcon",
           "kind" : "action",
+          "label" : "Change Space Icon…",
           "order" : 0,
           "visible_when" : {
             "debug_only" : false,
@@ -26311,7 +26526,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "space.newWorkspace",
+          "id" : "space.rename",
           "kind" : "action",
           "order" : 1,
           "visible_when" : {
@@ -26323,182 +26538,12 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 2
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "space.new",
-          "kind" : "action",
-          "order" : 3,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 4
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "space.rename",
-          "kind" : "action",
-          "order" : 5,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "children" : [
             {
-              "children" : [
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.grey",
-                  "kind" : "action",
-                  "order" : 0,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.blue",
-                  "kind" : "action",
-                  "order" : 1,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.red",
-                  "kind" : "action",
-                  "order" : 2,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.yellow",
-                  "kind" : "action",
-                  "order" : 3,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.green",
-                  "kind" : "action",
-                  "order" : 4,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.pink",
-                  "kind" : "action",
-                  "order" : 5,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.purple",
-                  "kind" : "action",
-                  "order" : 6,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.cyan",
-                  "kind" : "action",
-                  "order" : 7,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.color.orange",
-                  "kind" : "action",
-                  "order" : 8,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "kind" : "separator",
-                  "order" : 9
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "space.clearColor",
-                  "kind" : "action",
-                  "order" : 10,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                }
-              ],
-              "id" : "space.setColor",
-              "kind" : "submenu",
+              "enabled_when" : "can_perform",
+              "id" : "space.color.grey",
+              "kind" : "action",
               "order" : 0,
-              "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -26509,7 +26554,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "space.setIcon",
+              "id" : "space.color.blue",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -26522,7 +26567,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "space.clearIcon",
+              "id" : "space.color.red",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -26532,6 +26577,105 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.yellow",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.green",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.pink",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.purple",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.cyan",
+              "kind" : "action",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.color.orange",
+              "kind" : "action",
+              "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 9
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "space.clearColor",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 11
             },
             {
               "choices" : {
@@ -26603,7 +26747,7 @@
               "enabled_when" : "can_perform",
               "id" : "space.setTheme",
               "kind" : "choices",
-              "order" : 3,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -26616,7 +26760,7 @@
               "enabled_when" : "can_perform",
               "id" : "space.clearTheme",
               "kind" : "action",
-              "order" : 4,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -26626,111 +26770,64 @@
               }
             }
           ],
-          "folder" : "appearance",
-          "kind" : "folder",
-          "order" : 6,
-          "title" : "Appearance",
-          "title_key" : "menu.folder.appearance",
-          "title_table" : "Localizable"
+          "id" : "space.setColor",
+          "kind" : "submenu",
+          "label" : "Edit Theme Color…",
+          "order" : 2,
+          "title_from" : "action",
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         },
         {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
-              "id" : "space.setDefaults",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
+          "choices" : {
+            "argument" : "browserProfile",
+            "target_kind" : "browser-profile"
+          },
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.setSpaceDefault",
+          "kind" : "choices",
+          "label" : "Set Browser Profile…",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
 
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.setSpaceDefault",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.clearSpaceDefault",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "options",
-          "kind" : "folder",
-          "order" : 7,
-          "title" : "Options",
-          "title_key" : "menu.folder.options",
-          "title_table" : "Localizable"
+            ]
+          }
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 4
         },
         {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
-              "id" : "space.moveLeft",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
+          "enabled_when" : "can_perform",
+          "id" : "space.newGroup",
+          "kind" : "action",
+          "label" : "New Group",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
 
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "space.moveRight",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "move",
-          "kind" : "folder",
-          "order" : 9,
-          "title" : "Move",
-          "title_key" : "menu.folder.move",
-          "title_table" : "Localizable"
+            ]
+          }
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.delete",
           "kind" : "action",
-          "order" : 11,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31020,7 +31117,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.moveToSpace",
+              "id" : "workspace.toggleTop",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -31033,7 +31130,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateToSpace",
+              "id" : "workspace.moveToSpace",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -31046,9 +31143,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.mergeInto",
+              "id" : "workspace.duplicateToSpace",
               "kind" : "action",
               "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.mergeInto",
+              "kind" : "action",
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

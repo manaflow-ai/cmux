@@ -110,7 +110,7 @@ test("renders the attached folder, computer and branch tray without context chip
     branchRow.textContent,
     branchRow.getAttribute("aria-checked"),
     branchRow.getAttribute("aria-disabled"),
-  ]).toEqual(["main", "true", "true"]);
+  ]).toEqual(["✓main", "true", "true"]);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {

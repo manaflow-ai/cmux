@@ -46,14 +46,14 @@ nonisolated extension ContextMenuCatalog {
             guard !entries.isEmpty else { continue }
             menus[context.rawValue] = [
                 "implied": Self.contextNames(ActionRegistry.impliedContext(for: context)),
-                "entries": Self.exportEntries(entries, byID: byID, titles: titles),
+                "entries": Self.exportEntries(entries, byID: byID, titles: titles, labels: labels(for: context)),
             ] as [String: Any]
         }
         return menus
     }
 
     static func exportEntries(_ entries: [ContextMenuEntry], byID: [ActionID: ActionDescriptor],
-                              titles: ActionTitleCatalog) -> [[String: Any]] {
+                              titles: ActionTitleCatalog, labels: [ActionID: String] = [:]) -> [[String: Any]] {
         entries.enumerated().map { order, entry in
             var row: [String: Any] = ["order": order]
             switch entry {
@@ -64,6 +64,8 @@ nonisolated extension ContextMenuCatalog {
                 row["id"] = id.rawValue
                 row["visible_when"] = visibleWhen(byID[id])
                 row["enabled_when"] = "can_perform"
+                // A menu-only title (ContextMenuPlacement.label), English.
+                if let label = labels[id] { row["label"] = label }
                 if case .choices = entry, let (argument, cases) = byID[id]?.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
                     row["choices"] = [
                         "argument": argument.name,
@@ -75,13 +77,19 @@ nonisolated extension ContextMenuCatalog {
                         },
                         "more_opens_palette": argument.suggestions != nil,
                     ] as [String: Any]
+                } else if case .choices = entry, let descriptor = byID[id],
+                          let argument = descriptor.arguments.first(where: { ActionTargetChoices.kind(of: $0, in: descriptor) != nil }),
+                          let kind = ActionTargetChoices.kind(of: argument, in: descriptor) {
+                    // The objects of that kind, listed by the client (the palette's target list).
+                    row["choices"] = ["argument": argument.name, "target_kind": kind.rawValue] as [String: Any]
                 }
             case .submenu(let id, let children):
                 row["kind"] = "submenu"
                 row["id"] = id.rawValue
                 row["title_from"] = "action"
+                if let label = labels[id] { row["label"] = label }
                 row["visible_when"] = visibleWhen(byID[id])
-                row["children"] = exportEntries(children, byID: byID, titles: titles)
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             case .folder(let folder, let children):
                 row["kind"] = "folder"
                 row["folder"] = folder.rawValue
@@ -89,7 +97,7 @@ nonisolated extension ContextMenuCatalog {
                 row["title"] = titles.entry(key: key, table: "Localizable")?.english ?? folder.title
                 row["title_key"] = key
                 row["title_table"] = "Localizable"
-                row["children"] = exportEntries(children, byID: byID, titles: titles)
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             }
             return row
         }

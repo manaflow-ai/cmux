@@ -16,6 +16,13 @@ extension CEFRuntime {
         return ChromiumCookieWriteResult.parse(reply.json) ?? ChromiumCookieWriteResult(written: Int(reply.value), rejected: 0)
     }
 
+    /// The profile's cache path for a shim call that does not answer with a site reply (the
+    /// password reveal callback); the profile counts as used, as in ``profileWrite``.
+    func profileCachePath(_ profile: BrowserProfileID) -> String {
+        usedProfiles.insert(profile)
+        return storage.cachePath(for: profile).path
+    }
+
     /// One write into a profile's store that the shim answers with a site
     /// reply once the profile is ready: `start` gets the profile's cache path
     /// and the reply id, and returns 1 when it started.
