@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The space switcher, centered at the bottom of the sidebar or under its
+/// The space switcher, leading at the bottom of the sidebar or under its
 /// titlebar row (`sidebar.spacesPosition`, R109). Each profile keeps
 /// its name, optional icon and tonal color in the shared daemon model. The
 /// full-height slots remain easy to click, while the visible mark carries the
@@ -12,7 +12,6 @@ final class ProfileBarView: NSView {
 
     private var hovered: Int?
     private var pressed: Int?
-    private var drag: (index: Int, x: CGFloat)?
     private var swipeTracker = ProfileSwipeTracker()
     private static let plusIndex = -1
 
@@ -39,7 +38,7 @@ final class ProfileBarView: NSView {
 
     private var slot: CGFloat { Metrics.roomDotSlot }
     /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
-    /// and the dots stay centered without it).
+    /// and the dots stay in place without it).
     private(set) var isPointerInside = false {
         didSet {
             guard isPointerInside != oldValue else { return }
@@ -48,10 +47,19 @@ final class ProfileBarView: NSView {
         }
     }
 
-    /// Slot rects: one per room, centered as a group, then the "+" slot
+    /// Where the first slot starts: the first dot sits on the rows' glyph
+    /// column, over the profile avatar.
+    static var leadingX: CGFloat { max(0, SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2 - Metrics.roomDotSlot / 2) }
+    /// Where this bar's first slot starts; nil uses `leadingX`. In the
+    /// footer row the bar starts right after the profile control, so its
+    /// dots follow the avatar (amendment 3).
+    var leadingInset: CGFloat? { didSet { if leadingInset != oldValue { needsDisplay = true; rebuildToolTips() } } }
+    var slotsLeading: CGFloat { (bounds.width - slot * CGFloat(model.profiles.count)) / 2 }
+
+    /// Slot rects: one per room from the leading edge, then the "+" slot
     /// trailing the last dot (it never shifts the dots).
     private func slotRects() -> [NSRect] {
-        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, width: bounds.width).map {
+        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, leading: slotsLeading).map {
             NSRect(x: $0, y: 0, width: slot, height: bounds.height)
         }
     }
@@ -74,8 +82,7 @@ final class ProfileBarView: NSView {
                 NSBezierPath(roundedRect: chip.rect, xRadius: radius, yRadius: radius).fill()
             }
             for (offset, profile) in model.profiles.enumerated() {
-                var rect = rects[offset]
-                if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
+                let rect = rects[offset]
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rect, active: active, hovered: hovered == offset)
             }
@@ -193,7 +200,7 @@ final class ProfileBarView: NSView {
     /// The hovered space's background (F2): its rect and fill; nil when no
     /// space is hovered.
     var hoverChip: (rect: NSRect, fill: NSColor)? {
-        guard let hovered, drag == nil else { return nil }
+        guard let hovered else { return nil }
         let rects = slotRects()
         let index = hovered == Self.plusIndex ? model.profiles.count : hovered
         guard rects.indices.contains(index) else { return nil }
@@ -211,25 +218,25 @@ final class ProfileBarView: NSView {
         setPressed(index(at: convert(event.locationInWindow, from: nil)))
     }
 
+    // No drag: a dot cannot be dragged to reorder, and nothing drops on
+    // the dots (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3, for now). The
+    // space menu's Move Left / Move Right reorder spaces.
     override func mouseDragged(with event: NSEvent) {
         guard let pressed, pressed != Self.plusIndex, model.profiles.count > 1 else { return }
-        drag = (pressed, convert(event.locationInWindow, from: nil).x)
-        needsDisplay = true
+        dragTo = (pressed, convert(event.locationInWindow, from: nil).x)
     }
+
+    private var dragTo: (index: Int, x: CGFloat)?
 
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
-            drag = nil
+            dragTo = nil
             needsDisplay = true
         }
-        if let drag {
-            let rects = slotRects().prefix(model.profiles.count)
-            let insertion = ProfileBarLogic.insertionIndex(forX: Double(drag.x), centers: rects.map { Double($0.midX) })
-            let id = model.profiles[drag.index].id
-            if ProfileBarLogic.finalIndex(from: drag.index, insertion: insertion, count: model.profiles.count) != nil {
-                model.send(.reorderProfile(id, index: insertion))
-            }
+        if let dragTo {
+            let insertion = ProfileBarLogic.insertionIndex(forX: Double(dragTo.x), centers: slotRects().prefix(model.profiles.count).map { Double($0.midX) })
+            model.send(.reorderProfile(model.profiles[dragTo.index].id, index: insertion))
             return
         }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
@@ -305,7 +312,7 @@ private nonisolated final class ProfileDotElement: NSAccessibilityElement {
     }
 }
 
-private extension NSImage {
+extension NSImage {
     /// A copy drawn in `color` (symbol images are templates).
     func tinted(_ color: NSColor) -> NSImage {
         let image = NSImage(size: size, flipped: false) { rect in
