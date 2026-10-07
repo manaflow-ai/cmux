@@ -112,6 +112,19 @@ WEBVIEW = (
     "scripts/build-webviews-app.sh", "scripts/check-webviews-react-compiler.mjs",
 )
 
+# Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
+# and that the app takes as a `.copy` resource: a change to them needs no compile.
+CHECKED_WEB_BUNDLES = (
+    PACKAGE + "Sources/CmuxNextAgentPane/Resources/agent-pane/*",
+)
+
+
+def web_fast(path: str) -> bool:
+    """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
+    if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
+        return True
+    return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
+
 
 @dataclass
 class Route:
@@ -195,6 +208,12 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
+    read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
+    # The web fast tier: a nit in web code reaches Leo in minutes. The bundle --check in ci-web
+    # stands in for the app compile; a dev-build PR still compiles its dogfood app.
+    if "dev-build" not in labels and all(web_fast(path) and not read(path) for path in changed):
+        result.reasons.append("only web sources, their checked bundles or docs changed: ci-web and the checks job cover them")
+        return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))

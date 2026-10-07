@@ -14,6 +14,14 @@ job's summary lists each tier and the reason for it.
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
+A web nit runs no Mac tier. When every changed file is under `webviews/`, the
+webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
+or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
+type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
+proves the committed bundle matches them; the bundle is a `.copy` resource, so
+the app takes it without a compile. gallery-pr diffs the touched entries. A
+`dev-build` PR still compiles its dogfood app.
+
 Every tier runs on:
 
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the
