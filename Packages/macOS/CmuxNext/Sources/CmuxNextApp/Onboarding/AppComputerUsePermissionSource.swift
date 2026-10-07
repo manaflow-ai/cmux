@@ -11,11 +11,18 @@ import CmuxNextOnboarding
 final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     static let installedHelper = URL(fileURLWithPath: "/Applications/cmux Computer Use.app")
     private let configuration: AgentActivitySocketSource.Configuration
-    /// The installed helper until the daemon says which app it runs in.
-    private(set) var helperAppURL: URL? = AppComputerUsePermissionSource.installedHelper
+    private let identity: CuaHelperIdentity
+    /// The Developer ID signed helper to drag into a list, or nil when this
+    /// build has none (`CuaHelperIdentity`): then Allow reports computer use
+    /// unavailable instead of offering an ad-hoc copy, whose grant would
+    /// replace the release helper's TCC row.
+    private(set) var helperAppURL: URL?
+    /// The running daemon's app the last resolution was for (nil: none known yet).
+    private var resolvedRunning: URL??
 
-    init(configuration: AgentActivitySocketSource.Configuration) {
+    init(configuration: AgentActivitySocketSource.Configuration, identity: CuaHelperIdentity = CuaHelperIdentity()) {
         self.configuration = configuration
+        self.identity = identity
     }
 
     /// A source over the default socket, or nil when no cmux-cua daemon
@@ -95,11 +102,24 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         guard let status = try? await client.send("permissions_status", deadline: .seconds(2)) else {
             return nil
         }
+        var running: URL?
         if let pid = (status["source"] as? [String: Any])?["pid"] as? Int,
            let app = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleURL, app.pathExtension == "app" {
-            helperAppURL = app
+            running = app
+        }
+        if resolvedRunning != .some(running) {
+            resolvedRunning = .some(running)
+            let registered = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: CuaHelperIdentity.bundleIdentifier)
+            helperAppURL = await Self.resolve(identity, running: running, registered: registered).helperURL
         }
         return Self.permissions(status)
+    }
+
+    /// The signature checks read bundles on disk, so they run off the main
+    /// actor, once per daemon app (not on every one-second read).
+    @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity, running: URL?,
+                                                registered: [URL]) async -> CuaHelperIdentity.Resolution {
+        identity.resolve(running: running, installed: CuaHelperIdentity.installedCandidates(registered: registered))
     }
 
     /// The two grants out of a `permissions_status` result.

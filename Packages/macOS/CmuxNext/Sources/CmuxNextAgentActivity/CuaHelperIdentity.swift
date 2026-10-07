@@ -1,4 +1,5 @@
 public import Foundation
+import Security
 
 /// Which "cmux Computer Use" helper app this build may name, launch or offer
 /// for a privacy grant.
@@ -52,14 +53,25 @@ public nonisolated struct CuaHelperIdentity: Sendable {
     /// computer use unavailable even when a signed copy is installed
     /// elsewhere. Otherwise the first signed installed candidate.
     public func resolve(running: URL?, installed: [URL]) -> Resolution {
-        if let running { return .signed(running) }
-        if let first = installed.first { return .signed(first) }
+        if let running {
+            return isSigned(running) ? .signed(running) : .unavailable(.runningHelperNotSigned(running))
+        }
+        if let signed = installed.first(where: isSigned) { return .signed(signed) }
         return .unavailable(.noSignedHelperInstalled)
     }
 
     /// Whether the bundle at `url` is a helper with the Developer ID signature.
+    /// Reads the bundle's signature on disk (no launch, no prompt): it must
+    /// be valid, strict, for every architecture, and satisfy `requirement`.
+    /// An ad-hoc signature has no certificate, so it never passes.
     public static func satisfiesRequirement(_ url: URL) -> Bool {
-        true
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
+        var compiled: SecRequirement?
+        guard SecRequirementCreateWithString(requirement as CFString, [], &compiled) == errSecSuccess,
+              let compiled else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        return SecStaticCodeCheckValidity(code, flags, compiled) == errSecSuccess
     }
 
     /// Where an installed release helper can be, most preferred first: this
