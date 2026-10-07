@@ -93,9 +93,12 @@ public struct BillingPlanClient: Sendable {
         // An explicit team request intentionally returns only that team's
         // billing fields. Read the personal response as well so a personal Pro
         // subscription still grants Pro while the selected team is free.
+        let isExplicitTeamRequest = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains { $0.name == "teamId" } == true
         let personalResponse: Response?
         if var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           components.queryItems?.contains(where: { $0.name == "teamId" }) == true {
+           isExplicitTeamRequest {
             components.queryItems?.removeAll { $0.name == "teamId" }
             if components.queryItems?.isEmpty == true {
                 components.queryItems = nil
@@ -119,7 +122,11 @@ public struct BillingPlanClient: Sendable {
         let teamIsPro = isPro(scopedResponse)
         let personalCanManageBilling = personalResponse.map { $0.billingManagement == "stripe" }
             ?? (scopedResponse.billingManagement == "stripe")
-        let teamCanManageBilling = scopedResponse.canManageBilling == true
+        // The unscoped response also carries the implicit team's admin access,
+        // but this result is still a personal-scope entitlement. Treating that
+        // team-only flag as personal billing management makes a free team admin
+        // open the Stripe portal instead of the personal upgrade flow.
+        let teamCanManageBilling = (isExplicitTeamRequest && scopedResponse.canManageBilling == true)
             || scopedResponse.teamBillingManagement == "stripe"
         return BillingPlanDetails(
             isPro: personalIsPro || teamIsPro,
