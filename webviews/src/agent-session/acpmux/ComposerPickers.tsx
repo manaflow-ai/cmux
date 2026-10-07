@@ -11,6 +11,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import type { CatalogRefreshState } from "./modelPickerLayout";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -99,6 +100,8 @@ type Props = {
   /// Runs the agent's compact command from the context popover; offered only when set and the
   /// agent lists a `compact` command.
   onCompact?(): void;
+  /** Host-backed catalog refresh; transport stays outside the picker UI. */
+  catalogRefresh?: CatalogRefreshState;
 };
 
 /// The composer bar's controls: the
@@ -118,6 +121,7 @@ export function ComposerPickers({
   measurePickerRoom,
   showPlan = true,
   onCompact,
+  catalogRefresh,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
@@ -263,6 +267,7 @@ export function ComposerPickers({
           onHarness={onHarness}
           onHarnessHint={onHarnessHint}
           fastMode={fastMode}
+          catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
               ? { [snapshot.switching.harness]: t("switch.failedShort") }

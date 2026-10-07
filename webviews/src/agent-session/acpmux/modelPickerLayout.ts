@@ -33,6 +33,8 @@ export type ModelPickerProps = {
     offLabel: string;
     onPick(value: string): void;
   };
+  /** Refreshes the host-backed model catalog; the host owns transport and live events. */
+  catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
@@ -43,6 +45,13 @@ export type ModelPickerProps = {
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
+};
+
+export type CatalogRefreshState = {
+  status?: "idle" | "fetching" | "updated" | "error";
+  /** ISO timestamp for the catalog copy shown by the picker. */
+  date?: string;
+  refresh(): void | Promise<void>;
 };
 
 /// The keys and pointer moves the chip forwards to the open menu's body.

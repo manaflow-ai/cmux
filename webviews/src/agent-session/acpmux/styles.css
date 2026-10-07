@@ -82,8 +82,14 @@
 .acpmux-mp-harness span,.acpmux-mp-row .acpmux-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-mp-harness svg:last-child,.acpmux-mp-row svg:last-child{flex:none;color:var(--agent-accent)}
 .acpmux-mp-row:disabled{cursor:default;opacity:.48}
-.acpmux-mp-fast{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;margin-top:8px;padding:7px 9px;border:0;border-top:1px solid var(--acpmux-composer-edge);border-radius:6px;background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
+.acpmux-mp-footer{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--acpmux-composer-edge)}
+.acpmux-mp-fast{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:0;padding:7px 9px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-mp-fast:hover,.acpmux-mp-fast[aria-pressed=true]{background:var(--acpmux-menu-hover)}
+.acpmux-mp-refresh{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:pointer}
+.acpmux-mp-refresh:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-mp-refresh:disabled{cursor:default;opacity:.8}
+.acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%;animation:acpmux-mp-spin 700ms linear infinite}
+@keyframes acpmux-mp-spin{to{transform:rotate(360deg)}}
 .acpmux-mp-empty{padding:9px;color:var(--agent-muted);font-size:12px}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}

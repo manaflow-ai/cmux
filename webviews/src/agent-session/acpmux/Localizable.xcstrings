@@ -17293,6 +17293,38 @@
         }
       }
     },
+    "picker.catalogRefreshError": {
+      "comment": "Agent pane model picker refresh tooltip",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t refresh models" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを更新できませんでした" } }
+      }
+    },
+    "picker.catalogRefreshing": {
+      "comment": "Agent pane model picker refresh tooltip",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refreshing models" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを更新中" } }
+      }
+    },
+    "picker.catalogUpdated": {
+      "comment": "Agent pane model picker refresh tooltip",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Models updated {date}" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを更新しました {date}" } }
+      }
+    },
+    "picker.refreshCatalog": {
+      "comment": "Agent pane model picker refresh button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh models" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを更新" } }
+      }
+    },
     "picker.search": {
       "comment": "Agent pane",
       "extractionState": "manual",

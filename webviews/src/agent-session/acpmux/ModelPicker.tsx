@@ -12,6 +12,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
+import { Icon } from "../icons/Icon";
 import { useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
@@ -99,7 +100,7 @@ function matches(model: ModelChoice, query: string): boolean {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
-  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode } = props;
+  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode, catalogRefresh } = props;
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
@@ -112,6 +113,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [localRefreshStatus, setLocalRefreshStatus] = useState<"fetching" | "updated" | "error">();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -122,6 +124,24 @@ export function ModelPicker(props: ModelPickerProps) {
   const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
   const visible = useMemo(() => (query ? models.filter((model) => matches(model, query)) : models), [models, query]);
+  const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
+  const refreshDate = catalogRefresh?.date;
+  const formattedRefreshDate = refreshDate
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(refreshDate))
+    : undefined;
+  const refreshTitle =
+    refreshStatus === "fetching"
+      ? t("picker.catalogRefreshing")
+      : refreshStatus === "error"
+        ? t("picker.catalogRefreshError")
+        : formattedRefreshDate
+          ? t("picker.catalogUpdated", { date: formattedRefreshDate })
+          : t("picker.refreshCatalog");
+  useEffect(() => {
+    // A host event is authoritative: let its fetching, updated, or error state replace
+    // the local promise state from the previous click.
+    if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
+  }, [catalogRefresh?.date, catalogRefresh?.status]);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const close = useCallback(
     (focus = true) => {
@@ -198,6 +218,18 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     onLand(model.id);
     close();
+  };
+  const refreshCatalog = () => {
+    if (!catalogRefresh || refreshStatus === "fetching") return;
+    setLocalRefreshStatus("fetching");
+    try {
+      Promise.resolve(catalogRefresh.refresh()).then(
+        () => setLocalRefreshStatus("updated"),
+        () => setLocalRefreshStatus("error"),
+      );
+    } catch {
+      setLocalRefreshStatus("error");
+    }
   };
   const move = (step: number) =>
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
@@ -367,20 +399,41 @@ export function ModelPicker(props: ModelPickerProps) {
               )}
             </div>
           </div>
-          {fastMode && (
-            <button
-              type="button"
-              className="acpmux-mp-fast"
-              aria-pressed={fastMode.currentValue === fastMode.onValue}
-              onClick={() =>
-                fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
-              }
-            >
-              <span>{fastMode.name}</span>
-              <span className="acpmux-menu-description">
-                {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
-              </span>
-            </button>
+          {(fastMode || catalogRefresh) && (
+            <div className="acpmux-mp-footer">
+              {fastMode && (
+                <button
+                  type="button"
+                  className="acpmux-mp-fast"
+                  aria-pressed={fastMode.currentValue === fastMode.onValue}
+                  onClick={() =>
+                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
+                  }
+                >
+                  <span>{fastMode.name}</span>
+                  <span className="acpmux-menu-description">
+                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
+                  </span>
+                </button>
+              )}
+              {catalogRefresh && (
+                <button
+                  type="button"
+                  className="acpmux-mp-refresh"
+                  data-refresh-status={refreshStatus}
+                  aria-label={t("picker.refreshCatalog")}
+                  title={refreshTitle}
+                  disabled={refreshStatus === "fetching"}
+                  onClick={refreshCatalog}
+                >
+                  {refreshStatus === "fetching" ? (
+                    <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
+                  ) : (
+                    <Icon name="refresh" size={14} />
+                  )}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
