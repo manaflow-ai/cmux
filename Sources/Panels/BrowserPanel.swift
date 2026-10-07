@@ -17,6 +17,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import os
 import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
