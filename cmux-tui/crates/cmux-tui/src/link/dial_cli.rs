@@ -1,4 +1,4 @@
-//! `cmux link dial --host ID [--service daemon|ssh] [--socket PATH]`: a
+//! `cmux link dial --host ID [--service daemon|ssh|owner_session] [--socket PATH]`: a
 //! stdio bridge to a
 //! service of a paired install or a Cloud host, for callers that cannot use
 //! the link socket themselves (cmux-cloud's carrier, an ssh ProxyCommand).
