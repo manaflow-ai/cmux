@@ -62,10 +62,26 @@
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 .acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
-/* One chip for model and effort (Codex composer): the model in primary text, the effort after it in secondary, one chevron. */
+.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{border-radius:6px}
+/* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
+.acpmux-mp-t3{width:min(520px,calc(100vw - 24px));padding:8px;box-sizing:border-box;border-radius:10px}
+.acpmux-mp-search{display:flex;align-items:center;gap:7px;height:30px;margin-bottom:8px;padding:0 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,var(--acpmux-base));color:var(--agent-muted)}
+.acpmux-mp-search:focus-within{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 60%,transparent);color:var(--agent-text)}
+.acpmux-mp-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--agent-text);font:inherit}
+.acpmux-menu-search-value{display:none}
+.acpmux-mp-search input::placeholder{color:var(--agent-muted)}
+.acpmux-mp-search input::-webkit-search-cancel-button{-webkit-appearance:none}
+.acpmux-mp-columns{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(210px,1.2fr);gap:8px;max-height:310px;overflow:hidden}
+.acpmux-mp-harnesses,.acpmux-mp-models{min-width:0;overflow:auto;padding:2px}
+.acpmux-mp-harness,.acpmux-mp-row{display:flex;align-items:center;gap:8px;width:100%;min-height:30px;box-sizing:border-box;padding:5px 7px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
+.acpmux-mp-harness:hover,.acpmux-mp-row:hover,.acpmux-mp-harness[aria-selected=true],.acpmux-mp-row.acpmux-mp-active{background:var(--acpmux-menu-hover)}
+.acpmux-mp-harness:focus-visible,.acpmux-mp-row:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
+.acpmux-mp-harness span,.acpmux-mp-row .acpmux-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-mp-harness svg:last-child,.acpmux-mp-row svg:last-child{flex:none;color:var(--agent-accent)}
+.acpmux-mp-empty{padding:9px;color:var(--agent-muted);font-size:12px}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}

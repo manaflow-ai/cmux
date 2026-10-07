@@ -149,29 +149,6 @@ describe("acpmux composer pickers", () => {
     act(async () => {
       target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
     });
-  /// The model menu's Reasoning row, opened to its slider (the menu opens first when closed).
-  const openReasoning = async () => {
-    const model = button("Model")!;
-    if (model.getAttribute("aria-expanded") !== "true") await act(async () => model.click());
-    const row = [...doc.querySelectorAll<HTMLElement>(".acpmux-mp-row")].find(
-      (candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === "Reasoning",
-    )!;
-    // Menu rows act on mousedown, so the chip keeps focus.
-    await act(async () => {
-      row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
-    return doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
-  };
-  /// Moves a slider through React's change handler: react-dom may load before the DOM exists (see typeInto).
-  const slide = (range: HTMLInputElement, value: string) =>
-    act(async () => {
-      range.value = value;
-      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
-        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
-      ]!;
-      props.onChange({ target: range });
-    });
-
   beforeEach(() => {
     calls = [];
     pendingSettles.clear();
@@ -181,14 +158,12 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("one chip names the model and its effort; its menu holds the model and the reasoning slider", async () => {
+  test("one harness/model control keeps effort separate and opens a searchable two-column picker", async () => {
     await render(snapshot({ configOptions: [effort] }));
     const model = button("Model")!;
-    // The model in primary text, the effort after it in secondary text, one chevron, no second chip.
     expect(model.querySelector(".acpmux-model-name")!.textContent).toBe("6 Astra");
-    expect(model.querySelector(".acpmux-model-effort")!.textContent).toBe("High");
-    expect(model.querySelectorAll("svg")).toHaveLength(1);
-    expect(button("Effort")).toBeNull();
+    expect(model.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
+    expect(button("Effort")!.textContent).toContain("High");
     expect(button("Mode")).toBeNull();
     const chipRow = model.closest(".acpmux-chips")!;
     const controls = [...chipRow.children];
@@ -196,21 +171,21 @@ describe("acpmux composer pickers", () => {
       controls.indexOf(doc.querySelector(".acpmux-context")!),
     );
     await act(async () => model.click());
-    const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
-    const astra = [...menu.querySelectorAll("[role=menuitemradio]")].find(
+    const menu = doc.querySelector(".acpmux-mp[role=dialog]")!;
+    const astra = [...menu.querySelectorAll(".acpmux-mp-row")].find(
       (row) => row.querySelector(".acpmux-menu-label")?.textContent === "6 Astra",
     );
     expect(astra!.getAttribute("aria-checked")).toBe("true");
-    // Typing filters the models; Return picks the best match.
-    for (const char of "sol") await key(model, char);
-    await key(model, "Enter");
+    const search = menu.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    expect(doc.activeElement).toBe(search);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "sol");
+      search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await key(search, "Enter");
     expect(calls).toEqual(["model sol"]);
     expect(doc.querySelector(".acpmux-mp")).toBeNull();
-    // The same menu's Reasoning row opens the stepped slider, one stop per level.
-    const range = await openReasoning();
-    expect([range.min, range.max, range.value]).toEqual(["0", "1", "1"]);
-    await slide(range, "0");
-    expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
+    expect(doc.querySelector(".acpmux-model-effort")).toBeNull();
   });
 
   test("the chip shows no effort for the agent's default level", async () => {
@@ -219,8 +194,8 @@ describe("acpmux composer pickers", () => {
         configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }],
       }),
     );
-    expect(button("Model")!.textContent).toBe("6 Astra");
-    expect(doc.querySelector(".acpmux-model-effort")).toBeNull();
+    expect(button("Model")!.textContent).toContain("6 Astra");
+    expect(button("Effort")!.textContent).toContain("Reasoning");
   });
 
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
@@ -288,7 +263,7 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Always ask");
   });
 
-  test("a recent combo lands its model, then its effort once the agent reports that model offering it", async () => {
+  test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
     const catalog = [
       {
         id: "codex",
@@ -303,66 +278,17 @@ describe("acpmux composer pickers", () => {
       },
     ];
     const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
-    const medium = { ...effort, currentValue: "medium" };
-    // The session runs Astra on High, then Sol on Medium: both become recents.
     await render(long({ configOptions: [effort] }));
-    await settle();
-    // The switch passes through Sol on the old effort before the new one lands; only the settled combo counts.
-    await render(long({ model: "sol", configOptions: [effort] }));
-    await render(long({ model: "sol", configOptions: [medium] }));
-    await settle();
     const model = button("Model")!;
-    const recentRows = () =>
-      [...doc.querySelectorAll(".acpmux-mp-row")]
-        .filter((row) => row.querySelector(".acpmux-menu-hint"))
-        .map((row) => `${row.textContent}${row.getAttribute("aria-checked") === "true" ? " *" : ""}`);
     await act(async () => model.click());
-    expect(recentRows()).toEqual(["26 AstraHigh", "16.1 SolMedium *"]);
-    // One key switches the model, then the effort once the agent reports that model offering it.
-    const pickRecent = async (digit: string) => {
-      if (model.getAttribute("aria-expanded") !== "true") await act(async () => model.click());
-      await key(model, digit);
-    };
-    await pickRecent("2");
-    expect(calls).toEqual(["model astra"]);
-    await render(long({ model: "astra", configOptions: [medium] }));
-    expect(calls).toEqual(["model astra", "effort reasoning_effort high"]);
-    // A model that doesn't offer the stored effort keeps its own.
-    await render(long({ model: "sol", configOptions: [medium] }));
-    await pickRecent("2");
-    await render(long({ model: "astra", configOptions: [{ ...medium, options: [effort.options[0]!] }] }));
-    await render(long({ model: "sol", configOptions: [medium] }));
-    await render(long({ model: "astra", configOptions: [medium] }));
-    expect(calls).toEqual(["model astra", "effort reasoning_effort high", "model astra"]);
-    // A combo still waiting when the pane switches sessions doesn't follow into the other session.
-    await render(long({ model: "sol", configOptions: [medium] }));
-    calls.length = 0;
-    await pickRecent("2");
-    await render(long({ sessionId: "t", model: "astra", configOptions: [medium] }));
-    expect(calls).toEqual(["model astra"]);
-    // An effort picked by hand while a combo waits wins: the combo's effort never follows.
-    await render(long({ model: "sol", configOptions: [medium] }));
-    calls.length = 0;
-    await pickRecent("2");
-    // Astra arrives offering Low and Medium, not yet High; the user slides to Low.
-    const low = { value: "low", name: "Low" };
-    await render(long({ model: "astra", configOptions: [{ ...medium, options: [low, effort.options[0]!] }] }));
-    await slide(await openReasoning(), "0");
-    await key(button("Model")!, "Escape");
-    await render(
-      long({
-        model: "astra",
-        configOptions: [{ ...effort, currentValue: "low", options: [low, ...effort.options] }],
-      }),
-    );
-    expect(calls).toEqual(["model astra", "effort reasoning_effort low"]);
-    // A combo for the current model drops one still waiting for another model.
-    await render(long({ model: "sol", configOptions: [medium] }));
-    calls.length = 0;
-    await pickRecent("2");
-    await pickRecent("1");
-    await render(long({ model: "astra", configOptions: [medium] }));
-    expect(calls).toEqual(["model astra"]);
+    const labels = () => [...doc.querySelectorAll(".acpmux-mp-row .acpmux-menu-label")].map((row) => row.textContent);
+    const first = labels();
+    expect(first.at(-1)).toBe("6.1 Sol");
+    expect(first).toEqual(["6 Astra", "6 Luna", "6 Mini", "6 Nano", "6.1 Sol"]);
+    await act(async () => model.click());
+    await render(long({ model: "sol", configOptions: [effort] }));
+    await act(async () => button("Model")!.click());
+    expect(labels()).toEqual(first);
   });
 
   test("recents persist per viewer, newest first and once each, and survive bad or blocked storage", () => {
@@ -463,24 +389,15 @@ describe("acpmux composer pickers", () => {
 
     test('the chips name the model the default runs and never the agent\'s "choice" phrasing', async () => {
       await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
-      // The default effort adds nothing after the model.
       expect(button("Model")!.textContent).toBe("Opus 5.5");
-      expect(button("Effort")).toBeNull();
+      expect(button("Effort")!.textContent).toContain("Reasoning");
       await act(async () => button("Model")!.click());
-      const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
+      const menu = doc.querySelector(".acpmux-mp[role=dialog]")!;
       expect(menu.textContent).not.toMatch(/choice/i);
-      // One row for the default, named for its model with a "Default" hint, in place of a
-      // "Claude Code" provider; the reasoning row says "Default" once.
-      expect(rowLabels()).not.toContain("Claude Code");
       const fallback = [...menu.querySelectorAll(".acpmux-mp-row")].find(
         (row) => row.getAttribute("aria-checked") === "true",
       )!;
-      expect(fallback.querySelector(".acpmux-menu-label")!.textContent).toBe("Opus 5.5");
-      expect(fallback.textContent).toContain("Default");
-      const reasoning = [...menu.querySelectorAll(".acpmux-mp-row")].find(
-        (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Reasoning",
-      )!;
-      expect(reasoning.textContent).toContain("Default");
+      expect(fallback.querySelector(".acpmux-menu-label")!.textContent).toBe("Default");
       expect(doc.body.textContent).not.toMatch(/choice/i);
     });
 
@@ -516,9 +433,13 @@ describe("acpmux composer pickers", () => {
       );
       await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
       await act(async () => button("Model")!.click());
-      const recent = [...doc.querySelectorAll(".acpmux-mp-row")].find((row) => row.textContent?.includes("High"));
-      expect(recent?.querySelector(".acpmux-menu-label")!.textContent).toBe("Default");
-      for (const char of "defa") await key(button("Model")!, char);
+      const defaults = [...doc.querySelectorAll(".acpmux-mp-row")].filter(
+        (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Default",
+      );
+      expect(defaults).toHaveLength(1);
+      const search = doc.querySelector<HTMLInputElement>(".acpmux-mp-search input")!;
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "defa");
+      await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
       expect(rowLabels()).toContain("Default");
     });
 
@@ -542,13 +463,12 @@ describe("acpmux composer pickers", () => {
     });
     expect(opened).toBe(true);
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
-    // The current model shows checked under its family.
     expect(rowLabels()).toContain("6 Astra *");
-    // Keys reach the menu as after a click: the chip has focus and names the highlighted row.
-    expect(doc.activeElement).toBe(button("Model"));
-    expect(doc.getElementById(button("Model")!.getAttribute("aria-activedescendant")!)).not.toBeNull();
-    for (const char of "sol") await key(button("Model")!, char);
-    await key(button("Model")!, "Enter");
+    const search = doc.querySelector<HTMLInputElement>(".acpmux-mp-search input")!;
+    expect(doc.activeElement).toBe(search);
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "sol");
+    await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    await key(search, "Enter");
     expect(calls).toEqual(["model sol"]);
     // Opening an open menu keeps it open rather than toggling it shut.
     await act(async () => {
@@ -558,16 +478,14 @@ describe("acpmux composer pickers", () => {
       openPicker("Model");
     });
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.activeElement).toBe(button("Model"));
+    expect(doc.activeElement).toBe(doc.querySelector(".acpmux-mp-search input"));
     expect(doc.querySelector('button[data-menu="Model"]')).toBe(button("Model"));
-    // "Effort" opens the same menu, which holds the reasoning slider.
-    await key(button("Model")!, "Escape");
+    await key(doc.querySelector(".acpmux-mp-search input")!, "Escape");
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("false");
     await act(async () => {
       openPicker("Effort");
     });
-    expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.querySelector('button[data-menu="Effort"]')).toBeNull();
+    expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {
@@ -583,7 +501,7 @@ describe("acpmux composer pickers", () => {
       openPicker("Model");
     });
     expect(blurred).toBe(true);
-    expect(doc.activeElement).toBe(button("Model"));
+    expect(doc.activeElement).toBe(doc.querySelector(".acpmux-mp-search input"));
     outside.remove();
   });
 

@@ -223,14 +223,53 @@ export function ComposerPickers({
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
   const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
-  // The chip names a chosen effort in secondary text; the agent's default level adds nothing.
-  const currentEffortChoice = efforts.find((choice) => choice.id === currentEffort);
-  const effortDetail =
-    currentEffortChoice && !isDefaultChoice(currentEffortChoice) ? currentEffortChoice.name : undefined;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
   return (
     <div className="acpmux-chips">
+      {models.length > 0 && (
+        <ModelPicker
+          catalog={snapshot.catalog}
+          harness={harness}
+          model={shown}
+          label={modelName ?? t(PICKER_LABELS.model)}
+          efforts={efforts}
+          effort={currentEffort}
+          recents={recents}
+          onLand={(pickedModel) => land(pickedModel)}
+          onEffort={(value) => {
+            pending.current = undefined;
+            if (effort) onEffort(effort.id, value);
+          }}
+          onHarness={onHarness}
+          onHarnessHint={onHarnessHint}
+          harnessNotes={
+            snapshot.switching?.phase === "failed"
+              ? { [snapshot.switching.harness]: t("switch.failedShort") }
+              : undefined
+          }
+          measureRoom={measurePickerRoom}
+        />
+      )}
+      {/* The context ring stays immediately to the right of the model control. */}
+      {(usage || summary?.sessionId) && (
+        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+      )}
+      {/* Reasoning is its own stable control, separate from the model and harness picker. */}
+      {effort && efforts.length > 0 && (
+        <EffortPicker
+          label={t(PICKER_LABELS.effort)}
+          efforts={efforts}
+          current={effort.currentValue}
+          model={modelName}
+          chevron={<ChevronIcon />}
+          onPick={(value) => {
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          }}
+        />
+      )}
+      <span className="acpmux-chips-spacer" />
       {modes.length > 0 && (
         <Picker
           label={t(PICKER_LABELS.mode)}
@@ -259,52 +298,6 @@ export function ComposerPickers({
           {planning ? <PlanIcon /> : <BuildIcon />}
           <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
         </button>
-      )}
-      <span className="acpmux-chips-spacer" />
-      {models.length > 0 && (
-        <ModelPicker
-          catalog={snapshot.catalog}
-          harness={harness}
-          model={shown}
-          label={modelName ?? t(PICKER_LABELS.model)}
-          detail={effortDetail}
-          resolvedDefault={resolvedName}
-          efforts={efforts}
-          effort={currentEffort}
-          recents={recents}
-          onLand={land}
-          onEffort={(value) => {
-            pending.current = undefined;
-            if (effort) onEffort(effort.id, value);
-          }}
-          onHarness={onHarness}
-          onHarnessHint={onHarnessHint}
-          harnessNotes={
-            snapshot.switching?.phase === "failed"
-              ? { [snapshot.switching.harness]: t("switch.failedShort") }
-              : undefined
-          }
-          measureRoom={measurePickerRoom}
-        />
-      )}
-      {/* A live chat keeps its ring from the first frame; usage fills it in place. */}
-      {(usage || summary?.sessionId) && (
-        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
-      )}
-      {/* Without a model list the effort keeps a chip of its own. */}
-      {models.length === 0 && effort && efforts.length > 0 && (
-        <EffortPicker
-          label={t(PICKER_LABELS.effort)}
-          efforts={efforts}
-          current={effort.currentValue}
-          model={modelName}
-          chevron={<ChevronIcon />}
-          onPick={(value) => {
-            // An effort picked by hand wins over one a combo is still waiting to send.
-            pending.current = undefined;
-            onEffort(effort.id, value);
-          }}
-        />
       )}
     </div>
   );
