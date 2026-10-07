@@ -515,6 +515,30 @@ describe("route token auth spans", () => {
       .toBe("control_plane");
   });
 
+  test("a rejected credential names a stable failure reason on the route span", async () => {
+    const cases: Array<[Record<string, string>, string, string]> = [
+      // A guest whose edge rule injected nothing sends only the public placeholder.
+      [{ authorization: "Bearer cmux-vm-edge-placeholder" }, "missing_route_token", "placeholder_only"],
+      [{}, "missing_route_token", "no_credential"],
+      [{ "x-cmux-authorization": "Bearer not-a-jwt" }, "invalid_route_token", "signed_unverified"],
+      [{ authorization: "Bearer crt_abcdefghijklmnopqrstuvwxyz0123456789" }, "invalid_route_token", "not_live"],
+    ];
+    for (const [headers, reason, detail] of cases) {
+      const request = new Request("https://coderouter.dev/api/vm/reflection/name", { headers });
+      const context = newCoderouterRequestContext({ request, surface: "vm_reflection_name", route: "/api/vm/reflection/name" });
+      const attributes: Record<string, unknown> = {};
+      const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+      const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
+      try {
+        await runWithCoderouterRequest(context, () => authenticateRequestRouteToken(request, async () => null));
+      } finally {
+        activeSpan.mockRestore();
+      }
+      expect({ headers, reason: attributes["cmux.coderouter.auth_failure"], detail: attributes["cmux.coderouter.auth_failure_detail"] })
+        .toEqual({ headers, reason, detail });
+    }
+  });
+
   test("exports control-plane auth consistently to the active trace and events", () => {
     const request = new Request("https://coderouter.dev/api/coderouter/accounts");
     const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
