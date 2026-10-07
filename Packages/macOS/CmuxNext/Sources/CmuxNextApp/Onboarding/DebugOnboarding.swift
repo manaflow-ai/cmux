@@ -93,6 +93,13 @@ enum DebugOnboarding {
                      "apps": .array(project.apps.map { .string($0.rawValue) }), "selected": .bool(model.projects.isSelected(project))])
         })
         result["projects_scanning"] = .bool(model.projects.isScanning)
+        // Names and ids only: never a chat's title.
+        result["classic_workspaces"] = .array(model.classicSessions.workspaces.map { workspace in
+            .object(["name": .string(workspace.name), "selected": .bool(model.classicSessions.isSelected(workspace))])
+        })
+        result["chats"] = .array(model.chats.chats.map { chat in
+            .object(["id": .string(chat.id), "selected": .bool(model.chats.isSelected(chat))])
+        })
         result["projects_privacy"] = .array(model.projects.privacyFolders.map { .string($0.rawValue) })
         result["theme"] = model.theme.selected.map(JSONValue.string) ?? .null
         result["themes"] = .array(model.theme.choices.map { .string($0.name ?? "") })
