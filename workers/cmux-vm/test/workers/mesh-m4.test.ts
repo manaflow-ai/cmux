@@ -279,9 +279,12 @@ describe("G1: retries after a re-add (cx-0op.6)", () => {
     const { mesh, old } = await failedRemoval("msg_readd");
     h.addMember(A, "user_ada");
     const fresh = await sessionEnroll(A, "user_ada", mesh.meshId, await makeInstallKey(), KEY_2);
+    const asked = h.stackMembershipCalls.length;
 
     const retry = await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_readd" });
     expect(retry.status).toBe(200);
+    // The webhook never asks Stack.
+    expect(h.stackMembershipCalls.length).toBe(asked);
     const body = await json(retry);
     expect(body["skipped"]).toBeUndefined();
     expect(body["devicesRevoked"]).toBe(1);
@@ -333,7 +336,7 @@ describe("G1: retries after a re-add (cx-0op.6)", () => {
     const late = await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_late" });
     expect(late.status).toBe(200);
     expect((await json(late))["devicesRevoked"]).toBe(0);
-    expect(h.stackMembershipCalls.length).toBeLessThanOrEqual(asked + 1);
+    expect(h.stackMembershipCalls.length).toBe(asked);
     expect(h.mesh.tunnels.has(fresh.upstreamTunnel)).toBe(true);
     expect((await call(`/v1/devices/${fresh.deviceId}`, mesh.admin)).status).toBe(200);
   });
