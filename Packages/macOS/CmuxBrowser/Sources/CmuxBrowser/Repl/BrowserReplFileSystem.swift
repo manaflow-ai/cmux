@@ -362,14 +362,10 @@ public struct BrowserReplFileSystem: Sendable {
                 }
                 // Extended attributes through the write budget.
                 skipped = try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
-                // A secrets.load that protected the source while it was copied.
-                try Self.refuseSecretSource(source, display: fromDisplay, syscall: "copyfile")
-                // Mode and times as fcopyfile's own copy, only now: the mode
-                // is what first makes the staging file readable.
-                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
-                    throw Self.posixError(errno, syscall: "copyfile", display: pair)
-                }
-                try Self.publish(staging, as: name, in: destination, holding: copy, display: pair)
+                // Checks that no secrets.load protected the source, gives the
+                // copy its mode and publishes it, in one hold of the lock
+                // secrets.load protects under.
+                try Self.publish(staging, as: name, in: destination, holding: copy, copiedFrom: source, sourceDisplay: fromDisplay, display: pair)
             } catch {
                 // Left in place when its directory was moved out of the root.
                 _ = try? destination.withinRoot(syscall: "copyfile", display: pair) { unlinkat($0, staging, 0) }
@@ -396,17 +392,31 @@ public struct BrowserReplFileSystem: Sendable {
     /// lock, so the entry checked is the one renamed, and a link is never
     /// published under the destination's name. Nor is anything published
     /// once another session moved the directory out of the root.
+    ///
+    /// The same hold first checks that no `secrets.load` protected `source`
+    /// (``refuseSecretSource(_:display:syscall:)``) and only then gives the
+    /// copy `source`'s mode and times (the mode is what first makes the
+    /// staging file readable). `secrets.load` protects under this lock
+    /// (``BrowserReplSecretSources/protect(_:)``), so a protection lands
+    /// before the check, which refuses the copy, or after the publish,
+    /// when the copy was made from a file no `secrets.load` had read.
     private static func publish(
         _ staging: String,
         as name: String,
         in destination: Location,
         holding copy: BrowserReplDescriptor,
+        copiedFrom source: BrowserReplDescriptor,
+        sourceDisplay: String,
         display: String
     ) throws {
         let directory = destination.directory
         let result: Int32 = try BrowserReplFileSandbox.pathChangeLock.withLock {
             if let root = destination.root, root !== directory, !isInside(directory, root: root) {
                 throw movedOutOfRoot(syscall: "copyfile", display: display)
+            }
+            try refuseSecretSource(source, display: sourceDisplay, syscall: "copyfile")
+            guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
+                throw posixError(errno, syscall: "copyfile", display: display)
             }
             var held = stat()
             var named = stat()

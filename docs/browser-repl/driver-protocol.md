@@ -626,8 +626,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   read. `stat`, `lstat`, `exists` and `readdir` still see it, and
   `writeFile`, `rename` and `rm` still change it (an agent edits its
   keys by writing the file whole). A read checks once it opened the file
-  and again once it read it (a copy before it publishes), so a
-  `secrets.load` of the file meanwhile fails the read too. A tab would
+  and again once it read it, so a `secrets.load` of the file meanwhile
+  fails the read too. A copy makes that second check and publishes its
+  file in one hold of the lock `secrets.load` protects under, so a load
+  of the source by another session lands before the check (the copy
+  fails with `denied` and leaves no file) or after the publish (the copy
+  was made from a file no `secrets.load` had read). A tab would
   render its text as pixels no mask covers, and its page scripts could
   read it: from the load on, no session's tab loads that file (a
   navigation of any frame, by the agent or a page, fails with
