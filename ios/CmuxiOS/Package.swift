@@ -34,6 +34,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxMobileLink"),
         .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxPairing"),
+        .package(path: "../../Packages/Shared/CmuxMobileFiles"),
+        .package(path: "../../Packages/Shared/CmuxMobileHost"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
@@ -58,6 +60,8 @@ let package = Package(
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSFiles",
+                "CmuxiOSFilesCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
                 "CmuxiOSPlatform",
@@ -217,6 +221,41 @@ let package = Package(
         .testTarget(
             name: "CmuxiOSFeatureKitTests",
             dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C4 (plans/cmux-next/ios-next/c4-files.md): the real
+        // `FileTransfer` over CmuxLink, the transfer list model, staging and
+        // HEIC conversion, and the send-to-terminal / attach-to-task path.
+        // No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSFilesCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSFilesCoreTests",
+            dependencies: [
+                "CmuxiOSFilesCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Pickers (photos, camera, documents), the transfer list and the
+        // QuickLook viewer hook C13 replaces.
+        .target(
+            name: "CmuxiOSFiles",
+            dependencies: ["CmuxiOSFilesCore", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // First-run onboarding (plans/cmux-next/ios-next/c10-onboarding.md):

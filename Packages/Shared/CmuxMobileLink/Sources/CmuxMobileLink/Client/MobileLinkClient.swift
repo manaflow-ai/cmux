@@ -32,6 +32,11 @@ public actor MobileLinkClient {
     private var closed = false
     private var badgeSubscribers: [UUID: AsyncStream<PathBadge>.Continuation] = [:]
     private var badgeTask: Task<Void, Never>?
+    // Reads (MobileLinkClient+Reads.swift): one shared `rpc` channel per generation.
+    var rpc: (channel: MobileChannel, generation: UInt64)?
+    var rpcOpening: Task<MobileChannel, any Error>?
+    var nextReadID = 1
+    var pendingReads: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
 
     /// - Parameters:
     ///   - client: who sends hello; `install` must equal `signer.install`.
@@ -63,6 +68,12 @@ public actor MobileLinkClient {
 
     private func removeBadgeSubscriber(_ id: UUID) {
         badgeSubscribers[id] = nil
+    }
+
+    /// The current session's `hello.ok` (starting a session when there is none).
+    public func helloOK() async throws -> HelloOKFrame {
+        let current = try await ensureSession()
+        return try await current.hello.value
     }
 
     // MARK: Open
@@ -244,6 +255,7 @@ public actor MobileLinkClient {
     /// Ends the current session and refuses later opens.
     public func close() {
         closed = true
+        failReads()
         if let session { sessionEnded(session.generation) }
         badgeTask?.cancel()
         badgeTask = nil

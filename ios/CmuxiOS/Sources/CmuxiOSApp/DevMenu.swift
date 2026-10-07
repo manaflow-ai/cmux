@@ -2,6 +2,7 @@
 import CmuxFeedPushCore
 import CmuxHomeUI
 import CmuxiOSDesign
+import CmuxiOSFeatureKit
 import CmuxiOSPlatform
 import CmuxiOSShell
 import SwiftUI
@@ -36,6 +37,11 @@ enum DevMenu {
             style: .default
         ) { [weak presenter] _ in
             presenter?.present(ShellComposition.devModel(container: container).makeScreen(), animated: true)
+        })
+        // DEBUG-only: the transfer list; + saves picked files to the first Mac's inbox (C4).
+        sheet.addAction(UIAlertAction(title: "Files and Transfers", style: .default) { [weak presenter] _ in
+            let list = container.currentFilesFeature.makeTransferList(host: MockFixtures.studio)
+            presenter?.present(UINavigationController(rootViewController: list), animated: true)
         })
         // DEBUG-only: a ghostty-next terminal fed by the mock session host.
         sheet.addAction(UIAlertAction(title: "Terminal (mock host)", style: .default) { [weak presenter] _ in

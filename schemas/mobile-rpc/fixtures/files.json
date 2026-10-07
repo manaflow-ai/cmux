@@ -11,6 +11,11 @@
     { "message": "files.list", "phase": "result", "frame": { "t": "read.result", "id": 4, "revision": "0", "value": { "entries": [
       { "name": "cmux", "kind": "dir", "size": 0, "modified_at": 1791331100000 },
       { "name": "notes.md", "kind": "file", "size": 2048, "modified_at": 1791331000000 }
-    ], "next": "notes.md" } } }
+    ], "next": "notes.md" } } },
+    { "message": "files.roots", "frame": { "t": "read", "id": 5, "op": "files.roots", "params": {} } },
+    { "message": "files.roots", "phase": "result", "frame": { "t": "read.result", "id": 5, "revision": "0", "value": { "roots": [
+      { "id": "inbox", "name": "cmux-phone", "path": "/Users/me/Downloads/cmux-phone", "writable": true },
+      { "id": "ws_a1", "name": "cmux", "path": "/Users/me/src/cmux", "writable": true }
+    ] } } }
   ]
 }
