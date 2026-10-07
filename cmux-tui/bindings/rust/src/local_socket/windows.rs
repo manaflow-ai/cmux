@@ -139,9 +139,16 @@ pub fn process_identity(pid: u32) -> io::Result<PeerIdentity> {
         return Err(io::Error::last_os_error());
     }
     let process = Handle(process);
+    handle_identity(process.0.cast())
+}
+
+/// The identity of an open process handle (with
+/// PROCESS_QUERY_LIMITED_INFORMATION): for a caller that checks and reads
+/// through one handle, so a reused pid cannot slip in between.
+pub fn handle_identity(process: *mut core::ffi::c_void) -> io::Result<PeerIdentity> {
     let mut token: HANDLE = null_mut();
-    // SAFETY: a valid process handle.
-    if unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) } == 0 {
+    // SAFETY: the caller's valid process handle.
+    if unsafe { OpenProcessToken(process as HANDLE, TOKEN_QUERY, &mut token) } == 0 {
         return Err(io::Error::last_os_error());
     }
     let token = Handle(token);

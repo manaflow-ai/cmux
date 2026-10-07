@@ -1031,6 +1031,11 @@ jobs:
           cargo test -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
+          # Windows process data: reads only processes in this daemon's
+          # terminal jobs (plans/cmux-next/windows-daemon.md, section 2).
+          cargo test -p cmux-tui-core --lib --locked \
+            --target x86_64-pc-windows-gnu \
+            windows_processes:: -- --test-threads=1
           # The SDK's local_socket transport (shared with the daemon) and the
           # clients over it (plans/cmux-next/windows-daemon.md): same-user,
           # owner-only directory and sandbox refusals; mock-daemon tests.

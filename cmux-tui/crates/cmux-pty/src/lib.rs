@@ -199,6 +199,9 @@ pub struct SpawnedPty {
     pub child: Box<dyn Child + Send + Sync>,
 }
 
+#[cfg(windows)]
+pub mod windows_jobs;
+
 pub fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     let (master, slave) = platform::open(size)?;
     Ok(PtyPair { master, slave })
@@ -245,7 +248,8 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
-        slave.0.spawn_command(builder)
+        let child = slave.0.spawn_command(builder)?;
+        Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
 }
 

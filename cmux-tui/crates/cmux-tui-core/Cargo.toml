@@ -56,4 +56,12 @@ tokio.workspace = true
 # shared with the SDK's clients; the SDK's client code is not built.
 cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 uds_windows.workspace = true
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = [
+    "Wdk_System_Threading",
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Kernel",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

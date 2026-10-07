@@ -34,7 +34,7 @@ pub mod win {
     //! Windows token and security descriptor helpers (tests and the daemon's
     //! diagnostics).
     pub use super::windows::{
-        current_identity, directory_is_owner_only, owner_of, process_identity,
+        current_identity, directory_is_owner_only, handle_identity, owner_of, process_identity,
     };
 }
 
