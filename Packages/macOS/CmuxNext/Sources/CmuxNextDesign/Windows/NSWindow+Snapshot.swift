@@ -37,17 +37,21 @@ extension NSWindow {
     ///
     /// Child windows are part of what the window shows: Chromium draws each
     /// page into a child window over its pane, and overlay panels sit above
-    /// content. They are composited in the window server's order, cropped to
-    /// this window's frame. Windows of other apps are never included, so an
-    /// occluded window still comes out whole.
+    /// content. The ones `includeChild` accepts are composited in the window
+    /// server's order, cropped to this window's frame. Windows of other apps
+    /// are never included, so an occluded window still comes out whole.
+    /// Without the Screen Recording grant the window server leaves out
+    /// content another process draws (Chromium's GPU process renders the
+    /// page), so a Chromium page window comes out as its background; the
+    /// caller paints the engine's own page image over it.
     ///
     /// `CGWindowListCreateImage` and `CGWindowListCreateImageFromArray` are
     /// deprecated (ScreenCaptureKit replaces them, but needs the grant even
     /// for an app's own windows) and unavailable to Swift in the current
     /// SDK, so they are looked up at run time; a later macOS without the
     /// symbols falls back to AppKit drawing.
-    public func compositedSnapshot(includingChildWindows: Bool = true) -> CGImage? {
-        let children = includingChildWindows ? visibleChildWindows : []
+    public func compositedSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        let children = visibleChildWindows.filter(includeChild)
         let image = children.isEmpty
             ? Self.windowServerImage(of: windowNumber)
             : Self.windowServerImage(of: [self] + children, croppedTo: self)
@@ -55,12 +59,12 @@ extension NSWindow {
         return image
     }
 
-    /// Only the visible child windows, as the window server composited them,
-    /// on a transparent image the size of this window (cropped to its
-    /// frame), or nil without one. Painted over an AppKit-drawn base, which
-    /// has no child windows.
-    public func childWindowsSnapshot() -> CGImage? {
-        let children = visibleChildWindows
+    /// Only the visible child windows `includeChild` accepts, as the window
+    /// server composited them, on a transparent image the size of this
+    /// window (cropped to its frame), or nil without one. Painted over a base
+    /// image that has no child windows, or over page images.
+    public func childWindowsSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        let children = visibleChildWindows.filter(includeChild)
         guard !children.isEmpty, let image = Self.windowServerImage(of: children, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
         return image
