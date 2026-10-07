@@ -86,11 +86,12 @@ struct BrowserReplKeyResendTests {
         return webView
     }
 
-    private func press(_ keys: [String], in webView: WKWebView) throws {
+    /// Presses `keys` as `cmux browser press` does, one socket call per key.
+    private func press(_ keys: [String], in webView: WKWebView) async throws {
         let events = try keys.map { try #require(BrowserKeyboardEvent(rawKey: $0)) }
-        for event in events.dropLast() { #expect(webView.replayBrowserKeyboardEvent(event, action: .keyDown) == .delivered) }
-        #expect(webView.replayBrowserKeyboardEvent(events[events.count - 1], action: .press) == .delivered)
-        for event in events.dropLast().reversed() { #expect(webView.replayBrowserKeyboardEvent(event, action: .keyUp) == .delivered) }
+        for event in events.dropLast() { #expect(await webView.replayBrowserKeyboardEvent(event, action: .keyDown) == .delivered) }
+        #expect(await webView.replayBrowserKeyboardEvent(events[events.count - 1], action: .press) == .delivered)
+        for event in events.dropLast().reversed() { #expect(await webView.replayBrowserKeyboardEvent(event, action: .keyUp) == .delivered) }
     }
 
     /// Waits, at most 30 s, until WebKit has handled every key sent so far
@@ -137,11 +138,11 @@ struct BrowserReplKeyResendTests {
     // so for such a key the web view runs the editing command itself.
     @Test func cmuxBrowserPressRunsAnEditingShortcutNoPageHandled() async throws {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
-        try press(["Meta", "a"], in: webView)
+        try await press(["Meta", "a"], in: webView)
         try await settle(webView, keys: 2)
         #expect(webView.commands == ["selectAll:"])
         // Without Command, a is just a key.
-        try press(["a"], in: webView)
+        try await press(["a"], in: webView)
         try await settle(webView, keys: 3)
         #expect(webView.commands == ["selectAll:"])
     }
@@ -153,9 +154,9 @@ struct BrowserReplKeyResendTests {
         let webView = try await load(
             "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
         )
-        try press(["Meta", "a"], in: webView)
-        try press(["Meta", "c"], in: webView)
-        try press(["Meta", "v"], in: webView)
+        try await press(["Meta", "a"], in: webView)
+        try await press(["Meta", "c"], in: webView)
+        try await press(["Meta", "v"], in: webView)
         try await settle(webView, keys: 6)
         #expect(webView.commands.isEmpty, "an editing command ran for a shortcut the page handled")
     }
@@ -170,10 +171,10 @@ struct BrowserReplKeyResendTests {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
         BrowserReplPageClipboard(shim: try BrowserReplPasteboardTests.PageScripts.shim()).install(on: webView) { _, _ in true }
         try await Self.withAppDroppingResends {
-            try press(["Meta", "c"], in: webView)
-            try press(["Meta", "x"], in: webView)
-            try press(["Meta", "v"], in: webView)
-            try press(["Meta", "a"], in: webView)
+            try await press(["Meta", "c"], in: webView)
+            try await press(["Meta", "x"], in: webView)
+            try await press(["Meta", "v"], in: webView)
+            try await press(["Meta", "a"], in: webView)
             try await settle(webView, keys: 8)
         }
         #expect(webView.commands == ["selectAll:"], "cmux browser press ran a clipboard command in a session's tab: \(webView.commands)")
@@ -198,6 +199,26 @@ struct BrowserReplKeyResendTests {
         }
         try #require(webView.inputContext != nil, "the focused field never gave the web view an input context")
         return (window, webView)
+    }
+
+    /// `cmux browser press` Meta+A right after another key, into a focused
+    /// field of a web view in a window, as in the app. The earlier key can
+    /// still be in WebKit's key queue when Meta+A is delivered; its end must
+    /// not be taken for Meta+A's own outcome (the press must wait for that
+    /// queue, as the REPL does), or Meta+A counts as handled and Select All
+    /// is silently skipped.
+    @Test func cmuxBrowserPressRunsSelectAllRightAfterAnotherKeyInAWindowsEditableField() async throws {
+        let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        defer { window.close() }
+        for round in 1...3 {
+            try await Self.withAppDroppingResends {
+                try await press(["x"], in: webView)
+                try await press(["Meta", "a"], in: webView)
+                try await settle(webView, keys: 3 * round)
+            }
+            #expect(webView.commands.count == round, "round \(round): Meta+A after another key ran \(webView.commands)")
+        }
+        #expect(webView.commands.allSatisfy { $0 == "selectAll:" })
     }
 
     /// Meta+A, Meta+C and Meta+X that no page handled, typed by a REPL
