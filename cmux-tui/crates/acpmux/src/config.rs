@@ -71,6 +71,10 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
+    /// listed, but run in a terminal tab (`cmux harness run`), never as an
+    /// acpmux session.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -448,6 +452,17 @@ pub struct Config {
     /// family preference or fallback routes new work to them.
     #[serde(skip)]
     pub unavailable: BTreeMap<String, String>,
+    /// Display, capability, auth and sessions data of the profiles that came
+    /// from profile files or cmux.json (`config/profiles.rs`), by id. Those
+    /// profiles are never written to config.json.
+    #[serde(skip)]
+    pub profile_meta: BTreeMap<String, ProfileMeta>,
+    /// Problems in the profile sources, for `harness list`, doctor and Settings.
+    #[serde(skip)]
+    pub profile_diagnostics: Vec<ProfileDiagnostic>,
+    /// config.json entries a profile file replaced; `save` keeps them.
+    #[serde(skip)]
+    pub shadowed_config: BTreeMap<String, HarnessProfile>,
 }
 
 impl Config {
@@ -548,6 +563,11 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
+        Self::load_from_with(path, &ProfileSources::current())
+    }
+
+    /// `load_from` with explicit profile file sources.
+    pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(&path)
@@ -557,6 +577,7 @@ impl Config {
         } else {
             Config::default()
         };
+        cfg.join_profiles(profiles::load(sources));
         cfg.join_discovered(discover_harnesses());
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
@@ -564,6 +585,20 @@ impl Config {
         }
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Adds the profiles from profile files and cmux.json. They win over
+    /// config.json entries with the same id (kept for `save`).
+    pub fn join_profiles(&mut self, loaded: LoadedProfiles) {
+        for (id, (profile, meta)) in loaded.profiles {
+            if let Some(old) = self.harnesses.insert(id.clone(), profile)
+                && !self.profile_meta.contains_key(&id)
+            {
+                self.shadowed_config.insert(id.clone(), old);
+            }
+            self.profile_meta.insert(id, meta);
+        }
+        self.profile_diagnostics.extend(loaded.diagnostics);
     }
 
     /// Joins discovered harnesses to the configured ones (configured entries
@@ -629,7 +664,12 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let mut on_disk = self.clone();
-        on_disk.harnesses.retain(|n, _| !self.discovered.contains(n));
+        on_disk
+            .harnesses
+            .retain(|n, _| !self.discovered.contains(n) && !self.profile_meta.contains_key(n));
+        for (n, p) in &self.shadowed_config {
+            on_disk.harnesses.insert(n.clone(), p.clone());
+        }
         if let Some((p, f)) = &self.auto_fallback
             && let Some(prof) = on_disk.harnesses.get_mut(p)
             && prof.fallback.as_deref() == Some(f.as_str())
@@ -891,6 +931,10 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+pub mod profiles;
+pub use profiles::{
+    Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
+};
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

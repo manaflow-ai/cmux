@@ -495,11 +495,19 @@ async fn dispatch_request(
                     if !d.is_empty() {
                         o.insert("defaults".into(), json!(d));
                     }
+                    // A profile file's display, capability, auth and sessions data.
+                    if let Some(Value::Object(meta)) =
+                        cfg.profile_meta.get(name).and_then(|m| serde_json::to_value(m).ok())
+                    {
+                        for (k, x) in meta {
+                            o.insert(k, x);
+                        }
+                    }
                 }
                 agents.insert(name.clone(), v);
             }
             Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}),
+                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics}),
             )
         }
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
