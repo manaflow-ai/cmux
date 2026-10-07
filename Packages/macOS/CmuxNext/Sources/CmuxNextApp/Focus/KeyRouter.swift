@@ -180,6 +180,7 @@ final class KeyRouter: BrowserKeyRouting {
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
+            if captureNewTabInput(event, in: window) { return true }
             if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
@@ -268,6 +269,8 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: FocusState.Resolved?
     var deliveringTypeAhead: String?
+    /// The New Tab action owns this buffer before a cold page has a readiness object.
+    private var newTabInput: [String: NewTabInputBuffer] = [:]
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
@@ -305,6 +308,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
         typeAheadFocusDidSettle(focus.resolved)
+        promoteNewTabInput(focus.resolved, in: window)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }

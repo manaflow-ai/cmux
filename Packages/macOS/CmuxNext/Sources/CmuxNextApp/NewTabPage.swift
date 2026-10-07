@@ -245,6 +245,7 @@ extension NewTabPage {
     static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
         let start = ContinuousClock.now
         let services = pane.services
+        services.keyRouter.beginNewTabInput(for: pane.paneKey)
         let cwd = pane.selectedTab?.cwd
         let page = Self.page(services, selected: pane.selectedTab)
         let handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
@@ -254,7 +255,10 @@ extension NewTabPage {
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
-        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else { return }
+        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
+            services.keyRouter.cancelNewTabInput(for: pane.paneKey)
+            return
+        }
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(pane) {
