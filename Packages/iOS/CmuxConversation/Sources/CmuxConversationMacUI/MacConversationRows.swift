@@ -144,7 +144,13 @@ enum MacConversationRowBuilder {
             // off the original message.
             let translation = translations?.presentation(for: original)
             var message = original
-            if let translation { message.text = translation.text }
+            if let translation {
+                // Mentions and formatting index the original text, so the
+                // translation draws plain.
+                message.text = translation.text
+                message.mentions = []
+                message.textRuns = []
+            }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }

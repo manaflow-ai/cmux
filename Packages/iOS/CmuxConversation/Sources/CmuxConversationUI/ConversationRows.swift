@@ -106,7 +106,13 @@ enum ConversationRowBuilder {
             // (grouping, quotes, ids) keys off the original message.
             let translation = translations.presentation(for: original)
             var message = original
-            if let translation { message.text = translation.text }
+            if let translation {
+                // Mentions and formatting index the original text, so the
+                // translation draws plain.
+                message.text = translation.text
+                message.mentions = []
+                message.textRuns = []
+            }
             if message.isScheduled, let scheduledAt = message.scheduledAt {
                 // Scheduled messages trail everything, typing included.
                 if !typingPlaced {

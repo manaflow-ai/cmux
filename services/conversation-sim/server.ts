@@ -607,6 +607,7 @@ function boot() {
     title: "Amigos",
     kind: "group",
     participants: [ME, ...INTL_PEOPLE.map(({ lang, ...p }) => p)],
+    ...listState,
   });
   intl.speak = intlText;
   for (const m of intlHistory(mulberry32(SEED + 2), INTL_COUNT, ME.id)) {
