@@ -56,7 +56,7 @@ function ChangesSection({
                 type="button"
                 className="acpmux-summary-row acpmux-summary-link"
                 title={file.path}
-                disabled={!onOpenOutput}
+                disabled={file.outside || !onOpenOutput}
                 onClick={() => onOpenOutput?.(file.path)}
               >
                 <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />

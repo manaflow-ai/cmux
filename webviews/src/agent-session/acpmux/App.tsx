@@ -1170,7 +1170,7 @@ function AcpmuxPane() {
     const edit = [...snapshot.rows].reverse().find((row) => rowKind(row) === "editedFiles");
     if (!edit) return undefined;
     const activity = turnRows(snapshot.rows, edit.id).filter((row) => row.kind === "activity");
-    const key = `${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
+    const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
   }, [snapshot.rows]);
@@ -2198,7 +2198,7 @@ function AcpmuxPane() {
                       summary={
                         <SummaryButton
                           rows={snapshot.rows}
-                          changeFiles={quick ? undefined : lastEditTurn?.files}
+                          changeFiles={quick ? undefined : lastChanges?.files}
                           changes={quick ? undefined : lastChanges}
                           onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}

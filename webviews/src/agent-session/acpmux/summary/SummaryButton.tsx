@@ -72,6 +72,10 @@ export function SummaryButton({
             onOpenOutput={
               onOpenOutput &&
               ((path) => {
+                // Diff review restores focus to its opener. Focus the persistent
+                // summary button before unmounting the popover so file rows do not
+                // leave a detached button as the opener.
+                button.current?.focus();
                 setOpen(false);
                 onOpenOutput(path);
               })
