@@ -249,4 +249,4 @@ later (40%).
 The direct recipient's Focus flips on or off roughly every
 `focusEverySeconds` (default 180, its own seeded stream `SEED ^ 0xf0c5`; 0
 stops it). While it is on, my messages there become `delivered` with
-`deliveredQuietly: true`.
+`deliveredQuietly: true` and are not read automatically.

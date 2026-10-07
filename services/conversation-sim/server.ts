@@ -1180,7 +1180,8 @@ function afterMySend(store: Store, m: Message) {
     // The recipient's Focus silences the notification: "Delivered Quietly".
     if (recipient(store)?.notificationsSilenced) m.deliveredQuietly = true;
     store.emit("message.updated", m);
-    if (store.conv.kind === "direct") {
+    // Someone in a Focus does not see it (and send a read receipt) right away.
+    if (store.conv.kind === "direct" && !m.deliveredQuietly) {
       setTimeout(() => {
         m.status = "read";
         m.readAt = Date.now();

@@ -36,6 +36,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     var titleNameLabel: NSTextField { titleView.nameLabel }
     private var contentItem: NSSplitViewItem!
     private(set) var selected: MacConversationEntry?
+    var showsNoSelection: Bool { content.showsNoSelection }
     /// Total unread across conversations (the Dock badge).
     private(set) lazy var unreadBadge = ConversationUnreadBadge(stores: entries.map(\.store))
 
@@ -52,6 +53,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         super.viewDidLoad()
         // Arrowing through the list keeps focus there; a click moves it to the composer.
         sidebar.onSelect = { [weak self] entry in self?.select(entry, focusComposer: !MacKeyboardNavigation.isActive) }
+        sidebar.onSelectNone = { [weak self] in self?.selectNone() }
         // Every conversation stays live so the sidebar previews update.
         for entry in entries { entry.store.start() }
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -169,6 +171,17 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         }
         updateKeyViewLoop()
         if focusComposer { view.window?.makeFirstResponder(controller.composer.textView) }
+    }
+
+    /// The last listed conversation was deleted: the transcript pane shows
+    /// "No Conversation Selected" and the composer and title leave.
+    func selectNone() {
+        selected?.store.endVisit()
+        selected = nil
+        updateViewing()
+        content.showNoSelection()
+        composerHost.subviews.forEach { $0.removeFromSuperview() }
+        titleView.clear()
     }
 
     // MARK: Keyboard navigation
@@ -326,8 +339,35 @@ final class MacConversationContainerController: NSViewController {
         view = MacFlippedView(frame: NSRect(x: 0, y: 0, width: 760, height: 700))
     }
 
+    private lazy var noSelection: NSTextField = {
+        let label = makeMacLabel()
+        label.stringValue = ConversationStatusStrings.noConversationSelected
+        label.font = .systemFont(ofSize: 17, weight: .semibold)
+        label.textColor = .tertiaryLabelColor
+        label.alignment = .center
+        label.setAccessibilityIdentifier("conversation.noSelection")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    /// NO_CONVERSATION_SELECTED, centered in the transcript pane.
+    func showNoSelection() {
+        current?.view.removeFromSuperview()
+        current?.removeFromParent()
+        current = nil
+        guard noSelection.superview == nil else { return }
+        view.addSubview(noSelection)
+        NSLayoutConstraint.activate([
+            noSelection.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            noSelection.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+    }
+
+    var showsNoSelection: Bool { noSelection.superview != nil }
+
     func show(_ controller: NSViewController) {
         guard controller !== current else { return }
+        noSelection.removeFromSuperview()
         current?.view.removeFromSuperview()
         current?.removeFromParent()
         addChild(controller)
@@ -359,6 +399,15 @@ final class MacToolbarTitleView: MacFlippedView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// No conversation selected: no avatars and no name.
+    func clear() {
+        avatars.forEach { $0.removeFromSuperview() }
+        avatars = []
+        nameLabel.stringValue = ""
+        nameLabel.toolTip = nil
+        needsLayout = true
+    }
 
     func configure(info: ConversationInfo, meID: String?, connected: Bool) {
         let others = info.participants.filter { $0.id != meID }
@@ -485,6 +534,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private let emptyDescription = makeMacLabel()
     /// Filter By (All Messages / Unread Messages).
     private(set) var filter: MacConversationListFilter = .all
+    /// The conversation opened while Unread Messages was showing.
+    private var openedFromUnreadID: String?
     private(set) lazy var filterMenu: NSMenu = {
         let menu = NSMenu()
         for option in MacConversationListFilter.allCases {
@@ -498,6 +549,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     }()
     private var lastTableWidth: CGFloat = 0
     var onSelect: ((MacConversationEntry) -> Void)?
+    /// The selection went away with nothing left to move it to.
+    var onSelectNone: (() -> Void)?
 
     init(entries: [MacConversationEntry]) {
         self.entries = entries
@@ -621,9 +674,10 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             if store.info?.participants.contains(where: { !$0.isMe && $0.name.localizedCaseInsensitiveContains(query) }) == true { return true }
             return store.messages.contains { $0.text.localizedCaseInsensitiveContains(query) }
         }
-        // Unread Messages keeps the open conversation listed until another
-        // is chosen, so reading it does not pull it out from under the reader.
-        let matching = filter == .all ? searched : searched.filter { isUnread($0) || $0.id == selectedID }
+        // Unread Messages keeps a conversation opened from it listed until
+        // another is chosen, so reading it does not pull it out from under
+        // the reader.
+        let matching = filter == .all ? searched : searched.filter { isUnread($0) || $0.id == openedFromUnreadID }
         let arranged = ConversationListArrangement.arrange(matching.map {
             ConversationListArrangement.Item(id: $0.id, state: $0.store.listState, lastActivity: lastActivity($0))
         })
@@ -734,6 +788,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     func setFilter(_ next: MacConversationListFilter) {
         guard next != filter else { return }
         filter = next
+        openedFromUnreadID = nil
         updateFilterMenu(filterMenu)
         refresh()
     }
@@ -787,6 +842,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     func markSelected(_ id: String) {
         selectedID = id
+        if filter == .unread { openedFromUnreadID = id }
         if let entry = entry(id), entry.store.listState.markedUnread {
             // Opening a conversation clears Mark as Unread.
             entry.store.updateListState(.init(markedUnread: false))
@@ -937,7 +993,12 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         entry.store.updateListState(.init(deleted: true))
         guard entry.id == selectedID, let index = order.firstIndex(of: entry.id) else { return }
         let remaining = order.filter { $0 != entry.id }
-        guard !remaining.isEmpty, let next = self.entry(remaining[min(index, remaining.count - 1)]) else { return }
+        guard !remaining.isEmpty, let next = self.entry(remaining[min(index, remaining.count - 1)]) else {
+            selectedID = nil
+            syncTableSelection()
+            onSelectNone?()
+            return
+        }
         selectedID = next.id
         syncTableSelection()
         onSelect?(next)
@@ -1431,6 +1492,7 @@ public enum MacConversationLab {
         return [
             "pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations,
             "filter": sidebar.filter.rawValue, "empty": sidebar.emptyStateText as Any,
+            "noSelection": (windows.last?.window?.contentViewController as? MacConversationSplitController)?.showsNoSelection ?? false,
         ]
     }
 
