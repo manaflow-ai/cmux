@@ -10,8 +10,9 @@ import Testing
         let registry = ActionRegistry.standard()
         let header = AgentPaneModel.headerActions
         let labels = { AgentPaneShortcuts.read(registry).labels.filter { !header.contains($0.key) } }
+        // Search Agent Chats has no default key (decision K1: Cmd-K clears the terminal).
         #expect(labels() == [
-            "agentPane.searchChats": "⌘K", "palette.newAgentChat": "⌘I", "palette.toggleDictation": "⌃⌘V",
+            "palette.newAgentChat": "⌘I", "palette.toggleDictation": "⌃⌘V",
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])

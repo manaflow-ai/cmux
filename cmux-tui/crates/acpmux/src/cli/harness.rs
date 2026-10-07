@@ -17,7 +17,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-use crate::cli::command::HarnessCmd;
+use crate::cli::command::{HarnessCmd, SecretCmd};
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
@@ -50,7 +50,21 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
-        HarnessCmd::List => list(json_out),
+        HarnessCmd::List { folder: None } => list(json_out),
+        HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
+        HarnessCmd::Enable { id, folder, yes } => {
+            super::harness_folder::enable_cmd(&id, &folder, yes, json_out)
+        }
+        HarnessCmd::Disable { id, folder } => super::harness_folder::disable_cmd(&id, &folder),
+        HarnessCmd::Run { tab: true, .. } => {
+            bail!("--tab opens a cmux tab: run `cmux harness run ID --tab`")
+        }
+        HarnessCmd::Run { id, cwd, model, tab: false } => {
+            super::harness_run::run_cmd(&id, cwd, model)
+        }
+        HarnessCmd::Secret(SecretCmd::Set { id, key }) => {
+            super::harness_secret::set_cmd(&id, &key).await
+        }
         HarnessCmd::Add { id, command, protocol, example, force } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
@@ -107,7 +121,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
 }
 
 /// Ask a running daemon to reload its catalog; false when none runs.
-async fn reload_daemon() -> bool {
+pub(crate) async fn reload_daemon() -> bool {
     match crate::daemon::connect(false).await {
         Ok(client) => {
             client.request(crate::rpc::method::MUX_RELOAD_CONFIG, json!({})).await.is_ok()

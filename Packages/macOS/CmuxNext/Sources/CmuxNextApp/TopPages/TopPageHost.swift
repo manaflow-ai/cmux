@@ -23,7 +23,7 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
-            view = TopHomePageView(services: services)
+            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)

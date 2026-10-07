@@ -191,7 +191,9 @@ describe("diff boot", () => {
     let picked: unknown;
     const config = await bootPageDiff(
       host.client,
-      (value) => rendered.push(value),
+      (value) => {
+        rendered.push(value);
+      },
       () => undefined,
       undefined,
       async (empty) => {

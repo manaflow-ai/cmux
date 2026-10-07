@@ -16,6 +16,7 @@
     {"t": "rb.vsync", "timebase_us": 81234567, "interval_us": 8333},
     {"t": "rb.page", "url": "https://example.com/a", "title": "Example", "loading": false, "can_go_back": true, "can_go_forward": false},
     {"t": "rb.history", "op": "reload_no_cache"},
+    {"t": "rb.navigate", "url": "https://example.com/"},
     {"t": "rb.key_unhandled", "input_seq": 912},
     {"t": "rb.cursor", "cursor": {"kind": "pointer", "hash": null}},
     {"t": "rb.cursor", "cursor": {"kind": "custom", "hash": "9f2c"}},

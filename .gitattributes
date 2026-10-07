@@ -54,6 +54,8 @@ Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
 # gen-strings.mjs writes every strings table, the agent pane's included.
 webviews/src/**/generated/strings.json merge=cmux-generated-v1
+# The Chief memory inspector page (build-optchat-inspector-web.sh), compiled into optchat-chief.
+Native/OptChat/optchat-chief/inspector/index.html merge=cmux-generated-v1
 # Upstream license texts the shared Ghostty license collector ships, pinned by
 # SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
 cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace

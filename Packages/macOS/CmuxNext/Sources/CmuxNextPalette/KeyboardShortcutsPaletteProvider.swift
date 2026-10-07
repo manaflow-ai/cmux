@@ -12,6 +12,11 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
         self.registry = registry
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
 

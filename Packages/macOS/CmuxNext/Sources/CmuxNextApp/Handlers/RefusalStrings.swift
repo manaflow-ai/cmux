@@ -99,6 +99,7 @@ nonisolated enum RefusalStrings {
     static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
+    static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     static func markUnreadUnsupported(_ capability: String) -> String { format("handlers.refusal.markUnreadUnsupported", "needs daemon capability %@ (only marking read is supported)", capability) }
     static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }

@@ -6,7 +6,7 @@
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 
 /// Hover time before the first tooltip.
-export const TOOLTIP_DELAY = 350;
+export const TOOLTIP_DELAY = 500;
 /// How long after one hides the next shows without the delay.
 export const TOOLTIP_WARM = 400;
 /// Room kept between the tooltip and the window's edges, and its gap from the element.

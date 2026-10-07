@@ -56,6 +56,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
   protected abstract pauseSilent(now: number): Promise<void>
+  protected abstract alertStale(now: number): void
   protected abstract silentRetryAt(machine: string): number | null
   protected abstract silentRetry: { clear(machine: string): void }
 
@@ -368,6 +369,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
     await this.pauseSilent(now)
+    this.alertStale(now)
     for (const d of this.vmStatus.takeDue(now)) {
       const r = this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
       if (!statusApplied(r.frames)) continue
