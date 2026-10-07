@@ -385,6 +385,12 @@ class Client : public CefClient,
 
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     Browsers()[browser->GetIdentifier()] = browser;
+    // The tab's top-level window, so a screen change can resize it.
+    if (auto view = CefBrowserView::GetForBrowser(browser)) {
+      if (auto window = view->GetWindow()) {
+        Windows()[browser->GetIdentifier()] = window;
+      }
+    }
     if (g_cb.on_tab_created) {
       g_cb.on_tab_created(g_cb.context, request_, browser->GetIdentifier());
     }
@@ -623,7 +629,17 @@ void rb_shim_post_delayed(void (*fn)(void*), void* ctx, int64_t delay_ms) {
 }
 
 int rb_shim_set_screen(int width_dip, int height_dip, double scale) {
-  return g_rp.set_screen ? g_rp.set_screen(width_dip, height_dip, scale) : 0;
+  if (!g_rp.set_screen || !g_rp.set_screen(width_dip, height_dip, scale)) {
+    return 0;
+  }
+  // The virtual screen alone leaves the page at its window's first size:
+  // the viewport is the window's, so every tab window takes the new size.
+  if (width_dip > 0 && height_dip > 0) {
+    for (auto& entry : Windows()) {
+      entry.second->SetSize(CefSize(width_dip, height_dip));
+    }
+  }
+  return 1;
 }
 
 int rb_shim_open_tab(int request,

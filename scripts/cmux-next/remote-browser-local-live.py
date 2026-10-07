@@ -40,17 +40,18 @@ a{display:block;margin:12px;font-size:20px} #sel{position:fixed;left:20px;bottom
 #date{position:fixed;left:260px;top:120px}</style></head><body>
 <a id="hover" href="/two" style="cursor:pointer">hover link</a>
 <a id="blank" href="/two?blank" target="_blank">new tab link</a>
-<input id="date" type="date">
-<select id="sel" onchange="document.title='rb selected '+this.value">
+<input id="date" type="date" onclick="try{this.showPicker()}catch(x){document.title='rb date err '+x}">
+<select id="sel" onmousedown="document.title='rb select down'" onchange="document.title='rb selected '+this.value">
 <option value="a">Alpha</option><option value="b">Bravo</option><option value="c">Charlie</option></select>
 <script>addEventListener('scroll',()=>{document.title='rb scrolled '+Math.round(scrollY)})</script>
 </body></html>"""
+SIZE = "<!doctype html><html><head><title>rb size</title></head><body><script>document.title='rb size '+innerWidth+'x'+innerHeight+' @'+devicePixelRatio</script></body></html>"
 PAGE2 = "<!doctype html><html><head><title>rb two</title></head><body style='background:#dfe'>page two</body></html>"
 
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = (PAGE2 if self.path.startswith("/two") else PAGE1).encode()
+        body = (SIZE if self.path.startswith("/size") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -160,6 +161,12 @@ try:
     opened = wait(lambda: session_where(lambda s: s.get("title")), 120)
     shot("start-page")
     if opened:
+        # The page viewport must be the view's size (rb.open / rb.screen).
+        rb("navigate", tab=opened["tab"], url=BASE + "/size")
+        sized = wait(title_is("rb size "), 30)
+        size = (sized or {}).get("title", "")[len("rb size "):].split(" ")[0]
+        step("the page viewport is the view's size", sized and size == sized.get("frame"),
+             {"page": (sized or {}).get("title"), "view": (sized or {}).get("frame")})
         rb("navigate", tab=opened["tab"], url=BASE + "/")
     first = wait(title_is("rb one"), 60)
     state = rb("state")
@@ -197,6 +204,7 @@ try:
     height = int(((first or {}).get("frame") or "0x600").split("x")[1])
     rb("click", tab=tab1, x=60, y=height - 22, button="left")
     select = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("menu")), 15)
+    report["after_select_click"] = session_where(lambda s: s["tab"] == tab1)
     shot("select")
     chosen = rb("menu_choose", tab=tab1, index=2) if select else None
     picked = wait(title_is("rb selected c"), 15)
