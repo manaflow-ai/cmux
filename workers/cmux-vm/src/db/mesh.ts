@@ -81,6 +81,8 @@ export interface MeshStoreService {
   readonly markDeviceDeleted: (tenantId: TenantId, deviceId: string, at: Date) => Effect.Effect<void, StoreError>;
   /** The tenant's live devices, in every mesh, whose `created_by` is exactly `createdBy` (G1: a removed member's devices). */
   readonly listDevicesCreatedBy: (tenantId: TenantId, createdBy: string) => Effect.Effect<ReadonlyArray<MeshDeviceRow>, StoreError>;
+  /** Every tenant where a live device's `created_by` is exactly `createdBy` (Stack `user.deleted`); each once. */
+  readonly listTenantsWithDevicesCreatedBy: (createdBy: string) => Effect.Effect<ReadonlyArray<TenantId>, StoreError>;
   /** Records a rotated WireGuard key; false when another live device of the mesh holds it. */
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
 
@@ -171,6 +173,7 @@ const RuleRow = Schema.Struct({
   created_at: When,
 });
 const CidrRow = Schema.Struct({ cidr: Schema.String });
+const TenantRow = Schema.Struct({ tenant_id: Schema.String });
 const WhenRow = Schema.Struct({ created_at: When });
 const ClaimedRow = Schema.Struct({ claimed: Count });
 
@@ -299,6 +302,17 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [tenantId, createdBy],
           )
           .pipe(Effect.flatMap(decode(DeviceRow, "mesh.listDevicesCreatedBy")), Effect.map((rows) => rows.map(toDevice))),
+      listTenantsWithDevicesCreatedBy: (createdBy) =>
+        sql
+          .query(
+            "mesh.listTenantsWithDevicesCreatedBy",
+            `SELECT DISTINCT tenant_id FROM cmux_vm.mesh_devices WHERE created_by = $1 AND deleted_at IS NULL ORDER BY tenant_id`,
+            [createdBy],
+          )
+          .pipe(
+            Effect.flatMap(decode(TenantRow, "mesh.listTenantsWithDevicesCreatedBy")),
+            Effect.map((rows) => rows.map((row) => TenantIdBrand.make(row.tenant_id))),
+          ),
       updateDeviceKey: (tenantId, deviceId, wgPublicKey, at) =>
         sql
           .query(

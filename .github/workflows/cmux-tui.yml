@@ -721,6 +721,46 @@ jobs:
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 
+  # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
+  # the `test (macos)` matrix entry, which was their only macOS run. The
+  # relay builds no Ghostty or Zig code, so this job needs only Rust.
+  # Attempt 1 takes the owned AWS minis through CI_AWS_SIDE_RUNNER
+  # (CI_SIDE_LANE_RUNNER when it is empty); workflow text never names an owned
+  # pool label (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the
+  # background lane.
+  macos-relay:
+    name: chatmux-relay tests (macOS)
+    needs: validate-inputs
+    if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-macos-relay
+
+      - name: cargo test -p chatmux-relay
+        working-directory: cmux-tui
+        run: cargo test -p chatmux-relay --locked
+
   test:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -1205,6 +1245,7 @@ jobs:
       - validate-inputs
       - lint
       - macos
+      - macos-relay
       - msrv-check
       - web-frontend
       - go-pane
@@ -1221,6 +1262,8 @@ jobs:
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       LINT_RESULT: ${{ needs.lint.result }}
       MACOS_RESULT: ${{ needs.macos.result }}
+      MACOS_RELAY_RESULT: ${{ needs.macos-relay.result }}
+      TEST_FILTER: ${{ inputs.test_filter }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       GO_PANE_RESULT: ${{ needs.go-pane.result }}
@@ -1246,6 +1289,9 @@ jobs:
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "lint" "$LINT_RESULT"
           require_success "macOS lint and tests" "$MACOS_RESULT"
+          if [[ "$MODE" == "full" || "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
+            require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"
+          fi
           require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           require_success "Go pane SDK" "$GO_PANE_RESULT"

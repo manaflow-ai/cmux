@@ -834,6 +834,8 @@ impl Hub {
         }
         *session.turn.lock().unwrap() = None;
         self.set_status(session, SessionStatus::Closed);
+        // The session's Claude Code MCP config holds the helper token.
+        crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);

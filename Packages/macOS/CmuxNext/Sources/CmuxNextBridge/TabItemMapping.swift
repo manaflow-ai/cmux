@@ -35,7 +35,7 @@ public struct TabItemMapping {
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
-        if busy.state.isLoading { item.indicator = busy.state }
+        if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         return item
     }
@@ -72,7 +72,11 @@ public struct TabItemMapping {
     }
 
     func status(_ tab: TabModel) -> TabStatus {
-        switch tab.agent?.state {
+        // An agent chat's acpmux turn or an OSC 7501 program waits for the user.
+        if StatusMapping.shared.needsInput(tab) { return .needsInput }
+        // An OSC 7501 error or done the user has not seen yet.
+        if let outcome = StatusMapping.shared.outcome(tab) { return outcome }
+        return switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
         default: tab.dead || tab.progress?.state == .error ? .failure : .none

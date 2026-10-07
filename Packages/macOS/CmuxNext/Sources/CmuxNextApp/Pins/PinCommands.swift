@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// The one path every tab pin and unpin takes (PINNED-ITEMS-END-TO-END):
 /// the palette, the tab menu, the CLI and MCP all run `palette.toggleTabPin`,
@@ -35,26 +36,18 @@ struct PinCommands {
         return true
     }
 
-    /// Registers `inverse` on the key window's undo manager.
-    private func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
-        guard let undoManager = NSApp.keyWindow?.undoManager ?? NSApp.mainWindow?.undoManager else { return }
-        let record = PinUndoRecord { inverse(self) }
-        // The record is the target and the retained object, so it lives as long as the undo entry.
-        undoManager.registerUndo(withTarget: record, selector: #selector(PinUndoRecord.run(_:)), object: record)
-        undoManager.setActionName(title)
-    }
-}
+    /// The id of the pin undo toast (one per window; a newer pin change replaces it).
+    static let undoToastID = "pin-undo"
 
-/// One pin's undo entry: runs the inverse, which registers the redo.
-@MainActor
-final class PinUndoRecord: NSObject {
-    private let body: @MainActor () -> Void
-
-    init(_ body: @escaping @MainActor () -> Void) {
-        self.body = body
-    }
-
-    @objc func run(_ sender: Any?) {
-        body()
+    /// Shows the undo toast for a user's pin change in the active window;
+    /// its Undo button and Cmd-Z (TOAST-UNDO-KEY) run `inverse`, which shows
+    /// the next toast. One toast per window: a newer pin change replaces it.
+    /// (An NSUndoManager entry is not used: the terminal and the toast own
+    /// Cmd-Z, and an entry on the window would keep the toast from the key.)
+    func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
+        let windows = context.services.windows
+        guard let window = windows?.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows?.controllers.last?.window else { return }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
+        handle.onAction = { inverse(self) }
     }
 }

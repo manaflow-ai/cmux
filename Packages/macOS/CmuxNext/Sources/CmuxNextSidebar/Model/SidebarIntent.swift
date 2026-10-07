@@ -21,7 +21,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Create a group holding the given workspaces. The UI mints the id.
     /// The group forms where `anchor` is (a row dropped onto another forms
     /// it at the target row), else at the first workspace in tree order.
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil)
+    /// `collapsed` restores a group folded (undo of Ungroup).
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
     case renameGroup(GroupID, String)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.
@@ -62,6 +63,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case openUpdateLink(URL)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
+    /// Workspace rows dropped on a top section (the pinned tiles or the top
+    /// rows) at `index`: the App adds each there as a layout item
+    /// (drop-to-pin, PINNED-ITEMS-END-TO-END P2). No local change.
+    case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
 }
