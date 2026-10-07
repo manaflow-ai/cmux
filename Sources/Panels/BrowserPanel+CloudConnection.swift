@@ -223,6 +223,7 @@ extension BrowserPanel {
         cloudBrowserMachineID = machineID
         cloudBrowserStoreIdentity = identifier
         cloudBrowserProxyEndpoint = nil
+        cloudBrowserProxyAddress = nil
         websiteDataStore = preservesExplicitEphemeralWebsiteDataStore
             ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: identifier)
         // The route may still be connecting. Do not construct its WebView with
@@ -233,8 +234,9 @@ extension BrowserPanel {
     func prepareCloudBrowserNavigation() {
         guard let endpoint = cloudAccess.model?.browserProxy,
               let address = cloudAccess.model?.target.host else { return }
-        guard endpoint != cloudBrowserProxyEndpoint else { return }
+        guard endpoint != cloudBrowserProxyEndpoint || address != cloudBrowserProxyAddress else { return }
         cloudBrowserProxyEndpoint = endpoint
+        cloudBrowserProxyAddress = address
         websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
         CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
         if webView.configuration.websiteDataStore !== websiteDataStore {

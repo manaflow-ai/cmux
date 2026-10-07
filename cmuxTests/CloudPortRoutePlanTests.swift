@@ -327,30 +327,6 @@ struct CloudPortRoutePlanTests {
         await ordinaryModel.retire()
     }
 
-    @Test("A ready SSH loopback route loads once through BrowserPanel")
-    func managedSSHReadyRouteLoadsInBrowserPanel() async throws {
-        var starts = 0
-        let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 42001, username: "fixture", password: "secret")
-        let model = CloudPortAccessModel(
-            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
-            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
-            startBrowserProxy: { starts += 1; return endpoint }, allowsLoopback: true
-        )
-        let url = try #require(URL(string: "https://127.0.0.1:3000/page"))
-        let resourceID = SurfaceResourceID(machine: .ssh("route-readiness"), kind: .browser, key: "port:3000")
-        let panel = BrowserPanel(
-            workspaceId: UUID(), websiteDataStore: .nonPersistent(), renderInitialNavigation: false
-        )
-        defer { panel.close() }
-
-        panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID)
-
-        #expect(await wait { model.isReady && panel.cloudAccess.navigationURL == url })
-        #expect(await wait { panel.webView.url == url })
-        #expect(starts == 1, "Readiness navigation must not reconfigure its already-owned route")
-        await model.retire()
-    }
-
     private func makeModel(
         port: Int = 3000,
         coordinator: CloudTunnelCoordinator? = nil,

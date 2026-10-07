@@ -2088,6 +2088,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var cloudBrowserMachineID: String?
     var cloudBrowserStoreIdentity: UUID?
     var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
+    var cloudBrowserProxyAddress: String?
     /// Saved Cloud path waiting for a provider/resource to become available.
     /// It is consumed after the first successful authenticated configuration.
     var pendingCloudRestoreURL: URL?
