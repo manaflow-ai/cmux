@@ -294,7 +294,7 @@ Left for owners, most severe first:
 ## 5. Package tests on the integration state
 
 `swift test` once per new Shared package on a `git archive` of `feat-cmux-next-ios` (Shared packages
-at `b3cffeafeda`, so B2's large-frame fix is included; `schemas/` and the terminal corpus copied for
+at `b3cffeafeda`, identical to `afbc8c69b3b` after C12, so B2's large-frame fix is included; `schemas/` and the terminal corpus copied for
 fixture paths), one package at a time, `.build` deleted after each. Toolchain: the local Xcode Swift 6.
 
 | Package | Tests | Result |
