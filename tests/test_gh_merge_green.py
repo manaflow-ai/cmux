@@ -994,7 +994,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
     def git(self, *args, cwd):
         return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
-    def fixture(self, directory, pr_files, *, pr_script=None):
+    def fixture(self, directory, pr_files, *, pr_script=None, base_files=None):
         directory = Path(directory)
         origin = directory / "origin.git"
         work = directory / "work"
@@ -1011,6 +1011,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
         (work / "Packages/macOS/CmuxNext/Package.swift").write_text("// package\n")
         (work / "webviews").mkdir()
         (work / "webviews/package.json").write_text("{}\n")
+        for path, text in (base_files or {}).items():
+            (work / path).write_text(text)
         self.git("add", "-A", cwd=work)
         self.git("commit", "-qm", "base", cwd=work)
         self.git("remote", "add", "origin", str(origin), cwd=work)
@@ -1032,7 +1034,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.write_text(
             "#!/bin/sh\n"
             "printf 'bun %s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
-            "if [ \"$1 $2 $3\" = 'x vp check' ] && [ -e BAD.tsx ]; then echo 'Formatting issues found'; exit 1; fi\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && ls BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; ls BAD*.tsx; exit 1; fi\n"
         )
         bun.chmod(0o755)
         return work, head, directory / "bin"
@@ -1088,6 +1090,22 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertIn("vp check", result.stderr)
             self.assertIn("bun install --frozen-lockfile --ignore-scripts", log)
+
+    def test_a_vp_check_red_already_on_the_base_does_not_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/Good.tsx": "x\n"}, base_files={"webviews/BAD.tsx": "x\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("base", result.stderr)
+
+    def test_a_new_vp_check_failure_on_a_red_base_still_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/BAD2.tsx": "x\n"}, base_files={"webviews/BAD.tsx": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("BAD2.tsx", result.stderr)
 
     def test_a_clean_webviews_change_merges_after_vp_check(self):
         with tempfile.TemporaryDirectory() as directory:
