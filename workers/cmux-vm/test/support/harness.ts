@@ -95,11 +95,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   /** Stack server API calls that asked for a user's teams (membership lookups). */
   const stackMembershipCalls: string[] = [];
+  /** Users Stack cannot answer for (a deleted user, or Stack down for them): their lookups answer 500. */
+  const stackFailing = new Set<string>();
   const stackFetch = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname !== "/api/v1/teams") return Response.json({ message: "no route" }, { status: 404 });
     const user = url.searchParams.get("user_id") ?? "";
     stackMembershipCalls.push(user);
+    if (stackFailing.has(user)) return Response.json({ message: "injected failure" }, { status: 500 });
     const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team }));
     return Response.json({ items });
   };
@@ -355,6 +358,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** The shared membership cache and the processed webhook deliveries (mesh M4). */
     membershipCache,
     webhookDeliveries,
+    /** Stack membership lookups for `user` answer 500 (on) or normally (off). */
+    failStackFor(user: string, on = true) {
+      if (on) stackFailing.add(user);
+      else stackFailing.delete(user);
+    },
     /** Removes `user` from `tenant` in the fake Stack directory (no webhook is sent). */
     removeMember(tenant: string, user: string) {
       members.get(tenant)?.delete(user);
