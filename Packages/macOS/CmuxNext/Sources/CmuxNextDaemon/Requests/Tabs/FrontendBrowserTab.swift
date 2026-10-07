@@ -29,9 +29,12 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// `frontend-browser-activate-v1`: `false` keeps the pane's active tab (an automation's
     /// background tab); nil (omitted) makes the new tab active.
     public var activate: Bool?
+    /// `frontend-browser-insert-after-v1`: the new tab goes right after this
+    /// tab of the pane (a link's opener, or its last child) instead of at the end.
+    public var after: SurfaceID?
 
     public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
-                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil) {
+                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
@@ -41,6 +44,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         self.cols = size?.cols
         self.rows = size?.rows
         self.activate = activate
+        self.after = after
     }
 }
 
