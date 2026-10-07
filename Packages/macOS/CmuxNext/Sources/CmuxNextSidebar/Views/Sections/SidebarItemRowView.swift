@@ -207,8 +207,13 @@ final class SidebarItemRowView: NSView {
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size.
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
-        icon.image = glyphImage(side: glyphSide)
-        icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+        if style == .icon, !isRailButton, let (image, frame) = inkSizedGlyph(centeredIn: b) {
+            icon.image = image
+            icon.frame = frame
+        } else {
+            icon.image = glyphImage(side: glyphSide)
+            icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+        }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
             let dot = SidebarStyle.dotSize
@@ -262,6 +267,26 @@ final class SidebarItemRowView: NSView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
     }
+
+    /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
+    /// ink, not its image box, is `iconInkSize` across and centered in `box`.
+    /// Icons leave different margins in their square, so equal image boxes
+    /// read as different sizes. Nil when the glyph draws nothing.
+    private func inkSizedGlyph(centeredIn box: NSRect) -> (NSImage, NSRect)? {
+        let nominal = SidebarStyle.kindGlyphSize
+        let glyph = "\(info.brand.map { "\($0)" } ?? "")|\(info.icon?.rawValue ?? "")|\(info.symbol)"
+        guard let probe = glyphImage(side: nominal), let ink = SidebarGlyphInk.shared.box(of: probe, glyph: glyph),
+              max(ink.width, ink.height) > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        let side = snap(nominal * Self.iconInkSize / max(ink.width, ink.height))
+        guard let image = glyphImage(side: side), let drawn = SidebarGlyphInk.shared.box(of: image, glyph: glyph) else { return nil }
+        return (image, NSRect(x: snap(box.midX - drawn.midX), y: snap(box.midY - drawn.midY), width: side, height: side))
+    }
+
+    /// The ink extent of an icon-only item's glyph, in points: the avatar's
+    /// circle and the gear's teeth both span it.
+    static var iconInkSize: CGFloat { SidebarStyle.kindGlyphSize }
 
     /// A `side` square centered in `box`, on the device pixel grid so the icon's strokes stay crisp.
     private func alignedGlyphFrame(side: CGFloat, centeredIn box: NSRect) -> NSRect {
