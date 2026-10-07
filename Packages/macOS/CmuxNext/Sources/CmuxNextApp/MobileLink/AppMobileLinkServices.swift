@@ -19,7 +19,9 @@ enum AppMobileLinkServices {
         let agentHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         let vnc: RemoteDesktopVncPolicy = setting.vncEnabled ? .allowed(allowLoopback: setting.vncAllowsLoopback) : .off
         let menu = services.remoteDesktopMenu
-        let socketPath = acpmux?.socketPath
+        // Typed up front so the closure is formed @Sendable (it captures only
+        // a String); Xcode 26.6 rejects converting an inferred closure later.
+        let socketPath: (@Sendable () async -> String?)? = (acpmux?.socketPath).map { path in { @Sendable in path } }
         return MobileLinkServices(
             browserPages: TabBrowserPages(tabs: AppMobileBrowserTabs(services: services)),
             remoteDesktop: { names in
@@ -32,7 +34,7 @@ enum AppMobileLinkServices {
             },
             simulators: SimulatorAppCaptureHost(),
             allowedPorts: setting.tunnelAllowedPorts,
-            acpmuxSocketPath: socketPath.map { path in { path } },
+            acpmuxSocketPath: socketPath,
             agentHost: agentHost, agentHostName: nil,
             agentHomes: AgentHome.standard.map { URL(fileURLWithPath: $0.base, isDirectory: true) },
             allowsTaskDispatch: setting.allowsTaskDispatch, allowsTerminalSpawn: setting.allowsTerminalSpawn)
