@@ -126,6 +126,10 @@ final class AgentTabStore {
     /// `labs.previewFeatures`, pushed to every page like the shortcuts.
     private var previewFeatures = false
     private var previewObservation: Task<Void, Never>?
+    /// The model catalog every page asks for (AgentTabs+ModelCatalog.swift) and `agentPane.models`.
+    var modelCatalog: AgentModelCatalogStore?
+    var modelCatalogUser: JSONValue?
+    private var modelCatalogObservation: Task<Void, Never>?
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -193,6 +197,7 @@ final class AgentTabStore {
                 for view in standaloneViews.allObjects { view.previewFeatures = on }
             }
         }
+        modelCatalogObservation = followModelCatalog(settings)
     }
 
     /// True when `key` names an agent chat tab in a tree.
@@ -318,6 +323,7 @@ final class AgentTabStore {
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
         wireAgentFolder(model, key: provisional)
+        wireModelCatalog(model)
     }
 
     /// A pane view on this store's page and host, with the shared pushes.
