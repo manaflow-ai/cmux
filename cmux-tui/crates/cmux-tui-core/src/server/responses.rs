@@ -93,6 +93,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnDockError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
+        .or_else(|| permanent_column_code(error))
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
@@ -103,4 +104,12 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
+}
+
+/// `permanent-dock-v1`: a close, move or undo the permanent-column guard
+/// refused (an `operation.failed` whose reason code names it).
+fn permanent_column_code(error: &anyhow::Error) -> Option<String> {
+    let refusal = error.downcast_ref::<crate::resource::ResourceError>()?;
+    (refusal.details["extra"]["reason_code"] == crate::mux::PERMANENT_COLUMN_CODE)
+        .then(|| crate::mux::PERMANENT_COLUMN_CODE.to_string())
 }
