@@ -148,7 +148,9 @@ test("a refused pick is shown and logged, and the next session clears it", async
   } finally {
     console.error = original;
   }
-  expect(doc().querySelector(".icon-picker-error[role=alert]")?.textContent).toBe("The icon could not be applied. Try again.");
+  expect(doc().querySelector(".icon-picker-error[role=alert]")?.textContent).toBe(
+    "The icon could not be applied. Try again.",
+  );
   expect(logged.filter((args) => String(args[0]).startsWith("icon picker:")).length).toBe(1);
   host.refuseFinish = false;
   await act(async () => host.open({ id: "s2" }));
