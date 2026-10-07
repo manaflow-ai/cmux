@@ -373,6 +373,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                     continuation.resume(throwing: BrowserReplDriverError(code: "blocked", message: "fetch: \(url) is blocked: \(reason)"))
                     return
                 }
+                #if DEBUG
+                beforeWaiting?(task)
+                #endif
                 collector.continuation = continuation
                 task.resume()
             }
@@ -382,6 +385,13 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 
     private var collectors: [Int: FetchCollector] = [:]
+
+    #if DEBUG
+    /// Test seam: runs in a fetch after its task's collector is registered
+    /// and before the fetch waits for the task, so a test can deliver the
+    /// task's completion in that window.
+    var beforeWaiting: ((URLSessionDataTask) -> Void)?
+    #endif
 
     private func collector(for task: URLSessionTask) -> FetchCollector? {
         lock.lock()
