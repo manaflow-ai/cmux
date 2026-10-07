@@ -72,7 +72,7 @@ cat "$SRC/acpmux/turnChanges/turnChanges.css" >> "$WORK/styles.css"
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'

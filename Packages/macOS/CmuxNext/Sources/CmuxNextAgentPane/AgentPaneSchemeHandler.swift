@@ -9,6 +9,8 @@ import WebKit
 ///
 /// Only GET requests for files directly beside the page are answered; any
 /// other host, an escaping path or a missing file fails the request.
+/// Media the host granted the page (``AgentPaneMediaGrants``) is served from
+/// `__media/` in byte ranges.
 final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     private let root: URL
 
@@ -17,9 +19,12 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
-    private var active: Set<ObjectIdentifier> = []
+    var active: Set<ObjectIdentifier> = []
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
+            return serveMedia(media, url: url, task: task)
+        }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url,
               let file = Self.fileURL(for: url, root: root)

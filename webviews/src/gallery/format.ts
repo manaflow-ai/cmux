@@ -62,6 +62,8 @@ export type ChipHostFixture = {
   sites?: Record<string, { icon?: string; title?: string }>;
   policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
   images?: Record<string, string | null>;
+  /** `media.load` answers: the URL the player plays for each path. */
+  media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
 };
 

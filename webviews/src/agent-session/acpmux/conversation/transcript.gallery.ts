@@ -5,7 +5,12 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
-import { BUILD_REPORT_PDF_PAGE_PNG, BUILD_TIMES_PNG, LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
+import {
+  BUILD_REPORT_PDF_PAGE_PNG,
+  BUILD_TIMES_PNG,
+  LOGIN_SCREENSHOT_PNG,
+  LOGIN_TESTS_MP4,
+} from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -322,6 +327,28 @@ export default agentPaneEntry({
           5.6,
         ),
         summary(5.6, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "tool-video": {
+      note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Record the login tests running so I can attach it to the PR", 4),
+        activity(
+          [
+            tool("vhs scripts/login-tests.tape", "execute", "completed", {
+              command: "vhs scripts/login-tests.tape",
+              output: "Recorded 7 s to /Users/you/src/atlas-web/out/login-tests.mp4\n",
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("All six login tests pass; the recording is ready to attach.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
       ]),
     },
     "long-code": {

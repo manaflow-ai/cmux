@@ -667,6 +667,11 @@ pre.cv-math-source {
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
 
+.cv-tool-images .cv-media.is-video video {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;
