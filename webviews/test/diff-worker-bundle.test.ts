@@ -5,7 +5,7 @@ import { basename, dirname, resolve } from "node:path";
 // The highlight worker is built by the same Rollup graph as `main.mjs`, so it
 // shares the eager `shiki-core` chunk and the lazy `shiki-wasm` chunk with the
 // main thread instead of carrying a vendored copy of shiki. These tests read
-// the committed bundle under `Resources/markdown-viewer/webviews-app`.
+// the built bundle under `Resources/markdown-viewer/webviews-app` (scripts/cmux-next/build-web-bundles.sh).
 const bundleDirectory = resolve(import.meta.dir, "../../Resources/markdown-viewer/webviews-app");
 const chunksDirectory = resolve(bundleDirectory, "chunks");
 const workerEntry = resolve(chunksDirectory, "diff-worker.mjs");
