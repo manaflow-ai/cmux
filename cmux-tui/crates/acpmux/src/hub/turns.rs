@@ -232,9 +232,8 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        if let Err(e) = self
-            .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
-            .await
+        if let Err(e) =
+            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
             drop(guard);
             return Err(e);

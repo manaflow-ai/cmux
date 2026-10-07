@@ -59,9 +59,10 @@ pub(super) async fn check(
         return check_prewarm(hub, &paths, params).await;
     }
     if m == method::MUX_HANDOFF_PREPARE {
-        let Some(source) = resolved.cloned().or_else(|| {
-            session_key(params).ok().and_then(|key| hub.resolve(key).ok())
-        }) else {
+        let Some(source) = resolved
+            .cloned()
+            .or_else(|| session_key(params).ok().and_then(|key| hub.resolve(key).ok()))
+        else {
             return Ok(());
         };
         let harness = params.get("harness").and_then(Value::as_str).unwrap_or_default();
@@ -87,9 +88,7 @@ pub(super) async fn check(
     };
     // An unknown or remote session: the request's own path answers it (a
     // peer gates what this daemon forwards, `remote_guard::mark_forwarded`).
-    let session = resolved
-        .cloned()
-        .or_else(|| session_id.and_then(|id| hub.resolve(&id).ok()));
+    let session = resolved.cloned().or_else(|| session_id.and_then(|id| hub.resolve(&id).ok()));
     let Some(session) = session else { return Ok(()) };
     let meta = session.meta();
     // A fork runs its agent (a Claude fork is primed with a turn) in its own
@@ -118,7 +117,11 @@ pub(crate) async fn check_dispatch(
     .await
 }
 
-async fn check_new(hub: &Arc<Hub>, paths: &crate::trust::Paths, params: &Value) -> Result<(), RpcError> {
+async fn check_new(
+    hub: &Arc<Hub>,
+    paths: &crate::trust::Paths,
+    params: &Value,
+) -> Result<(), RpcError> {
     let cwd = params.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let meta = params.get("_meta").and_then(|v| v.get("acpmux"));
     let family = meta
@@ -130,8 +133,9 @@ async fn check_new(hub: &Arc<Hub>, paths: &crate::trust::Paths, params: &Value) 
         Some(cwd) => cwd,
         None => {
             let adopt = meta.and_then(|m| m.get("adopt"));
-            let Some(id) = adopt.and_then(|a| a.get("agentSessionId")).and_then(Value::as_str) else {
-                return Ok(())
+            let Some(id) = adopt.and_then(|a| a.get("agentSessionId")).and_then(Value::as_str)
+            else {
+                return Ok(());
             };
             let family = if family.is_empty() {
                 adopt.and_then(|a| a.get("harness")).and_then(Value::as_str).unwrap_or_default()
@@ -165,7 +169,9 @@ async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
     let cfg = hub.config.read().await;
     cfg.resolve_harness(name)
         .ok()
-        .and_then(|resolved| cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p)))
+        .and_then(|resolved| {
+            cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))
+        })
         .unwrap_or_else(|| name.to_owned())
 }
 

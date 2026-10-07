@@ -368,11 +368,10 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
-            let advertised = init
-                .pointer("/_meta/acpmux/features")
-                .and_then(Value::as_array)
-                .is_some_and(|features| features.iter().any(|f| f.as_str() == Some("trustGate")))
-                || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
+            let advertised =
+                init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
+                    |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
+                ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions =

@@ -178,7 +178,9 @@ impl Hub {
         };
         let refused = match refused {
             Some(e) => Some(e),
-            None => crate::server::trust_gate::check_dispatch(self, trust_gate, session).await.err(),
+            None => {
+                crate::server::trust_gate::check_dispatch(self, trust_gate, session).await.err()
+            }
         };
         let Some(e) = refused else { return Ok(()) };
         self.append(
