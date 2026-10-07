@@ -81,7 +81,6 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     }
 
     private static func workspace(_ value: [String: Any]) -> ClassicSessionWorkspace? {
-        let name = (value["customTitle"] as? String) ?? (value["processTitle"] as? String) ?? "Imported workspace"
         let cwd = (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
@@ -93,6 +92,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                                           ?? panel["working_directory"] as? String,
                                           title: panel["customTitle"] as? String ?? panel["title"] as? String))
         }
+        let name = Self.name(custom: value["customTitle"] as? String, process: value["processTitle"] as? String,
+                             firstTab: panelEntries.first?.1.title, directory: cwd)
         // A snapshot can name a panel twice; the first wins.
         let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {
@@ -102,6 +103,19 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout)
+    }
+
+    /// The user's own title; else classic's process title or the first
+    /// tab's, unless it is only a path ("~" for every home-folder shell);
+    /// else the folder's name.
+    static func name(custom: String?, process: String?, firstTab: String?, directory: String) -> String {
+        if let custom, !custom.isEmpty { return custom }
+        for title in [process, firstTab] {
+            guard let title = title?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { continue }
+            if title != "~", !title.hasPrefix("~/"), !title.hasPrefix("/") { return title }
+        }
+        let folder = URL(fileURLWithPath: directory).lastPathComponent
+        return folder.isEmpty || folder == "/" ? "Imported workspace" : folder
     }
 
     private static func layout(_ value: [String: Any], panels: [String: ClassicSessionTab]) -> ClassicSessionLayout {

@@ -72,7 +72,7 @@ fn one_frame_in_flight_until_the_viewer_acknowledges() {
     let first = e.start(0).expect("first");
     send(&mut e, &first, true, 1_000, 0);
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
-    assert!(e.damage(small, 20_000).is_none(), "a second frame waits for the ack");
+    assert!(e.damage(0, small, 20_000).is_none(), "a second frame waits for the ack");
     let out = e.on_datagram(
         &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
         true,
@@ -156,7 +156,8 @@ fn a_frame_too_large_halves_the_bitrate_and_restarts_from_a_keyframe() {
         .expect("ok");
     assert!(out.datagrams.is_empty());
     assert!(out.halve_bitrate);
-    let next = e.damage(Rect { x: 0, y: 0, width: 1, height: 1 }, 20_000).expect("gate open again");
+    let next =
+        e.damage(0, Rect { x: 0, y: 0, width: 1, height: 1 }, 20_000).expect("gate open again");
     assert!(next.force_idr);
 }
 
@@ -166,7 +167,7 @@ fn an_empty_encode_reopens_the_gate_and_silence_is_measured() {
     let first = e.start(0).expect("first");
     let out = e.encoded(&first, None, 0).expect("ok");
     assert!(out.datagrams.is_empty());
-    assert!(e.damage(Rect { x: 0, y: 0, width: 2, height: 2 }, 20_000).is_some());
+    assert!(e.damage(0, Rect { x: 0, y: 0, width: 2, height: 2 }, 20_000).is_some());
     assert_eq!(e.silent_for_us(3_000_000), 3_000_000);
     e.on_datagram(&feedback(&Feedback::default()), true, 3_000_000);
     assert_eq!(e.silent_for_us(3_000_010), 10);
