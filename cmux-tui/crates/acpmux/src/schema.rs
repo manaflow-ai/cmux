@@ -49,6 +49,7 @@ mod tests {
             method::MUX_HANDOFF_DISCARD,
             method::ACP_TRUST_GET,
             method::ACP_TRUST_SET,
+            method::MUX_HARNESS_ENABLE,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }
@@ -57,6 +58,7 @@ mod tests {
             method::MUX_SESSION_CHANGED,
             method::MUX_PERMISSION_PENDING,
             method::MUX_PROMPT_ACCEPTED,
+            method::MUX_HARNESSES_CHANGED,
         ] {
             assert!(notes.contains_key(n), "schema is missing notification {n}");
         }

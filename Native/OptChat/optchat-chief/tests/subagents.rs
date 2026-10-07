@@ -64,10 +64,20 @@ struct FakeWorkspaces {
 }
 
 impl Workspaces for FakeWorkspaces {
-    fn open(&self, session: &str, name: &str, _cwd: &std::path::Path) -> Result<String, String> {
+    fn open(
+        &self,
+        _key: &str,
+        session: &str,
+        name: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<String, String> {
         let mut opened = self.opened.lock().unwrap();
         opened.push((session.to_owned(), name.to_owned()));
         Ok(format!("ws-{}", opened.len()))
+    }
+
+    fn place(&self) -> String {
+        "the test app".to_owned()
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
@@ -143,7 +153,7 @@ fn call(
 
 fn spawn(s: &mut Setup, tasks: &[&str]) -> Result<String, String> {
     let tasks: Vec<String> = tasks.iter().map(|t| t.to_string()).collect();
-    call(s, move |sp| sp.spawn(tasks))
+    call(s, move |sp| sp.spawn(tasks, None))
 }
 
 fn summary(id: &str, status: &str, tags: Value) -> SessionSummary {

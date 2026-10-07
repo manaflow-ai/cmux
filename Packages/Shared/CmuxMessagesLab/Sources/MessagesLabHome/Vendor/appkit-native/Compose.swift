@@ -51,76 +51,102 @@ final class FieldTextView: NSTextView {
 
     /// Messages' caret is UIKit's, not AppKit's insertion indicator (lossless references,
     /// macOS 27): it shows at once when the field takes focus or the caret moves (AppKit's
-    /// fades in over 0.15 s), stays solid 0.55 s, then blinks with a 1.0 s period in four
-    /// steps of 25 % about 35 ms apart (out at +0.55, in at +0.89); it is 1 x 17 pt, 0.5 pt
+    /// fades in over 0.15 s), stays solid 0.56 s, then blinks with a 1.0 s period in four
+    /// steps of 25 % about 35 ms apart (out at +0.56, in at +0.90); it is 1 x 17 pt, 0.5 pt
     /// left of and 1.25 pt below AppKit's 1 x 16 pt one. AppKit's blink has the same period,
     /// so only the reset, the fade-in and the geometry differ; this layer replaces it.
+    private let caretView = CaretView()
+    /// A plain sublayer of the caret view's layer (AppKit manages the view's own layer).
     let caretLayer = CALayer()
     /// Off: AppKit's own indicator (`--appkit-caret`, and capture mode, which draws its own).
     static let ownCaret = !ProcessInfo.processInfo.arguments.contains("--appkit-caret")
+    /// `--caret-log`: caret placements and blink restarts to /tmp/caret.log (diagnostics).
     static let caretLog = ProcessInfo.processInfo.arguments.contains("--caret-log")
+    static func log(_ s: String) {
+        let url = URL(fileURLWithPath: "/tmp/caret.log")
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data((s + "\n").utf8)); try? h.close() }
+        else { try? Data((s + "\n").utf8).write(to: url) }
+    }
     var caretSuspended = false { didSet { updateCaret(reset: false) } }
 
     func installCaret() {
         guard Self.ownCaret else { return }
         insertionPointColor = .clear
+        caretView.wantsLayer = true
+        caretView.layer?.addSublayer(caretLayer)
+        caretLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 17)
         caretLayer.backgroundColor = Fixture.caret.cgColor
         caretLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "opacity": NSNull()]
-        caretLayer.isHidden = true
-        layer?.addSublayer(caretLayer)
+        caretView.isHidden = true
     }
 
     /// Places the caret and, with `reset`, restarts its blink (solid first).
     func updateCaret(reset: Bool = true) {
-        guard Self.ownCaret, let window else { caretLayer.isHidden = true; return }
-        if caretLayer.superlayer == nil, let l = layer { l.addSublayer(caretLayer) }
+        guard Self.ownCaret, let window, let host = superview else { caretView.isHidden = true; return }
+        // A sibling view above the text view: Messages' caret starts 0.5 pt left of it.
+        if caretView.superview !== host { host.addSubview(caretView, positioned: .above, relativeTo: self) }
         let sel = selectedRange()
         let show = !caretSuspended && window.isKeyWindow && window.firstResponder === self && sel.length == 0
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard show else { caretLayer.isHidden = true; caretLayer.removeAllAnimations(); return }
+        guard show else { caretView.isHidden = true; caretLayer.removeAllAnimations(); return }
         let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
         let r = convert(window.convertFromScreen(screen), from: nil)
-        caretLayer.frame = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17)
-        if Self.caretLog { NSLog("caret line %@ in window %@ -> %@", NSStringFromRect(r), NSStringFromRect(convert(r, to: nil)), NSStringFromRect(convert(caretLayer.frame, to: nil))) }
-        let wasHidden = caretLayer.isHidden
-        caretLayer.isHidden = false
+        caretView.frame = convert(CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17), to: host)
+        if Self.caretLog { Self.log("line \(r) caret \(caretView.frame) reset \(reset)") }
+        let wasHidden = caretView.isHidden
+        caretView.isHidden = false
         if reset || wasHidden || caretLayer.animation(forKey: "blink") == nil { startBlink() }
     }
 
     /// Caret geometry against the line rect AppKit reports (fitted on swipe-partial and
     /// field-focus-type: Messages' caret 62.5-63.5 x 1007-1024 pt in the one-line field).
-    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 1.25
+    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 1.75
+
+    /// Solid time after a reset (references: 0.55 s in reply-menu-send, 0.58 s in field-focus-type).
+    static let caretSolid: CFTimeInterval = 0.56
 
     private func startBlink() {
+        if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-        a.values = [0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75, 1, 1]
+        // Discrete: one more key time than values (each value holds until the next key time).
+        a.values = [0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75, 1]
         a.keyTimes = [0, 0.035, 0.07, 0.105, 0.34, 0.375, 0.41, 0.445, 1]
         a.duration = 1.0
         a.repeatCount = .infinity
-        // A solid lead-in of 0.55 s, then the repeating blink, in one group.
-        let solid = CABasicAnimation(keyPath: "opacity")
-        solid.fromValue = 1; solid.toValue = 1; solid.duration = 0.55
-        let g = CAAnimationGroup()
-        a.beginTime = 0.55
-        g.animations = [solid, a]
-        g.duration = .infinity
-        g.beginTime = CACurrentMediaTime()
-        g.isRemovedOnCompletion = false
-        caretLayer.add(g, forKey: "blink")
+        // Solid (the model value 1) until the blink begins, then it repeats.
+        a.beginTime = caretLayer.convertTime(CACurrentMediaTime(), from: nil) + Self.caretSolid
+        a.isRemovedOnCompletion = false
+        caretLayer.add(a, forKey: "blink")
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         updateCaret()
+        if !stillSelecting, !DeferredSpellChecker.useAppKit { spell.selectionDidChange() }
     }
     override func didChangeText() {
         super.didChangeText()
         updateCaret()
+        if !DeferredSpellChecker.useAppKit { spell.textDidChange() }
+    }
+
+    /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
+    /// menu's "Check Spelling While Typing" switches it.
+    lazy var spell = DeferredSpellChecker(view: self)
+    override func toggleContinuousSpellChecking(_ sender: Any?) {
+        if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
+    }
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
+            (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
+            return true
+        }
+        return super.validateUserInterfaceItem(item)
     }
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -156,6 +182,11 @@ final class FieldTextView: NSTextView {
         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
         super.paste(sender)
     }
+}
+
+/// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
+final class CaretView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// `compose.textView` for the shared window view: the NSTextView and its
@@ -249,9 +280,23 @@ final class ComposeView: UIView {
         default: return .limited
         }
     }()
+    /// cmux: per view (several Home tabs): this compose bar's width and its own memo.
     func lines(_ text: String) -> Int {
-        min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: ComposeView.font).lines.count)
+        // One-entry memo: every compose update asks again for the same draft (a send asks for "").
+        let w = textWidth
+        // The empty field (every send and every commit after it) has its own entry: the one-entry
+        // memo held the last typed draft, so each send typeset " " again.
+        if text.isEmpty, let e = emptyLinesMemo, e.0 == w { return e.1 }
+        if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
+        let n = min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count)
+        if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
+        return n
     }
+    private var linesMemo: (String, CGFloat, Int)?
+    private var emptyLinesMemo: (CGFloat, Int)?
+    /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
+    /// commit asked for one).
+    private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
@@ -317,7 +362,8 @@ final class ComposeView: UIView {
         tv.layer?.contentsGravity = .topLeft
         tv.layer?.contentsScale = DisplayScale.current
         // Text services, decided explicitly (README: Text):
-        // - continuous spell checking on (Messages underlines misspellings);
+        // - continuous spell checking on (Messages underlines misspellings), run by
+        //   DeferredSpellChecker off the keystroke frame (SpellCheck.swift);
         //   grammar checking off;
         // - automatic spelling correction, text replacement and quote/dash
         //   substitution follow the user's system settings (NSSpellChecker's
@@ -325,7 +371,7 @@ final class ComposeView: UIView {
         // - Writing Tools `.limited` by default: the panel from the context
         //   and Edit menus, no inline rewrite of the field;
         //   `--writing-tools none|limited|complete|default`.
-        tv.isContinuousSpellCheckingEnabled = true
+        tv.isContinuousSpellCheckingEnabled = DeferredSpellChecker.useAppKit
         tv.isGrammarCheckingEnabled = false
         tv.isAutomaticSpellingCorrectionEnabled = NSSpellChecker.isAutomaticSpellingCorrectionEnabled
         tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
@@ -382,7 +428,11 @@ final class ComposeView: UIView {
         return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - (text.isEmpty ? 30 : 0), height: f.height - chipH)
     }
 
+    /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
+    /// that changes none of them (a receive, a status, a keystroke on the same line) skips it.
+    private var placed: (CGFloat, Bool, CGFloat, CGSize)?
     private func place(height h: CGFloat) {
+        placed = (h, text.isEmpty, strip.height, bounds.size)
         let f = rect(height: h)
         let chipH: CGFloat = strip.height
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -499,9 +549,10 @@ final class ComposeView: UIView {
             if !tv.hasMarkedText() {
                 tv.textStorage?.setAttributedString(NSAttributedString(string: d.text, attributes: ComposeView.typing))
                 tv.typingAttributes = ComposeView.typing
+                if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
             }
         }
-        let newPlaceholder = state.ui.openThread != nil ? Strings.replyPlaceholder : Strings.placeholder
+        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
         // Messages grows the field for an attachment at once (no in-between frame at
         // 120 Hz, compose-attach-image paste take); typing still uses the growth spring.
@@ -517,7 +568,9 @@ final class ComposeView: UIView {
         let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
         let old = fieldHeight
         fieldHeight = h
-        place(height: h)
+        if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
+            place(height: h)
+        }
         if h != old && attachmentsChanged && !send {
             onFieldJump?()
         } else if h != old {

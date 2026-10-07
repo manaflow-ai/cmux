@@ -44,9 +44,14 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("[data-add-folder]") ? null : "no Add Folder button";
     case "time_range":
       return has('input[type="time"]', 2) ? null : "no time fields";
+    case "string_list":
+      return row.choices
+        ? has("[data-ordered-choices]")
+          ? null
+          : "no ordered choice list"
+        : "a kind the cmux-next page never renders";
     case "number_list":
     case "string_map":
-    case "string_list":
       return "a kind the cmux-next page never renders";
   }
 }

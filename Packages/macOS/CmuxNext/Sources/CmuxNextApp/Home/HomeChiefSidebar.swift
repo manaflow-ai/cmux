@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The Chief's settings, a right sidebar inside the Home page that the
@@ -26,6 +27,8 @@ final class HomeChiefSidebar: NSView {
     var onRename: (String) -> Void = { _ in }
     /// The header avatar's text changed (nil: the initials).
     var onAvatar: (String?) -> Void = { _ in }
+    /// Show Memory: runs "Chief: Open Memory Inspector".
+    var onShowMemory: () -> Void = {}
 
     static let harnesses = ["claude-sr", "codex"]
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
@@ -87,6 +90,12 @@ final class HomeChiefSidebar: NSView {
         let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
+        // The memory inspector (DEV and nightly, like its palette action).
+        if DevTools.isEnabled {
+            let memory = NSButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+            memory.bezelStyle = .push
+            stack.addArrangedSubview(memory)
+        }
         for view in [note, stats, replies, brain] {
             view.preferredMaxLayoutWidth = Self.width - 32
         }
@@ -123,6 +132,10 @@ final class HomeChiefSidebar: NSView {
         // task-owner: one file write off the main actor; ends with it
         Task.detached { files.writeAvatar(text) }
         onAvatar(text.isEmpty ? nil : text)
+    }
+
+    @objc private func showMemory() {
+        onShowMemory()
     }
 
     @objc private func openTraces() {

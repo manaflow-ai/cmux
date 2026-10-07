@@ -79,6 +79,9 @@ public struct Action: Identifiable {
     /// "Add a second column first" for a screen's only column), or nil. A
     /// context menu shows it on the disabled item; `perform` refuses with it.
     public var targetUnavailableReason: (@MainActor (ActionInvocation) -> String?)?
+    /// The title for this invocation's target in a context menu (Pin Tab
+    /// or Unpin Tab for a toggle), or nil for the catalog title.
+    public var targetTitle: (@MainActor (ActionInvocation) -> String?)?
 
     public init(
         id: ActionID,

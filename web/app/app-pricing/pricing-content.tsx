@@ -41,6 +41,8 @@ import {
   type FaqItem,
 } from "../components/pricing-shared";
 import { PricingCheckoutButton } from "../components/pricing-checkout";
+import { ProPlanCard } from "../components/pro-plan-card";
+import { proAnnualLabels } from "../components/pro-annual-labels";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -115,12 +117,18 @@ export function AppPricingContent({
     [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
     ...checkoutAttributionParamsFrom(params),
   };
-  const proCheckoutHref = appPricingCheckoutURL(
-    "pro",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
+  const proCheckoutHrefs = {
+    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
+  };
+  const proAnnualLabelSet = proAnnualLabels(
+    (values) => pricingMessage(pricing.pro.annual.billedYearlySaving, values),
+    {
+      billingPeriod: pricing.billingPeriod,
+      yearly: pricing.pro.annual.yearly,
+      monthly: pricing.monthly,
+      perMonth: pricing.perMonth,
+    },
   );
   const teamCheckoutHref = appPricingCheckoutURL(
     "team",
@@ -250,33 +258,34 @@ export function AppPricingContent({
         </PlanCard>
       ) : null}
 
-      <PlanCard
+      {/* Pro: the only plan sold yearly as well as monthly. */}
+      <ProPlanCard
         name={pricing.pro.name}
-        price={`$${PRO_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        surface="app_pricing"
+        monthlyOnly={isGo}
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={proCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.pro.cta}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
+        action={proAction === "checkout" ? undefined : (
+          <PersonalPlanAction
+            state={proAction}
+            unavailableLabel={pending ? pricing.pro.cta : undefined}
+            portalVisible={portalVisible}
+            checkout={null}
+          />
+        )}
       >
-        <PersonalPlanAction
-          state={proAction}
-          unavailableLabel={pending ? pricing.pro.cta : undefined}
-          portalVisible={portalVisible}
-          checkout={
-            <PricingCheckoutButton
-              href={proCheckoutHref}
-              requiresSignIn={!pending && !snapshot.authenticated}
-              location="app_pricing"
-            >
-              {pricing.pro.cta}
-            </PricingCheckoutButton>
-          }
-        />
         <p className="mt-5 text-sm font-medium">{pricing.pro.featuresLead}</p>
         <FeatureList items={proFeatures} />
-      </PlanCard>
+      </ProPlanCard>
 
       {/* Max: larger machines on the monthly personal plan. */}
       <PlanCard

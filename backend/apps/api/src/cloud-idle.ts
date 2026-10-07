@@ -4,8 +4,11 @@ import type { MachineRow } from "./domains/cloud.ts"
 /**
  * Idle pause decision (coordinator, 2026-10-05). Idle counts only from the VM's own activity report,
  * applied now: a running machine, an idle policy above 0, no open sessions, and the newest of the reported
- * input or agent action (never later than now) and the last start or bind older than the idle policy. A report without activity
- * times, or no report at all, is unknown and never idle. Off unless the team policy cloud.idlePause is on.
+ * input or agent action (never later than now) and the last start or bind older than the idle policy. A capable
+ * report without activity times means nobody acted since the VM started: the idle period starts at the last
+ * start or bind (hq-ff auto7, 2026-10-06: before this, a machine nobody typed into never paused, also not by
+ * the 24 h backstop, because its reports kept resetting the no_report clock). No report at all is unknown and
+ * never idle here (the no_report backstop covers it). A threshold under 24 h needs team policy cloud.idlePause.
  */
 export interface ReportedActivity {
   readonly active_sessions: number
@@ -21,9 +24,10 @@ export const idleFromReport = (row: MachineRow | undefined, activity: ReportedAc
   if (!row || row.status !== "running" || !activity) return false
   if (!(idleSeconds > 0) || activity.active_sessions !== 0) return false
   const times = [activity.last_user_input_at, activity.last_agent_action_at].filter((t): t is number => typeof t === "number")
-  if (times.length === 0) return false
   // A start or bind restarts the idle period: a resumed VM keeps its old times in memory (review P2).
-  const last = Math.max(Math.min(Math.max(...times), now), row.last_power_at ?? 0)
+  // With no times, the start or bind (else the create) is the last activity.
+  const powered = row.last_power_at ?? row.created_at
+  const last = times.length === 0 ? powered : Math.max(Math.min(Math.max(...times), now), powered)
   return now - last >= idleSeconds * 1000
 }
 
@@ -62,5 +66,29 @@ export class SilentRetry {
   }
   clear(machine: string) {
     if (this.exists()) this.sql.exec(`DELETE FROM cloud_silent_retry WHERE machine = ?`, machine)
+  }
+}
+
+/** At most one stale_running alert per machine in this window (durable). */
+export const STALE_ALERT_INTERVAL_MS = 3600_000
+
+/**
+ * When each machine last raised `cloud.machine.stale_running`: the alarm wakes at least hourly
+ * while a pause is retried, so an alert per wake would flood the log. Rows of machines that are
+ * no longer stale are removed, so a later stale period alerts at once.
+ */
+export class StaleAlerts {
+  constructor(private readonly sql: SqlStore) {}
+  private table() {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_stale_alert (machine TEXT PRIMARY KEY, alerted_at INTEGER NOT NULL)`)
+  }
+  /** The machines among `stale` to alert now; records them. Forgets machines not in `stale`. */
+  due(stale: ReadonlyArray<string>, now: number): Array<string> {
+    this.table()
+    const last = new Map(this.sql.exec<{ machine: string; alerted_at: number }>(`SELECT machine, alerted_at FROM cloud_stale_alert`).map((r) => [r.machine, Number(r.alerted_at)] as const))
+    for (const m of last.keys()) if (!stale.includes(m)) this.sql.exec(`DELETE FROM cloud_stale_alert WHERE machine = ?`, m)
+    const due = stale.filter((m) => now - (last.get(m) ?? -Infinity) >= STALE_ALERT_INTERVAL_MS)
+    for (const m of due) this.sql.exec(`INSERT INTO cloud_stale_alert (machine, alerted_at) VALUES (?, ?) ON CONFLICT(machine) DO UPDATE SET alerted_at = excluded.alerted_at`, m, now)
+    return due
   }
 }

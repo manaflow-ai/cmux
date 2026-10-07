@@ -30,7 +30,8 @@ import PackageDescription
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
-//     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md)
+//     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
+//     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -100,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2914fa520b6d7ae10f961fdb57966d8d976a4276/CCmuxAppFFI.xcframework.zip",
-    checksum: "5a0cdcdab75b99d71c41506292315ef94f5bba74927ce19364a0d28fa8639dc8"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3494fdc61366d8a0cde7cdc09992587744aac137/CCmuxAppFFI.xcframework.zip",
+    checksum: "968a7a2d6484753b8f92d2e50d6b9da9a9865f7b579ab9c151d8712961b84588"
 )
 
 let package = Package(
@@ -309,6 +310,7 @@ let package = Package(
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
+                .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
             ],
             resources: [
                 .process("Resources"),
@@ -478,7 +480,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -486,7 +488,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextFeedTests",
-            dependencies: ["CmuxNextFeed"],
+            dependencies: ["CmuxNextFeed", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
@@ -505,6 +507,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextRemoteViewTests",
             dependencies: ["CmuxNextRemoteView", "CmuxNextDesign", "CCmuxAppFFI"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Remote tab client (remote-tab.md r2): the page of a browser tab
+        // whose runtime is on another machine. Decode and present come from
+        // CmuxNextRemoteView; session state is the Rust client reducer.
+        .target(
+            name: "CmuxNextRemoteBrowser",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteBrowserTests",
+            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView", "CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the

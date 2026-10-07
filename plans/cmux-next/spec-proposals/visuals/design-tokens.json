@@ -1211,7 +1211,7 @@
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:18 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Sidebar selection pill"
+    "use": "Page info toggle (the sidebar selection does not animate)"
    },
    "panel": {
     "value": {

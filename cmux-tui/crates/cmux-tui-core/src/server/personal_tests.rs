@@ -160,6 +160,8 @@ fn pins_groups_and_room_deletion() {
     // Delete without a target: pins removed, groups deleted, members ungrouped.
     let deleted = run(&mux, json!({"cmd":"delete-profile","profile":"prof_work"})).unwrap();
     assert!(deleted["moved_to"].is_null());
+    // Delete Space is one reopenable closed group (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+    assert!(deleted["closed_id"].as_str().is_some_and(|id| id.starts_with("closed_")));
     assert_eq!(
         deleted["unpinned"],
         json!([{"session_id":"remote-1","workspace_key":"future-key"}])

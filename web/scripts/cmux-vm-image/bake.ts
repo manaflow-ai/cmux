@@ -50,6 +50,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledg
 import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
+  bakedPrograms,
   aptPinArgs,
   basePackageProblems,
   CURRENT_BIN,
@@ -271,7 +272,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     await L.step(vm, `store-${p.name}`, programInstallCommand(p));
   }
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
