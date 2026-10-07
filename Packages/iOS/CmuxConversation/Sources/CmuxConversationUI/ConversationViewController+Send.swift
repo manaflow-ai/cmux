@@ -43,7 +43,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             return
         }
         pendingFlight = nil
-        if replyTarget != nil { exitReplyMode() }
+        if replyTarget != nil { exitReplyMode(settling: false) }
         launch(flight, rowID: rowID)
     }
 

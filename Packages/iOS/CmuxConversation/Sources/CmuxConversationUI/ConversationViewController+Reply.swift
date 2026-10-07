@@ -169,14 +169,17 @@ extension ConversationViewController {
         overlay.content.contentOffset = CGPoint(x: 0, y: max(-inset, y - available))
     }
 
-    func exitReplyMode() {
+    /// `settling` returns the bubble to its transcript row; a send passes
+    /// false because the transcript scrolls to the new reply underneath, so
+    /// the thread just fades as the reply flies in.
+    func exitReplyMode(settling: Bool = true) {
         guard let overlay = replyOverlay else { return }
         replyTarget = nil
         composer.isReplyMode = false
         header.setTrailingMode(isSelecting ? .close : .action, animated: true)
         // The bubble settles back onto its transcript row as the blur clears;
         // with that row off screen the thread just fades.
-        let settle = overlay.anchorMessageID.flatMap { transcriptOffset(of: $0, in: overlay) }
+        let settle = settling ? overlay.anchorMessageID.flatMap { transcriptOffset(of: $0, in: overlay) } : nil
         let others = overlay.content.subviews.filter { ($0 as? MessageCell)?.model?.message.id != overlay.anchorMessageID }
         let chrome = overlay.anchorMessageID.map { threadOnlyChrome(of: $0, in: overlay) } ?? []
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
