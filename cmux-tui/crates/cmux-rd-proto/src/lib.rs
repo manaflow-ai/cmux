@@ -7,6 +7,8 @@
 //! packets of that frame, plus optional parity packets. All integers are
 //! little-endian. This crate does no I/O.
 
+mod bulk;
+mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
 mod datagram;
@@ -16,6 +18,8 @@ mod frame;
 mod input;
 mod stream;
 
+pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};
+pub use clock::{ClockEstimate, ClockPing, ClockPong};
 pub use datagram::{
     DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
 };
@@ -27,8 +31,8 @@ pub use input::{
     service_flags,
 };
 pub use stream::{
-    MAX_STREAM_FRAME, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN, StreamDeframer,
-    encode_stream_frame,
+    MAX_STREAM_FRAME, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN,
+    StreamDeframer, encode_stream_frame,
 };
 
 /// The remote desktop service: the hello default (rd change C1).

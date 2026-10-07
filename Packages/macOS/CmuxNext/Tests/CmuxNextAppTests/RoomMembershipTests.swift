@@ -42,6 +42,19 @@ import Testing
         #expect(rules.rooms(of: ws(mac, "w1")) == [.defaultProfile])
     }
 
+    /// Delete Space closes exactly the workspaces no other room shows: the
+    /// ones pinned to it and the ones only it follows (the daemon's rule).
+    @Test func deletingARoomClosesOnlyTheWorkspacesNoOtherRoomShows() {
+        var rules = RoomMembership(follows: [.defaultProfile: [mac], work: [mac, box]])
+        rules.pin(ws(mac, "pinned"), to: work)
+        rules.pin(ws(mac, "elsewhere"), to: play)
+        #expect(rules.closes(ws(mac, "pinned"), deleting: work))
+        #expect(rules.closes(ws(box, "followed-only-by-work"), deleting: work))
+        #expect(!rules.closes(ws(mac, "also-in-default"), deleting: work))
+        #expect(!rules.closes(ws(mac, "elsewhere"), deleting: work))
+        #expect(!rules.closes(ws(mac, "also-in-default"), deleting: .defaultProfile))
+    }
+
     @Test func followingAllIsTheFallbackForOlderHomes() {
         let rules = RoomMembership.followingAll([mac, box])
         #expect(rules.rooms(of: ws(box, "w1")) == [.defaultProfile])

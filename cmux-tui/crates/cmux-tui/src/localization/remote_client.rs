@@ -256,6 +256,8 @@ instead; exclusive with --wireguard-config
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
+  --remote-mux-socket PATH attaches to the daemon already serving that socket
+on the host and never starts one there
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
 the pinned binary; terminal panes survive, while remote RPC state resets
 
@@ -428,6 +430,8 @@ ID とセッション:
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --remote-mux-socket パス  ホストでそのソケットを提供中のデーモンに接続し、
+そこでデーモンを起動しません
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
 ターミナルペインは維持され、リモート RPC 状態はリセットされます。
 

@@ -121,13 +121,13 @@ final class TranscriptSelection {
     /// Real Messages (macOS 27, click-incoming / click-outgoing / click-empty references): a
     /// click on a bubble selects that message. Its bubble brightens (incoming 59 -> 98, white
     /// at 20 %) or darkens (outgoing (72,147,247) -> (45,89,192), multiply), easing in over
-    /// 0.22 s from about 30 ms after the release (ours starts 10 ms after its mouse-up event,
-    /// fitted on click-incoming take 13); a click elsewhere (another bubble, the empty
+    /// 0.22 s from about 30 ms after the release (ours starts at the release: faster than
+    /// Messages is the rule, the evidence aligns on the first response); a click elsewhere (another bubble, the empty
     /// transcript) or the second press of a double-click takes it off: ease-out 0.2 s.
     /// The layer follows the row (refresh() runs on every scroll and layout).
     let bubbleLayer = CAShapeLayer()
     private(set) var selectedKey: String?
-    static let bubbleOnDelay: CFTimeInterval = 0.01, bubbleOnDuration: CFTimeInterval = 0.22
+    static let bubbleOnDelay: CFTimeInterval = 0, bubbleOnDuration: CFTimeInterval = 0.22
     static let bubbleOffDuration: CFTimeInterval = 0.2
 
     func selectBubble(_ key: String, outgoing: Bool) {
