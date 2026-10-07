@@ -21,8 +21,6 @@ import Testing
         var events: [AgentPaneTransportEvent] = []
         var connection = 0
         var nextID = 10
-        var sheets: [String] = []
-        var answers: [@MainActor (Bool) -> Void] = []
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("rules-\(UUID().uuidString)")
         lazy var root = folder("workspace")
         lazy var scanned = folder("scanned")
@@ -37,7 +35,6 @@ import Testing
         func start() async throws {
             try await server.start()
             transport.deliver = { [unowned self] event, done in self.events.append(event); done() }
-            transport.requestRoot = { [unowned self] folder, answer in self.sheets.append(folder); self.answers.append(answer) }
             connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
             _ = await transport.send(connection: connection, frames: [AgentPaneProductRulesTests.initialize])
         }

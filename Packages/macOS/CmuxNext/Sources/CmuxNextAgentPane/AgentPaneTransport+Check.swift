@@ -77,10 +77,12 @@ extension AgentPaneTransport {
                 facts.handoffId = params["handoffId"] as? String
             }
         }
-        if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
+        // A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access); another
+        // option that is not free still asks.
+        if let requested = AcpmuxPaneMethods.requestedSetting(frame), requested.configId != "mode" {
             let value = requested.value ?? configValueText(frame)
             facts.setting = Setting(sessionId: requested.sessionId, configId: requested.configId, value: requested.value,
-                                    asked: requested.configId == "mode" ? .mode(value) : .option(id: requested.configId, value: value))
+                                    asked: .option(id: requested.configId, value: value))
         }
         // The LocalApp token goes into the first frame after every rule read the page's own frame.
         if snapshot.isFirst, let token = snapshot.localAppToken { frame = AcpmuxPaneMethods.withLocalAppToken(frame, token) }
@@ -132,7 +134,7 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, rootRequested: Bool = false) -> Step {
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -141,7 +143,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
         }
         return .refused(error)
     }

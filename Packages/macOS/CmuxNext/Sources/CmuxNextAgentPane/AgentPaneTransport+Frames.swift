@@ -168,14 +168,26 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// The frame's paths against the pane's roots and the folders the user added.
+    private func checkPaths(_ box: FrameBox) async -> Result<[String], PathRefusal> {
+        let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+        return await Self.checkPaths(box, scope: scope)
+    }
+
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        var rootRequested = false
         if facts.needsPathCheck {
-            let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                               agentHome: agentHome(), home: homeFolder, granted: addedRoots)
-            let result = await Self.checkPaths(box, scope: scope)
+            var result = await checkPaths(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A folder outside every root that the user typed: their gesture adds it as a root, at
+            // once and without a sheet (Lawrence 2026-10-07, "Remove dialogues.").
+            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+               gestures.consume() {
+                if !addedRoots.contains(folder) { addedRoots.append(folder) }
+                result = await checkPaths(box)
+                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            }
             switch result {
             case .success(let gestureRootsUsed):
                 // A folder of the new tab page's scan counts only when the user picked it.
@@ -186,9 +198,7 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
-                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket,
-                                   rootRequested: rootRequested)
+                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket)
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
