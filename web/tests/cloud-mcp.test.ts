@@ -178,7 +178,7 @@ describe("cloud MCP tool arguments", () => {
       ok({ value: { terminal_id: TERMINAL } }),
     ]);
     await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "codex", prompt: "--dangerously-bypass-approvals-and-sandbox" });
-    expect((await shellWords(calls[1].args)).slice(-4)).toEqual(["codex", "exec", "--", "--dangerously-bypass-approvals-and-sandbox"]);
+    expect((await shellWords(calls[1].args)).slice(-5)).toEqual(["codex", "exec", "--skip-git-repo-check", "--", "--dangerously-bypass-approvals-and-sandbox"]);
     const pi = fakeGateway();
     const refused = await callCloudMcpTool(pi.gateway, "run_agent", { machine_id: "vm-a", agent: "pi", prompt: "--help" });
     expect(refused.structuredContent).toMatchObject({ error: "invalid_arguments" });
