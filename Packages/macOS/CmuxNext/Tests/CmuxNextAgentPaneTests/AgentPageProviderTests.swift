@@ -115,6 +115,7 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost())
         model.workspaceRoots = { [root.path] }
         model.transport.homeFolder = root.deletingLastPathComponent().path
+        let addedRootsBefore = model.transport.addedRoots
         model.transport.gestures.record()
         let (router, _) = router(model)
         let reply = await call(router, "cmux.agent.project.listDirectory", ["path": .string(root.path)])
@@ -122,6 +123,12 @@ import Testing
         #expect(reply["value"]?["path"]?.stringValue == root.path)
         #expect(reply["value"]?["directories"] == .array([.string(child.path)]))
         #expect(reply["value"]?["parent"]?.stringValue == root.deletingLastPathComponent().path)
+        #expect(model.transport.addedRoots == addedRootsBefore)
+
+        let replay = await call(router, "cmux.agent.project.listDirectory", ["path": .string(root.path)])
+        #expect(replay["t"]?.stringValue == "err")
+        #expect(replay["code"]?.stringValue == AgentPaneTransportError.gestureRequired.rawValue)
+        #expect(model.transport.addedRoots == addedRootsBefore)
     }
 
     @Test func directoryListingRequiresARecordedGesture() async throws {
