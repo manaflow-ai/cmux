@@ -478,6 +478,7 @@ function taskCheckboxPlugin() {
     const element = document.createElement("span");
     element.className = "cmux-markdown-checkbox md-task-checkbox";
     element.dataset.checked = String(checked);
+    // ui-allow: a read-only task mark drawn as a ProseMirror decoration, which src/ui cannot render (7f67cf1a538)
     element.setAttribute("role", "checkbox");
     element.setAttribute("aria-checked", String(checked));
     element.setAttribute("aria-readonly", "true");
