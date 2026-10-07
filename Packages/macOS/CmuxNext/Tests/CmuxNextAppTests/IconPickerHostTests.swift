@@ -132,12 +132,12 @@ struct IconPickerHostTests {
         #expect(!hierarchical.isEmpty && !hierarchical.contains { $0.colored || $0.light })
     }
 
-    /// The colored images' cache key goes with every session and changes with the accent.
+    /// The drawn images' cache key goes with every session and changes with the appearance.
     @Test func everySessionCarriesTheSymbolStyle() {
         var session = IconPickerSession(id: "s", current: nil)
-        session.symbolStyle = IconPickerSymbols.style(accent: NSColor(srgbRed: 1, green: 0, blue: 0.5, alpha: 1), dark: true)
-        #expect(session.event["symbolStyle"] == .string("ff0080-dark"))
-        #expect(IconPickerSymbols.style(accent: NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1), dark: false) == "000000-light")
+        session.symbolStyle = IconPickerSymbols.style(dark: true)
+        #expect(session.event["symbolStyle"] == .string("dark"))
+        #expect(IconPickerSymbols.style(dark: false) == "light")
     }
 
     /// The rendering mode is a pref: ours wins, theirs is kept when we have none.

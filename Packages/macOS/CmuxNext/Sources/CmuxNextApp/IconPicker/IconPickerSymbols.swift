@@ -5,10 +5,11 @@ import CmuxNextPages
 
 /// SF Symbols for the icon picker's Symbols tab: each visible cell's image,
 /// drawn on request (the page never bundles symbol images; the names come from
-/// ``IconPickerSymbolCatalog``). `cmux-page://cmux.icon-picker/__symbol/<name>.png` is a
-/// black template image; the page tints it with its theme color (CSS mask).
-/// `__symbol/hierarchical/<name>.png` and `__symbol/multicolor/<name>.png` are finished
-/// images (the user's accent color, the symbol's own colors) the page shows as they are.
+/// ``IconPickerSymbolCatalog``). `cmux-page://cmux.icon-picker/__symbol/<name>.png` and
+/// `__symbol/hierarchical/<name>.png` are black template images (hierarchical: layers at
+/// decreasing opacity); the page tints them with its theme color (CSS mask), so symbols take
+/// the Ghostty theme, never the system accent. `__symbol/multicolor/<name>.png` is a finished
+/// image in the symbol's own colors that the page shows as it is.
 @MainActor
 final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated static let prefix = "__symbol"
@@ -19,7 +20,7 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated enum Mode: String, CaseIterable, Sendable {
         /// Black template; the page tints it.
         case monochrome
-        /// Layers in the accent color at decreasing opacity.
+        /// Black layers at decreasing opacity; the page tints them.
         case hierarchical
         /// The symbol's own colors (symbols without them draw monochrome).
         case multicolor
@@ -29,15 +30,11 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     /// multicolor's neutral layers match the page's light or dark theme.
     weak var appearanceView: NSView?
 
-    /// The page's cache key for the colored modes: the accent (sRGB hex) and light or dark.
-    /// The page puts it in the image URL, so a changed accent never reuses a cached image.
-    static func style(accent: NSColor = .controlAccentColor, dark: Bool) -> String {
-        let scheme = dark ? "dark" : "light"
-        guard let rgb = accent.usingColorSpace(.sRGB) else { return scheme }
-        let hex = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
-            .map { String(format: "%02x", Int((min(max($0, 0), 1) * 255).rounded())) }
-            .joined()
-        return "\(hex)-\(scheme)"
+    /// The page's cache key for the drawn modes: light or dark (multicolor's neutral layers
+    /// follow the appearance). The page puts it in the image URL, so a changed appearance never
+    /// reuses a cached image.
+    static func style(dark: Bool) -> String {
+        dark ? "dark" : "light"
     }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
@@ -80,12 +77,12 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     }
 
     /// The symbol drawn on clear in `mode`, as PNG; nil when the system has no such symbol.
-    /// Monochrome is black (a template the page tints); hierarchical uses `accent`.
-    static func png(_ name: String, mode: Mode = .monochrome, accent: NSColor = .controlAccentColor) -> Data? {
+    /// Monochrome and hierarchical are black (templates the page tints).
+    static func png(_ name: String, mode: Mode = .monochrome) -> Data? {
         var config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         switch mode {
         case .monochrome: break
-        case .hierarchical: config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: accent))
+        case .hierarchical: config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: .black))
         case .multicolor: config = config.applying(.preferringMulticolor())
         }
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {

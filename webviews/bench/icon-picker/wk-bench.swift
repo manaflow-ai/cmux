@@ -59,7 +59,7 @@ func systemCatalog() -> [String: Any] {
 @MainActor
 func symbolPNG(_ name: String, mode: String) -> Data? {
     var config = NSImage.SymbolConfiguration(pointSize: 48, weight: .regular)
-    if mode == "hierarchical" { config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: .controlAccentColor)) }
+    if mode == "hierarchical" { config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: .black)) }
     if mode == "multicolor" { config = config.applying(.preferringMulticolor()) }
     guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config),
           let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 60, pixelsHigh: 60, bitsPerSample: 8, samplesPerPixel: 4,

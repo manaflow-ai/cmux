@@ -26,8 +26,8 @@ export interface IconPickerProps {
   onClear?: () => void;
   assets?: IconAssetSink;
   /**
-   * The host's URL for a rendered SF Symbol: monochrome is a template image the page tints (CSS
-   * mask); hierarchical and multicolor are finished images.
+   * The host's URL for a rendered SF Symbol: monochrome and hierarchical are template images the
+   * page tints with its theme color (CSS mask); multicolor is a finished image.
    */
   symbolImageURL?: (name: string, mode: SymbolMode) => string;
   /** Why the last pick did not apply (the host refused it); shown until the next session. */
@@ -62,12 +62,12 @@ export function IconPicker({
   const jump = (top: number | null) => {
     if (top !== null) viewport.scrollTo(top);
   };
-  /** A symbol's style: a mask for monochrome, an image for hierarchical and multicolor. */
+  /** A symbol's style: a mask in the theme color, except multicolor (the symbol's own colors). */
   const symbolStyle = (name: string, multicolor = false): CSSProperties | undefined => {
     if (!symbolImageURL) return undefined;
     const mode = symbolRendering(snap.symbolMode, multicolor);
     const url = `url("${symbolImageURL(name, mode)}")`;
-    return mode === "monochrome" ? { maskImage: url } : { backgroundImage: url, backgroundColor: "transparent" };
+    return mode === "multicolor" ? { backgroundImage: url, backgroundColor: "transparent" } : { maskImage: url };
   };
   /** Chrome glyphs (the jump bar) stay monochrome in every mode. */
   const symbolMask = (name: string) =>

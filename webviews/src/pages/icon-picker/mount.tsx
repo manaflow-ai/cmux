@@ -36,8 +36,8 @@ export function sectionTitle(strings: Strings, id: string): string {
 
 /**
  * The host's image of a symbol: `__symbol/<name>.png` is the template (monochrome);
- * `__symbol/<mode>/<name>.png` is drawn in that mode. `style` (the host's accent and appearance)
- * is in the query so a changed accent never reuses a cached image.
+ * `__symbol/<mode>/<name>.png` is drawn in that mode. `style` (light or dark) is in the query so a
+ * changed appearance never reuses a cached image.
  */
 export function symbolImageURL(name: string, mode: SymbolMode, style = ""): string {
   const file = `${encodeURIComponent(name)}.png`;

@@ -29,7 +29,7 @@ struct IconPickerSession: Equatable {
     var catalog: IconPickerSymbolCatalog?
     /// The newest Emoji version (times 10) the system font draws; sent with `catalog`.
     var maxEmojiVersion: Int?
-    /// The colored symbol images' cache key (``IconPickerSymbols/style(accent:dark:)``); every session.
+    /// The colored symbol images' cache key (``IconPickerSymbols/style(dark:)``); every session.
     var symbolStyle: String?
 
     private static func tab(_ value: IconValue) -> String {

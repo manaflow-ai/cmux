@@ -1,6 +1,6 @@
 // SF Symbol rendering modes (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, S3 c): the Symbols tab shows
-// symbols monochrome (the host's template image, tinted by the page as a mask), hierarchical (an
-// image the host draws in the user's accent) or multicolor (an image in the symbol's own colors,
+// symbols monochrome (the host's template image, tinted by the page as a mask), hierarchical (a
+// layered template the page tints the same way, in the theme color) or multicolor (an image in the symbol's own colors,
 // for symbols that have them; the others stay monochrome). The mode is remembered with the prefs.
 import { describe, expect, test } from "bun:test";
 import { decodeEmojiTable, type RawEmojiTable } from "./emojiData";
