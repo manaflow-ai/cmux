@@ -276,7 +276,7 @@ public final class TabStripView: NSView {
         let model = model
         observationTask = Task { [weak self] in
             let changes = Observations {
-                TabStripModelSnapshot(
+                ModelSnapshot(
                     tabs: model.tabs,
                     groups: model.groups,
                     selectedID: model.selectedID,
@@ -297,7 +297,7 @@ public final class TabStripView: NSView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = Observations { TabStripTokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
+            let changes = Observations { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
             for await snapshot in changes {
                 guard let self else { return }
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
