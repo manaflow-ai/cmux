@@ -288,14 +288,22 @@ impl Hub {
         &self,
         meta: &crate::store::SessionMeta,
     ) -> Option<RpcError> {
-        let claude = match self.config.try_read() {
+        // Claude Code itself (claude-stdio) or a Claude adapter (family
+        // claude): both read the user's Claude settings.
+        let stdio = match self.config.try_read() {
             Ok(cfg) => {
                 super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                    .map_or(true, |p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+                    .ok()
+                    .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
             }
-            Err(_) => true,
+            Err(_) => None,
         };
-        (claude && !meta.remote_origin).then(|| {
+        let family = crate::web_modes::family_of(meta) == "claude";
+        // A remote chain's Claude Code (claude-stdio, remote origin) runs in
+        // the sandbox with ask-only settings; everything else that is or may
+        // be Claude is refused (unknown: refused).
+        let refused = !meta.remote_origin && (stdio != Some(false) || family);
+        refused.then(|| {
             RpcError::new(
                 -32000,
                 "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.",

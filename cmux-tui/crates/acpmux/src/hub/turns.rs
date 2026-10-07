@@ -362,19 +362,14 @@ impl Hub {
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 match self.child_for(session).await {
-                    Ok(_)
-                        if self
-                            .check_dispatch(session, control, &prompt_id, &turn_id, client)
-                            .is_err() =>
-                    {
-                        result = Err(RpcError::new(
-                            -32000,
-                            "the fallback agent's mode does not ask; a remote device's turn does not run in it",
-                        )
-                        .with_data(json!({"reason": "remote.mode_not_asking"})));
-                    }
                     Ok(child2) => {
-                        if let Some(sid2) = session.meta().agent_session_id {
+                        // The fallback is checked as a new dispatch; its own
+                        // refusal is the turn's error.
+                        if let Err(e) =
+                            self.check_dispatch(session, control, &prompt_id, &turn_id, client)
+                        {
+                            result = Err(e);
+                        } else if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,

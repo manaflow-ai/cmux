@@ -417,6 +417,24 @@ async fn web_starts_asking(
         }
         return hub.web_control_check(&t, control);
     }
+    // D13: a remote device does not change or end a Claude session the Mac
+    // started either (its rules, policy, model, its life or its log).
+    let mutates = matches!(
+        m,
+        method::MUX_SET_RULES
+            | method::MUX_SET_POLICY
+            | method::MUX_KILL
+            | method::SESSION_DELETE
+            | method::SESSION_CLOSE
+            | method::SESSION_SET_MODEL
+    );
+    if web
+        && mutates
+        && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if !(copies || sets_mode || controls) {
         return Ok(());
     }
@@ -443,7 +461,7 @@ async fn web_starts_asking(
     // D13: a copy of a Claude Code session the Mac started carries its
     // local state; a remote chain starts fresh.
     if web
-        && copies
+        && matches!(m, method::SESSION_FORK | method::MUX_HANDOFF_PREPARE)
         && let Some(e) = hub.local_claude_refusal(&s.meta())
     {
         return Err(e);
