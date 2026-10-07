@@ -348,13 +348,22 @@ ensure_personal_plan_switch_portal() {
   [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
   [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
 
-  response="$(
-    stripe_post "/billing_portal/configurations" \
-      -d "metadata[app]=cmux" \
-      -d "metadata[purpose]=personal_plan_switch" \
-      "${profile_args[@]}" \
-      "${feature_args[@]}"
-  )"
+  if (( ${#profile_args[@]} > 0 )); then
+    response="$(
+      stripe_post "/billing_portal/configurations" \
+        -d "metadata[app]=cmux" \
+        -d "metadata[purpose]=personal_plan_switch" \
+        "${profile_args[@]}" \
+        "${feature_args[@]}"
+    )"
+  else
+    response="$(
+      stripe_post "/billing_portal/configurations" \
+        -d "metadata[app]=cmux" \
+        -d "metadata[purpose]=personal_plan_switch" \
+        "${feature_args[@]}"
+    )"
+  fi
   configuration_id="$(jq -er '.id' <<<"$response")"
   echo "Created personal plan switch portal configuration: ${configuration_id}"
 }
