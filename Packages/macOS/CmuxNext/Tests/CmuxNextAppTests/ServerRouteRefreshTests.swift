@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextApp
 
@@ -135,5 +136,90 @@ import Testing
         let other = ServerReachPlan.LinkPeers(socket: "/tmp/l.sock", installs: [Base.install], install: "inst_bbbbbbbbbbbbbbbbbbbb")
         #expect(ServerReachPlan.route(for: sameName, install: Base.install, local: me, link: other) == .overlay(linkSocket: "/tmp/l.sock"))
         #expect(ServerReachPlan.route(for: sameName, install: Base.install, local: me, link: nil) == .unix(me.brainSocket))
+    }
+
+    /// A service whose link is read from `link` and whose watchers land in `watchers`.
+    private static func service(_ worker: Base.Worker, _ machines: MachineRegistry, link: @escaping @MainActor () -> ServerReachPlan.LinkPeers?,
+                                setup: String? = nil, watchers: @escaping @MainActor (FakeWatcher) -> Void) -> ServerReachService {
+        ServerReachService(
+            machines: machines, call: { try await worker.call($0, $1) }, signedInUser: { "user_1" },
+            paths: SSHPaths(root: FileManager.default.temporaryDirectory.appendingPathComponent("route-\(UUID().uuidString)")),
+            binary: URL(fileURLWithPath: "/usr/bin/false"), linkPeers: link, cli: URL(fileURLWithPath: "/usr/bin/false"),
+            linkSetupFile: setup,
+            makeWatcher: { file, onChange in
+                let watcher = FakeWatcher(file: file, onChange: onChange)
+                watchers(watcher)
+                return watcher
+            })
+    }
+
+    /// An established connection that ends (here EOF) reports its end, so
+    /// the server reach can re-resolve the route at once.
+    @Test(.timeLimit(.minutes(1))) func anEndedConnectionReportsItsEnd() async throws {
+        let server = try ScriptedDaemonSocket(handler: RemoteMachineCompatTests.daemon { RemoteMachineCompatTests.required })
+        let service = DaemonService(machineID: "server-host_test")
+        let (ends, ended) = AsyncStream.makeStream(of: Void.self)
+        let path = server.path
+        service.start(remote: { path }, onEnd: { ended.yield() })
+        defer { service.shutdownConnection() }
+        for await state in Observations({ service.store.connectionState }) {
+            if case .connected = state { break }
+        }
+        server.stop()
+        var iterator = ends.makeAsyncIterator()
+        #expect(await iterator.next() != nil, "the end of the connection was reported")
+    }
+
+    /// The overlay ended and the link is gone (`link show` says not
+    /// running): the server falls back to SSH without a file event.
+    @Test func anEndedOverlayReResolvesTheRoute() async throws {
+        let worker = Base.Worker()
+        worker.chiefs = [Base.placed(Base.host)]
+        worker.hosts = [Base.hostRow(Base.host, name: "box")]
+        let machines = MachineRegistry(local: DaemonService())
+        machines.isFeatureDisabled = { $0 == .remoteHosts }
+        var link = ServerReachPlan.LinkPeers(socket: "/tmp/l.sock", installs: [Base.install], peersFile: "/tmp/link/peers.json")
+        let service = Self.service(worker, machines, link: { link }, watchers: { _ in })
+        await service.read()
+        let first = try #require(machines.servers.first)
+        #expect(first.reach.route == .overlay(linkSocket: "/tmp/l.sock"))
+        link.socket = nil
+        first.onOverlayEnded?()
+        for _ in 0..<200 where machines.servers.first?.reach.route == first.reach.route {
+            await Task.yield()
+        }
+        guard case .ssh? = machines.servers.first?.reach.route else {
+            Issue.record("a dead link must fall back to SSH: \(String(describing: machines.servers.first?.reach.route))")
+            return
+        }
+        service.stop()
+    }
+
+    /// No link yet (`link show` fails): the service watches where `cmux link
+    /// init` writes, and the init re-reads and arms the link's own watches.
+    @Test func aLinkInitializedLaterIsNoticedByEvent() async throws {
+        #expect(ServerReachPlan.defaultLinkSetupFile(environment: [:], home: "/Users/me")
+            == "/Users/me/Library/Application Support/cmux-tui/sessions/link/config.json")
+        #expect(ServerReachPlan.defaultLinkSetupFile(environment: ["CMUX_TUI_STATE_DIR": "/s"], home: "/Users/me") == "/s/link/config.json")
+        let worker = Base.Worker()
+        worker.chiefs = [Base.placed(Base.host)]
+        worker.hosts = [Base.hostRow(Base.host, name: "box")]
+        let machines = MachineRegistry(local: DaemonService())
+        machines.isFeatureDisabled = { $0 == .remoteHosts }
+        var link: ServerReachPlan.LinkPeers?
+        var watchers: [FakeWatcher] = []
+        let service = Self.service(worker, machines, link: { link }, setup: "/s/link/config.json", watchers: { watchers.append($0) })
+        await service.read()
+        let setup = try #require(watchers.first)
+        #expect(watchers.map(\.file.path) == ["/s/link/config.json"])
+        #expect(setup.started)
+        link = ServerReachPlan.LinkPeers(socket: nil, installs: [], peersFile: "/s/link/peers.json")
+        setup.onChange()
+        for _ in 0..<200 where watchers.count == 1 {
+            await Task.yield()
+        }
+        #expect(!setup.started, "the setup watch is replaced")
+        #expect(watchers.dropFirst().map(\.file.path) == ["/s/link/peers.json", "/s/link.json"])
+        service.stop()
     }
 }
