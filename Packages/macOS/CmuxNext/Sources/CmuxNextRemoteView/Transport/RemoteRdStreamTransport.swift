@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextWakeups
 import Network
 import Synchronization
