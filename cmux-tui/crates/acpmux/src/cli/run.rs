@@ -942,6 +942,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         | Command::Stdio { .. }
         | Command::Session(_)
         | Command::Daemon(_)
+        | Command::Harness(_)
         | Command::Host(_) => {
             unreachable!()
         }
