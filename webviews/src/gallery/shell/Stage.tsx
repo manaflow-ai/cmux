@@ -155,22 +155,25 @@ export function Stage({
     if (display.query === query) return;
     setPending({ query, frame, scale });
   }, [display.query, frame.height, frame.width, query, scale]);
-  const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
-    if (!iframe) return;
-    const receive = (event: MessageEvent) => {
-      const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
-      if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== query) return;
-      if (data?.type === "cmux-gallery-play") setReport(data.report);
-      if (data?.type === "cmux-gallery-stage" && data.status === "ready") {
-        requestAnimationFrame(() => {
-          setDisplay({ query, frame, scale });
-          setPending(undefined);
-        });
-      }
-    };
-    addEventListener("message", receive);
-    return () => removeEventListener("message", receive);
-  }, [frame.height, frame.width, query, scale]);
+  const frameRef = useCallback(
+    (iframe: HTMLIFrameElement | null) => {
+      if (!iframe) return;
+      const receive = (event: MessageEvent) => {
+        const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
+        if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== query) return;
+        if (data?.type === "cmux-gallery-play") setReport(data.report);
+        if (data?.type === "cmux-gallery-stage" && data.status === "ready") {
+          requestAnimationFrame(() => {
+            setDisplay({ query, frame, scale });
+            setPending(undefined);
+          });
+        }
+      };
+      addEventListener("message", receive);
+      return () => removeEventListener("message", receive);
+    },
+    [frame.height, frame.width, query, scale],
+  );
   const shown = display.frame.width === 0 ? { query, frame, scale } : display;
   const next = pending?.query === query ? pending : undefined;
   const iframe = (content: typeof shown, hidden: boolean) => (
