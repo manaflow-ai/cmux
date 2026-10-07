@@ -49,6 +49,13 @@ cmux browser "$TAB" screenshot --out page.png
 cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
 cmux browser "$TAB" screenshot --full-page --out full.png
 cmux browser "$TAB" screenshot --out - > page.png
+cmux browser "$TAB" cookies get --name session_id
+cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
+cmux browser "$TAB" cookies clear --domain example.com
+cmux browser "$TAB" storage local get
+cmux browser "$TAB" storage local set theme dark
+cmux browser "$TAB" storage session get draft
+cmux browser "$TAB" storage session clear
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
@@ -70,6 +77,20 @@ fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
 the temporary directory (kept for an hour, newest 32); `--out PATH` copies it there. It prints the path
 (`--json`: the tab, path, width and height). `--out -` writes only the PNG to
 stdout.
+
+`cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
+`domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
+`get` filters by `--name` (exact), `--domain` (substring) and `--path`.
+`set NAME VALUE` takes the domain from `--domain` (a leading dot covers
+subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
+seconds. `clear` takes a scope: `--name`, `--url` (the cookies a
+request there would send), `--domain` (that domain and its subdomains),
+`--path`; it reports how many it cleared. `--all` is refused: it would empty
+the profile's cookies with no undo.
+
+`storage local|session` (default `local`) reads one key or every key with
+`get`, writes with `set KEY VALUE` and empties the area with `clear`, in the
+page's origin.
 
 ## Daemon browsers (`browser_…`)
 
@@ -104,15 +125,15 @@ cmux browser screenshot-page
 
 ## Not in the per-tab CLI (use the REPL)
 
-The old CLI's `cookies`, `storage`, `state save|load`, `console`,
+The old CLI's `state save|load`, `console`,
 `errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `tab list|new|switch|close` inside a browser, `identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no per-tab command.
-Cookies, storage, saved state, console, dialogs, downloads, hover and scroll
-are in the browser REPL ([repl-guide.md](repl-guide.md)). Do not poll with
+Saved state, console, dialogs, downloads, hover and scroll are in the
+browser REPL ([repl-guide.md](repl-guide.md)). Do not poll with
 `eval`; use `wait`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 

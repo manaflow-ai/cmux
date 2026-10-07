@@ -10,7 +10,8 @@ extension AppBrowserPage {
     static func agentURLRefusal(_ operation: BrowserPageOperation, target: URL?, page: any BrowserTab) -> ControlError? {
         let refused: Bool
         switch operation {
-        case .state: refused = false
+        // Cookies come from the profile's store; no page content is read.
+        case .state, .cookies: refused = false
         case .navigate: refused = target.map(AgentURLPolicy.refuses) ?? false
         case .back: refused = historyStepRefused(page, offset: -1)
         case .forward: refused = historyStepRefused(page, offset: 1)

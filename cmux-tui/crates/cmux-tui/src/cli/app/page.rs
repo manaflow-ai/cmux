@@ -91,9 +91,13 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("cookies", _) => cookies(rest, &mut params, usage)?,
+        ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
-    if !matches!(verb.as_str(), "snapshot" | "wait") && words.len() != rest.len() {
+    if !matches!(verb.as_str(), "snapshot" | "wait" | "cookies" | "storage")
+        && words.len() != rest.len()
+    {
         return Err(usage());
     }
     Ok(AppCommand::Call {
@@ -155,6 +159,87 @@ fn parse_wait(
         params.insert("timeout_ms".into(), json!(timeout_ms));
     }
     Ok(timeout_ms)
+}
+
+/// Leading words, then `--flags`.
+fn split_words(args: &[String]) -> (&[String], &[String]) {
+    args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
+}
+
+/// `cookies [get] [--name N] [--domain D] [--path P]`,
+/// `cookies set NAME VALUE [--url U | --domain D] [--path P] [--expires UNIX] [--secure] [--http-only]`,
+/// `cookies clear [--name N] [--url U] [--domain D] [--path P]` (the app refuses `--all`).
+fn cookies(
+    args: &[String],
+    params: &mut Map<String, Value>,
+    usage: impl Fn() -> UsageError,
+) -> Result<&'static str, UsageError> {
+    let (words, flags) = split_words(args);
+    let (action, words) = match words.split_first() {
+        Some((action, words)) => (action.as_str(), words),
+        None => ("get", words),
+    };
+    let (valued, switches): (&[&str], &[&str]) = match action {
+        "get" => (&["name", "domain", "path"], &[]),
+        "set" => (&["name", "value", "url", "domain", "path", "expires"], &["secure", "http-only"]),
+        "clear" => (&["name", "url", "domain", "path"], &["all"]),
+        _ => return Err(usage()),
+    };
+    let options = Options::parse(flags, valued, switches)?;
+    match (action, words) {
+        ("set", [name, value]) => {
+            params.insert("name".into(), json!(name));
+            params.insert("value".into(), json!(value));
+        }
+        ("set", []) if options.value("name").is_some() && options.value("value").is_some() => {}
+        (_, []) if action != "set" => {}
+        _ => return Err(usage()),
+    }
+    for key in valued {
+        let Some(value) = options.value(key) else { continue };
+        let value = if *key == "expires" {
+            json!(value.parse::<i64>().map_err(|_| usage())?)
+        } else {
+            json!(value)
+        };
+        params.insert((*key).into(), value);
+    }
+    for key in switches {
+        if options.flag(key) {
+            params.insert(key.replace('-', "_"), json!(true));
+        }
+    }
+    Ok(match action {
+        "get" => "browser.page.cookies.get",
+        "set" => "browser.page.cookies.set",
+        _ => "browser.page.cookies.clear",
+    })
+}
+
+/// `storage [local|session] [get [KEY] | set KEY VALUE | clear]`.
+fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static str> {
+    let mut words = args;
+    if let Some((area, rest)) = words.split_first()
+        && matches!(area.as_str(), "local" | "session")
+    {
+        params.insert("type".into(), json!(area));
+        words = rest;
+    }
+    match words {
+        [] => Some("browser.page.storage.get"),
+        [get] if get == "get" => Some("browser.page.storage.get"),
+        [get, key] if get == "get" => {
+            params.insert("key".into(), json!(key));
+            Some("browser.page.storage.get")
+        }
+        [set, key, value] if set == "set" => {
+            params.insert("key".into(), json!(key));
+            params.insert("value".into(), json!(value));
+            Some("browser.page.storage.set")
+        }
+        [clear] if clear == "clear" => Some("browser.page.storage.clear"),
+        _ => None,
+    }
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
