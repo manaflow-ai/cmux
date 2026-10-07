@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
+    /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
+    public var emoji: String?
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
@@ -34,8 +36,10 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var avatar: SidebarAvatar?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                emoji: String? = nil) {
         self.icon = icon
+        self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
         self.isHidden = isHidden
@@ -171,5 +175,13 @@ extension SidebarItemInfo {
         }
         let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "questionmark.square.dashed"
         return SidebarItemInfo(title: ref.value, symbol: symbol, icon: icon, isMissing: true)
+    }
+
+    /// `fallback(for:)` of the item's ref, titled with the label stored with
+    /// the item (a closed workspace's last known name) when it has one.
+    public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
+        var info = fallback(for: item.ref)
+        if info.isMissing, let label = item.label { info.title = label }
+        return info
     }
 }
