@@ -48,6 +48,8 @@ pub mod raw;
 mod raw_support;
 mod resource;
 mod socket_hash;
+#[cfg(test)]
+mod test_roots;
 mod topology;
 
 // Private aliases keep the checked-in legacy generator compiling without

@@ -22,9 +22,11 @@ final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
         }
     }
 
+    /// Hops through the main run loop in the common modes, not a main-actor
+    /// task: a native menu tracks inside a main-queue callout, where no
+    /// main-actor job runs until the menu closes (``MainRunLoopHop``).
     nonisolated func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
-        // task-owner: the frame hop itself; runs once
-        Task { @MainActor in self.enqueue(work) }
+        MainRunLoopHop().perform { self.enqueue(work) }
     }
 
     func enqueue(_ work: @escaping @MainActor @Sendable () -> Void) {
