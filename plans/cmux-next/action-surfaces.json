@@ -6305,11 +6305,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "t",
+        "key" : "`",
         "modifiers" : [
-          "ctrl",
-          "shift",
-          "cmd"
+          "ctrl"
         ]
       },
       "id" : "newSurface",

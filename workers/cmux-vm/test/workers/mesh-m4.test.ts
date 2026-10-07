@@ -10,16 +10,21 @@
  *    tunnel by its recorded id, then the ACL. Bad, stale or unsigned
  *    deliveries change nothing; a retry is a no-op; without the secret the
  *    route answers 503.
- * 4. G1 retries and re-adds: a retried removal never deletes a device the
- *    user enrolled after the removal event (first receipt), and does nothing
- *    when the user is a member again (the cache confirmed it after the event,
- *    or Stack says so now). Both orders: re-add before and after the retry.
+ * 4. G1 retries and re-adds: a removal revokes every device that existed at
+ *    the removal event (first receipt), also when the user was added back
+ *    before the retry; a device enrolled after the event survives. Both
+ *    orders: re-add before and after the retry. An event that finds nothing
+ *    to revoke (no devices, a tenant outside the allowlist, Stack unable to
+ *    answer for the user) is a recorded 200, never a 503.
  * 5. `user.deleted` revokes the user's devices in every tenant, without asking
  *    Stack about the deleted user, idempotently.
  * 6. One writer per mesh: a reconcile planned from an old ACL version cannot
  *    re-open a rule a concurrent apply removed.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect, Redacted } from "effect";
+import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
+import { StoreError } from "../../src/db/sql.ts";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 import { deviceRequestBody, enrollBody, makeInstallKey, rotateBody, type InstallKey } from "../support/mesh-signing.ts";
@@ -269,22 +274,27 @@ describe("G1: retries after a re-add (cx-0op.6)", () => {
     return { mesh, old };
   };
 
-  it("re-added before the retry: the retry keeps the new device and asks nobody, because the cache confirmed membership after the event", async () => {
+  it("re-added before the retry: the retry still revokes the device from before the removal and keeps the new one", async () => {
     await setup();
     const { mesh, old } = await failedRemoval("msg_readd");
     h.addMember(A, "user_ada");
     const fresh = await sessionEnroll(A, "user_ada", mesh.meshId, await makeInstallKey(), KEY_2);
     const asked = h.stackMembershipCalls.length;
-    const deletes = tunnelDeletes().length;
 
     const retry = await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_readd" });
     expect(retry.status).toBe(200);
-    expect((await json(retry))["skipped"]).toBe("member");
+    // The webhook never asks Stack.
     expect(h.stackMembershipCalls.length).toBe(asked);
-    expect(tunnelDeletes().length).toBe(deletes);
+    const body = await json(retry);
+    expect(body["skipped"]).toBeUndefined();
+    expect(body["devicesRevoked"]).toBe(1);
+    // A removal cuts the devices that existed then (an admin cutting a lost laptop); the re-add does not bring them back.
+    expect(h.mesh.tunnels.has(old.upstreamTunnel)).toBe(false);
+    expect((await call(`/v1/devices/${old.deviceId}`, mesh.admin)).status).toBe(404);
     expect(h.mesh.tunnels.has(fresh.upstreamTunnel)).toBe(true);
-    expect(h.mesh.tunnels.has(old.upstreamTunnel)).toBe(true);
     expect((await call(`/v1/devices/${fresh.deviceId}`, mesh.admin)).status).toBe(200);
+    // The re-added user still works: the new device's signed requests and sessions pass.
+    expect((await call("/v1/meshes", await session(A, "user_ada"))).status).toBe(200);
     // Processed: the next retry is a duplicate.
     expect((await json(await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_readd" })))["duplicate"]).toBe(true);
   });
@@ -310,7 +320,7 @@ describe("G1: retries after a re-add (cx-0op.6)", () => {
     expect(h.mesh.tunnels.has(fresh.upstreamTunnel)).toBe(false);
   });
 
-  it("re-added after the retry: a late redelivery of the old event (its record lost) keeps the new device; Stack says 'member'", async () => {
+  it("re-added after the retry: a late redelivery of the old event (its record lost) keeps the new device, created after the event", async () => {
     await setup();
     const { mesh, old } = await failedRemoval("msg_late");
     expect((await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_late" })).status).toBe(200);
@@ -325,10 +335,36 @@ describe("G1: retries after a re-add (cx-0op.6)", () => {
 
     const late = await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_late" });
     expect(late.status).toBe(200);
-    expect((await json(late))["skipped"]).toBe("member");
-    expect(h.stackMembershipCalls.length).toBe(asked + 1);
+    expect((await json(late))["devicesRevoked"]).toBe(0);
+    expect(h.stackMembershipCalls.length).toBe(asked);
     expect(h.mesh.tunnels.has(fresh.upstreamTunnel)).toBe(true);
     expect((await call(`/v1/devices/${fresh.deviceId}`, mesh.admin)).status).toBe(200);
+  });
+});
+
+describe("G1: events with nothing to revoke are a recorded 200 (staging: team 94eb2b2b got 503)", () => {
+  it("a team outside the mesh allowlist, with no devices, whose user Stack cannot answer for: 200, recorded, retry a duplicate", async () => {
+    await setup();
+    h.failStackFor("user_throwaway");
+    const event = membershipDeleted("team_personal_throwaway", "user_throwaway");
+    const first = await h.stackWebhook(event, { id: "msg_personal_team" });
+    expect(first.status).toBe(200);
+    expect((await json(first))["devicesRevoked"]).toBe(0);
+    expect(h.webhookDeliveries.deliveries.has("msg_personal_team")).toBe(true);
+    expect((await json(await h.stackWebhook(event, { id: "msg_personal_team" })))["duplicate"]).toBe(true);
+    expect(tunnelDeletes()).toHaveLength(0);
+  });
+
+  it("an allowlisted team: the device is revoked even when Stack cannot answer for the user", async () => {
+    await setup();
+    h.addMember(A, "user_ada");
+    const mesh = await meshWithVm(A);
+    const device = await sessionEnroll(A, "user_ada", mesh.meshId, await makeInstallKey(), KEY_1);
+    h.removeMember(A, "user_ada");
+    h.failStackFor("user_ada");
+    const response = await h.stackWebhook(membershipDeleted(A, "user_ada"));
+    expect(response.status).toBe(200);
+    expect(h.mesh.tunnels.has(device.upstreamTunnel)).toBe(false);
   });
 });
 
@@ -390,6 +426,78 @@ describe("G1: user.deleted (cx-0op.6)", () => {
   it("refuses a signed user.deleted body of the wrong shape with 400", async () => {
     await setup();
     expect((await h.stackWebhook({ type: "user.deleted", data: { user_id: "user_ada" } })).status).toBe(400);
+  });
+});
+
+describe("G1: delivery diagnostics (staging 09:13:04Z delivery left no row)", () => {
+  /** Every console line the Worker wrote while `run` ran. */
+  const captureLogs = async (run: () => Promise<void>) => {
+    const lines: string[] = [];
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(" "))),
+    );
+    try {
+      await run();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    return lines.filter((line) => line.includes("stack webhook"));
+  };
+
+  it("accepts a rotation header with two full signatures where only the second matches", async () => {
+    await setup();
+    h.addMember(A, "user_ada");
+    const mesh = await meshWithVm(A);
+    const device = await sessionEnroll(A, "user_ada", mesh.meshId, await makeInstallKey(), KEY_1);
+    h.removeMember(A, "user_ada");
+    const event = membershipDeleted(A, "user_ada");
+    const id = "msg_rotation";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const content = `${id}.${timestamp}.${JSON.stringify(event)}`;
+    const old = await signWebhookContent(Redacted.make(`whsec_${btoa("the-previous-secret-of-32-bytes!")}`), content);
+    const current = await signWebhookContent(Redacted.make(SECRET), content);
+    const response = await h.stackWebhook(event, { id, timestampSeconds: Number(timestamp), signature: `v1,${old ?? ""} v1,${current ?? ""}` });
+    expect(response.status).toBe(200);
+    expect(h.mesh.tunnels.has(device.upstreamTunnel)).toBe(false);
+  });
+
+  it("logs the reason of every refusal and failure, without the secret, the signature or the body", async () => {
+    await setup();
+    const event = membershipDeleted(A, "user_ada");
+    const lines = await captureLogs(async () => {
+      expect((await h.stackWebhook(event, { signature: "v1,AAAA" })).status).toBe(401);
+      expect((await h.stackWebhook(event, { timestampSeconds: Math.floor(Date.now() / 1000) - 600 })).status).toBe(401);
+      expect((await h.stackWebhook({ type: "team_membership.deleted", data: { team: A } }, { id: "msg_shape" })).status).toBe(400);
+      expect((await h.request("/v1/webhooks/stack", { "svix-id": "msg_json" }, { method: "POST", body: "x" })).status).toBe(401);
+    });
+    expect(lines.some((line) => /status=401/u.test(line) && /reason=signature/u.test(line))).toBe(true);
+    expect(lines.some((line) => /status=401/u.test(line) && /reason=stale/u.test(line))).toBe(true);
+    expect(lines.some((line) => /status=400/u.test(line) && /reason=data_shape/u.test(line) && /eventType=team_membership\.deleted/u.test(line) && /messageId=msg_shape/u.test(line))).toBe(true);
+    for (const line of lines) {
+      expect(line).not.toContain(SECRET.slice(6, 20));
+      expect(line).not.toContain("user_ada");
+      expect(line).not.toContain("AAAA");
+    }
+  });
+
+  it("logs a 503 when the first-receipt record fails (migration 0008 missing), and the delivery is retried", async () => {
+    await setup();
+    h.addMember(A, "user_ada");
+    const mesh = await meshWithVm(A);
+    await sessionEnroll(A, "user_ada", mesh.meshId, await makeInstallKey(), KEY_1);
+    h.removeMember(A, "user_ada");
+    const working = h.webhookDeliveries.service.firstSeen;
+    Object.assign(h.webhookDeliveries.service, { firstSeen: () => Effect.fail(new StoreError({ operation: "webhook.firstSeen", cause: "relation does not exist" })) });
+    const lines = await captureLogs(async () => {
+      expect((await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_no_0008" })).status).toBe(503);
+    });
+    expect(lines.some((line) => /status=503/u.test(line) && /reason=first_seen_store/u.test(line) && /messageId=msg_no_0008/u.test(line))).toBe(true);
+    expect(tunnelDeletes()).toHaveLength(0);
+    Object.assign(h.webhookDeliveries.service, { firstSeen: working });
+    const processed = await captureLogs(async () => {
+      expect((await h.stackWebhook(membershipDeleted(A, "user_ada"), { id: "msg_no_0008" })).status).toBe(200);
+    });
+    expect(processed.some((line) => /status=200/u.test(line) && /outcome=revoked/u.test(line) && /devicesRevoked=1/u.test(line))).toBe(true);
   });
 });
 

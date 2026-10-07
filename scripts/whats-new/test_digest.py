@@ -50,6 +50,16 @@ class DigestTests(unittest.TestCase):
         self.assertEqual(document["headline"]["en"], "See what changed, and 1 more")
         self.assertEqual(validate.validate_document("1.0.0-nightly.9.json", document), [])
 
+    def test_a_bad_highlight_is_skipped_not_the_whole_digest(self):
+        self.commit("release-notes/next/highlights/good.md", "title: Good\ndocs: https://cmux.com/docs\n\nIt works.\n")
+        self.commit("release-notes/next/highlights/no-link.md", "title: No link\n\nNothing to try.\n")
+        head = self.commit("release-notes/next/highlights/no-title.md", "category: new\n\nNo title line.\n")
+        reports = []
+        document = digest.build("1.0.0-nightly.12", "2026-10-07", head, self.base, report=reports.append)
+        self.assertEqual([e["id"] for e in document["entries"]], ["good"])
+        self.assertEqual(len(reports), 2)
+        self.assertEqual(validate.validate_document("1.0.0-nightly.12.json", document), [])
+
     def test_a_range_without_highlights_has_no_entries(self):
         head = self.commit("src/code.txt", "x\n")
         document = digest.build("1.0.0-nightly.10", "2026-10-07", head, self.base)
