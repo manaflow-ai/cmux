@@ -176,7 +176,7 @@ mod dock_key_tests {
     fn viewport() -> RegistryViewport {
         let pane = |n: u128| PanePublicId::parse(format!("pane_{n:032x}")).unwrap();
         let split = |n: u128| SplitPublicId::parse(format!("split_{n:032x}")).unwrap();
-        let docked = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked };
+        let docked = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, permanent: false };
         RegistryViewport {
             base_width: None,
             columns: vec![
