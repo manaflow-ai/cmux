@@ -18,7 +18,7 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
     var localURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
 
     init() throws {
-        let fd = Darwin.socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Self.socketError("create") }
         guard Self.setCloseOnExec(fd) else {
             let error = Self.socketError("protect descriptor from child processes")
