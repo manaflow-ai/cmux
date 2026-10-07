@@ -1,0 +1,399 @@
+# D3 `dogfood`: parity, device checklist, UI tests, runbook
+
+Status: first pass 2026-10-07 on `feat-cmux-next-ios-d3-dogfood` (base `feat-cmux-next-ios` at
+`b3cffeafeda`, which includes B2's large-frame fix). Plan: [PLAN.md](PLAN.md) D3. No build or device
+was available (no fleet manifest, dev backend VM unreachable, GitHub auth broken, 9 to 16 GiB free),
+so this pass covers everything that needs neither, and leaves the rest one command away (section 6).
+
+Lanes still open on their own branches and not audited here: C3 `rd` (5 commits ahead), C12 `cloud`
+(2 ahead), C14 `web` (5 ahead), D1b `mac-integration` (no commits yet). B2's fix is merged.
+
+## 1. Parity matrix
+
+Every capability from [a1-shell.md](a1-shell.md) section 1, status on `feat-cmux-next-ios`:
+**done** (built, tested in its package, device-unverified unless said), **mocked** (UI over a mock
+seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner), **missing**,
+**dropped** (removed by design).
+
+| 1.x | Capability | Lane | Status |
+| --- | --- | --- | --- |
+| 1.1 | Composition root, scene, lifecycle diagnostics | A1, C16 | done |
+| 1.1 | Root auth gate and restore screen | kept | done |
+| 1.1 | NotificationService extension | C7 | done (extension target typechecked, not compiled by Xcode) |
+| 1.1 | CloudVPN packet-tunnel extension | C12 | dropped (VM attach rides `CmuxLink`; C12 pending) |
+| 1.1 | Remote feature flags | C16 | seam only (flag merge built; B1 `config.snapshot` not served) |
+| 1.1 | App Review demo mode | C16 | done (DEBUG `CMUX_IOS_DEMO`; remote trigger waits on B1) |
+| 1.1 | Multiple scenes | - | dropped (out of scope) |
+| 1.1 | Pointer, indirect input, 120 Hz | A2, D1 | done |
+| 1.2 | `attach` / `pair` QR grammars, update-app error | B6, C16 | done |
+| 1.2 | Notification tap to workspace on a Mac, parked until attach | C7, C16, C5 | done (surface focus missing, C15 gap) |
+| 1.2 | Deferred open of URLs until signed in (`ShellRoute`) | C16 | done |
+| 1.3 | Categories, inline Reply, time-sensitive, clear on foreground, remote dismiss | C7 | done |
+| 1.3 | Background inline reply under a background task | C7 | done |
+| 1.3 | Mac-to-phone end-to-end push keys | C7 | done (kept `CmuxPhonePush` path) |
+| 1.4 | Apple, Google, GitHub, email code, passkey errors | kept | done |
+| 1.4 | Account deletion, team switcher | C11 | done |
+| 1.4 | Deferred sign-in (SSH without an account) | C16 | missing (design note only) |
+| 1.5 | Onboarding stages, push opt-in, pairing, connect, replay | C10, B6 | done |
+| 1.5 | Keep-awake onboarding card | C10, C16 | missing |
+| 1.5 | Cloud onboarding | C12 | missing (C12 pending) |
+| 1.5 | One-time migration sheets | - | dropped (no iroh) |
+| 1.6 | QR scanner, manual add, setup help | B6, B4 | done |
+| 1.6 | Same-account zero-touch connect, registry, presence | B6, B1 | done |
+| 1.6 | Tailscale / LAN direct transport | B4, D1 | done |
+| 1.6 | Multi-Mac aggregation | B6, C5 | done |
+| 1.6 | Mac compatibility and version gate UI | C16 | mocked (`MacCapabilitiesSource` mock until B5 serves caps) |
+| 1.6 | Paired-Mac store and server backup | B6 | done (`UserDO`/`PairingDO`) |
+| 1.6 | Computers list with routes and ping, detail, forget | C11, D1 | done (`AccountLinkDiagnostics`) |
+| 1.6 | Hidden computers and order | C5 | done |
+| 1.6 | Connection recovery banner, reconnect backoff | A3, D1 | done |
+| 1.6 | Keep Mac Awake per Mac | C16 | mocked (no Mac power assertion, B5/D1b) |
+| 1.7 | Tabs (Home, Feed, Workspaces, Compose, Hosts, Settings), floating compose | A1, C8 | done |
+| 1.7 | Legacy Notifications tab | - | dropped (Feed) |
+| 1.7 | Cloud tab | C12 | missing (C12 pending) |
+| 1.7 | Search tab | C15 | done |
+| 1.7 | Disconnected / no-Mac shell | C5, C10 | done |
+| 1.8 | Previews, unread, machine colors, filters, sorts, view options | C5 | done |
+| 1.8 | New workspace | C8, C5 | done (composer workspace picker) |
+| 1.8 | Groups: collapse, rename, drag reorder across groups | C5 | missing (groups render as read-only sections) |
+| 1.8 | Row actions read, rename, close | C5 | done |
+| 1.8 | Customize sheet (color, icon) | C5 | missing |
+| 1.8 | SSH computers and their workspaces in the list | C9, C5 | missing (SSH hosts live in Hosts; tmux/screen/cmux-tui listing not built) |
+| 1.8 | Cloud machines in the list | C12 | missing (C12 pending) |
+| 1.8 | Presence announce of the viewed workspace | C5 | done |
+| 1.9 | Detail container, title menu, terminal picker | C5, D1 | done |
+| 1.9 | Terminal surface | A2, C1, D1 | done (real Macs blocked on D1b, see 2.1) |
+| 1.9 | Browser stream surface | C2 | done (Mac `BrowserPageHost` adapter is D1b) |
+| 1.9 | In-app WKWebView browser, mode picker, Mac/SSH tunnel | C14 | missing (C14 pending) |
+| 1.9 | Simulator stream surface | C14 | missing (C14 pending) |
+| 1.9 | Markdown and file-preview surfaces | C13 | done |
+| 1.9 | Todo surface | C13 | missing |
+| 1.9 | Changes hint banner, action toasts | C13, C16 | done |
+| 1.10 | Ghostty Metal surface, render recovery, background suspend | A2 | done |
+| 1.10 | Snapshot output path, exactly-once input, send status | C1 | done |
+| 1.10 | Shared sizing with the Mac, alt-screen notice | C1, D1 | done |
+| 1.10 | Key bar, modifiers, symbols, shortcut customization | A2, D1, C11 | done |
+| 1.10 | Hardware keyboard and IME | A2, D1 | done (ios-keyboard audit failures need a re-run) |
+| 1.10 | Gestures: tap to focus, pinch zoom HUD, pixel scroll | A2, D1 | done |
+| 1.10 | Selection and copy, links | A2, D1 | done |
+| 1.10 | Keyboard docking and safe areas | D1 | done (unverified; audit found Home composer failures) |
+| 1.10 | Terminal composer with attachments, image paste | C8, C4 | missing (task composer only; its attach button is hidden: no `ComposerAttachmentUploading` wired) |
+| 1.10 | Theme sync from the Mac, font, scrollback | C11, A2 | done (Match Mac uses the host theme) |
+| 1.10 | Drafts per terminal | D1 | missing |
+| 1.10 | Files chip and transfer list | C4 | done (artifact gallery missing) |
+| 1.11 | Artifact viewer: highlight, go to line, search, Markdown, images, PDF, share | C13 | done |
+| 1.12 | Changes chip, file tree, diff pager, copy line/hunk | C13 | done (Refresh only, no git change stream) |
+| 1.13 | Composer: agent, model, effort, machine, directory, name, prompt | C8 | done (Mac runner over acpmux is D1b: seam only on the Mac) |
+| 1.13 | Drafts, templates, failure recovery, model catalog, dictation | C8 | done |
+| 1.13 | Composer attachments | C8, C4 | seam only (uploader not wired) |
+| 1.14 | Feed, Needs Input filter, inline decisions, multi-question, quoted reply | C6 | done |
+| 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
+| 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
+| 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (plain PTY only) |
+| 1.15 | SFTP browser | C4, C9 | missing (scoped in c4-files.md 8) |
+| 1.15 | SOCKS proxy and local port forward | C14 | missing (C14 pending) |
+| 1.16 | Cloud tab, VM lifecycle, quota, terminal attach | C12 | missing (C12 pending) |
+| 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
+| 1.17 | Account, sign out, delete account, team | C11 | done |
+| 1.17 | What's New archive and post-update sheet | C16 | done |
+| 1.17 | Connection and computers | B6, C11 | done |
+| 1.17 | Networking diagnostics (path badge, RTT) | C11, D1 | done (V1 RTT sampled at connect only, B2 F3) |
+| 1.17 | Terminal and display options, scrollback | C11 | done |
+| 1.17 | Haptics toggle | C11 | missing |
+| 1.17 | Privacy (telemetry consent) | C11, C16 | done |
+| 1.17 | Diagnostics: verbose log, export, clear, copy support info | C16 | done |
+| 1.17 | Legal, support links, version | C11 | done |
+| 1.17 | Erase all data on this device | C11 | missing (needs every lane's store list) |
+| 1.17 | DEBUG Developer section | A1 | done |
+| 1.18 | Structured diagnostic log, terminal latency trace | C16, C1 | done |
+| 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`) |
+| 1.18 | Crash reporting (Sentry, hangs) | C16 | done (session replay off until masks are listed, section 4) |
+| 1.18 | DEBUG Copy Logs, Send Feedback | C16 | done (diagnostics share) |
+| 1.19 | Toast center | C16 | done |
+| 1.19 | Accessibility, Dynamic Type, Reduce Motion | all | done with fixes in section 4 |
+| 1.19 | Localization (en, ja translated) | all | done (section 4) |
+| 1.19 | Background modes, protected data | kept, C7, A2 | done |
+
+Counts (97 rows): done 68, mocked 3, seam only 3, missing 19, dropped 4. (Rows with partial notes
+count under their main status.)
+
+Missing, grouped by owner:
+- Pending lanes: Cloud tab, VMs in the list, Cloud onboarding (C12); in-app browser, simulator
+  stream, SOCKS and port forward (C14).
+- C5 follow-up: group collapse, rename and drag reorder; customize sheet.
+- C9/C4 follow-up: SSH workspaces (tmux, screen, cmux-tui) in the list; SFTP.
+- C8/C4/D1 follow-up: terminal composer with image paste; drafts per terminal; composer uploader
+  (seam only above).
+- C13: todo surface. C11: haptics toggle, erase all data. C10/C16: keep-awake onboarding card.
+- C16: deferred sign-in.
+
+## 2. Device verification checklist
+
+Ordered by risk: what blocks the most, or fails silently, first. Each line names the lane note it
+comes from. Steps run on the tagged pair `nxd3` (section 6).
+
+### 2.1 Blockers before any real-Mac path works
+
+1. D1b: the cmux-next Mac app has no `MobileLinkHostAccount` (host id, install, token minter,
+   signers), so `MobileLinkHostRunner` does not start; every real-Mac terminal, file, browser and
+   task path shows "No connection to this Mac" until D1b lands (d1-terminal-ux.md 7, c1 13).
+2. D1b: TURN credentials need a read on the host socket (STUN only today) (d1 7, b2 12).
+3. Backend: `wrangler secret put CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` on the dev
+   env, then `POST /v1/realtime/turn` returns `turn:` URLs (b2 12.1).
+4. D1b: `MobileTaskRunner` over acpmux, `BrowserPageHost`, `MobileFileRootsProvider`,
+   `MobileGitReader` adapters (c8 7, c2, c4 9, c13 7).
+
+### 2.2 Trust, pairing, carriers (security and connectivity)
+
+5. Same-account pairing: Mac and phone on one Stack account, `auth status` matches, the Mac appears
+   trusted without a QR; QR pairing for a second account; revoke kicks a live session (b6, b5 3).
+6. Secure Enclave install key signs hello and WebRTC bindings; the Keychain direct key publishes
+   before first dial (d1 2).
+7. V1: same Wi-Fi badge `p2p`; DEV Force TURN badge `turn`; roam Wi-Fi to cellular mid-terminal keeps
+   the session or resumes with no gap; a relay rewriting SDP fingerprints fails with `auth` (b2 12).
+8. V3: Tailscale `100.x` and LAN address; Bonjour `_cmux._tcp` browse; the Local Network prompt
+   appears once (Info.plist has the keys; `_cmux-iroh._udp` is stale) (b4 8).
+9. V2 is DEV-only and needs a `wg` cert publish op (B6); skip unless D2 keeps V2 (d1 7, b3 10).
+10. Large frames over V1 on a real network: 64 B echo p99 stays low under a C4 download (d2 F1).
+
+### 2.3 Terminal (D1, C1, A2)
+
+11. Workspaces > tagged Mac > workspace > terminal: snapshot appears, typing echoes once in order,
+    rotate and keyboard show/hide resize the grid (READY), badge and banner states on Wi-Fi off/on.
+12. Load Older History (Command-Up) reads as unavailable on cmux-tui (`proto.unsupported`), no retry loop.
+13. Echo prediction DEV switch (`CMUX_IOS_TERMINAL_PREDICTION=1`): confirm and rollback look right.
+14. Renderer: 120 Hz during scroll, pinch zoom HUD, link tap, edit menu, selection (a2 4).
+15. Hardware keyboard: Esc/Ctrl/Option reach the program, Command keys do not; Cmd-K skipped while a
+    terminal hides the tab bar (d1 4, c15 9).
+16. Re-run the ios-keyboard audit (`KeyboardAuditUITests`): composer rides keyboard, rotation,
+    hardware Return, Home key commands, terminal tap focus (ios-keyboard.md 1).
+17. Benchmark `CMUX_IOS_TERMINAL_BENCH=htop|flood|vim` numbers (`terminal-bench.json`).
+
+### 2.4 Notifications and feed (C7, C6)
+
+18. Token registration and push delivery on the tagged build; the NotificationService extension's
+    decisions on real pushes (expired drop, category).
+19. Lock-screen actions Allow/Deny, Allow Once/Session, Reply, plan Approve/Request Changes under the
+    background budget; "Answered elsewhere" and "Answer not sent" notices.
+20. Remote dismiss and foreground badge sync; Live Activity rendering and push updates (needs
+    `com.cmux.app.AgentActivityWidget` registered for release signing).
+21. Feed on real `FeedDO`: inline approve, multi-question answer, quoted reply, read state.
+
+### 2.5 Features over the link
+
+22. C2 browser: ScreenCaptureKit capture of a CEF pane, VideoToolbox encode/decode, gestures, IME
+    commit, latency numbers.
+23. C4 files: 200 MB download, resume after backgrounding and after a session drop; upload from Photos.
+24. C8 composer: dictation on device; live spawn check (real Macs refuse `spawn_unverified` until D1b);
+    receipt and stream.
+25. C9 SSH: trust alert, changed key, key install with password, PTY resize, reconnect, keepalive
+    drop detection, Secure Enclave key.
+26. C13 viewers: Markdown, image, PDF, diff pager against a real repo.
+
+### 2.6 Shell, settings, platform
+
+27. C10 onboarding on a fresh install: every step, permission priming (notifications, local network,
+    camera), Not Now is respected at the next launch.
+28. C11: Delete Account failure copy, team switcher, device rename and revoke, notification prefs.
+29. C16: toast overlay, diagnostics export share sheet, What's New once per update, Mac gate (once B5
+    serves caps), keep-awake and plans stubs DEV-only.
+30. C15: search hardware arrows over the field; Cmd-K after a field resigns.
+31. C5: coalescing under a real event burst (one snapshot per frame); offline/sleeping reasons.
+32. Accessibility on device: VoiceOver pass over every tab, Dynamic Type AX5, Reduce Motion
+    (section 4 lists what the static audit fixed and what remains).
+
+### 2.7 Measurements (D2)
+
+33. The D2 device re-measure plan (d2-bakeoff.md 6): needs F2 split mode (`cmux-link-bench serve` and
+    the iOS DEV Link bench screen), which is not built. Until then, record C1 `TerminalLatencyReport`
+    (echo p50/p95, frame age) idle and under `yes | head -c 500M`, and a 10 min Power Profiler trace
+    per carrier (section 6.5).
+
+## 3. UI tests
+
+New classes in `ios/cmuxUITests` (target `cmuxUITests`, scheme `cmux-ios`, registered in
+`project.pbxproj`). `NextUITestSupport.launchShell(tab:)` sets `CMUX_IOS_HOME_PREVIEW=1`,
+`CMUX_IOS_SOURCES=mock`, `CMUX_IOS_ONBOARDING=0`, `CMUX_IOS_FLAG_{FEED,WORKSPACES,COMPOSE,HOSTS,SEARCH}_TAB=1`
+and `CMUX_IOS_SHELL_TAB=<tab>`; `launchOnboarding(step:)` sets `CMUX_IOS_ONBOARDING=1` (and
+`CMUX_IOS_ONBOARDING_STEP`) signed out. English locale, predicate waits, no sleeps.
+
+| Class | Tests | Switches |
+| --- | --- | --- |
+| `NextOnboardingUITests` | tour walk-through to sign-in, Deny also unlocks Continue, Have an Account, header Skip, Back | `CMUX_IOS_ONBOARDING=1`, `_STEP=approve` |
+| `NextShellTabsUITests` | every `CMUX_IOS_SHELL_TAB` value, tab bar selects every tab (iPhone, More fallback) | shell |
+| `NextFeedUITests` | mock list, Allow, Deny, suggestion chip, reply composer send | tab `feed` |
+| `NextWorkspacesUITests` | both Macs listed, list -> detail -> terminal (mock host), detail -> Changes | tab `workspaces` |
+| `NextComposerUITests` | send on mock, floating button opens composer | tabs `compose`, `feed` |
+| `NextHostsUITests` | fixture hosts, Add SSH Host form, Keys screen | tab `hosts` |
+| `NextSettingsUITests` | account and version, device detail, Terminal, Notifications, Privacy, What's New, Developer sources, Demo page, Replay tour | tab `settings`, `CMUX_IOS_DEMO=1` |
+| `NextSearchUITests` | Cmd-K opens search, query -> results -> open a hit | tabs `settings`, `search` |
+| `NextDiagnosticsUITests` | Diagnostics rows, Copy Support Info, Clear Log confirms, terminal bench reports | tab `settings`, `CMUX_IOS_TERMINAL_BENCH=flood` |
+
+Identifiers added (no behavior change): `home.screen`, `terminal.screen`, `terminal.view`,
+`onboarding.signIn.title`, `feed.action.{allow,deny,allowOptions,reply}`, `feed.suggestion.<text>`,
+`feed.resolution`, `feed.composer.send`, `platform.diagnostics.lines`.
+
+Verification: `xcrun --sdk iphonesimulator swiftc -typecheck -target arm64-apple-ios17.0-simulator
+-swift-version 6 ios/cmuxUITests/*.swift` is clean; the package-side identifier lines were not compiled
+(single modifier or property set each). Not run: no simulator here (section 6.4 runs them).
+
+Known risks for the first run: feed inline buttons in list cells are VoiceOver custom actions that
+XCUITest cannot press, so the tests answer from the item detail; the Add SSH Host `UIMenu` action is
+found by its English title; Cmd-K assumes the shell is first responder on Settings; the onboarding
+tests need a fresh simulator keychain (a restored session skips to the signed-in steps); the
+`composer.outcome` and Clear Log dialog lookups assume the mock and system presentation.
+
+## 4. Static audits
+
+Commits on this branch: `e007e274b45` (l10n), `4a8a7408bcf`, `c06733cd04d`, `ae07aef5b51` (a11y).
+
+1. Localization. `scripts/cmux-next/check-l10n.sh` scans only `Packages/macOS/CmuxNext`; a copy
+   pointed at `ios/CmuxiOS/Sources` and `Packages/Shared` found no key missing en or ja and no bare UI
+   literal, but 1,104 errors in seven catalogs (App, Files, LiveActivity, Pairing, PairingCore, Push,
+   Workspaces): 1,064 missing `needs_review` copies of the 19 untranslated languages, and 40 from
+   `workspaces.row.panes` / `workspaces.machine.count` stored as plain strings ("1 panes"). Fixed: 0
+   errors in `ios/` (remaining errors are in legacy `CMUXMobileCore` and `CmuxMessagesLab`). Backlog:
+   1,150 `needs_review` keys per non-ja language, 31 for ja.
+2. Concurrency. `check-concurrency.sh` on `ios/CmuxiOS` and each of the 16 new Shared packages: 124
+   hits (about 55 unbounded `AsyncStream` buffers, 45 sleeps, 25 loops). No `asyncAfter`,
+   `Timer.scheduledTimer`, RunLoop polling or sync poll loop in runtime code; sleeps are cancellable
+   deadlines, backoffs and debounces on injected clocks. The one `Timer` is kept Home code
+   (`HomeRunLoopDeadline`); NetLab timers are DEBUG.
+3. iOS package lint: exit 0, 94 warnings, no violations; its scope excludes `ios/CmuxiOS`.
+4. Crash safety: wire decoders (LinkFrame, DirectRecord, Rd, LaneFrame, OverlayDatagram,
+   H264AccessUnit, FeedWireFrame) bounds-check before indexing and convert integers safely; remaining
+   `precondition`/`as!`/`!` are programmer invariants or constant URLs.
+5. VoiceOver and Dynamic Type, fixed: unread badge and chip font did not follow live Dynamic Type
+   (`ShellTypography` chip font through `UIFontMetrics`); workspace detail's ellipsis menu had no label
+   ("Workspace Actions"); transfer rows did not say Upload or Download and formatted percent by hand;
+   the SSH import selection glyph was read twice; the composer mock chip had a fixed font.
+
+Left for owners, most severe first:
+- Medium (A3/B2/B3/B1): unbounded buffers on network ingress with no back-pressure:
+  `CmuxLinkWebRTC/Datagram/WebRTCDatagramChannel.swift:20`, `CmuxLinkWebRTC/Peer/WebRTCPeer.swift:50`,
+  `CmuxLinkDirect/Transport/DirectTransport.swift:32`, `CmuxControlPlane/ControlPlaneClient.swift:37,71,149`,
+  `CmuxMobileLink/Binding/MobileChannel.swift:30,62`, `CmuxLinkWG/Transport/WireGuardLinkTransport.swift:91`,
+  `CmuxiOSBrowserCore/Link/LinkBrowserStreamSession.swift:23`. `bufferingNewest` would also drop the
+  closed and path-changed events these streams carry, so the fix is a split stream.
+- Low (C13): `ChangesViewController.swift:184` derives the +/- font from the current footnote size
+  without `UIFontMetrics`; `LineNumberGutterView.swift:12` has an unused fixed 11 pt default.
+- Tooling: `check-l10n.sh`, `check-concurrency.sh` and the package lint default to macOS or legacy
+  scope, so CI checks none of `ios/CmuxiOS` or the new Shared packages. Most concurrency hits are
+  macOS-only rules.
+- Session replay masks (C16 decision): Metal and video surfaces to mask before enabling replay are
+  `GhosttyTerminalView` (CmuxiOSTerminal), `BrowserVideoView` and `BrowserCanvasView` (CmuxiOSBrowser), and
+  `ImageViewController` and `PDFViewController` content (CmuxiOSViewers).
+- `ios/Config/Info.plist` still lists `_cmux-iroh._udp` in `NSBonjourServices` (iroh is dropped).
+
+## 5. Package tests on the integration state
+
+`swift test` once per new Shared package on a `git archive` of `feat-cmux-next-ios` (Shared packages
+at `b3cffeafeda`, so B2's large-frame fix is included; `schemas/` and the terminal corpus copied for
+fixture paths), one package at a time, `.build` deleted after each. Toolchain: the local Xcode Swift 6.
+
+| Package | Tests | Result |
+| --- | --- | --- |
+| CmuxLink | 37 | pass |
+| CmuxMobileWire | 21 | pass |
+| CmuxControlPlane | 11 | pass |
+| CmuxFeedPushCore | 40 | pass |
+| CmuxTerminalRenderCore | 46 | pass |
+| CmuxLinkDirect | 25 | pass |
+| CmuxLinkWG | 40 | pass |
+| CmuxMobileLink | 1 | pass |
+| CmuxBrowserStream | 22 | pass |
+| CmuxPairing | 16 | pass |
+| CmuxMobileHost | 109 | pass |
+| CmuxMobileFiles | 12 | pass |
+| CmuxTerminalLink | 33 | pass |
+| CmuxLinkWebRTC | 37 | pass (includes `LargeFrameTests`) |
+| CmuxLinkBench | 2 | pass |
+| CmuxMobileConnect | 8 | pass |
+| **Total** | **460** | **16/16 packages, 0 failures** |
+
+Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
+scratch packages), TS vitest (no `node_modules`), Rust (no cargo on this Mac).
+
+## 6. Runbook: tagged pair `nxd3`
+
+Run from the hq root (`HQ_ROOT`), worktree `worktrees/feat-cmux-next-ios-d3-dogfood` (`WT`). Physical
+iPhone = Aziz `4A52829D-6427-599F-A166-4058881D2DF4`, auth profile `personal`.
+
+### 6.1 Preflight
+
+```bash
+./scripts/macfleet-doctor.sh report --probe          # must show a free direct slot (needs ~/.config/macfleet/hosts.json)
+./scripts/dev-backend.sh status                      # dev backend VM reachable
+./scripts/ios-dogfood-doctor.sh --checkout worktrees/feat-cmux-next-ios-d3-dogfood
+gh auth status                                       # pushes and workflow dispatch need it
+```
+
+The real-Mac paths in 2.2 to 2.5 also need D1b merged into this branch (2.1). Without it the pair
+still verifies the mock flows, onboarding, settings, SSH and push.
+
+### 6.2 Build and install
+
+```bash
+cd worktrees/feat-cmux-next-ios-d3-dogfood
+./scripts/reload-cloud.sh --tag nxd3 --direct-backend --launch
+./ios/scripts/reload-cloud.sh --tag nxd3 --device-id 4A52829D-6427-599F-A166-4058881D2DF4 --wait
+CMUX_TAG=nxd3 scripts/cmux-debug-cli.sh auth status    # signed in, email = the account mobile-dev-launch printed
+scripts/iphone-install-queue.sh list                  # empty, or drain if the phone was unreachable
+```
+
+If the phone lands on login: `./scripts/mobile-dev-launch.sh --tag nxd3 --device --device-id
+4A52829D-6427-599F-A166-4058881D2DF4 --ensure-mac --auth-profile personal --credentials-file
+"$HOME/.secrets/cmuxterm-dev.env"` (from hq). The iOS launch must print `trusted-paired` and `usable
+RPC session established`. For API-backed dogfood start `cd web && CMUX_PORT=<printed> bun dev` and warm
+`/`, `/handler/sign-in`, `/handler/after-sign-in`.
+
+### 6.3 D1 terminal steps
+
+1. Mac: the tagged app runs with `CMUX_NEXT_MOBILE_LINK=1` (Debug default) and D1b's account seam;
+   check the debug log for `MobileLinkHostRunner` start and the direct cert publish.
+2. Phone: Settings > Devices shows the Mac trusted with a route badge (`direct` on LAN, `p2p`/`turn` off LAN).
+3. Workspaces > the `nxd3` Mac > any workspace > terminal: checklist items 11 to 15.
+4. Toggle Wi-Fi off and on during `yes`; the banner reads Reconnecting then clears with no duplicate
+   or lost input (type a counter before and after).
+5. Shake > DEV: Force TURN, then repeat 3 and 4; `CMUX_IOS_LINK_WG=1` only if V2 is still in the race.
+
+### 6.4 UI tests on a fleet simulator
+
+There is no iOS UI test workflow on this branch: `test-e2e.yml` was deleted with the legacy macOS app
+(a4a0868db8b) and `test-ios.yml` only builds the app. Run the classes with the existing runner on a
+leased isolated simulator (one xcodebuild per test, one recording each):
+
+```bash
+scripts/verify-remote.sh capacity
+# on the leased Mac, in a checkout of this branch, with NX_SIM_UDID = its per-lease simulator:
+for c in NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
+         NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
+         NextDiagnosticsUITests KeyboardAuditUITests; do
+  KBD_CLASS=$c NX_ARTIFACTS=artifacts/d3-uitests/$c ios/scripts/keyboard-uitests.sh
+done
+```
+
+When an iOS lane is added to a dispatchable workflow, the same classes go in its `test_filter`
+(`cmuxUITests/<Class>`), for example
+`gh workflow run test-ios.yml --repo manaflow-ai/cmux -f ref=feat-cmux-next-ios-d3-dogfood -f test_filter=cmuxUITests/NextShellTabsUITests`
+once `test-ios.yml` gains a UI-test step (today it ignores `test_filter` for the simulator build).
+
+### 6.5 D2 device re-measure
+
+Follow d2-bakeoff.md section 6 on the `nxd3` pair once F2 exists; until then:
+
+```bash
+# Power and memory, 10 min per carrier, phone on battery, screen on:
+xcrun xctrace record --template "Power Profiler" --device 4A52829D-6427-599F-A166-4058881D2DF4 \
+  --attach "cmux DEV nxd3" --time-limit 10m --output artifacts/d3-power-<carrier>.trace
+```
+
+Record `TerminalLatencyReport` lines from the device log (idle, typing, under a 500 MB flood in a
+second pane, during a 200 MB C4 download) per network in d2-bakeoff.md 6.3, and commit the JSON under
+`plans/cmux-next/ios-next/bakeoff/device/`. Pass bars: d2-bakeoff.md 6.7.
+
+### 6.6 Teardown
+
+`pkill -f "cmux DEV nxd3"` on the Mac, `scripts/verify-remote.sh release <lease>`, and remove the
+worktree's scratch (`/tmp/cmux-nxd3`, `artifacts/d3-*`) after the evidence is committed or uploaded.
