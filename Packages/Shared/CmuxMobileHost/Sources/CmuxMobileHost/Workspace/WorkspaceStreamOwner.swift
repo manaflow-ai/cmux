@@ -13,6 +13,11 @@ import Foundation
 /// Every snapshot and event carries `epoch` (one per stream instance): a
 /// mirror holding another epoch's seq takes a snapshot instead of applying
 /// events (b1-control-do.md section 11).
+///
+/// Preview lines (`workspace.preview.set`) are sanitized and sent at most once
+/// per `previewInterval` per tab; a newer line inside the interval waits for
+/// one trailing refresh on the injected clock, so the last line always lands
+/// and a chatty terminal costs one event per tab per interval.
 public actor WorkspaceStreamOwner {
     public nonisolated let stream: String
     public nonisolated let hostID: String
@@ -32,9 +37,16 @@ public actor WorkspaceStreamOwner {
     /// A change arrived before the first state was set: read again after it.
     private var changedWhileLoading = false
     private var stopped = false
+    private let previewInterval: Duration
+    private let clock: any Clock<Duration>
+    private var previewSentAt: [String: Date] = [:]
+    private var previewFlush: Task<Void, Never>?
 
     public init(hostID: String, daemon: any MobileDaemon, startSeq: UInt64? = nil, tailLimit: Int = 512,
-                subscriberBuffer: Int = 1024, now: @escaping @Sendable () -> Date = { Date() }) {
+                subscriberBuffer: Int = 1024, now: @escaping @Sendable () -> Date = { Date() },
+                previewInterval: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock()) {
+        self.previewInterval = previewInterval
+        self.clock = clock
         self.hostID = hostID
         stream = "workspace:\(hostID)"
         self.daemon = daemon
@@ -114,6 +126,8 @@ public actor WorkspaceStreamOwner {
         stopped = true
         changeTask?.cancel()
         changeTask = nil
+        previewFlush?.cancel()
+        previewFlush = nil
         for continuation in subscribers.values { continuation.finish() }
         subscribers.removeAll()
     }
@@ -122,7 +136,7 @@ public actor WorkspaceStreamOwner {
 
     private func loadedSnapshot(decided: [DecidedKey]) throws -> SnapshotFrame {
         guard let state else { throw MobileDaemonError(code: "owner.unreachable", message: "workspace state not loaded", retryable: true) }
-        return SnapshotFrame(stream: stream, seq: head, state: try state.jsonValue, decided: decided)
+        return SnapshotFrame(stream: stream, seq: head, state: try state.jsonValue, decided: decided, epoch: epoch)
     }
 
     private func load() async throws -> MobileWorkspaceState {
@@ -134,7 +148,7 @@ public actor WorkspaceStreamOwner {
             if !self.isListening {
                 self.startListening(await daemon.workspaceChanges())
             }
-            return try await daemon.workspaceState()
+            return try await daemon.workspaceState().sanitized
         }
         loadTask = task
         do {
@@ -182,7 +196,8 @@ public actor WorkspaceStreamOwner {
             changedWhileLoading = true
             return
         }
-        guard let new = try? await daemon.workspaceState() else { return }
+        guard let read = try? await daemon.workspaceState() else { return }
+        let new = throttlePreviews(from: old, to: read.sanitized)
         let changes = WorkspaceDiff(from: old, to: new).changes
         state = new
         let at = Int64(now().timeIntervalSince1970 * 1000)
@@ -190,11 +205,55 @@ public actor WorkspaceStreamOwner {
             head += 1
             let event = EventFrame(stream: stream, seq: head, tx: "tx_\(hostID)_\(head)", op: change.op,
                                    params: change.params, actor: ["identity": .string("host:\(hostID)")],
-                                   origin: .cli, at: at)
+                                   origin: .cli, at: at, epoch: epoch)
             tail.append(event)
             if tail.count > tailLimit { tail.removeFirst(tail.count - tailLimit) }
             for continuation in subscribers.values { continuation.yield(.event(event)) }
         }
+    }
+
+    /// `new` with each preview that changed again within `previewInterval`
+    /// held at its published value; schedules one trailing refresh for them.
+    private func throttlePreviews(from old: MobileWorkspaceState, to new: MobileWorkspaceState) -> MobileWorkspaceState {
+        var published = new
+        var held = false
+        let date = now()
+        for w in published.workspaces.indices {
+            for p in published.workspaces[w].panes.indices {
+                for t in published.workspaces[w].panes[p].tabs.indices {
+                    let tab = published.workspaces[w].panes[p].tabs[t]
+                    guard let before = old.tab(tab.id)?.tab, before.arrangement == tab.arrangement,
+                          before.preview != tab.preview else { continue }
+                    if let last = previewSentAt[tab.id], date.timeIntervalSince(last) < previewInterval.seconds {
+                        published.workspaces[w].panes[p].tabs[t].preview = before.preview
+                        held = true
+                    } else {
+                        previewSentAt[tab.id] = date
+                    }
+                }
+            }
+        }
+        if held { schedulePreviewFlush() }
+        return published
+    }
+
+    private func schedulePreviewFlush() {
+        guard previewFlush == nil, !stopped else { return }
+        let clock = self.clock
+        let interval = previewInterval
+        previewFlush = Task { [weak self] in
+            // wakeup-allow: one trailing preview flush per interval, only while a line is held
+            try? await clock.sleep(for: interval)
+            guard !Task.isCancelled else { return }
+            await self?.flushPreviews()
+        }
+    }
+
+    /// The interval passed on the injected clock: every held line may go now.
+    private func flushPreviews() async {
+        previewFlush = nil
+        previewSentAt.removeAll()
+        await refresh()
     }
 
     private func removeSubscriber(_ id: UUID) {

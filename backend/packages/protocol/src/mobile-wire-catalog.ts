@@ -50,10 +50,13 @@ export const mobileCatalog = {
       { name: "workspace.tab.upsert", kind: "owner", plane: "control", dir: "s2c", owner: "mac-workspace-store" },
       { name: "workspace.tab.remove", kind: "owner", plane: "control", dir: "s2c", owner: "mac-workspace-store" },
       { name: "workspace.status.set", kind: "owner", plane: "control", dir: "s2c", owner: "mac-workspace-store" },
+      { name: "workspace.preview.set", kind: "owner", plane: "control", dir: "s2c", owner: "mac-workspace-store" },
       { name: "workspace.create", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store" },
       { name: "workspace.rename", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store", errors: ["workspace.not_found"] },
       { name: "workspace.tab.create", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store", errors: ["workspace.not_found"] },
       { name: "workspace.tab.close", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store", errors: ["workspace.tab_not_found"] },
+      { name: "workspace.close", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store", errors: ["workspace.not_found"] },
+      { name: "workspace.read", kind: "op", plane: "control", dir: "c2s", owner: "mac-workspace-store", errors: ["workspace.not_found"] },
     ] },
     { name: "terminal", plane: "stream", owner: "mac-session-host", messages: [
       { name: "terminal", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-session-host", class: "interactive", errors: ["terminal.not_found", "terminal.exited"] },

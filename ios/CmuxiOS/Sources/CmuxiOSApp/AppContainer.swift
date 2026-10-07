@@ -17,6 +17,8 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSWorkspaces
+import CmuxiOSWorkspacesCore
 import Foundation
 import OSLog
 import UIKit
@@ -66,6 +68,9 @@ final class AppContainer {
     let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane C1 sets the cmux session host's byte sources (`.host` over
+    /// `CmuxLink`); nil keeps A2's mock host behind workspace terminals.
+    var terminalSources: (any WorkspaceTerminalSourceFactory)?
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
@@ -154,7 +159,8 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
-        realFactories = Self.addingFeed(to: factories, base: base, identity: madeIdentity)
+        realFactories = Self.addingWorkspaces(to: Self.addingFeed(to: factories, base: base, identity: madeIdentity),
+                                              base: base, identity: madeIdentity)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -229,6 +235,29 @@ final class AppContainer {
                     try await identity.token(for: nil)
                 }
             }
+        }
+        return factories
+    }
+
+    /// C5: workspaces of the account's paired Macs over the control plane.
+    private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
+                                         identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = factories
+        // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
+        // as this install (b1-control-do.md). Without an API origin each Mac
+        // shows as unreachable instead of as fake data.
+        let channels: any WorkspaceChannelFactory
+        if let base, let identity {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            channels = ControlPlaneWorkspaceChannelFactory(
+                apiBaseURL: base, appVersion: version ?? "0", reasons: WorkspacesFeature.controlPlaneReasons,
+                install: { try await identity.ownerInstall().install },
+                token: { try await identity.token(for: nil) })
+        } else {
+            channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
+        }
+        factories.workspaces = { devices in
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
         }
         return factories
     }

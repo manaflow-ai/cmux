@@ -24,13 +24,22 @@ public final class MockWorkspaceSource: WorkspaceSource {
             guard hosts[host].isReachable else { throw MockRefusal("Host unreachable") }
             hosts[host].workspaces.append(WorkspaceSummary(
                 id: "ws_" + key.rawValue.prefix(8), hostID: hostID, title: title ?? "workspace",
-                status: .idle, paneCount: 1, lastActivity: Date()))
+                status: .idle, paneCount: 1, lastActivity: Date(),
+                order: (hosts[host].workspaces.map(\.order).max() ?? -1) + 1))
         case .rename(let workspaceID, let title):
             let (host, index) = try locate(workspaceID, in: hosts)
             hosts[host].workspaces[index].title = title
         case .close(let workspaceID):
             let (host, index) = try locate(workspaceID, in: hosts)
             hosts[host].workspaces.remove(at: index)
+        case .markRead(let workspaceID):
+            let (host, index) = try locate(workspaceID, in: hosts)
+            hosts[host].workspaces[index].unreadCount = 0
+            for pane in hosts[host].workspaces[index].panes.indices {
+                for surface in hosts[host].workspaces[index].panes[pane].surfaces.indices {
+                    hosts[host].workspaces[index].panes[pane].surfaces[surface].unreadCount = 0
+                }
+            }
         }
     }
 

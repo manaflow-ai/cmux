@@ -7,6 +7,7 @@
     "StreamId": { "type": "string", "pattern": "^[a-z][a-z_]*:[A-Za-z0-9._:-]+$" },
     "Seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "Revision": { "type": "string", "pattern": "^[0-9]+$" },
+    "Epoch": { "type": "string", "minLength": 1, "maxLength": 128, "description": "An owner's stream instance (ep_<start>_<random>)" },
     "ErrorCode": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
     "Origin": { "enum": ["user", "cli", "mcp", "script", "remote"] },
     "Capability": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,63}$" },
@@ -50,7 +51,8 @@
         "terminal": { "$ref": "#/$defs/TerminalId" },
         "url": { "type": "string", "maxLength": 4096 },
         "status": { "$ref": "#/$defs/TabStatus" },
-        "unread": { "type": "integer", "minimum": 0 }
+        "unread": { "type": "integer", "minimum": 0 },
+        "preview": { "type": "string", "maxLength": 400 }
       }
     },
     "Pane": {
@@ -72,7 +74,12 @@
         "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
         "pinned": { "type": "boolean" },
         "order": { "type": "integer" },
-        "panes": { "type": "array", "items": { "$ref": "#/$defs/Pane" } }
+        "panes": { "type": "array", "items": { "$ref": "#/$defs/Pane" } },
+        "group": {
+          "type": "object", "additionalProperties": false, "required": ["id", "name"],
+          "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 128 }, "name": { "type": "string", "maxLength": 200 } }
+        },
+        "activity_at": { "$ref": "#/$defs/Timestamp" }
       }
     },
     "HostSummary": {

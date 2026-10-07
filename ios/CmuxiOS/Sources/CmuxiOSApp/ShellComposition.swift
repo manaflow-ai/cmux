@@ -4,6 +4,7 @@ import CmuxiOSFeed
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSWorkspaces
 import UIKit
 
 /// Builds the signed-in shell from the container: Home in its navigation
@@ -40,8 +41,15 @@ enum ShellComposition {
         let feedIsMock = sources.resolved[.feed] != .real
         let feedNavigator = container.feedNavigator
         let deviceName = UIDevice.current.name
+        // Lane C5: the Workspaces tab; terminals open over C1's sources once
+        // registered, else the mock host. `workspaces.makePicker` is the
+        // picker the composer (C8) presents.
+        let workspaces = WorkspacesFeature(
+            source: sources.workspaces, terminalSources: container.terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            isMock: sources.resolved[.workspaces] != .real)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
+            .workspaces: { workspaces.makeWorkspacesScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)
