@@ -1173,7 +1173,7 @@ function AcpmuxPane() {
     const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
-  }, [snapshot.rows]);
+  }, [snapshot.rows, snapshot.sessionId]);
   const lastChanges = useMemo(
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
     [lastEditTurn, turnCountsFor],
