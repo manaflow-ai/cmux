@@ -601,7 +601,11 @@ public final class BrowserReplSession: @unchecked Sendable {
             ledger: ledger
         )
         self.sleeper = sleeper
-        self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
+        // The stack is in use until the thread ends, which close() only
+        // queues behind the work already on it: it is given back then.
+        self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)") {
+            ledger.releaseAll([.threadStackBytes])
+        }
         self.eventQueue = DispatchQueue(label: "com.cmux.browser-repl.events.\(id)", qos: .userInitiated)
         self.fetcher = BrowserReplFetcher(driver: driver, ledger: ledger)
         let writeBudget = BrowserReplWriteBudget(ledger: ledger)
@@ -940,10 +944,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedFetches.removeAll()
         requestPhaseFetches.removeAll()
         queuedDriverCalls.removeAll()
-        // What those held: their tasks no longer release it.
+        // What those held: their tasks no longer release it. The thread's
+        // stack goes when the thread ends (init's onExit).
         ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
-                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes,
-                           .threadStackBytes])
+                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()

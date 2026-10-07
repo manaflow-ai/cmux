@@ -43,7 +43,9 @@ struct BrowserReplProcessBudgetTests {
 
         first.close()
         second.close()
-        // close() gives back the stack and what its holders had not released.
+        // close() gives back what its holders had not released, and each
+        // thread its stack once it has ended.
+        #expect(first.thread.waitUntilExited(timeout: .seconds(30)) && second.thread.waitUntilExited(timeout: .seconds(30)))
         #expect(process.held(.processMemoryBytes) == 0, "closed sessions still hold \(process.held(.processMemoryBytes))")
     }
 
@@ -71,7 +73,8 @@ struct BrowserReplProcessBudgetTests {
     @Test("A closed session's thread stack stays reserved until the thread has ended")
     func stackStaysReservedUntilTheThreadEnds() throws {
         let stack = BrowserReplJSThread.stackSize
-        let process = BrowserReplResourceLedger(limits: BrowserReplResourceLimits.process.with(.processMemoryBytes, stack + (16 << 20)))
+        // Room for one thread's stack only.
+        let process = BrowserReplResourceLedger(limits: BrowserReplResourceLimits.process.with(.processMemoryBytes, stack))
         let session = makeSession(process)
         #expect(!session.isClosed)
         // Native work that holds the session's thread past close().
