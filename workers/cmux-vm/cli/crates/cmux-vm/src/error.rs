@@ -125,6 +125,7 @@ impl CliError {
             403 => "this credential lacks the required scope",
             404 => "not found",
             409 => "the resource's current state does not allow this",
+            413 => "the request is larger than the cmux VM API accepts",
             429 => "a quota or rate limit was reached",
             501 => "this operation is not available yet",
             503 => "the cmux VM service is temporarily unavailable",

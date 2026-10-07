@@ -286,6 +286,7 @@ async fn every_documented_error_status_has_a_distinct_exit_code() {
         (403, "Forbidden", exit::FORBIDDEN),
         (404, "NotFound", exit::NOT_FOUND),
         (409, "Conflict", exit::CONFLICT),
+        (413, "PayloadTooLarge", exit::PAYLOAD_TOO_LARGE),
         (429, "QuotaExceeded", exit::QUOTA_EXCEEDED),
         (501, "NotImplemented", exit::NOT_AVAILABLE_YET),
         (503, "ServiceUnavailable", exit::SERVICE_UNAVAILABLE),

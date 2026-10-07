@@ -30,6 +30,8 @@ pub const QUOTA_EXCEEDED: i32 = 16;
 pub const NOT_AVAILABLE_YET: i32 = 17;
 /// HTTP 503: the service is temporarily unavailable.
 pub const SERVICE_UNAVAILABLE: i32 = 18;
+/// HTTP 413: the request or the file is larger than the API accepts.
+pub const PAYLOAD_TOO_LARGE: i32 = 19;
 
 /// The exit code for an HTTP error status. Statuses the API does not document
 /// map to [`UNEXPECTED`]; a test checks that every status in openapi.json has
@@ -42,6 +44,7 @@ pub fn for_status(status: u16) -> i32 {
         403 => FORBIDDEN,
         404 => NOT_FOUND,
         409 => CONFLICT,
+        413 => PAYLOAD_TOO_LARGE,
         429 => QUOTA_EXCEEDED,
         501 => NOT_AVAILABLE_YET,
         503 => SERVICE_UNAVAILABLE,

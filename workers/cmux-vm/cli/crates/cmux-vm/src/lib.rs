@@ -45,7 +45,7 @@ Exit codes:
   12 payment required (402)     13 forbidden, missing scope (403)
   14 not found (404)            15 conflict (409)
   16 quota or rate limit (429)  17 not available yet (501)
-  18 service unavailable (503)";
+  18 service unavailable (503)  19 payload too large (413)";
 
 #[derive(Parser, Debug)]
 #[command(
