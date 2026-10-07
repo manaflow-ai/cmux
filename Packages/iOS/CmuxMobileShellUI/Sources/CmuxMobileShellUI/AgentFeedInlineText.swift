@@ -46,7 +46,9 @@ final class AgentFeedInlineTextView: UIView {
         return cache
     }()
 
-    private let textView = UITextView()
+    // Link hit-testing uses NSLayoutManager. Start in TextKit 1 instead of
+    // creating a TextKit 2 stack and migrating it on the first layout.
+    private let textView = UITextView(usingTextLayoutManager: false)
     private let moreButton = UIButton(type: .custom)
     private var source = ""
     private var hasMoreText = false
@@ -57,6 +59,8 @@ final class AgentFeedInlineTextView: UIView {
     private var openURL: (@MainActor (URL) -> Void)?
     private var measuredWidth: CGFloat = -1
     private var measuredSize: CGSize = .zero
+    private var measuredEntry: AgentFeedInlineTextCacheEntry?
+    private var appliedEntry: AgentFeedInlineTextCacheEntry?
     private var linkRange: NSRange?
     private var laidOutWidth: CGFloat = -1
     private var textLayoutNeedsUpdate = true
@@ -120,7 +124,9 @@ final class AgentFeedInlineTextView: UIView {
             width: width
         )
         if let cached = Self.measurementCache.object(forKey: cacheKey) {
-            apply(cached, width: width)
+            measuredWidth = width
+            measuredSize = cached.measuredSize
+            measuredEntry = cached
             return measuredSize
         }
 
@@ -159,21 +165,29 @@ final class AgentFeedInlineTextView: UIView {
                 attempts += 1
             }
             displayed = preview(utf16Length: cut)
-            textView.textContainer.maximumNumberOfLines = lineLimit
             let range = NSRange(location: displayed.length - moreTitle.utf16.count, length: moreTitle.utf16.count)
             displayed.addAttribute(.foregroundColor, value: tintColor ?? UIColor.systemBlue, range: range)
             displayedLinkRange = range
         } else {
             displayed = complete
         }
-        // Mark the width before asking UITextView for its fitting size. UIKit
-        // may synchronously lay out this view while doing that measurement.
+        // SwiftUI probes several widths before laying out a row. Measuring
+        // must not mutate the displayed text or synchronously lay out a live
+        // UITextView for each discarded proposal.
         measuredWidth = width
-        textView.textContainer.maximumNumberOfLines = needsExpansion ? lineLimit : 0
-        textView.attributedText = displayed
-        let size = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        measuredSize = size
-        measuredSize.width = width
+        let storage = NSTextStorage(attributedString: displayed)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = needsExpansion ? lineLimit : 0
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        var height = layout.usedRect(for: container).maxY
+        if layout.extraLineFragmentTextContainer != nil {
+            height = max(height, layout.extraLineFragmentRect.maxY)
+        }
+        measuredSize = CGSize(width: width, height: ceil(height))
         if needsExpansion {
             // Keep the inline button's 44-point hit target inside this view,
             // including a one-line preview shortened by the Mac.
@@ -186,17 +200,24 @@ final class AgentFeedInlineTextView: UIView {
             needsExpansion: needsExpansion
         )
         Self.measurementCache.setObject(entry, forKey: cacheKey)
-        apply(entry, width: width)
+        measuredEntry = entry
         return measuredSize
     }
 
-    private func apply(_ entry: AgentFeedInlineTextCacheEntry, width: CGFloat) {
-        measuredWidth = width
-        measuredSize = entry.measuredSize
+    private func apply(_ entry: AgentFeedInlineTextCacheEntry) {
+        guard appliedEntry !== entry else { return }
+        let textChanged = appliedEntry?.displayedText.isEqual(to: entry.displayedText) != true
+        appliedEntry = entry
         linkRange = entry.linkRange
-        textView.textContainer.maximumNumberOfLines = entry.needsExpansion ? lineLimit : 0
-        textView.attributedText = entry.displayedText
-        textLayoutNeedsUpdate = true
+        let maximumLines = entry.needsExpansion ? lineLimit : 0
+        if textView.textContainer.maximumNumberOfLines != maximumLines {
+            textView.textContainer.maximumNumberOfLines = maximumLines
+            textLayoutNeedsUpdate = true
+        }
+        if textChanged {
+            textView.attributedText = entry.displayedText
+            textLayoutNeedsUpdate = true
+        }
         textView.accessibilityLabel = entry.needsExpansion
             ? String(entry.displayedText.string.dropLast(moreTitle.count))
             : entry.displayedText.string
@@ -211,7 +232,7 @@ final class AgentFeedInlineTextView: UIView {
         color: UIColor,
         width: CGFloat
     ) -> NSString {
-        "\(source)|\(hasMoreText)|\(lineLimit)|\(font.fontName)|\(font.pointSize)|\(color.description)|\(width.rounded(.up))" as NSString
+        "\(source)|\(hasMoreText)|\(lineLimit)|\(font.fontName)|\(font.pointSize)|\(color.description)|\(width)" as NSString
     }
 
     override func layoutSubviews() {
@@ -229,6 +250,7 @@ final class AgentFeedInlineTextView: UIView {
     private func ensureTextLayout() {
         guard bounds.width > 0 else { return }
         _ = measure(width: bounds.width)
+        if let measuredEntry { apply(measuredEntry) }
         textView.frame = bounds
         if textLayoutNeedsUpdate || laidOutWidth != bounds.width {
             textView.layoutManager.ensureLayout(for: textView.textContainer)

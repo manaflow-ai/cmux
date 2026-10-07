@@ -30,7 +30,7 @@ import UIKit
 
     @Test func markdownExpansionUsesRenderedOffsets() throws {
         let view = makeView("**Bold** and [linked text](https://example.com/long-destination)", hasMore: true)
-        _ = view.measure(width: 600)
+        layout(view, width: 600)
         let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
         let button = try #require(view.subviews.compactMap { $0 as? UIButton }.first)
 
@@ -44,7 +44,7 @@ import UIKit
 
     @Test func shortMarkdownDoesNotOfferExpansion() throws {
         let view = makeView("**Hello** `world` 👨‍👩‍👧‍👦")
-        _ = view.measure(width: 600)
+        layout(view, width: 600)
         let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
         let button = try #require(view.subviews.compactMap { $0 as? UIButton }.first)
 
@@ -54,9 +54,19 @@ import UIKit
         #expect(bold.fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
+    @Test(arguments: ["Plain text", "**Bold** and `code`", "First\n\nSecond\n", "👨‍👩‍👧‍👦 café مرحبا"])
+    func measurementMatchesDisplayedText(source: String) throws {
+        let view = makeView(source)
+        layout(view, width: 360)
+        let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
+        let fitted = text.sizeThatFits(CGSize(width: 360, height: .greatestFiniteMagnitude))
+        #expect(view.bounds.height >= fitted.height)
+        #expect(view.bounds.height - fitted.height < 2)
+    }
+
     @Test func truncationKeepsFormattingAndComposedCharacters() throws {
         let view = makeView(String(repeating: "**👨‍👩‍👧‍👦 Bold** ", count: 30))
-        _ = view.measure(width: 240)
+        layout(view, width: 240)
         let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
 
         #expect(text.attributedText.string.hasSuffix("… See more"))
@@ -74,7 +84,7 @@ import UIKit
     ])
     func blockSyntaxIsRendered(source: String, expected: String) throws {
         let view = makeView(source)
-        _ = view.measure(width: 600)
+        layout(view, width: 600)
         let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
         #expect(text.attributedText.string == expected)
     }
@@ -103,6 +113,12 @@ import UIKit
 
     @MainActor private final class OpenedURLs {
         var urls: [URL] = []
+    }
+
+    private func layout(_ view: AgentFeedInlineTextView, width: CGFloat) {
+        view.frame = CGRect(origin: .zero, size: view.measure(width: width))
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
     }
 
     private func makeView(_ source: String, hasMore: Bool = false) -> AgentFeedInlineTextView {
