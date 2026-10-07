@@ -1618,10 +1618,6 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // SAFETY: still before any thread. The brain's tools socket (chief-inspect)
-    // is read once and leaves the environment: no shell, agent or hook the
-    // daemon spawns learns the path.
-    unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
