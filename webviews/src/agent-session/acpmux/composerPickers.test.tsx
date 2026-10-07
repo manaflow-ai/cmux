@@ -200,7 +200,7 @@ describe("acpmux composer pickers", () => {
 
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }), { showPlan: false });
-    expect(button("Mode")!.textContent).toBe("Full access");
+    expect(button("Mode")!.querySelector(".acpmux-icon")).not.toBeNull();
     expect(button("Mode")!.closest(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(true);
     expect(doc.querySelector(".acpmux-plan")).toBeNull();
   });
@@ -221,14 +221,17 @@ describe("acpmux composer pickers", () => {
     const mode = button("Mode")!;
     await key(mode, "ArrowDown");
     expect(mode.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
-    await key(mode, "ArrowUp");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
-    await key(mode, "Enter");
+    expect(doc.querySelector("[role=menu]")!.textContent).toContain("Ask for approval");
+    expect(doc.querySelector("[role=menu]")!.textContent).toContain("Full access");
+    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+      row.textContent?.includes("Full access"),
+    );
+    full?.focus();
+    await key(full!, "Enter");
     expect(calls).toEqual(["mode bypassPermissions"]);
-    await key(mode, "ArrowDown");
+    await act(async () => mode.click());
     await key(mode, "Escape");
-    expect(doc.querySelector("[role=listbox]")).toBeNull();
+    expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(doc.activeElement).toBe(mode);
     expect(calls).toEqual(["mode bypassPermissions"]);
   });
@@ -257,10 +260,9 @@ describe("acpmux composer pickers", () => {
   test("the approval menu asks its question over the described modes", async () => {
     await render(snapshot({ modes }));
     await act(async () => button("Mode")!.click());
-    const menu = doc.querySelector("[role=listbox]")!;
-    expect(menu.getAttribute("aria-label")).toBe("How should the agent's actions be approved?");
-    expect(menu.querySelector(".acpmux-menu-heading")!.textContent).toBe("How should the agent's actions be approved?");
+    const menu = doc.querySelector("[role=menu]")!;
     expect(menu.textContent).toContain("Always ask");
+    expect(menu.textContent).toContain("Unrestricted");
   });
 
   test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
@@ -566,7 +568,7 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ modes }));
     for (const [label, menu] of [
       ["Model", ".acpmux-mp"],
-      ["Mode", "[role=listbox]"],
+      ["Mode", "[role=menu]"],
     ] as const) {
       await act(async () => button(label)!.click());
       expect(doc.querySelector(menu)).not.toBeNull();
@@ -580,14 +582,14 @@ describe("acpmux composer pickers", () => {
 
   test("the mode chip shows the current mode, with descriptions in its menu and the warning color for full access", async () => {
     await render(snapshot({ modes }));
-    expect(button("Mode")!.textContent).toBe("Ask for approval");
+    expect(button("Mode")!.textContent).not.toContain("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
     expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
       "Always ask",
       "Unrestricted",
     ]);
-    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe("Full accessUnrestricted");
+    expect(doc.querySelector(".acpmux-access-item.acpmux-unrestricted")!.textContent).toContain("Full access");
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
     expect(unrestricted("default")).toBe(false);
@@ -603,7 +605,7 @@ describe("acpmux composer pickers", () => {
     expect(plan().textContent).toBe("Build");
     expect(plan().getAttribute("aria-pressed")).toBe("false");
     await act(async () => button("Mode")!.click());
-    expect(options()).toEqual(["Ask for approvalAlways ask *", "Full accessUnrestricted"]);
+    expect(doc.querySelectorAll("[role=menuitemradio]")).toHaveLength(2);
     await act(async () => button("Mode")!.click());
     await act(async () => plan().click());
     expect(calls).toEqual(["mode plan"]);
