@@ -154,8 +154,8 @@ transport with nothing unacknowledged arms nothing.
 ```swift
 public struct WireGuardPrivateKey { init(); init(rawRepresentation:) throws; var publicKey: WireGuardPublicKey }
 public struct WireGuardPublicKey: Hashable { init?(rawRepresentation:); init?(base64:); var base64: String }
-public protocol WireGuardAuthorizer { func authorize(peer: WireGuardPublicKey) async -> Bool }
-public struct WireGuardPinnedAuthorizer: WireGuardAuthorizer
+public protocol WireGuardAuthorizer { func authorize(peer: WireGuardPublicKey) async -> WireGuardAuthorizedPeer? }  // installID names the overlay address
+public struct WireGuardPinnedAuthorizer: WireGuardAuthorizer      // [key: installID]
 
 public protocol DatagramUnderlay: Sendable {
     var path: PathKind { get async }                 // .p2p or .turn
@@ -172,14 +172,14 @@ public protocol SignalingChannel: Sendable {       // B1 signal frames; B2 imple
 }
 
 public final class WireGuardOverWebRTCCarrier: LinkCarrier {   // kind .webrtcWireGuard, paths [.p2p, .turn]
-    init(identity: WireGuardPrivateKey, underlays: any DatagramUnderlayDialer,
+    init(identity: WireGuardPrivateKey, installID: String, underlays: any DatagramUnderlayDialer,
          hostKeys: any WireGuardHostKeyResolver = WireGuardHintsResolver(), configuration: WireGuardLinkConfiguration = .init(), clock: LinkClock = .continuous)
 }
 public final class WireGuardOverWebRTCAcceptor: LinkAcceptor {
     init(identity:, hostID:, underlays: any DatagramUnderlayListener, authorizer:, configuration:, clock:)
     func start() async; func stop() async
 }
-public actor WireGuardLinkTransport: LinkTransport { var remoteKey: WireGuardPublicKey }
+public actor WireGuardLinkTransport: LinkTransport { var remoteKey: WireGuardPublicKey; var currentSessionIndex: UInt32? }
 ```
 
 `CmuxLinkWGTesting` adds `InMemoryUnderlayNetwork` (seeded loss, duplication, reorder, latency,
@@ -214,8 +214,12 @@ D2 decides whether that is acceptable or whether V2 stays a terminal and file pa
 - Lanes: fragment/reassembly round trips, ARQ over 20 % loss with reorder and duplication.
 - Roaming: an ICE path change and an underlay replacement keep the WireGuard session (same
   receiver index, no new handshake) and every reliable fragment.
-- `LinkConformanceSuite`, all seven cases, over the in-memory underlay with seeded loss, reorder
-  and jitter.
+- `LinkConformanceSuite`, all seven cases, over the in-memory underlay: clean, and with 3 % loss,
+  1 % duplication and jitter (also passed once at 15 % loss, 5 % duplication).
+- Transport: 256 KiB frames both ways, graceful close without the timeout, unauthorized device gets
+  no answer, missing host key, dead path after `deadPathTimeout`, reset, rebind window expiry.
+
+39 tests, about 4 s, stable over 8 runs. The Rust interop test was not run (no cargo locally).
 
 ## 10. Risks and open items
 
