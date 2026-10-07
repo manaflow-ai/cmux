@@ -143,7 +143,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Applies the selected dock mode and reserves content height only for
     /// the reserved-strip variant.
-    func applyDockMode(_ mode: SidebarDockMode) {
+    func applyLauncherMode(_ mode: SidebarLauncherMode) {
         dock.mode = mode
         if mode == .reserved {
             dockHeight.constant = 34

@@ -52925,127 +52925,127 @@
         }
       }
     },
-    "settings.sidebar.dockMode": {
+    "settings.sidebar.launcherMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidebar Dock"
+            "value": "Launcher Strip"
           }
         }
       }
     },
 
-    "settings.sidebar.dockMode.help": {
+    "settings.sidebar.launcherMode.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Shows destinations, agent state and pinned workspaces at the bottom of the window."
+            "value": "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
           }
         }
       }
     },
 
-    "settings.choice.dockReserved": {
+    "settings.choice.launcherReserved": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -53105,7 +53105,7 @@
       }
     },
 
-    "settings.choice.dockOverlay": {
+    "settings.choice.launcherOverlay": {
       "extractionState": "manual",
       "localizations": {
         "en": {

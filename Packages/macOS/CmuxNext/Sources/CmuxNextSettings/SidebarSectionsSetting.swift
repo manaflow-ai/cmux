@@ -12,19 +12,19 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
-    public static let dockModePath = ["sidebar", "dockMode"]
+    public static let launcherModePath = ["sidebar", "launcherMode"]
 
-    static func dockModeDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(dockModePath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.dockMode", "Sidebar Dock"),
-                          help: SettingsText.keyed("settings.sidebar.dockMode.help", "Shows destinations, agent state and pinned workspaces at the bottom of the window."),
+    static func launcherModeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(launcherModePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.launcherMode", "Launcher Strip"),
+                          help: SettingsText.keyed("settings.sidebar.launcherMode.help", "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."),
                           kind: .choice([
-                              SettingChoice(SidebarDockMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                              SettingChoice(SidebarDockMode.reserved.rawValue, SettingsText.keyed("settings.choice.dockReserved", "Reserved Strip")),
-                              SettingChoice(SidebarDockMode.overlay.rawValue, SettingsText.keyed("settings.choice.dockOverlay", "Hover Overlay")),
+                              SettingChoice(SidebarLauncherMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                              SettingChoice(SidebarLauncherMode.reserved.rawValue, SettingsText.keyed("settings.choice.launcherReserved", "Reserved Strip")),
+                              SettingChoice(SidebarLauncherMode.overlay.rawValue, SettingsText.keyed("settings.choice.launcherOverlay", "Hover Overlay")),
                           ]),
-                          default: .string(SidebarDockMode.off.rawValue),
-                          keywords: ["sidebar", "dock", "destinations", "agents", "workspaces", "bottom", "hover"])
+                          default: .string(SidebarLauncherMode.off.rawValue),
+                          keywords: ["sidebar", "launcher", "strip", "destinations", "agents", "workspaces", "bottom", "hover"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -97,12 +97,12 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
-        if let value = root.value(at: dockModePath) {
-            if let text = value.stringValue, let mode = SidebarDockMode(rawValue: text) {
-                result.dockMode = mode
+        if let value = root.value(at: launcherModePath) {
+            if let text = value.stringValue, let mode = SidebarLauncherMode(rawValue: text) {
+                result.launcherMode = mode
             } else {
-                let choices = SidebarDockMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.dockMode", message: "expected one of " + choices))
+                let choices = SidebarLauncherMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.launcherMode", message: "expected one of " + choices))
             }
         }
         return result

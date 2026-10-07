@@ -21,7 +21,7 @@ The left sidebar is an ordered list of **sections** in four **regions**:
 | Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `tiles` arrangement, 4 columns): Home, the App Store, New Workspace, Import and Sync as large labeled tiles on a tonal card, with a section gap before the list. A stored top section still equal to the earlier plain-row default (Home and the App Store, CodeRouter after them or not) migrates to the tiles |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
-| Dock | pinned to the window bottom when enabled | optional icon-height `dock` placement. `sidebar.dockMode` is `off` by default; `reserved` keeps the strip out of content and `overlay` reveals it on hover or keyboard focus. Items use the same per-space refs as tiles, including destinations, agent state dots and pinned workspaces |
+| Launcher strip | pinned to the window bottom when enabled | optional icon-height placement, stored as `dock` in the layout document (not a layout dock column). `sidebar.launcherMode` is `off` by default; `reserved` keeps the strip out of content and `overlay` reveals it on hover or keyboard focus. Items use the same per-space refs as tiles, including destinations, agent state dots and pinned workspaces |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like

@@ -8,7 +8,7 @@ import Observation
 /// tiles. Its mode is supplied by the window root; the default is hidden.
 public final class SidebarDockView: NSView {
     /// The dock presentation selected by the appearance settings.
-    public var mode: SidebarDockMode = .off { didSet { applyMode() } }
+    public var mode: SidebarLauncherMode = .off { didSet { applyMode() } }
     /// Called when a destination or pinned workspace is selected.
     public var onActivate: ((LayoutItemRef) -> Void)?
 
