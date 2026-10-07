@@ -3920,7 +3920,7 @@
             }
           }
         },
-        "description": "List a mesh's devices. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "List a mesh's devices. Requires the mesh:read scope. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "List a mesh's devices"
       }
     },
@@ -4030,7 +4030,7 @@
             }
           }
         },
-        "description": "Get a device. Requires the mesh:read scope. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Get a device. Requires the mesh:read scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Get a device"
       },
       "delete": {
@@ -4131,7 +4131,7 @@
             }
           }
         },
-        "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Remove a device and its tunnel"
       }
     },
@@ -4241,8 +4241,278 @@
             }
           }
         },
-        "description": "What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "What this device may reach"
+      }
+    },
+    "/v1/meshes/{meshId}/enrollment-codes": {
+      "post": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.createEnrollmentCode",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Single use, valid for 10 minutes. A device enrolled with it belongs to the principal that created it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentCode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a one-time enrollment code for a headless machine. Requires the mesh:join scope. Single use, 10 minutes; at most 20 per mesh per hour. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Create a one-time enrollment code for a headless machine",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEnrollmentCodeRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/devices/{deviceId}/rotate-key": {
+      "post": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.rotateDeviceKey",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Everything a device needs to bring its tunnel up, except its own private key, which only the device has.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rotate a device's WireGuard key. Requires the mesh:join scope. The tunnel keeps its id and addresses; the server key changes too, so switch to the returned config at once. The old key stops working within about a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Rotate a device's WireGuard key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        }
       }
     },
     "/v1/tunnels/{tunnelId}": {
@@ -4351,7 +4621,7 @@
             }
           }
         },
-        "description": "Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Get a device tunnel's config. Requires the mesh:read scope. Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Get a device tunnel's config"
       }
     },
@@ -4570,6 +4840,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
                 }
               }
             }
@@ -4837,6 +5117,456 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PutAclRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/meshes/{meshId}/device-enrollments": {
+      "post": {
+        "tags": [
+          "meshEnroll"
+        ],
+        "operationId": "meshEnroll.codeEnrollDevice",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "DeviceEnrollment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceEnrollment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "PaymentRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Enroll a headless device with a one-time code. No credential: the code is single use and valid for 10 minutes, and the device belongs to the principal that created the code. An unknown, used, expired or other mesh's code is 404, and so is a code whose creator left the team or whose API key was revoked. Any authentication failure (a forged or stale signature, a replayed request, another mesh's path) burns the code. A device budget or provider failure after the code was accepted gives it back, so the same code can be used again. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Enroll a headless device with a one-time code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeEnrollDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/devices/{deviceId}/signed/peers": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDevicePeers",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "PeerMap",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerMap"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "What this device may reach, compiled from the current ACL; signed with purpose peers. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device reads its own peer map",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/devices/{deviceId}/signed/tunnel": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDeviceTunnel",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Everything a device needs to bring its tunnel up, except its own private key, which only the device has.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Never includes a private key; signed with purpose tunnel. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device reads its own tunnel config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/devices/{deviceId}/signed/rotate-key": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDeviceRotateKey",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Everything a device needs to bring its tunnel up, except its own private key, which only the device has.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "The same signed body as POST /v1/devices/{deviceId}/rotate-key (purpose rotate-key), without a credential. Switch to the returned config at once. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device rotates its own WireGuard key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateKeyRequest"
               }
             }
           },
@@ -5338,7 +6068,8 @@
               "firewallRule.perMesh",
               "firewallRule.perResource",
               "firewallRule.account",
-              "aclApply.perMeshPerMinute"
+              "aclApply.perMeshPerMinute",
+              "enrollmentCode.perMeshPerHour"
             ]
           },
           "_tag": {
@@ -6253,7 +6984,11 @@
         "type": "object",
         "required": [
           "name",
-          "wgPublicKey"
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
         ],
         "properties": {
           "name": {
@@ -6265,9 +7000,31 @@
             "type": "string",
             "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
             "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
       },
       "DeviceEnrollment": {
         "type": "object",
@@ -6292,6 +7049,7 @@
           "meshId",
           "name",
           "wgPublicKey",
+          "installPublicKey",
           "tunnelId",
           "createdAt"
         ],
@@ -6311,6 +7069,17 @@
           },
           "wgPublicKey": {
             "type": "string"
+          },
+          "installPublicKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The install key that signs this device's enroll and key rotation; null for a device enrolled before install keys."
           },
           "tunnelId": {
             "type": "string",
@@ -6502,6 +7271,76 @@
         },
         "additionalProperties": false
       },
+      "CreateEnrollmentCodeRequest": {
+        "$id": "/schemas/%7B%7D",
+        "anyOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "array"
+          }
+        ]
+      },
+      "EnrollmentCode": {
+        "type": "object",
+        "required": [
+          "code",
+          "meshId",
+          "expiresAt"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A one-time enrollment code. Shown once; the server stores only its SHA-256.",
+            "pattern": "^mec_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Single use, valid for 10 minutes. A device enrolled with it belongs to the principal that created it."
+      },
+      "RotateKeyRequest": {
+        "type": "object",
+        "required": [
+          "newPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "newPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "The device's new WireGuard public key. Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409. The install key must be the one the device enrolled with."
+      },
       "MeshMember": {
         "type": "object",
         "required": [
@@ -6687,6 +7526,86 @@
           }
         },
         "additionalProperties": false
+      },
+      "CodeEnrollDeviceRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A one-time enrollment code. Shown once; the server stores only its SHA-256.",
+            "pattern": "^mec_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Enroll with a one-time code instead of a credential. Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
+      },
+      "SignedDeviceRequest": {
+        "type": "object",
+        "required": [
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use."
       }
     },
     "securitySchemes": {
@@ -6722,6 +7641,12 @@
     },
     {
       "name": "mesh"
+    },
+    {
+      "name": "meshEnroll"
+    },
+    {
+      "name": "meshDevice"
     }
   ],
   "servers": [

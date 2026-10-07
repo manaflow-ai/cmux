@@ -7,6 +7,7 @@
 import { Context, Data, Effect, Layer, Redacted, Schema } from "effect";
 import { createLocalJWKSet, errors as joseErrors, jwtVerify, type JSONWebKeySet, type JWTVerifyGetKey } from "jose";
 import { TenantId, UserId } from "../lib/ids.ts";
+import { MEMBERSHIP_POSITIVE_TTL_MS, MembershipCache, type MembershipCacheService } from "./membership-cache.ts";
 
 export const API_KEY_PREFIX = "cmuxvm_sk_";
 const API_KEY_PATTERN = /^cmuxvm_sk_[A-Za-z0-9_-]{43}$/;
@@ -164,37 +165,38 @@ export function makeStackSessionVerifier(
   };
 }
 
-const MEMBERSHIP_TTL_MS = 60 * 1000;
-const MEMBERSHIP_CACHE_MAX = 10_000;
-
 const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String })) });
 
-/** Team membership through the Stack server API. */
+/**
+ * Team membership through the Stack server API, behind the shared positive
+ * cache (mesh M4, cx-0op.7): a "member" answer is trusted for 60 s, "not a
+ * member" is never cached, and the Stack team-membership webhook revokes an
+ * entry for every isolate at once. A cache that cannot be read or written is
+ * skipped: Stack itself answers, so a cache failure never admits anyone.
+ */
 export function makeStackTeamMembership(
   config: StackConfig & {
     readonly serverKey: Redacted.Redacted<string>;
+    readonly cache: MembershipCacheService;
     readonly fetch?: (request: Request) => Promise<Response>;
+    /** The clock, in ms (tests); defaults to Date.now. */
+    readonly now?: () => number;
   },
 ): TeamMembershipService {
   const origin = stackOrigin(config.apiUrl);
   const send = config.fetch ?? ((request: Request) => fetch(request));
+  const clock = config.now ?? (() => Date.now());
   const decode = Schema.decodeUnknown(TeamsResponse);
-  // Per-isolate cache of answers (not promises), so a burst of requests makes
-  // one Stack call per user and team a minute instead of one each.
-  const cache = new Map<string, { readonly member: boolean; readonly at: number }>();
   const lookup = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
-    Effect.suspend(() => {
-      const key = `${tenantId}\u0000${userId}`;
-      const hit = cache.get(key);
-      if (hit !== undefined && Date.now() - hit.at < MEMBERSHIP_TTL_MS) return Effect.succeed(hit.member);
-      return fetchMembership(tenantId, userId).pipe(
-        Effect.tap((member) =>
-          Effect.sync(() => {
-            if (cache.size >= MEMBERSHIP_CACHE_MAX) cache.clear();
-            cache.set(key, { member, at: Date.now() });
-          }),
-        ),
-      );
+    Effect.gen(function* () {
+      const askedAt = new Date(clock());
+      const hit = yield* config.cache
+        .fresh(tenantId, userId, new Date(askedAt.getTime() - MEMBERSHIP_POSITIVE_TTL_MS))
+        .pipe(Effect.orElseSucceed(() => false));
+      if (hit) return true;
+      const member = yield* fetchMembership(tenantId, userId);
+      if (member) yield* config.cache.rememberMember(tenantId, userId, askedAt).pipe(Effect.ignore);
+      return member;
     });
   const fetchMembership = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
       Effect.tryPromise({
@@ -230,10 +232,13 @@ export function makeStackTeamMembership(
 
 export const stackLayers = (
   config: StackConfig & { readonly serverKey: Redacted.Redacted<string> },
-): Layer.Layer<SessionVerifier | TeamMembership> =>
+): Layer.Layer<SessionVerifier | TeamMembership, never, MembershipCache> =>
   Layer.merge(
     Layer.succeed(SessionVerifier, makeStackSessionVerifier(config)),
-    Layer.succeed(TeamMembership, makeStackTeamMembership(config)),
+    Layer.effect(
+      TeamMembership,
+      Effect.map(MembershipCache, (cache) => makeStackTeamMembership({ ...config, cache })),
+    ),
   );
 
 export const decodeTenantId = Schema.decodeUnknownOption(TenantId);

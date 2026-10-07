@@ -12,7 +12,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
     public static let maximumCandidates = 200
     public static let maximumLine = 4096
     static let maximumOutput = 512 << 10
-    static let deadline: Duration = .seconds(4)
+    public static let deadline: Duration = .seconds(4)
 
     /// The word the caret is in: its UTF-16 start in the line (the page's field offsets), its text
     /// as typed (quotes and backslashes kept), and whether it names a command.
@@ -50,11 +50,14 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
     private let engine: Engine
     private let environment: [String: String]
     private let home: String
+    /// When the shell is killed (``deadline`` in the app; tests that do not test it pass a long one).
+    private let timeout: Duration
 
     public init(
         shell: String? = ProcessInfo.processInfo.environment["SHELL"],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(),
+        timeout: Duration = AgentPaneShellCompletion.deadline
     ) {
         let candidate = shell ?? ""
         let usable = candidate.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: candidate)
@@ -70,6 +73,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
         environment["GIT_PAGER"] = "cat"
         self.environment = environment
         self.home = home
+        self.timeout = timeout
     }
 
     /// The candidates for the word before the end of `line` (the text before the caret).
@@ -82,7 +86,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
         let word = Self.word(in: line)
         let (arguments, extra) = invocation(line: line, word: word)
         let output = try await CompletionProcess.run(path: shell, arguments: arguments, environment: environment.merging(extra) { $1 },
-                                                     folder: folder)
+                                                     folder: folder, timeout: timeout)
         let parsed = Self.parse(output, engine: engine)
         var seen = Set<String>()
         var candidates: [Candidate] = []
@@ -237,7 +241,7 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "shell.gesture_required", message: Self.shellGestureMessage)
         }
         do {
-            let result = try await AgentPaneShellCompletion().complete(line, cwd: cwd)
+            let result = try await shell.completion.complete(line, cwd: cwd)
             var value: [String: Any] = [
                 "start": result.start,
                 "candidates": result.candidates.map { candidate -> [String: Any] in
@@ -249,8 +253,15 @@ extension AgentPaneModel {
             if result.truncated { value["truncated"] = true }
             return AgentPaneReply.success(value)
         } catch {
-            let reason: AgentPaneShell.Failure = error == .folderMissing ? .folderMissing : .spawnFailed(0)
-            return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(reason))
+            switch error {
+            case .timedOut:
+                // The shell started and ran past the deadline: a timeout, never "Could not start".
+                return AgentPaneReply.failure(code: "shell.timed_out", message: Self.shellCompletionTimedOutMessage)
+            case .folderMissing:
+                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(AgentPaneShell.Failure.folderMissing))
+            case .spawnFailed(let code):
+                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(AgentPaneShell.Failure.spawnFailed(code)))
+            }
         }
     }
 }
