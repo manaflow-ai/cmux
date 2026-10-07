@@ -18547,12 +18547,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard windowKeyObservers.isEmpty else { return windowKeyObservers }
         let center = NotificationCenter.default
         windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.handleCmuxWindowBecameKey(note)
             }
         })
         windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.handleCmuxWindowResignedKey(note)
             }
         })
