@@ -679,13 +679,18 @@ fn start(
         }
     });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
-    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> =
-        if env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0") {
-            None
-        } else {
-            crate::workspaces::AppWorkspaces::from_env(daemon_socket)
-                .map(|w| Arc::new(w) as Arc<dyn crate::workspaces::Workspaces>)
-        };
+    let workspaces_off = env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0");
+    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
+        None
+    } else {
+        crate::workspaces::AppWorkspaces::from_env(daemon_socket)
+            .map(|w| Arc::new(w) as Arc<dyn crate::workspaces::Workspaces>)
+    };
+    let no_workspace_reason = if workspaces_off {
+        "subagent workspaces are turned off on this Chief host".to_owned()
+    } else {
+        "this Chief host runs without a cmux app, so no cmux app shows this subagent".to_owned()
+    };
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
             chat.clone(),
@@ -704,7 +709,8 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
-        .with_workspaces(workspaces.clone());
+        .with_workspaces(workspaces.clone())
+        .with_no_workspace_reason(no_workspace_reason);
         Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
     });
     log(format!(

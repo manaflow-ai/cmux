@@ -160,6 +160,21 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
   })
 
+  it("the 24 h backstop pauses a machine whose capable VM keeps reporting but never shows activity (hq-ff auto7, 2026-10-06)", async () => {
+    const s = await vmSetup("cloud-bind-1")
+    // cloud.idlePause stays off: only the 24 h backstop applies. The reports reset the no_report clock.
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    expect((await s.report({ active_sessions: 0 })).body.value.applied).toBe(true)
+    expect(await s.status()).toBe("running")
+    await s.stub.fakeControl({ advance_ms: 1 * H + 11_000 } as never)
+    await fireAlarm(s.stub)
+    expect(await s.status()).toBe("running")
+    expect((await s.report({ active_sessions: 0 })).body.value.applied).toBe(true)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(["pausing", "paused"]).toContain(got.status)
+    expect(got.pause_reason).toBe("idle")
+  })
+
   it("a held report from a replaced install does not reset the no_report clock (review P3)", async () => {
     const s = await vmSetup("cloud-bind-4")
     const { runInDurableObject } = await import("cloudflare:test")

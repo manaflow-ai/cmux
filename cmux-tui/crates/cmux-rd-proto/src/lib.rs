@@ -7,6 +7,7 @@
 //! packets of that frame, plus optional parity packets. All integers are
 //! little-endian. This crate does no I/O.
 
+mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
 mod datagram;
@@ -16,6 +17,7 @@ mod frame;
 mod input;
 mod stream;
 
+pub use clock::{ClockEstimate, ClockPing, ClockPong};
 pub use datagram::{
     DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
 };
