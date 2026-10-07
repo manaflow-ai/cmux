@@ -1,10 +1,10 @@
 use super::*;
 
-fn args(words: &[&str]) -> Vec<String> {
+pub(super) fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
 }
 
-fn call(command: AppCommand) -> (&'static str, Value) {
+pub(super) fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
         AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
@@ -109,7 +109,9 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
 
 /// A fake app control socket that answers each request line with the
 /// next canned response and records what it received, per connection.
-fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
+pub(super) fn fake_app(
+    responses: Vec<Value>,
+) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
     fake_app_after(Duration::ZERO, responses)
 }
 
@@ -154,7 +156,7 @@ fn fake_app_after(
     (socket, handle)
 }
 
-fn global_for(socket: &std::path::Path) -> GlobalArgs {
+pub(super) fn global_for(socket: &std::path::Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),
         output: OutputMode::Quiet,
