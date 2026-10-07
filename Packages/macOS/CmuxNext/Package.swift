@@ -124,6 +124,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
+        // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
+        .package(path: "../../Shared/CmuxAgentQuestion"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -295,6 +297,27 @@ let package = Package(
         .testTarget(
             name: "CmuxNextOnboardingTests",
             dependencies: ["CmuxNextOnboarding", "CmuxNextBrowserImport", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The agent question card (plans/cmux-next/agent-questions.md): one
+        // AppKit view and layout for Home rows, agent panes and the UI Gallery.
+        .target(
+            name: "CmuxNextAgentQuestion",
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentQuestionTests",
+            dependencies: [
+                "CmuxNextAgentQuestion", "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
