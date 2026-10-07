@@ -290,7 +290,7 @@ function cmuxAppBackend() {
 
 // The Rust browser host on headless Chromium, one session per page (as the
 // cmux backend), through `cmux-browser-host eval`.
-function hostHeadlessBackend() {
+export function hostHeadlessBackend() {
   const bin = process.env.PARITY_HOST_BIN || "cmux-browser-host";
   const env = { CMUX_BROWSER_HOST_ENGINE: "headless" };
   const workDir = makeTestDir("perf-host-");
