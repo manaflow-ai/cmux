@@ -302,6 +302,35 @@ struct SSHTuiMigrationTests {
         #expect(configuration.sshProcessEnvironment?["SSH_AUTH_SOCK"] == current)
     }
 
+    @Test("A dead saved agent does not become an explicit disable during restore")
+    func staleSavedAgentDoesNotPoisonFutureRestore() throws {
+        let stale = "/tmp/cmux-stale-restore-agent.sock"
+        let current = "/tmp/cmux-current-restore-agent.sock"
+        var snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "alice@example.invalid",
+            agentSocketPath: stale,
+            agentSocketPathOverrideIsSet: true,
+            preserveAfterTerminalExit: true
+        )
+        snapshot.sshSessionOwner = "cmux-tui"
+
+        let restored = try #require(snapshot.workspaceConfiguration(
+            environment: [:],
+            isLiveAgent: { _ in false }
+        ))
+        #expect(restored.agentSocketPath == nil)
+        #expect(!restored.agentSocketPathOverrideIsSet)
+
+        let resaved = try #require(restored.sessionSnapshot())
+        let resumed = try #require(resaved.workspaceConfiguration(
+            environment: ["SSH_AUTH_SOCK": current],
+            isLiveAgent: { $0 == current }
+        ))
+        #expect(resumed.agentSocketPath == current)
+        #expect(resumed.agentSocketPathOverrideIsSet)
+    }
+
     @Test("A saved agent path that no longer serves never beats a live agent")
     func staleAgentPathLosesToALiveAgent() throws {
         let listener = try AgentSocketListener()
