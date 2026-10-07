@@ -36,6 +36,12 @@
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
+  // An agent-world function run inside the page agent's `reply`
+  // (page-agent.js), which settles the cuts the read made.
+  const sealAgentSource = (source) =>
+    `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
+    `return A.reply((${source})(...a)); }`;
+
   // ---------------------------------------------------------------------------
   // Errors
 
@@ -995,14 +1001,19 @@
     }
     // Script cannot run while a JavaScript dialog is open, so calls fail fast
     // with the way out instead of hanging until the evaluation timeout.
+    //
+    // Every agent-world reply goes through the page agent's `reply`
+    // (page-agent.js): the call's function runs inside it, so the cuts a
+    // read made are settled before the reply leaves the page.
     _call(world, source, args, handles) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
+      const sealed = world !== "agent" ? source : sealAgentSource(source);
       return this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
-        source,
+        source: sealed,
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
@@ -3147,8 +3158,24 @@
     return MIME[ext] || "application/octet-stream";
   }
 
+  // The note for a page read cut at the page-read budget (page-agent.js,
+  // readBudget): `cut` is { truncated: "nodes" | "size" | "time" |
+  // "frames", maxNodes, maxSize, frames }. Every read that stops there says
+  // so in these words (classic runtime-core.js).
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  function readCutNote(what, cut) {
+    const why =
+      cut.truncated === "time" ? "after 8 s of reading"
+      : cut.truncated === "size" ? `after ${groupDigits(cut.maxSize)} characters`
+      : cut.truncated === "frames" ? `after ${groupDigits(cut.frames)} frames`
+      : `after ${groupDigits(cut.maxNodes)} nodes`;
+    return `the page is too large to read whole: ${what} stopped ${why}`;
+  }
+
   ns.core = {
+    readCutNote,
     Session,
+    sealAgentSource,
     Page,
     Frame,
     Locator,
