@@ -328,17 +328,71 @@ enum WireDecoding {
         if let string = raw["url"] as? String {
             url = string.hasPrefix("/") ? URL(string: string, relativeTo: base)?.absoluteURL : URL(string: string)
         }
+        let kind = ConversationAttachment.Kind(rawValue: raw["kind"] as? String ?? "") ?? .image
+        var audio: ConversationAudioInfo?
+        if kind == .audio {
+            let durationMs = raw["durationMs"] as? Double ?? (raw["durationMs"] as? Int).map(Double.init) ?? 0
+            let waveform = (raw["waveform"] as? [Any] ?? []).compactMap { value -> Float? in
+                if let number = value as? NSNumber { return min(1, max(0, number.floatValue / 100)) }
+                return nil
+            }
+            audio = ConversationAudioInfo(
+                duration: durationMs / 1000,
+                waveform: waveform,
+                transcript: (raw["transcript"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                expiresAt: date(raw["expiresAt"]),
+                isKept: raw["kept"] as? Bool ?? false
+            )
+        }
         return ConversationAttachment(
             id: id,
-            kind: .image,
-            width: raw["width"] as? Int ?? 1024,
-            height: raw["height"] as? Int ?? 768,
-            url: url
+            kind: kind,
+            width: raw["width"] as? Int ?? (kind == .audio ? 0 : 1024),
+            height: raw["height"] as? Int ?? (kind == .audio ? 0 : 768),
+            url: url,
+            audio: audio
         )
     }
 
     static func date(_ raw: Any?) -> Date? {
         guard let ms = raw as? Double ?? (raw as? Int).map(Double.init) else { return nil }
         return Date(timeIntervalSince1970: ms / 1000)
+    }
+}
+
+extension ConversationSimBackend: ConversationAudioBackend {
+    /// `POST /upload?kind=audio&durationMs=&waveform=` (levels 0...100, comma
+    /// separated) with the recording bytes; the transcript rides in a header.
+    public func uploadAudioRecording(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment {
+        let base = await core.httpBase
+        var components = URLComponents(url: base.appendingPathComponent("upload"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "kind", value: "audio"),
+            URLQueryItem(name: "durationMs", value: String(Int((info.duration * 1000).rounded()))),
+            URLQueryItem(name: "waveform", value: info.waveform.map { String(Int(($0 * 100).rounded())) }.joined(separator: ",")),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        if let transcript = info.transcript, !transcript.isEmpty {
+            request.setValue(transcript.addingPercentEncoding(withAllowedCharacters: .alphanumerics), forHTTPHeaderField: "X-Transcript")
+        }
+        request.timeoutInterval = 60
+        let (body, response) = try await URLSession.shared.upload(for: request, from: data)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let attachment = WireDecoding.attachment(json["attachment"] as? [String: Any] ?? [:], base: base) else {
+            throw ConversationBackendError(code: -1, message: "upload failed")
+        }
+        return attachment
+    }
+
+    public func keepAudioMessage(messageID: String) async throws -> ConversationMessage {
+        let result = try await core.request("keepAudio", params: JSONBox(["messageId": messageID]), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
+    public func markAudioPlayed(messageID: String) async {
+        _ = try? await core.request("audioPlayed", params: JSONBox(["messageId": messageID]), timeout: .seconds(5))
     }
 }

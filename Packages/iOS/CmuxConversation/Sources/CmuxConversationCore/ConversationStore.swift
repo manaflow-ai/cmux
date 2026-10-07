@@ -448,7 +448,11 @@ public final class ConversationStore {
             guard let data = attachment.localData else { return nil }
             return (data, attachment.width, attachment.height, "image/jpeg")
         }
-        transmit(clientID: clientID, images: images)
+        let audio = message.audioAttachment.flatMap { attachment -> PendingAudio? in
+            guard let data = attachment.localData, let info = attachment.audio else { return nil }
+            return PendingAudio(data: data, mimeType: Self.audioMimeType(data), info: info)
+        }
+        transmit(clientID: clientID, images: message.audioAttachment == nil ? images : [], audio: audio)
     }
 
     /// Removes a failed local send (never acknowledged by the server).
@@ -467,13 +471,17 @@ public final class ConversationStore {
     /// For each failed send, the newest stored seq when it failed.
     private var failedAnchorSeq: [String: Int] = [:]
 
-    private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)]) {
+    private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)], audio: PendingAudio? = nil) {
         let previous = sendTail
         sendTail = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             do {
                 var attachmentIDs: [String] = []
+                if let audio {
+                    let uploaded = try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    attachmentIDs.append(uploaded.id)
+                }
                 for image in images {
                     let uploaded = try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
                     attachmentIDs.append(uploaded.id)
@@ -501,6 +509,78 @@ public final class ConversationStore {
         messages[index].delivery = .failed(reason)
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
+    }
+
+    // MARK: Audio messages
+
+    struct PendingAudio: Sendable {
+        var data: Data
+        var mimeType: String
+        var info: ConversationAudioInfo
+    }
+
+    static func audioMimeType(_ data: Data) -> String {
+        data.prefix(4) == Data("RIFF".utf8) ? "audio/wav" : "audio/mp4"
+    }
+
+    /// Sends a recorded audio message (alone, as Messages does). The row
+    /// appears at once with the local recording, so it plays before upload.
+    @discardableResult
+    public func sendAudio(data: Data, info: ConversationAudioInfo, replyToID: String? = nil) -> String? {
+        guard let meID, !data.isEmpty else { return nil }
+        let clientID = makeClientMessageID()
+        var localInfo = info
+        localInfo.expiresAt = nil
+        let attachment = ConversationAttachment(
+            id: "local:\(clientID):audio",
+            kind: .audio,
+            width: 0,
+            height: 0,
+            url: nil,
+            localData: data,
+            audio: localInfo
+        )
+        let pending = ConversationMessage(
+            id: "local:\(clientID)",
+            seq: nil,
+            clientMessageID: clientID,
+            senderID: meID,
+            sentAt: Date(),
+            text: "",
+            replyToID: replyToID,
+            attachments: [attachment],
+            delivery: .sending
+        )
+        upsert(pending)
+        sortAndReindex()
+        notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
+        setLocalTyping(false)
+        transmit(clientID: clientID, images: [], audio: PendingAudio(data: data, mimeType: Self.audioMimeType(data), info: info))
+        return pending.rowID
+    }
+
+    /// Keep: the recording no longer expires on this device.
+    public func keepAudio(messageID: String) {
+        guard let index = indexByID[messageID],
+              let offset = messages[index].attachments.firstIndex(where: { $0.kind == .audio }) else { return }
+        messages[index].attachments[offset].audio?.isKept = true
+        messages[index].attachments[offset].audio?.expiresAt = nil
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        guard messages[index].seq != nil else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if let updated = try? await self.backend.keepAudio(messageID: messageID) {
+                self.upsert(updated)
+                self.notify(.live(insertedRowIDs: [], sentByMe: false))
+            }
+        }
+    }
+
+    /// The reader listened to someone's audio message to the end.
+    public func audioPlayed(messageID: String) {
+        guard let message = message(id: messageID), message.seq != nil, message.senderID != meID,
+              message.audioAttachment?.audio?.isKept != true else { return }
+        Task { [backend] in await backend.audioPlayed(messageID: messageID) }
     }
 
     // MARK: Reactions, typing, read

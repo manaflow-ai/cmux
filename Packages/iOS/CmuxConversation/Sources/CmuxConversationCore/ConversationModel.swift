@@ -64,6 +64,7 @@ public struct ConversationReactionMark: Sendable, Hashable {
 public struct ConversationAttachment: Sendable, Hashable, Identifiable {
     public enum Kind: String, Sendable, Hashable {
         case image
+        case audio
     }
 
     public let id: String
@@ -74,19 +75,66 @@ public struct ConversationAttachment: Sendable, Hashable, Identifiable {
     public var url: URL?
     /// Bytes picked locally, kept so the sender's row renders before upload.
     public var localData: Data?
+    /// Audio only: the recording's metadata. See `ConversationAudioInfo`.
+    public var audio: ConversationAudioInfo?
 
-    public init(id: String, kind: Kind, width: Int, height: Int, url: URL?, localData: Data? = nil) {
+    public init(id: String, kind: Kind, width: Int, height: Int, url: URL?, localData: Data? = nil, audio: ConversationAudioInfo? = nil) {
         self.id = id
         self.kind = kind
         self.width = width
         self.height = height
         self.url = url
         self.localData = localData
+        self.audio = audio
     }
 
     public var aspectRatio: Double {
         guard width > 0, height > 0 else { return 4.0 / 3.0 }
         return Double(width) / Double(height)
+    }
+}
+
+/// An audio message's recording details, as Messages shows them in the bubble.
+public struct ConversationAudioInfo: Sendable, Hashable {
+    public var duration: TimeInterval
+    /// Peak levels in 0...1, evenly spaced over the recording.
+    public var waveform: [Float]
+    /// Speech-to-text of the recording (iOS 17+ shows it under the waveform).
+    public var transcript: String?
+    /// When this device deletes the recording unless it is kept. Nil means kept
+    /// (or never set to expire).
+    public var expiresAt: Date?
+    /// The reader tapped Keep.
+    public var isKept: Bool
+
+    public init(duration: TimeInterval, waveform: [Float], transcript: String? = nil, expiresAt: Date? = nil, isKept: Bool = false) {
+        self.duration = duration
+        self.waveform = waveform
+        self.transcript = transcript
+        self.expiresAt = expiresAt
+        self.isKept = isKept
+    }
+
+    /// `count` levels resampled from `waveform` by taking each bucket's peak.
+    public func levels(count: Int) -> [Float] {
+        Self.resample(waveform, count: count)
+    }
+
+    public static func resample(_ source: [Float], count: Int) -> [Float] {
+        guard count > 0 else { return [] }
+        guard !source.isEmpty else { return Array(repeating: 0, count: count) }
+        return (0..<count).map { index in
+            let start = index * source.count / count
+            let end = max(start + 1, (index + 1) * source.count / count)
+            return source[start..<min(end, source.count)].max() ?? 0
+        }
+    }
+}
+
+extension ConversationMessage {
+    /// The audio attachment of an audio message (Messages sends them alone).
+    public var audioAttachment: ConversationAttachment? {
+        attachments.first { $0.kind == .audio }
     }
 }
 
