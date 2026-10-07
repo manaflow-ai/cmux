@@ -204,6 +204,21 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         ));
         return Some(fp);
     }
+    match checked_files(&folder, &profile) {
+        Ok(files) => {
+            for (path, digest) in files {
+                hashed.extend_from_slice(b"\0file\0");
+                hashed.extend_from_slice(path.as_bytes());
+                hashed.extend_from_slice(b"\0");
+                hashed.extend_from_slice(digest.as_bytes());
+                fp.checked_files.push(path);
+            }
+        }
+        Err(message) => {
+            fp.diagnostics.push(Diagnostic::error(&shown, Some(id), message, None));
+            return Some(fp);
+        }
+    }
     let sha = crate::sha256::sha256_hex(&hashed);
     fp.state = if level != trust::Level::Trusted {
         FolderState::NeedsTrust
@@ -311,10 +326,19 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
         Some(p) => out.push_str(&format!("  program: {}\n", visible(&p.to_string_lossy()))),
         None => out.push_str("  program: not found on PATH now\n"),
     }
+    for file in &fp.checked_files {
+        out.push_str(&format!("  checked: {} (a change asks again)\n", visible(file)));
+    }
     if let Some(p) = resolved_program
         && p.starts_with(&fp.folder)
+        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
     {
         out.push_str("  warning: the program is a file inside this folder; a change to it is not checked again\n");
+    }
+    if let Some(launcher) = download_launcher(&profile.argv) {
+        out.push_str(&format!(
+            "  warning: {launcher} downloads and runs a package at launch; a new package version is not checked\n"
+        ));
     }
     if profile.env.is_empty() {
         out.push_str("  env:     none\n");
@@ -387,6 +411,101 @@ fn is_bidi_control(c: char) -> bool {
 }
 
 // ------------------------------------------------------------- internals
+
+/// Largest file inside the folder whose bytes join the enable hash.
+const MAX_CHECKED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Every regular file inside `folder` that the command line runs or names:
+/// the program (absolute, or found on the profile's PATH, else the login
+/// PATH) and each argument (or the value after `=`) taken as a path, relative
+/// ones from the folder. Each comes with the sha256 of its bytes, sorted by
+/// path. A link inside the folder counts by its target, whose path joins the
+/// hash, so retargeting it asks again.
+fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String, String)>, String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(program) = profile.argv.first() {
+        if Path::new(program).is_absolute() {
+            candidates.push(PathBuf::from(program));
+        } else if !program.contains('/') {
+            candidates.extend(on_path(folder, profile, program));
+        }
+    }
+    for arg in profile.argv.iter().skip(1) {
+        for part in [Some(arg.as_str()), arg.split_once('=').map(|(_, v)| v)].into_iter().flatten()
+        {
+            if part.is_empty() || part.contains("${") {
+                continue;
+            }
+            candidates.push(if Path::new(part).is_absolute() {
+                PathBuf::from(part)
+            } else {
+                folder.join(part)
+            });
+        }
+    }
+    let mut files: Vec<(String, String)> = Vec::new();
+    for candidate in candidates {
+        let Ok(real) = std::fs::canonicalize(&candidate) else { continue };
+        if !(candidate.starts_with(folder) || real.starts_with(folder)) {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&real) else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let shown = if candidate.starts_with(folder) { &candidate } else { &real };
+        let mut key = shown.to_string_lossy().into_owned();
+        if real != *shown {
+            key = format!("{key} -> {}", real.display());
+        }
+        if files.iter().any(|(k, _)| *k == key) {
+            continue;
+        }
+        if meta.len() > MAX_CHECKED_BYTES {
+            return Err(format!(
+                "{} is larger than {MAX_CHECKED_BYTES} bytes, too large to check on every launch",
+                shown.display()
+            ));
+        }
+        let bytes = std::fs::read(&real).map_err(|e| format!("{}: {e}", shown.display()))?;
+        files.push((key, crate::sha256::sha256_hex(&bytes)));
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Where a bare program name resolves inside `folder`: the profile's own
+/// plain PATH (as the spawn uses it), else the login PATH. Relative PATH
+/// entries count from the folder.
+fn on_path(folder: &Path, profile: &HarnessProfile, program: &str) -> Option<PathBuf> {
+    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
+        Some(own) => std::ffi::OsString::from(own),
+        None => crate::login_env::path()?,
+    };
+    std::env::split_paths(&path)
+        .map(|dir| if dir.is_absolute() { dir } else { folder.join(dir) })
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+/// The launcher that downloads and runs a package on each launch, when the
+/// command line is one (`npx pkg@latest`, `bunx`, `uvx`, `pnpm dlx`, ...).
+fn download_launcher(argv: &[String]) -> Option<String> {
+    let name = Path::new(argv.first()?).file_name()?.to_string_lossy().into_owned();
+    let sub = argv.get(1).map(String::as_str);
+    let hit = match name.as_str() {
+        "npx" | "bunx" | "pnpx" | "uvx" => true,
+        "pnpm" | "yarn" => sub == Some("dlx"),
+        "bun" => sub == Some("x"),
+        "pipx" => sub == Some("run"),
+        "uv" => sub == Some("tool") && argv.get(2).map(String::as_str) == Some("run"),
+        _ => false,
+    };
+    hit.then(|| match sub.filter(|_| !matches!(name.as_str(), "npx" | "bunx" | "pnpx" | "uvx")) {
+        Some(sub) => format!("{name} {sub}"),
+        None => name,
+    })
+}
 
 fn canonical(folder: &Path) -> Result<PathBuf, String> {
     let text = folder.to_string_lossy();
