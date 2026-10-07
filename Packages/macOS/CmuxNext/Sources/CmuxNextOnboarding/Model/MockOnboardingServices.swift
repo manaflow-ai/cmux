@@ -132,6 +132,9 @@ public final class MockOnboardingServices: OnboardingServices {
 
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
+    /// Each first-run step the model reported, in order.
+    public private(set) var reached: [OnboardingModel.Step] = []
+    public func onboardingDidReach(_ step: OnboardingModel.Step) { reached.append(step) }
 
     /// Sample data for the gallery: four browsers, the given themes and accounts view.
     public static func gallerySample(themes: [ThemeChoice], accountsView: NSView?) -> MockOnboardingServices {

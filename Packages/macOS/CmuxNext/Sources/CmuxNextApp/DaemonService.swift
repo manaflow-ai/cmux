@@ -311,7 +311,8 @@ final class DaemonService {
     /// Outcome of a command whose reply may miss its deadline.
     enum CommandOutcome {
         case succeeded
-        case failed
+        /// The daemon refused or failed it; `code` is its `error_code` when it gave one.
+        case failed(code: String?)
         /// The deadline passed: the daemon may still apply the command.
         case unknown
     }
@@ -323,7 +324,7 @@ final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return .failed
+            return .failed(code: nil)
         }
         do {
             try await body(connection)
@@ -336,7 +337,8 @@ final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return .failed
+            if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
+            return .failed(code: nil)
         }
     }
 
