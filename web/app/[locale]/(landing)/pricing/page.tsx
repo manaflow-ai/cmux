@@ -377,11 +377,23 @@ function PricingContent({
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
           <div className="space-y-2">
+            {canManageBilling ? (
+              <SecondaryLink href="/api/billing/portal">
+                {t("manageBilling")}
+              </SecondaryLink>
+            ) : (
+              <DisabledButton>{t("currentPlan")}</DisabledButton>
+            )}
+          </div>
+        ) : isMax ? (
+          canManageBilling ? (
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
             </SecondaryLink>
-          </div>
-        ) : (canManageBilling && !isGo) || isMax ? (
+          ) : (
+            <DisabledButton>{t("currentPlan")}</DisabledButton>
+          )
+        ) : canManageBilling && !isGo ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
@@ -404,9 +416,13 @@ function PricingContent({
       >
         {appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
+            {canManageBilling ? (
+              <SecondaryLink href="/api/billing/portal">
+                {t("manageBilling")}
+              </SecondaryLink>
+            ) : (
+              <DisabledButton>{t("currentPlan")}</DisabledButton>
+            )}
           </div>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal">
@@ -455,7 +471,15 @@ function PricingContent({
         ),
         pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-        ) : (canManageBilling && !isGo) || isMax ? (
+        ) : isMax ? (
+          canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size="compact">
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : (
+            <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+          )
+        ) : canManageBilling && !isGo ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
             {t("manageBilling")}
           </SecondaryLink>

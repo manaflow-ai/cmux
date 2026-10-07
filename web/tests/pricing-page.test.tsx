@@ -393,6 +393,7 @@ describe("localized pricing page", () => {
       (match) => match[0],
     ).find((section) => section.includes("Current plan")) ?? "";
     expect(card).toContain("Current plan");
+    expect(card).not.toContain("href=\"/api/billing/portal\"");
     expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*><span>Get Max/);
     expect(card).not.toContain("/api/billing/portal?flow=switch_plan");
   });
