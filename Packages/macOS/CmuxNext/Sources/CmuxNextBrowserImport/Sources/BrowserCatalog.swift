@@ -9,6 +9,9 @@ struct BrowserCatalogEntry: Sendable {
     var dataDirectory: String
     var safeStorage: String?
     var rootProfile = false
+    /// False when the browser seals saved passwords with its own scheme, not
+    /// the Safe Storage key (Yandex): cmux shows them as unsupported.
+    var readsPasswords = true
 }
 
 /// Every browser cmux looks for, by bundle id and data folder. Keychain
@@ -38,9 +41,9 @@ enum BrowserCatalog {
         case .vivaldi: chromium("Vivaldi", "com.vivaldi.Vivaldi", "Vivaldi", key: "Vivaldi")
         case .opera: chromium("Opera", "com.operasoftware.Opera", "com.operasoftware.Opera", key: "Opera", root: true)
         case .operaGX: chromium("Opera GX", "com.operasoftware.OperaGX", "com.operasoftware.OperaGX", key: "Opera", root: true) // key unconfirmed
-        case .helium: chromium("Helium", "net.imput.helium", "net.imput.helium", key: "Helium") // key unconfirmed
+        case .helium: chromium("Helium", "net.imput.helium", "net.imput.helium", service: "Helium Storage Key")
         case .sidekick: chromium("Sidekick", "com.pushplaylabs.sidekick", "Sidekick", key: "Sidekick") // key unconfirmed
-        case .yandex: chromium("Yandex Browser", "ru.yandex.desktop.yandex-browser", "Yandex/YandexBrowser", key: "Yandex")
+        case .yandex: chromium("Yandex Browser", "ru.yandex.desktop.yandex-browser", "Yandex/YandexBrowser", key: "Yandex", passwords: false)
         case .thorium: chromium("Thorium", "org.chromium.Thorium", "Thorium", key: "Thorium") // key unconfirmed
         case .safari:
             BrowserCatalogEntry(name: "Safari", family: .safari, bundleIDs: ["com.apple.Safari"], dataDirectory: "Library/Safari")
@@ -62,9 +65,16 @@ enum BrowserCatalog {
         }
     }
 
-    private static func chromium(_ name: String, _ bundleID: String, _ folder: String, key: String, root: Bool = false) -> BrowserCatalogEntry {
+    private static func chromium(_ name: String, _ bundleID: String, _ folder: String, key: String, root: Bool = false,
+                                 passwords: Bool = true) -> BrowserCatalogEntry {
+        chromium(name, bundleID, folder, service: key + " Safe Storage", root: root, passwords: passwords)
+    }
+
+    /// A browser whose Keychain item does not follow "<Name> Safe Storage" (Helium: "Helium Storage Key").
+    private static func chromium(_ name: String, _ bundleID: String, _ folder: String, service: String, root: Bool = false,
+                                 passwords: Bool = true) -> BrowserCatalogEntry {
         BrowserCatalogEntry(name: name, family: .chromium, bundleIDs: [bundleID], dataDirectory: support + folder,
-                            safeStorage: key + " Safe Storage", rootProfile: root)
+                            safeStorage: service, rootProfile: root, readsPasswords: passwords)
     }
 
     private static func gecko(_ name: String, _ bundleIDs: [String], _ folder: String) -> BrowserCatalogEntry {
