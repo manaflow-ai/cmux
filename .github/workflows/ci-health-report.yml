@@ -88,6 +88,7 @@ jobs:
           # every read.
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
+            CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
