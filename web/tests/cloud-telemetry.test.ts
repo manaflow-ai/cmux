@@ -295,7 +295,8 @@ describe("ingest sampling of routine Cloud polls", () => {
     const create = poll({ operation: "create" });
     const sampledRoot = poll({ traceId: sampledTrace });
     const sampledChild = poll({ traceId: sampledTrace, phase: "request", spanId: "c7ad6b7169203331", parentSpanId: span().spanId });
-    const dropped = poll({ operation: "stats" });
+    // A separate trace: the failures above keep their own trace's successful spans.
+    const dropped = poll({ operation: "stats", traceId: "0af7651916cd43dd8448eb211c800034" });
     const spans = [...failures, create, sampledRoot, dropped, sampledChild];
     const response = await handler(request(batch(spans, "production")));
     expect(await response.json()).toEqual({ accepted: spans.length, eventIds: spans.map((item) => item.eventId) });
