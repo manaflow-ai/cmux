@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextWakeups
 import Network
 import Synchronization
@@ -23,7 +23,10 @@ public nonisolated struct RemoteRdLoopbackEndpoint: Sendable, Hashable {
 /// (`RemoteRdInput`); this type only moves bytes, runs the handshake
 /// (`RemoteRdHandshake`) and arms one deadline timer (`DemandTimer`, never a
 /// poll). Everything that touches the core runs on one serial queue.
-public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
+/// Upstream media (C4b): the queue also owns the session's
+/// `RemoteUpstreamConsent`, the single place that enforces the consent
+/// contract; the pane drives it through `RemoteUpstreamControl`.
+public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, RemoteUpstreamControl {
     private let endpoint: RemoteRdLoopbackEndpoint
     private let hello: RemoteRdHello
     private let startKey: String
@@ -49,6 +52,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
         let input: RemoteRdInput
         var handshake: RemoteRdHandshake
         var connection: NWConnection?
+        /// Created from the welcome's caps; ends with the session.
+        var upstream: RemoteUpstreamConsent?
 
         init(core: RemoteRdCore, input: RemoteRdInput, service: String) {
             self.core = core
@@ -104,8 +109,13 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     public func stop() {
         queue.async { [self] in
             guard !engine.handshake.isEnded else { return }
+            // Revoke upstream media first: nothing goes out after the user's stop.
+            for stream in engine.upstream?.endSession() ?? [] {
+                sendControl(.streamClose(stream: stream))
+            }
             engine.handshake.viewerStopped()
             sendControl(.stop)
+            publishStatus()
         }
     }
 
@@ -117,6 +127,46 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
             for event in events {
                 _ = try? engine.input.send(event)
             }
+            pump()
+        }
+    }
+
+    // MARK: RemoteUpstreamControl
+
+    public func requestUpstream(_ kind: RemoteUpstreamKind, permissionGranted: Bool) {
+        queue.async { [self] in
+            guard case .streaming = engine.handshake.phase, let consent = engine.upstream else { return }
+            // A refusal (no cap, permission denied, ended) opens nothing.
+            guard let open = try? consent.request(kind, permissionGranted: permissionGranted) else { return }
+            sendControl(.streamOpen(open))
+            publishStatus()
+        }
+    }
+
+    public func stopUpstream(_ kind: RemoteUpstreamKind) {
+        queue.async { [self] in
+            guard let stream = engine.upstream?.stop(kind) else { return }
+            sendControl(.streamClose(stream: stream))
+            publishStatus()
+        }
+    }
+
+    public func stopAllUpstreams() {
+        queue.async { [self] in
+            guard let consent = engine.upstream else { return }
+            for kind in RemoteUpstreamKind.allCases {
+                if let stream = consent.stop(kind) { sendControl(.streamClose(stream: stream)) }
+            }
+            publishStatus()
+        }
+    }
+
+    /// Sends one encoded frame of an active kind (a capture pipeline's
+    /// output); dropped when the kind has no consent.
+    public func sendUpstream(_ kind: RemoteUpstreamKind, frame: Data, captureMicros: UInt64, independent: Bool) {
+        queue.async { [self] in
+            guard let sender = engine.upstream?.sender(kind) else { return }
+            _ = try? sender.send(frame: frame, captureMicros: captureMicros, independent: independent, nowMicros: nowMicros())
             pump()
         }
     }
@@ -215,8 +265,12 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
             case let .control(json):
                 guard let control = try? RemoteRdControl.parse(json) else { continue }
                 engine.handshake.receive(control)
+                handleUpstream(control)
             case let .datagram(datagram):
-                // InputAck datagrams; any other datagram is refused without a state change.
+                // Upstream feedback goes to its sender; InputAck datagrams to
+                // the input channel; any other datagram is refused without a state change.
+                let senders = engine.upstream?.activeSenders ?? []
+                if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
                 try? engine.input.acknowledge(datagram: datagram)
             case .bulk:
                 // Transfers belong to the service (rb/1 uploads and downloads); the desktop has none.
@@ -230,10 +284,35 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
         }
         var out: [Data] = (try? engine.core.feedback(nowMicros: now)) ?? []
         out += (try? engine.input.packets(nowMicros: now)) ?? []
+        for sender in engine.upstream?.activeSenders ?? [] {
+            out += (try? sender.datagrams()) ?? []
+        }
         for bytes in out {
             sendRaw(bytes)
         }
         armTimer(now: now)
+    }
+
+    /// The welcome creates the session's consent; stream answers update it.
+    private func handleUpstream(_ control: RemoteRdControl) {
+        if engine.upstream == nil, let welcome = engine.handshake.welcome {
+            engine.upstream = RemoteUpstreamConsent(welcomeCaps: welcome.caps ?? [])
+        }
+        guard let consent = engine.upstream else { return }
+        switch control {
+        case let .streamOpened(stream):
+            let maxDatagram = UInt32(clamping: engine.handshake.welcome?.maxDatagram ?? 1152)
+            let result = consent.opened(stream: stream) { kind, stream in
+                RemoteRdUpstream(carrier: .stream, stream: stream, kind: kind, maxDatagram: maxDatagram, path: RemoteRdUpstream.directLANPath)
+            }
+            if case let .failed(stream) = result { sendControl(.streamClose(stream: stream)) }
+        case let .streamRefused(stream, _):
+            consent.refused(stream: stream)
+        case let .streamClose(stream):
+            consent.closedByHost(stream: stream)
+        default:
+            break
+        }
     }
 
     private func armTimer(now: UInt64) {
@@ -268,7 +347,11 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     }
 
     private func publishStatus() {
-        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState)
+        var upstream = RemoteUpstreamStatus()
+        if let consent = engine.upstream, case .streaming = engine.handshake.phase {
+            upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
+        }
+        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream)
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status
@@ -277,6 +360,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     }
 
     private func finish() {
+        // Session end, host stop or disconnect: revoke and free every sender.
+        engine.upstream?.endSession()
         timer.cancel()
         engine.connection?.cancel()
         engine.connection = nil
