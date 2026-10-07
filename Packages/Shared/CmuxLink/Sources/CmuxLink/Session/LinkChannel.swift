@@ -34,6 +34,13 @@ public final class LinkChannel: Sendable, Identifiable {
         try await session.channelFlush(id, incarnation)
     }
 
+    /// Sets the priority of this side's sends only; the peer's direction
+    /// keeps the declared priority. Call before sending: frames already
+    /// queued keep the priority they were queued at.
+    public func setSendPriority(_ priority: ChannelPriority) async {
+        await session.channelSetSendPriority(id, incarnation, priority)
+    }
+
     /// The inbound cursor to save for `openChannel(_:resumeFrom:)`.
     public func cursor() async -> StreamCursor {
         await session.channelCursor(id, incarnation, stream: descriptor.stream)
