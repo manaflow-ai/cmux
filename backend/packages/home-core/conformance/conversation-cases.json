@@ -8211,7 +8211,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:10.000Z",
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
@@ -8245,9 +8245,10 @@
       "last_seq": 1,
       "rev": 2,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:10.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:10.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000001",
@@ -8291,7 +8292,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:00:10.000Z",
       "reactions": []
      },
      "change": {
@@ -8338,7 +8339,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:00:10.000Z",
        "reactions": []
       }
      }
@@ -8373,9 +8374,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -8414,7 +8416,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:10.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -8460,7 +8462,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -8496,9 +8498,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "remote_inst_1",
@@ -8537,7 +8540,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:10.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -8583,7 +8586,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -8619,9 +8622,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -8663,7 +8667,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:20.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -8709,7 +8713,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -8745,9 +8749,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -8798,7 +8803,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:30.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -8844,7 +8849,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -8880,9 +8885,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -8909,7 +8915,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:40.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -8955,7 +8961,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -8991,9 +8997,10 @@
     "last_seq": 1,
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -9019,7 +9026,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:00:50.000Z",
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
@@ -9065,7 +9072,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     }
    },
@@ -9097,9 +9104,10 @@
       "last_seq": 2,
       "rev": 3,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 2,
+      "last_agent_text_at": "2026-10-01T12:00:50.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000002",
@@ -9129,7 +9137,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:00:50.000Z",
       "reactions": []
      },
      "change": {
@@ -9162,7 +9170,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:00:50.000Z",
        "reactions": []
       }
      }
@@ -9197,9 +9205,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -9234,7 +9243,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:00.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
@@ -9266,7 +9275,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9302,9 +9311,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -9323,7 +9333,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:10.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
@@ -9355,7 +9365,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9391,9 +9401,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -9432,7 +9443,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:20.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
@@ -9464,7 +9475,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9500,9 +9511,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_eve",
@@ -9521,7 +9533,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:20.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -9565,7 +9577,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -9597,7 +9609,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9633,9 +9645,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -9654,7 +9667,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:20.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
@@ -9686,7 +9699,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9722,9 +9735,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -9743,7 +9757,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:20.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -9787,7 +9801,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -9819,7 +9833,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9855,9 +9869,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -9876,7 +9891,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -9920,7 +9935,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -9952,7 +9967,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -9988,9 +10003,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10003,7 +10019,7 @@
       "selections": {}
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10047,7 +10063,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10079,7 +10095,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10115,9 +10131,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10132,7 +10149,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10176,7 +10193,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10208,7 +10225,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10244,9 +10261,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10265,7 +10283,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10309,7 +10327,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10341,7 +10359,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10377,9 +10395,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10399,7 +10418,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10443,7 +10462,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10475,7 +10494,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10511,9 +10530,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10533,7 +10553,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10577,7 +10597,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10609,7 +10629,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10645,9 +10665,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10667,7 +10688,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10711,7 +10732,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10743,7 +10764,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10779,9 +10800,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10805,7 +10827,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10849,7 +10871,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -10881,7 +10903,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -10917,9 +10939,10 @@
     "last_seq": 2,
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -10938,7 +10961,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -10982,7 +11005,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -11014,7 +11037,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -11046,9 +11069,10 @@
       "last_seq": 2,
       "rev": 4,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:50.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:00:50.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000001",
@@ -11102,12 +11126,12 @@
            "display_name": "Lawrence",
            "remote": false
           },
-          "answered_at": "2026-10-01T12:00:00.000Z"
+          "answered_at": "2026-10-01T12:01:30.000Z"
          }
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:00:10.000Z",
       "reactions": []
      },
      "change": {
@@ -11164,12 +11188,12 @@
             "display_name": "Lawrence",
             "remote": false
            },
-           "answered_at": "2026-10-01T12:00:00.000Z"
+           "answered_at": "2026-10-01T12:01:30.000Z"
           }
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:00:10.000Z",
        "reactions": []
       }
      }
@@ -11204,9 +11228,10 @@
     "last_seq": 2,
     "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -11225,7 +11250,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:30.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -11279,12 +11304,12 @@
           "display_name": "Lawrence",
           "remote": false
          },
-         "answered_at": "2026-10-01T12:00:00.000Z"
+         "answered_at": "2026-10-01T12:01:30.000Z"
         }
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -11316,7 +11341,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -11352,9 +11377,10 @@
     "last_seq": 2,
     "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -11394,7 +11420,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:40.000Z",
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
@@ -11426,7 +11452,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:50.000Z",
      "reactions": []
     }
    },
@@ -11458,9 +11484,10 @@
       "last_seq": 3,
       "rev": 5,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:40.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:01:40.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000003",
@@ -11504,7 +11531,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:01:40.000Z",
       "reactions": []
      },
      "change": {
@@ -11551,7 +11578,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:01:40.000Z",
        "reactions": []
       }
      }
@@ -11586,9 +11613,10 @@
     "last_seq": 3,
     "rev": 5,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:40.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:01:40.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -11605,7 +11633,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:40.000Z",
     "new_message_id": "msg_00000000000000000000000004",
     "target": {
      "id": "msg_00000000000000000000000003",
@@ -11649,7 +11677,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:40.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -11695,7 +11723,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:40.000Z",
      "reactions": []
     }
    },
@@ -11731,9 +11759,10 @@
     "last_seq": 3,
     "rev": 5,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:40.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:01:40.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -11753,7 +11782,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:40.000Z",
     "new_message_id": "msg_00000000000000000000000004",
     "target": {
      "id": "msg_00000000000000000000000003",
@@ -11797,7 +11826,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:40.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -11843,7 +11872,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:40.000Z",
      "reactions": []
     }
    },
@@ -11875,9 +11904,10 @@
       "last_seq": 3,
       "rev": 6,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:40.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:01:40.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000003",
@@ -11931,12 +11961,12 @@
            "display_name": "Lawrence",
            "remote": false
           },
-          "answered_at": "2026-10-01T12:00:00.000Z"
+          "answered_at": "2026-10-01T12:01:40.000Z"
          }
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:01:40.000Z",
       "reactions": []
      },
      "change": {
@@ -11993,12 +12023,12 @@
             "display_name": "Lawrence",
             "remote": false
            },
-           "answered_at": "2026-10-01T12:00:00.000Z"
+           "answered_at": "2026-10-01T12:01:40.000Z"
           }
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:01:40.000Z",
        "reactions": []
       }
      }
@@ -12033,9 +12063,10 @@
     "last_seq": 3,
     "rev": 6,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:40.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:01:40.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -12074,7 +12105,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:50.000Z",
     "new_message_id": "msg_00000000000000000000000004",
     "target": null,
     "reply_target": null,
@@ -12130,12 +12161,12 @@
           "display_name": "Lawrence",
           "remote": false
          },
-         "answered_at": "2026-10-01T12:00:00.000Z"
+         "answered_at": "2026-10-01T12:01:40.000Z"
         }
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:40.000Z",
      "reactions": []
     }
    },
@@ -12167,9 +12198,10 @@
       "last_seq": 4,
       "rev": 7,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:50.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:01:50.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000004",
@@ -12213,7 +12245,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:01:50.000Z",
       "reactions": []
      },
      "change": {
@@ -12260,7 +12292,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:01:50.000Z",
        "reactions": []
       }
      }
@@ -12295,9 +12327,10 @@
     "last_seq": 4,
     "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:01:50.000Z"
    },
    "request": {
     "actor": "remote_inst_1",
@@ -12314,7 +12347,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:01:50.000Z",
     "new_message_id": "msg_00000000000000000000000005",
     "target": {
      "id": "msg_00000000000000000000000004",
@@ -12358,7 +12391,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:50.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -12404,7 +12437,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:50.000Z",
      "reactions": []
     }
    },
@@ -12436,9 +12469,10 @@
       "last_seq": 4,
       "rev": 8,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:50.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:01:50.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000004",
@@ -12492,12 +12526,12 @@
            "device": "Lawrence's iPhone",
            "remote": true
           },
-          "answered_at": "2026-10-01T12:00:00.000Z"
+          "answered_at": "2026-10-01T12:01:50.000Z"
          }
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:01:50.000Z",
       "reactions": []
      },
      "change": {
@@ -12554,12 +12588,12 @@
             "device": "Lawrence's iPhone",
             "remote": true
            },
-           "answered_at": "2026-10-01T12:00:00.000Z"
+           "answered_at": "2026-10-01T12:01:50.000Z"
           }
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:01:50.000Z",
        "reactions": []
       }
      }
@@ -12594,9 +12628,10 @@
     "last_seq": 4,
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:50.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:01:50.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -12636,7 +12671,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:00.000Z",
     "new_message_id": "msg_00000000000000000000000005",
     "target": null,
     "reply_target": null,
@@ -12692,12 +12727,12 @@
           "device": "Lawrence's iPhone",
           "remote": true
          },
-         "answered_at": "2026-10-01T12:00:00.000Z"
+         "answered_at": "2026-10-01T12:01:50.000Z"
         }
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:01:50.000Z",
      "reactions": []
     }
    },
@@ -12729,9 +12764,10 @@
       "last_seq": 5,
       "rev": 9,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:02:00.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:02:00.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000005",
@@ -12775,7 +12811,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:02:00.000Z",
       "reactions": []
      },
      "change": {
@@ -12822,7 +12858,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:02:00.000Z",
        "reactions": []
       }
      }
@@ -12857,9 +12893,10 @@
     "last_seq": 5,
     "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:00.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:02:00.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -12880,7 +12917,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:00.000Z",
     "new_message_id": "msg_00000000000000000000000006",
     "target": {
      "id": "msg_00000000000000000000000005",
@@ -12924,7 +12961,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:00.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -12970,7 +13007,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:00.000Z",
      "reactions": []
     }
    },
@@ -13002,9 +13039,10 @@
       "last_seq": 5,
       "rev": 10,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:02:00.000Z",
       "read_cursors": {},
-      "agent_text_streak": 0
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:02:00.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000005",
@@ -13060,12 +13098,12 @@
            "display_name": "Lawrence",
            "remote": false
           },
-          "answered_at": "2026-10-01T12:00:00.000Z"
+          "answered_at": "2026-10-01T12:02:00.000Z"
          }
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:02:00.000Z",
       "reactions": []
      },
      "change": {
@@ -13124,12 +13162,12 @@
             "display_name": "Lawrence",
             "remote": false
            },
-           "answered_at": "2026-10-01T12:00:00.000Z"
+           "answered_at": "2026-10-01T12:02:00.000Z"
           }
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:02:00.000Z",
        "reactions": []
       }
      }
@@ -13164,9 +13202,10 @@
     "last_seq": 5,
     "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:00.000Z",
     "read_cursors": {},
-    "agent_text_streak": 0
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:02:00.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -13209,7 +13248,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:10.000Z",
     "new_message_id": "msg_00000000000000000000000006",
     "target": null,
     "reply_target": null,
@@ -13267,12 +13306,12 @@
           "display_name": "Lawrence",
           "remote": false
          },
-         "answered_at": "2026-10-01T12:00:00.000Z"
+         "answered_at": "2026-10-01T12:02:00.000Z"
         }
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:00.000Z",
      "reactions": []
     }
    },
@@ -13304,10 +13343,10 @@
       "last_seq": 6,
       "rev": 11,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:02:10.000Z",
       "read_cursors": {},
       "agent_text_streak": 1,
-      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+      "last_agent_text_at": "2026-10-01T12:02:10.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000006",
@@ -13355,7 +13394,7 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:02:10.000Z",
       "reactions": []
      },
      "change": {
@@ -13406,7 +13445,7 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:02:10.000Z",
        "reactions": []
       }
      }
@@ -13441,10 +13480,10 @@
     "last_seq": 6,
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -13487,7 +13526,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:20.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -13535,7 +13574,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -13585,7 +13624,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     }
    },
@@ -13621,10 +13660,10 @@
     "last_seq": 6,
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -13679,7 +13718,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:30.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -13727,7 +13766,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -13777,7 +13816,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     }
    },
@@ -13813,10 +13852,10 @@
     "last_seq": 6,
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -13831,7 +13870,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:40.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -13879,7 +13918,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -13929,7 +13968,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     }
    },
@@ -13965,10 +14004,10 @@
     "last_seq": 6,
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -14011,7 +14050,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:02:50.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -14059,7 +14098,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -14109,7 +14148,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     }
    },
@@ -14145,10 +14184,10 @@
     "last_seq": 6,
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -14194,7 +14233,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:03:00.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -14242,7 +14281,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -14292,7 +14331,7 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": []
     }
    },
@@ -14324,10 +14363,10 @@
       "last_seq": 6,
       "rev": 12,
       "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:02:10.000Z",
       "read_cursors": {},
       "agent_text_streak": 1,
-      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+      "last_agent_text_at": "2026-10-01T12:02:10.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000006",
@@ -14375,9 +14414,9 @@
         }
        }
       ],
-      "created_at": "2026-10-01T12:00:00.000Z",
+      "created_at": "2026-10-01T12:02:10.000Z",
       "reactions": [],
-      "edited_at": "2026-10-01T12:00:00.000Z"
+      "edited_at": "2026-10-01T12:03:00.000Z"
      },
      "change": {
       "kind": "message-updated",
@@ -14427,9 +14466,9 @@
          }
         }
        ],
-       "created_at": "2026-10-01T12:00:00.000Z",
+       "created_at": "2026-10-01T12:02:10.000Z",
        "reactions": [],
-       "edited_at": "2026-10-01T12:00:00.000Z"
+       "edited_at": "2026-10-01T12:03:00.000Z"
       }
      }
     }
@@ -14463,10 +14502,10 @@
     "last_seq": 6,
     "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -14485,7 +14524,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:03:00.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -14533,9 +14572,9 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": [],
-     "edited_at": "2026-10-01T12:00:00.000Z"
+     "edited_at": "2026-10-01T12:03:00.000Z"
     },
     "reply_target": null,
     "last_message": {
@@ -14584,9 +14623,9 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": [],
-     "edited_at": "2026-10-01T12:00:00.000Z"
+     "edited_at": "2026-10-01T12:03:00.000Z"
     }
    },
    "expect": {
@@ -14621,10 +14660,10 @@
     "last_seq": 6,
     "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -14643,7 +14682,7 @@
       }
      }
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:03:00.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000006",
@@ -14691,9 +14730,9 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": [],
-     "edited_at": "2026-10-01T12:00:00.000Z"
+     "edited_at": "2026-10-01T12:03:00.000Z"
     },
     "reply_target": null,
     "last_message": {
@@ -14742,9 +14781,9 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": [],
-     "edited_at": "2026-10-01T12:00:00.000Z"
+     "edited_at": "2026-10-01T12:03:00.000Z"
     }
    },
    "expect": {
@@ -14779,10 +14818,10 @@
     "last_seq": 6,
     "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:02:10.000Z",
     "read_cursors": {},
     "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+    "last_agent_text_at": "2026-10-01T12:02:10.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -14824,7 +14863,7 @@
       }
      ]
     },
-    "now": "2026-10-01T12:00:00.000Z",
+    "now": "2026-10-01T12:03:10.000Z",
     "new_message_id": "msg_00000000000000000000000007",
     "target": {
      "id": "msg_00000000000000000000000001",
@@ -14878,12 +14917,12 @@
           "display_name": "Lawrence",
           "remote": false
          },
-         "answered_at": "2026-10-01T12:00:00.000Z"
+         "answered_at": "2026-10-01T12:01:30.000Z"
         }
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:00:10.000Z",
      "reactions": []
     },
     "reply_target": null,
@@ -14933,13 +14972,1689 @@
        }
       }
      ],
-     "created_at": "2026-10-01T12:00:00.000Z",
+     "created_at": "2026-10-01T12:02:10.000Z",
      "reactions": [],
-     "edited_at": "2026-10-01T12:00:00.000Z"
+     "edited_at": "2026-10-01T12:03:00.000Z"
     }
    },
    "expect": {
     "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "question budget: agent question 1 of 4",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q0",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:10.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "h1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "go"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:10.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:10.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "q0",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "pending"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:10.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "q0",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "pending"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:10.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: agent question 2 of 4",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q1",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:20.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "q0",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:10.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:20.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 2,
+      "last_agent_text_at": "2026-10-01T12:00:20.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_TEST",
+      "seq": 3,
+      "client_msg_id": "q1",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "pending"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:20.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_TEST",
+       "seq": 3,
+       "client_msg_id": "q1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "pending"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:20.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: agent question 3 of 4",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:20.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 2,
+    "last_agent_text_at": "2026-10-01T12:00:20.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q2",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:30.000Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_TEST",
+     "seq": 3,
+     "client_msg_id": "q1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:20.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 4,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:30.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 3,
+      "last_agent_text_at": "2026-10-01T12:00:30.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000004",
+      "conversation": "conv_TEST",
+      "seq": 4,
+      "client_msg_id": "q2",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "pending"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:30.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000004",
+       "conversation": "conv_TEST",
+       "seq": 4,
+       "client_msg_id": "q2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "pending"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:30.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: agent question 4 of 4",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:30.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 3,
+    "last_agent_text_at": "2026-10-01T12:00:30.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q3",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:40.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "q2",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:30.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 6,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:40.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 4,
+      "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000005",
+      "conversation": "conv_TEST",
+      "seq": 5,
+      "client_msg_id": "q3",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "pending"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:40.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "q3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "pending"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:40.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: a fifth agent question",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:40.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 4,
+    "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q9",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q9",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:50.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "q3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "agent_budget"
+   }
+  },
+  {
+   "name": "question budget: a fifth agent text after four questions",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:40.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 4,
+    "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "t9",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "t9",
+     "parts": [
+      {
+       "type": "text",
+       "text": "again"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:50.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "q3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "agent_budget"
+   }
+  },
+  {
+   "name": "question budget: the person answers",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:40.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 4,
+    "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "a1",
+    "op": {
+     "kind": "question.answer",
+     "message_id": "msg_00000000000000000000000005",
+     "part_index": 0,
+     "answer": {
+      "selections": {
+       "q0": {
+        "option_ids": [
+         "keys"
+        ]
+       }
+      }
+     }
+    },
+    "now": "2026-10-01T12:00:50.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "q3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "q3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 7,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:40.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000005",
+      "conversation": "conv_TEST",
+      "seq": 5,
+      "client_msg_id": "q3",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "question",
+        "harness": "chief",
+        "session": "sess_mux",
+        "permission": "perm_1",
+        "agent": "Chief",
+        "items": [
+         {
+          "id": "q0",
+          "header": "Auth",
+          "prompt": "Which auth method?",
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth",
+            "detail": "Delegated"
+           },
+           {
+            "id": "keys",
+            "label": "API keys",
+            "preview": {
+             "text": "KEY=...",
+             "format": "monospace"
+            }
+           }
+          ],
+          "multi_select": false,
+          "allows_other": true
+         }
+        ],
+        "state": {
+         "kind": "answered",
+         "answer": {
+          "selections": {
+           "q0": {
+            "option_ids": [
+             "keys"
+            ]
+           }
+          },
+          "respondent": {
+           "participant": "user_local",
+           "display_name": "Alice",
+           "remote": false
+          },
+          "answered_at": "2026-10-01T12:00:50.000Z"
+         }
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:40.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "q3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "question",
+         "harness": "chief",
+         "session": "sess_mux",
+         "permission": "perm_1",
+         "agent": "Chief",
+         "items": [
+          {
+           "id": "q0",
+           "header": "Auth",
+           "prompt": "Which auth method?",
+           "options": [
+            {
+             "id": "oauth",
+             "label": "OAuth",
+             "detail": "Delegated"
+            },
+            {
+             "id": "keys",
+             "label": "API keys",
+             "preview": {
+              "text": "KEY=...",
+              "format": "monospace"
+             }
+            }
+           ],
+           "multi_select": false,
+           "allows_other": true
+          }
+         ],
+         "state": {
+          "kind": "answered",
+          "answer": {
+           "selections": {
+            "q0": {
+             "option_ids": [
+              "keys"
+             ]
+            }
+           },
+           "respondent": {
+            "participant": "user_local",
+            "display_name": "Alice",
+            "remote": false
+           },
+           "answered_at": "2026-10-01T12:00:50.000Z"
+          }
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:40.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: an answer is a human turn, the agent may go on",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:40.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:40.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "t10",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "t10",
+     "parts": [
+      {
+       "type": "text",
+       "text": "thanks"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:50.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "q3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "answered",
+        "answer": {
+         "selections": {
+          "q0": {
+           "option_ids": [
+            "keys"
+           ]
+          }
+         },
+         "respondent": {
+          "participant": "user_local",
+          "display_name": "Alice",
+          "remote": false
+         },
+         "answered_at": "2026-10-01T12:00:50.000Z"
+        }
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 8,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:50.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:50.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000006",
+      "conversation": "conv_TEST",
+      "seq": 6,
+      "client_msg_id": "t10",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "text",
+        "text": "thanks"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:50.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000006",
+       "conversation": "conv_TEST",
+       "seq": 6,
+       "client_msg_id": "t10",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "thanks"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:50.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "question budget: a question within the 2 s gap",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "q10",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q10",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:51.999Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "t10",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "thanks"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:50.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "agent_rate"
    }
   }
  ]
