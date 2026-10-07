@@ -400,7 +400,10 @@ public final class ConversationViewController: UIViewController {
             collectionView.reloadData()
             collectionView.layoutIfNeeded()
             if !newRows.isEmpty {
-                collectionView.contentOffset = bottomOffset
+                // Also stops the bounce the empty transcript may still be
+                // running, which would otherwise carry on from the new offset
+                // and leave the newest message under the composer.
+                collectionView.setContentOffset(bottomOffset, animated: false)
                 hasPositionedInitially = true
             }
             return
