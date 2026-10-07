@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite(.serialized) struct RemoteAcpmuxGestureTests {
     /// Records the frames the transport hands it and answers nothing but `initialize`.
-    final class RecordingWire: AcpmuxPaneWire {
+    nonisolated final class RecordingWire: AcpmuxPaneWire {
         let sent = Mutex<[String]>([])
         let onFrame = Mutex<(@Sendable (String) -> Void)?>(nil)
 
