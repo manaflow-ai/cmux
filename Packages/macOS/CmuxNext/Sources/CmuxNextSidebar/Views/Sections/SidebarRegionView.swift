@@ -112,7 +112,7 @@ final class SidebarRegionView: NSView {
         for section in content.sections where section.arrangement.layout == .inline
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items where item.showsLabel {
-                let info = content.infos[item.id] ?? .fallback(for: item.ref)
+                let info = content.infos[item.id] ?? .fallback(for: item)
                 widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)
             }
         }
@@ -153,7 +153,7 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)
+                view.configure(content.infos[id] ?? .fallback(for: item), style: style)
                 place(view, row.frame)
             }
         }

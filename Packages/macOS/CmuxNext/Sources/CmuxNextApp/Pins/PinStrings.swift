@@ -11,6 +11,8 @@ enum PinStrings {
     static var unpinWorkspace: String {
         String(localized: "pins.unpinWorkspace", defaultValue: "Unpin Workspace", table: "Handlers", bundle: .module)
     }
+    static var pinGroup: String { String(localized: "pins.pinGroup", defaultValue: "Pin Group", table: "Handlers", bundle: .module) }
+    static var unpinGroup: String { String(localized: "pins.unpinGroup", defaultValue: "Unpin Group", table: "Handlers", bundle: .module) }
     static var addToTop: String { String(localized: "pins.addToTop", defaultValue: "Add to Top", table: "Handlers", bundle: .module) }
     static var removeFromTop: String {
         String(localized: "pins.removeFromTop", defaultValue: "Remove from Top", table: "Handlers", bundle: .module)

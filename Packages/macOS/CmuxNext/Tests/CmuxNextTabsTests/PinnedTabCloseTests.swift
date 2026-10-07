@@ -38,6 +38,14 @@ struct PinnedTabCloseTests {
         #expect(model.keyboardClose(TabID("p")) == .select(TabID("y")))
     }
 
+    @Test func theSettingLetsCmdWClosePinnedTabs() {
+        let model = TabStripModel(tabs: [tab("a", pinned: true), tab("b")], selectedID: TabID("a"))
+        #expect(model.keyboardClose(TabID("a"), closesPinned: true) == .close, "tabs.cmdWClosesPinnedTabs on")
+        #expect(model.keyboardClose(TabID("a"), closesPinned: false) == .select(TabID("b")), "off (the default) keeps it")
+        let only = TabStripModel(tabs: [tab("p", pinned: true)], selectedID: TabID("p"))
+        #expect(only.keyboardClose(TabID("p"), closesPinned: true) == .close)
+    }
+
     @Test func unknownTabCloses() {
         let model = TabStripModel(tabs: [tab("p", pinned: true)], selectedID: TabID("p"))
         #expect(model.keyboardClose(TabID("zz")) == .close)

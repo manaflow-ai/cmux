@@ -141,4 +141,10 @@ extension SidebarItemInfo {
         let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "questionmark.square.dashed"
         return SidebarItemInfo(title: ref.value, symbol: symbol, icon: icon, isMissing: true)
     }
+
+    /// `fallback(for:)` of the item's ref, titled with the label stored with
+    /// the item (a closed workspace's last known name) when it has one.
+    public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
+        fallback(for: item.ref) // red: the label is not drawn yet
+    }
 }

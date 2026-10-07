@@ -38,11 +38,13 @@ enum SidebarSectionHandlers {
             }
             // Any workspace or app goes in the top rows ("Add to Top", P1), or the named section.
             if let ref = try SidebarSectionResolve.workspaceOrApp(name, machines: context.services.machines) {
+                // A workspace's name is stored with its item, for when it is closed.
+                let label = WorkspaceLayoutRefs(machines: context.services.machines).workspace(for: ref)?.0.displayName
                 if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                     let section = try SidebarSectionResolve.section(sectionName, in: doc)
-                    return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
+                    return .itemAdd(LayoutItem(id: .mint(), ref: ref, label: label), section: section.id, index: Int.max)
                 }
-                guard let op = doc.addToTopOp(ref) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
+                guard let op = doc.addToTopOp(ref, label: label) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
                 return op
             }
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }

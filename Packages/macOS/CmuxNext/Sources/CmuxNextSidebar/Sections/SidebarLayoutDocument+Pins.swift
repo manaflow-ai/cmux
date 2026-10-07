@@ -34,10 +34,11 @@ extension SidebarLayoutDocument {
 
     /// Pins `ref` as the last tile: adds `sec_pinned` (under `sec_top`, else
     /// last in the top region) holding it when the section is missing. Nil
-    /// when it is pinned already.
-    public func pinOp(_ ref: LayoutItemRef, newItem: LayoutItemID = .mint()) -> SidebarLayoutOp? {
+    /// when it is pinned already. `label` (the workspace's name now) is
+    /// stored with the tile and drawn while the workspace is closed.
+    public func pinOp(_ ref: LayoutItemRef, label: String? = nil, newItem: LayoutItemID = .mint()) -> SidebarLayoutOp? {
         guard !isPinned(ref) else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref)
+        let item = LayoutItem(id: newItem, ref: ref, label: label)
         if section(Self.pinnedSectionID) != nil { return .itemAdd(item, section: Self.pinnedSectionID, index: Int.max) }
         let top = sections(in: .top, room: nil).map(\.id)
         let index = top.firstIndex(of: Self.topSectionID).map { $0 + 1 } ?? Int.max
@@ -52,10 +53,11 @@ extension SidebarLayoutDocument {
 
     /// Adds `ref` as the last row of `sec_top` ("Add to Top"), else of the
     /// first top items section, else in a new top section. Nil when the top
-    /// region already shows it.
-    public func addToTopOp(_ ref: LayoutItemRef, newItem: LayoutItemID = .mint(), newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
+    /// region already shows it. `label` is stored like a tile's.
+    public func addToTopOp(_ ref: LayoutItemRef, label: String? = nil, newItem: LayoutItemID = .mint(),
+                           newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
         guard !isOnTop(ref) else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref)
+        let item = LayoutItem(id: newItem, ref: ref, label: label)
         let target = section(Self.topSectionID).map(\.id)
             ?? sections.first { $0.region == .top && $0.room == nil && $0.content == .items && $0.id != Self.pinnedSectionID }?.id
         if let target { return .itemAdd(item, section: target, index: Int.max) }
@@ -96,12 +98,13 @@ extension SidebarLayoutDocument {
     /// One-time move of legacy pinned workspaces (`workspace-pin-v1`) into
     /// tiles: one op per ref in order, each planned against the document
     /// the earlier ones leave, skipping refs the top region already shows
-    /// (a tile or a top row). Lossless: nothing is removed.
-    public func legacyPinMigrationOps(_ refs: [LayoutItemRef]) -> [SidebarLayoutOp] {
+    /// (a tile or a top row). Lossless: nothing is removed. `labels` are the
+    /// workspaces' names, stored with their tiles.
+    public func legacyPinMigrationOps(_ refs: [LayoutItemRef], labels: [LayoutItemRef: String] = [:]) -> [SidebarLayoutOp] {
         var document = self
         var ops: [SidebarLayoutOp] = []
         for ref in refs where !document.isOnTop(ref) {
-            guard let op = document.pinOp(ref), case .success(let next) = SidebarLayoutReducer.reduce(document, op) else { continue }
+            guard let op = document.pinOp(ref, label: labels[ref]), case .success(let next) = SidebarLayoutReducer.reduce(document, op) else { continue }
             ops.append(op)
             document = next
         }

@@ -113,6 +113,33 @@ struct WorkspacePinTilesTests {
         #expect(infos[items[1].id]?.isMissing == true)
     }
 
+    @Test func aTileKeepsItsWorkspaceNameForWhenItIsClosed() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = Self.services(owner: owner)
+        #expect(Self.togglePin(services, 1) == .ran)
+        let tile = try #require(services.sidebarLayout.document.section(SidebarLayoutDocument.pinnedSectionID)?.items.first)
+        #expect(tile.label == "w1", "the name is stored with the pin")
+        var layout = SidebarLayoutDocument.defaults
+        layout = try SidebarLayoutReducer.reduce(layout, try #require(layout.pinOp(.workspace("\(Self.session):ws_gone"), label: "Old project"))).get()
+        let closed = try #require(layout.section(SidebarLayoutDocument.pinnedSectionID)?.items.first)
+        let info = SidebarBridge.itemInfo(for: layout, registered: { _ in true })[closed.id]
+        #expect(info?.title == "Old project", "a closed workspace's tile shows its last known name, not its id")
+        #expect(info?.isMissing == true)
+        let stored = try JSONDecoder().decode(LayoutItem.self, from: JSONEncoder().encode(closed))
+        #expect(stored.label == "Old project", "the label goes over the wire with the item")
+        await Self.drain(owner)
+    }
+
+    @Test func aTileDrawsTheGlyphItsRowStandsFor() throws {
+        let services = Self.services(owner: nil)
+        let (workspace, _) = try #require(services.machines.workspace(id: Self.id(1)))
+        let info = SidebarWorkspaceItems.workspaceInfo(workspace)
+        let row = SidebarMapping.shared.row(workspace, machine: .local)
+        #expect(info.icon == row.kind.iconName, "a terminal workspace's tile draws the terminal glyph, as its row does")
+        #expect(info.brand == row.kindBrand)
+        #expect(info.title == "w1")
+    }
+
     @Test func theSelectionMarksTheTileOfTheShownWorkspace() throws {
         let services = Self.services(owner: nil)
         let refs = WorkspaceLayoutRefs(machines: services.machines)
@@ -161,6 +188,24 @@ struct WorkspaceTopRowsTests {
         let top = services.sidebarLayout.document.section(SidebarLayoutDocument.topSectionID)?.items.map(\.ref)
         #expect(top?.suffix(1) == [.app("acme/notes")])
         #expect(top?.count == 3)
+        for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
+    }
+
+    @Test func theWorkspaceRowMenuAddsToTopAndRemovesFromTop() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = WorkspacePinTilesTests.services(owner: owner)
+        let target = ActionTargetRef(kind: .workspace, id: WorkspacePinTilesTests.id(2))
+        let title = { services.registry.action(for: "workspace.toggleTop")?.targetTitle?(ActionInvocation(target: target)) }
+        let rowMenu = ContextMenuCatalog.shared.entries(for: .workspaceRow)
+        #expect(ContextMenuCatalog.shared.referencedIDs(rowMenu).contains("workspace.toggleTop"), "the row menu offers Add to Top")
+        #expect(title() == PinStrings.addToTop)
+        #expect(ActionBindingCoverageTests.run(services, "workspace.toggleTop", target: target) == .ran)
+        let row = try #require(services.sidebarLayout.document.section(SidebarLayoutDocument.topSectionID)?.items.last)
+        #expect(row.ref == WorkspacePinTilesTests.ref(2))
+        #expect(row.label == "w2")
+        #expect(title() == PinStrings.removeFromTop)
+        #expect(ActionBindingCoverageTests.run(services, "workspace.toggleTop", target: target) == .ran)
+        #expect(!services.sidebarLayout.document.isOnTop(WorkspacePinTilesTests.ref(2)))
         for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
     }
 

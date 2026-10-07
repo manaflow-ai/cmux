@@ -41,8 +41,10 @@ final class SidebarLayoutService {
     @ObservationIgnored private var migrationSent = false
     /// Sessions whose legacy pins went out as tiles this run (`migrateLegacyPins`).
     @ObservationIgnored var legacyPinsSent: Set<String> = []
+    /// Sessions whose legacy flags were cleared this run (`migrateLegacyPins`).
+    @ObservationIgnored var legacyPinsCleared: Set<String> = []
     /// This Mac added Recents to the layout, or saw it there, once.
-    @ObservationIgnored let recentsOffered: UserDefaults
+    @ObservationIgnored private let recentsOffered: UserDefaults
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar-layout")
 

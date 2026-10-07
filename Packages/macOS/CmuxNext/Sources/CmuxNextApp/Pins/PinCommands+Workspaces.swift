@@ -31,7 +31,8 @@ extension PinCommands {
         if pinsAreTiles {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
             let document = layout.document
-            guard let op = pinned ? document.pinOp(ref) : document.unpinOp(ref) else { return }
+            let label: String? = nil // red: the name is not stored yet
+            guard let op = pinned ? document.pinOp(ref, label: label) : document.unpinOp(ref) else { return }
             return try sendLayout(op, title: pinned ? PinStrings.pinWorkspace : PinStrings.unpinWorkspace, origin: origin)
         }
         try setLegacyPinned(id, pinned: pinned)
@@ -40,6 +41,12 @@ extension PinCommands {
             try? commands.setWorkspacePinned(id, pinned: !pinned, origin: .user)
         }
     }
+
+    /// Whether sidebar workspace `id` shows in the top rows (not as a tile).
+    func isWorkspaceOnTopRows(_ id: String) -> Bool { false }
+
+    /// Red: not implemented yet.
+    func toggleWorkspaceOnTop(_ id: String, origin: ActionOrigin) throws {}
 
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {

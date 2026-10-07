@@ -127,7 +127,7 @@ extension SidebarBridge {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
-                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .fallback(for: item.ref); continue }
+                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .fallback(for: item); continue }
                 if item.ref.kind == LayoutItemRef.appKind {
                     infos[item.id] = app(item.ref.value)
                     continue
