@@ -57,10 +57,20 @@ enum CoderouterCLIAccountReader {
             // Bundled CodeRouter 0.3.15 predates `accounts --team`. Keep the
             // old path as a compatibility fallback until that binary is
             // released and included in cmux.
-            guard let name = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !name.isEmpty else { throw error }
-            let legacyOrganizationID = try await matchingOrganizationID(for: cmuxTeamID, name: name, run: run)
-            guard let legacyOrganizationID else { throw error }
+            guard isUnsupportedTeamOption(error) else { throw error }
+            let legacyOrganizationID: String
+            if UUID(uuidString: teamID) != nil {
+                // The organization catalog uses Stack team UUIDs as its IDs.
+                // Do not pay for an `org list` just to rediscover this value.
+                legacyOrganizationID = teamID
+            } else {
+                guard let name = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !name.isEmpty,
+                      let matched = try await matchingOrganizationID(for: teamID, name: name, run: run) else {
+                    throw error
+                }
+                legacyOrganizationID = matched
+            }
             organizationID = legacyOrganizationID
             logger.info("Falling back to active CodeRouter organization selection for legacy CLI")
             var legacyPayload = try await readAccounts(run: run)
@@ -86,15 +96,15 @@ enum CoderouterCLIAccountReader {
         knownOrganizationID: String?,
         run: Run
     ) async throws -> String? {
-        if let knownOrganizationID = knownOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !knownOrganizationID.isEmpty,
-           UUID(uuidString: knownOrganizationID) != nil {
-            return knownOrganizationID
-        }
         if let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !cmuxTeamID.isEmpty,
            UUID(uuidString: cmuxTeamID) != nil {
             return cmuxTeamID
+        }
+        if let knownOrganizationID = knownOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !knownOrganizationID.isEmpty,
+           UUID(uuidString: knownOrganizationID) != nil {
+            return knownOrganizationID
         }
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty else { return nil }
@@ -124,6 +134,7 @@ enum CoderouterCLIAccountReader {
         } catch {
             // Compatibility with the pre-team-scoped CLI. This legacy path is
             // only used when the direct command is not understood.
+            guard isUnsupportedTeamOption(error) else { throw error }
             _ = try await run(["org", "switch", snapshot.organizationID])
             _ = try await run(["remove", accountID, "--yes"])
         }
@@ -166,6 +177,25 @@ enum CoderouterCLIAccountReader {
             )
         }
         return (object?["teamId"] as? String, result)
+    }
+
+    /// The bundled pre-team-scoped CLI reports a command usage string that
+    /// does not mention `--team`. A newer CLI can fail for auth, network, or
+    /// membership reasons; those failures must be returned to the sidebar and
+    /// must never mutate the user's shared active organization.
+    private static func isUnsupportedTeamOption(_ error: Error) -> Bool {
+        let message = (error as NSError).localizedDescription.lowercased()
+        if message.contains("unexpected argument") ||
+            message.contains("unknown option") ||
+            message.contains("unrecognized option") ||
+            message.contains("wasn't expected") {
+            return message.contains("--team")
+        }
+        if message.contains("usage: coderouter accounts") ||
+            message.contains("usage: coderouter remove") {
+            return !message.contains("--team")
+        }
+        return false
     }
 
     /// The share of the account's current rate-limit window still unused, the

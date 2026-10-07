@@ -58,6 +58,68 @@ struct CoderouterCLIAccountReaderTests {
         #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
+    @Test("A valid Stack team UUID wins over a stale legacy organization mapping")
+    func validTeamIDWinsOverStaleMapping() async throws {
+        let staleOrganizationID = Self.cmuxOrganizationID
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: "Austin Wang's Team",
+            knownOrganizationID: staleOrganizationID,
+            run: { arguments in
+                #expect(arguments == ["accounts", "--json", "--team", Self.cmuxTeamID])
+                return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+            }
+        )
+
+        #expect(snapshot.organizationID == Self.cmuxTeamID)
+    }
+
+    @Test("A network failure does not fall back to organization switching")
+    func directReadFailureDoesNotMutateActiveOrganization() async {
+        let commands = CommandRecorder()
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.snapshot(
+                for: Self.cmuxTeamID,
+                name: "Austin Wang's Team",
+                run: { arguments in
+                    await commands.append(arguments)
+                    throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "network timeout while reading accounts"
+                    ])
+                }
+            )
+        }
+        #expect(await commands.value == [["accounts", "--json", "--team", Self.cmuxTeamID]])
+    }
+
+    @Test("An unsupported team option alone permits the legacy read fallback")
+    func unsupportedTeamOptionUsesLegacyFallback() async throws {
+        let commands = CommandRecorder()
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: "Austin Wang's Team",
+            run: { arguments in
+                await commands.append(arguments)
+                switch arguments {
+                case ["accounts", "--json", "--team", _]:
+                    throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "coderouter: usage: coderouter accounts [--watch | --json]"
+                    ])
+                case ["accounts", "--json"]:
+                    return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+                default:
+                    throw NSError(domain: "UnexpectedCLICommand", code: 1)
+                }
+            }
+        )
+
+        #expect(snapshot.organizationID == Self.cmuxTeamID)
+        #expect(await commands.value == [
+            ["accounts", "--json", "--team", Self.cmuxTeamID],
+            ["accounts", "--json"]
+        ])
+    }
+
     @Test("An exact team ID wins over an earlier team with the same name")
     func exactIDWinsOverName() async throws {
         let organizationID = Self.austinOrganizationID
@@ -140,6 +202,32 @@ struct CoderouterCLIAccountReaderTests {
         #expect(commands.contains(["remove", accountID, "--yes", "--team", Self.austinOrganizationID]))
     }
 
+    @Test("A remove failure does not switch organization or retry unscoped")
+    func removeFailureDoesNotMutateActiveOrganization() async {
+        let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
+        let commands = CommandRecorder()
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.remove(
+                accountID: accountID,
+                for: Self.cmuxTeamID,
+                name: "Austin Wang's Team",
+                run: { arguments in
+                    await commands.append(arguments)
+                    if arguments == ["accounts", "--json", "--team", Self.cmuxTeamID] {
+                        return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+                    }
+                    throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "server returned HTTP 503 while removing account"
+                    ])
+                }
+            )
+        }
+        #expect(await commands.value == [
+            ["accounts", "--json", "--team", Self.cmuxTeamID],
+            ["remove", accountID, "--yes", "--team", Self.cmuxTeamID]
+        ])
+    }
+
     @Test("The sidebar runs the same CodeRouter CLI as cmux cr: bundled, then PATH, then the installer's")
     func resolvesTheSameCLIAsCmuxCR() {
         let app = URL(fileURLWithPath: "/Applications/cmux.app")
@@ -206,6 +294,14 @@ struct CoderouterCLIAccountReaderTests {
             )
         }
         #expect(await cli.commands.isEmpty)
+    }
+}
+
+private actor CommandRecorder {
+    private(set) var value: [[String]] = []
+
+    func append(_ command: [String]) {
+        value.append(command)
     }
 }
 
