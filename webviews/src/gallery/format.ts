@@ -224,6 +224,8 @@ type EntryBase<V> = {
   title: string;
   /** Sidebar group. */
   area: string;
+  /** Flagged or unshipped surfaces live in the final Experimental sidebar group. */
+  experimental?: boolean;
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
