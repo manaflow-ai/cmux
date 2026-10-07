@@ -581,7 +581,12 @@ final class AppContainer {
         let previousRemoteAccount = remoteConfigAccountID
         signedInAccount = account
         remoteConfigAccountID = account.userID
-        remoteConfigFactory = remoteConfigFactoryForAccount?(account.userID)
+        if let factory = remoteConfigFactoryForAccount {
+            let accountID = account.userID
+            remoteConfigFactory = { factory(accountID) }
+        } else {
+            remoteConfigFactory = nil
+        }
         // Account-scoped flags must not remain visible during an account
         // switch while the new source performs its first network refresh.
         if switched || previousRemoteAccount != account.userID {
