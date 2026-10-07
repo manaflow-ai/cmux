@@ -1,17 +1,27 @@
 #!/bin/sh
 # Builds the Chief memory inspector (webviews/src/optchat-inspector) into one
 # self-contained page that optchat-chief compiles in (inspect/http.rs serves it).
-# Usage: build-optchat-inspector-web.sh [--check]
+# Usage: build-optchat-inspector-web.sh [--check | --out DIR]
 set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT="$ROOT/Native/OptChat/optchat-chief/inspector/index.html"
-MODE="${1:-build}"
+MODE=build
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    --check) MODE=check ;;
+    --out)
+      [ "$#" -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
+      case "$2" in /*) OUT="$2/index.html" ;; *) OUT="$PWD/$2/index.html" ;; esac
+      ;;
+    *) echo "usage: $0 [--check | --out DIR]" >&2; exit 2 ;;
+  esac
+fi
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
-bunx esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
+bun x esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
   --define:process.env.NODE_ENV='"production"' --outfile="$WORK/app.js" --log-level=warning
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'"
 {
@@ -21,9 +31,10 @@ CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; 
   perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/app.js"
   printf '\n</script>\n</body>\n</html>\n'
 } > "$WORK/index.html"
-if [ "$MODE" = "--check" ]; then
+if [ "$MODE" = check ]; then
   cmp -s "$WORK/index.html" "$OUT" || { echo "error: the memory inspector page is stale; run scripts/cmux-next/build-optchat-inspector-web.sh" >&2; exit 1; }
   echo "memory inspector page is current"; exit 0
 fi
+mkdir -p "$(dirname "$OUT")"
 cp "$WORK/index.html" "$OUT"
 echo "wrote $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes)"
