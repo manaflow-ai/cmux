@@ -35,6 +35,9 @@ struct PinCommands {
         return true
     }
 
+    /// The id of the pin undo toast (one per window; a newer pin change replaces it).
+    static let undoToastID = "pin-undo"
+
     /// Registers `inverse` on the key window's undo manager.
     func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
         guard let undoManager = NSApp.keyWindow?.undoManager ?? NSApp.mainWindow?.undoManager else { return }
