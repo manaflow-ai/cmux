@@ -4,12 +4,18 @@
 
 use cmux_rd_core::packetize::Packetizer;
 use cmux_rd_engine::{EngineConfig, MediaEngine};
-use cmux_rd_proto::{DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC, REF_NONE};
+use cmux_rd_proto::{
+    DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC, REF_NONE,
+};
 
 const MIC: u16 = 100;
 
 fn frames(p: &mut Packetizer, frame: u32, len: usize, parity: usize) -> Vec<Vec<u8>> {
-    let body = FrameBody { t_capture_us: u64::from(frame), ref_frame: REF_NONE, access_unit: vec![frame as u8; len] };
+    let body = FrameBody {
+        t_capture_us: u64::from(frame),
+        ref_frame: REF_NONE,
+        access_unit: vec![frame as u8; len],
+    };
     p.packetize(frame, 0, &body, parity).expect("packetize").datagrams
 }
 
