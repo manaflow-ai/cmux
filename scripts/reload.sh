@@ -1493,6 +1493,16 @@ else
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
 fi
 
+# Release reloads build the helper binaries universal: Release is universal
+# (ONLY_ACTIVE_ARCH = NO), and Bundle acpmux and Bundle optchat-chief need every
+# app architecture in their binaries, while both build scripts default to the
+# host. A fleet --release build failed on "acpmux has architectures arm64, but
+# the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
+fi
+
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
 # reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
 # tagged reload outside CI may reuse that commit-addressed cache, but never runs
