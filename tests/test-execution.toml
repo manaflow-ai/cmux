@@ -1071,3 +1071,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_free_step_lockfiles.py"
+lane = "linux-guard"

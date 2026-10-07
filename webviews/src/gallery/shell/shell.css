@@ -226,10 +226,11 @@ body {
 .gallery-note {
   color: var(--g-muted);
 }
+/* A plain neutral frame around the surface: no shape of the native window. */
 .gallery-window {
   overflow: hidden;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25), 0 12px 32px rgb(0 0 0 / 0.18);
+  outline: 1px solid var(--g-line);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
 }
 .gallery-window iframe {
   transform-origin: 0 0;
@@ -243,3 +244,24 @@ body {
 .gallery-empty {
   padding: 24px;
 }
+.gallery-replay {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--g-line);
+  background: transparent;
+  color: var(--g-text);
+}
+.gallery-play {
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-play--fail {
+  color: #e5534b;
+}
+.gallery-play--warn {
+  color: #c69026;
+}
+/* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
+.gallery .variant-pick-option { flex: 0 0 auto; }

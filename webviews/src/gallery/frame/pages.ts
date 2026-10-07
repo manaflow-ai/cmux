@@ -519,3 +519,6 @@ export async function mountKeybindingsPage(state: KeybindingsPageVariant, _conte
     }, 100);
   }
 }
+
+// These pages already have protocol-faithful mock providers. Keep their mutations and streams.
+export { mountSettingsPage, mountPasswordsPage } from "./settingsPasswords";

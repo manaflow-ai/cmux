@@ -76,7 +76,8 @@ extension HomeService {
         let source = HomeSidebarSource(
             store: HomePinStore(),
             account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
-            rows: { store.rows }, me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] })
+            rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
+            me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed

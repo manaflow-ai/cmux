@@ -10,7 +10,6 @@ import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
-import metrics from "virtual:cmux-gallery/metrics";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 
@@ -85,8 +84,21 @@ const context: StageContext = {
 };
 
 function markReady(): void {
+  if (window.cmuxGalleryPlayReport) root.dataset.galleryPlay = window.cmuxGalleryPlayReport.status;
   root.dataset.galleryReady = "1";
   parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+}
+
+/** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
+async function playThenReady(): Promise<void> {
+  const play = entry.variants[variantName]?.play;
+  if (play) {
+    const { runPlay } = await import("./playRunner");
+    const report = await runPlay(play, { anchors: entry.anchors, checks: entry.checks });
+    window.cmuxGalleryPlayReport = report;
+    parent.postMessage({ type: "cmux-gallery-play", report }, "*");
+  }
+  markReady();
 }
 
 /** Ready once the page has painted and its DOM has been still for a moment (fonts loaded). */
@@ -95,7 +107,7 @@ function markReadyWhenStill(): void {
   const started = performance.now();
   const done = () => {
     observer.disconnect();
-    markReady();
+    void playThenReady();
   };
   const arm = () => {
     clearTimeout(timer);
@@ -120,6 +132,10 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountHistoryPage(entry.variants[variantName]!, context);
     case "keybindings-page":
       return (await import("./pages")).mountKeybindingsPage(entry.variants[variantName]!, context);
+    case "settings-page":
+      return (await import("./pages")).mountSettingsPage(entry.variants[variantName]!, context);
+    case "passwords-page":
+      return (await import("./pages")).mountPasswordsPage(entry.variants[variantName]!, context);
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":
@@ -130,14 +146,9 @@ async function mount(): Promise<void> {
   }
 }
 
-// Window mode: this frame is the window; the entry runs in a nested component frame in its pane,
-// and the window is ready when that frame is.
-const windowed = env.frame === "window" && entry.host !== "native";
-const start = windowed
-  ? import("./windowChrome").then(({ mountWindow }) =>
-      mountWindow({ entry, variant: variantName, env, tokens, metrics, onReady: markReady }),
-    )
-  : mount().then(markReadyWhenStill);
+// The stage is the surface alone, at the size its frame gives it (window mode sizes the frame to
+// the pane the surface has in the app; nothing of the native window is drawn).
+const start = mount().then(markReadyWhenStill);
 start.catch((error: unknown) =>
   fail(
     `${entry.id}#${variantName} failed to mount:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,

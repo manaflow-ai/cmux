@@ -18,6 +18,37 @@ import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
 import type { HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
+import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
+import type { MockOptions } from "../pages/settings/mockProvider";
+import type { AccountsState, HostLists } from "../pages/settings/ops";
+import type { MockData } from "../pages/passwords/mockProvider";
+
+/** Initial gestures use the real controls, so local forms remain interactive. */
+export type PageFixtureStep = {
+  selector: string;
+  action: "click" | "input" | "change" | "focus" | "select" | "enter" | "wait";
+  value?: string;
+};
+export type SettingsPageVariant = VariantBase & {
+  section: string;
+  focus?: string;
+  options?: MockOptions;
+  host?: Partial<HostLists>;
+  accounts?: AccountsState;
+  /** Public-safe thumbnail data URLs for native-origin backdrop images. */
+  backdropImages?: Record<string, string>;
+  loading?: boolean;
+  steps?: PageFixtureStep[];
+};
+export type PasswordsPageVariant = VariantBase & {
+  data: MockData;
+  loading?: boolean;
+  authenticate?: boolean;
+  gesture?: boolean;
+  confirm?: boolean;
+  failure?: { op: string; code: string; message: string };
+  steps?: PageFixtureStep[];
+};
 
 /** Common to every variant. */
 type VariantBase = {
@@ -25,6 +56,11 @@ type VariantBase = {
   note?: string;
   /** The stage's height in px; else the entry's. */
   height?: number;
+  /**
+   * Steps that drive the mounted page into the variant's state (play.ts): an open menu, a typed
+   * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
+   */
+  play?: Play;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -129,6 +165,12 @@ type EntryBase<V> = {
   height?: number;
   /** The width presets in px, when the entry's own differ from the host's. */
   widths?: Partial<Record<WidthName, number>>;
+  /** Elements that must not move while a play step acts on something else (play.ts). */
+  anchors?: PlayTarget[];
+  /** Looser play checks than the strict defaults, each with its written reason. */
+  checks?: PlayChecks;
+  /** Opt into viewer choices tied to a tracker item. */
+  pick?: { beadId: string; recommendedId: string };
   variants: Record<string, V>;
 };
 
@@ -148,6 +190,8 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
 
+export type SettingsPageEntry = EntryBase<SettingsPageVariant> & { host: "settings-page" };
+export type PasswordsPageEntry = EntryBase<PasswordsPageVariant> & { host: "passwords-page" };
 export type GalleryEntry =
   | AgentPaneEntry
   | MarkdownPageEntry
@@ -155,8 +199,18 @@ export type GalleryEntry =
   | EditorPageEntry
   | HistoryPageEntry
   | KeybindingsPageEntry
+  | SettingsPageEntry
+  | PasswordsPageEntry
   | ComponentEntry<any>
   | NativeEntry;
+export const settingsPageEntry = (entry: Omit<SettingsPageEntry, "host">): SettingsPageEntry => ({
+  ...entry,
+  host: "settings-page",
+});
+export const passwordsPageEntry = (entry: Omit<PasswordsPageEntry, "host">): PasswordsPageEntry => ({
+  ...entry,
+  host: "passwords-page",
+});
 export type HostKind = GalleryEntry["host"];
 
 /** Identity helpers that check an entry against its host's variant type. */
@@ -207,7 +261,12 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     if (variants.length === 0) problems.push(`${entry.id}: no variants`);
     for (const name of variants)
       if (!VARIANT_NAME.test(name)) problems.push(`${entry.id}#${name}: variant names are lower kebab case`);
+    if (entry.pick) {
+      if (!/^cx-[a-z0-9.]+$/.test(entry.pick.beadId)) problems.push(`${entry.id}: invalid pick bead id`);
+      if (!variants.includes(entry.pick.recommendedId)) problems.push(`${entry.id}: recommended variant is missing`);
+    }
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
+    for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
   return problems;
 }

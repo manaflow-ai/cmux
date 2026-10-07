@@ -158,6 +158,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case .local: "local"
         case .cloud: "cloud"
         case .ssh: "ssh"
+        case .server: "server"
         }
     }
 
@@ -165,6 +166,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         switch name {
         case "cloud": .cloud
         case "ssh": .ssh
+        case "server": .server
         default: .local
         }
     }
