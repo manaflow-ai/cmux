@@ -50,14 +50,14 @@ extension SocketClient {
             // before the JSON protocol starts. Surface these directly instead of letting
             // JSONSerialization throw a confusing parse error.
             if raw.hasPrefix("ERROR:") {
-                throw CLIError(message: raw)
+                throw CLIError(message: CLITerminalText.printable(raw, keepingLineBreaks: true))
             }
 
             guard let responseData = raw.data(using: .utf8) else {
                 throw CLIError(message: "Invalid UTF-8 v2 response")
             }
             guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-                throw CLIError(message: "Invalid v2 response: \(raw)")
+                throw CLIError(message: "Invalid v2 response: \(CLITerminalText.printable(raw, keepingLineBreaks: true))")
             }
 
             if let ok = response["ok"] as? Bool, ok {
@@ -158,6 +158,12 @@ extension SocketClient {
         reason: String? = nil,
         details: String? = nil
     ) -> String {
+        // Every field comes from the app on the socket; see CLITerminalText.
+        let code = CLITerminalText.printable(code)
+        let message = CLITerminalText.printable(message, keepingLineBreaks: true)
+        let action = action.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let reason = reason.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
+        let details = details.map { CLITerminalText.printable($0, keepingLineBreaks: true) }
         let header: String
         if code == "vm_error" {
             header = message
