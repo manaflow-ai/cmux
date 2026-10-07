@@ -262,10 +262,12 @@ et_run() {
     # always relays stdin — which is what lets a human answer a 2FA prompt.
     # The deadline is part of the measurement: an over-limit probe never returns, and
     # delivered() reads exit 124 as "not delivered". --foreground keeps the terminal with
-    # script(1), so a 2FA prompt can still be answered.
-    "$TIMEOUT_BIN" --foreground "$timeout_s" /usr/bin/script -q "$T_SCRIPT" \
+    # script(1), so a 2FA prompt can still be answered. The supervisor snapshots
+    # descendants before stopping script, including brokers in separate sessions.
+    # Keep its status as the function result so a timeout remains 124.
+    python3 scripts/ci/run_with_timeout.py --foreground --timeout-seconds "$timeout_s" -- \
+      /usr/bin/script -q "$T_SCRIPT" \
       "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS "$TRANSPORT_HOST" -c "$command"
-    ET_RUN_LOG="$T_SCRIPT"
   else
     # `--` before the destination, as cmux's own et argv does: a destination beginning with `-`
     # has to be a host, never an option.

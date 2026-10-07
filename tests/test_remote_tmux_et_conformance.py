@@ -128,7 +128,7 @@ except subprocess.TimeoutExpired:
                     while any(alive(child) for child in children) and time.monotonic() < deadline:
                         time.sleep(0.02)
                     self.assertEqual([child for child in children if alive(child)], [],
-                                     "broker descendants survived the probe timeout")
+                                     "broker descendants survived the probe timeout: " + output.decode(errors="replace"))
             finally:
                 if status is None:
                     try:
