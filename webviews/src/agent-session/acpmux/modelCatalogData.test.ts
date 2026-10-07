@@ -101,10 +101,7 @@ const ACPMUX = normalizeCatalog({
     codex: { family: "codex", unavailable: "codex is not signed in", models: [] },
     opencode: {
       family: "opencode",
-      models: [
-        { id: "anthropic/claude-sonnet-5" },
-        { id: "ollama/qwen3-coder", name: "qwen3-coder" },
-      ],
+      models: [{ id: "anthropic/claude-sonnet-5" }, { id: "ollama/qwen3-coder", name: "qwen3-coder" }],
     },
     "corp-claude": { family: "claude", models: [] },
     acme: {
@@ -184,12 +181,7 @@ describe("buildPickerCatalog", () => {
 
   test("probe harnesses list what acpmux probed, described by ref when the catalog knows it", () => {
     expect(
-      byId("opencode").models.map((model) => [
-        model.id,
-        model.name,
-        model.contextWindow,
-        model.providerName,
-      ]),
+      byId("opencode").models.map((model) => [model.id, model.name, model.contextWindow, model.providerName]),
     ).toEqual([
       ["anthropic/claude-sonnet-5", "Claude Sonnet 5", 1000000, "Anthropic"],
       ["ollama/qwen3-coder", "qwen3-coder", undefined, undefined],
@@ -256,13 +248,10 @@ describe("buildPickerCatalog", () => {
     const layered = buildPickerCatalog({ catalog: CATALOG, acpmux: ACPMUX, user });
     expect(layered.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode"]);
     expect(layered.harnesses[0]).toMatchObject({ name: "Claude (work)" });
-    expect(
-      layered.harnesses[0]?.models.map((model) => [model.id, model.name, model.defaultEffort]),
-    ).toEqual([["claude-opus-5-5", "Opus", "max"]]);
-    expect(layered.harnesses[1]?.models.map((model) => model.id)).toEqual([
-      "gpt-5.5",
-      "gpt-6-local",
+    expect(layered.harnesses[0]?.models.map((model) => [model.id, model.name, model.defaultEffort])).toEqual([
+      ["claude-opus-5-5", "Opus", "max"],
     ]);
+    expect(layered.harnesses[1]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-6-local"]);
     expect(layered.harnesses[2]?.models[1]).toMatchObject({
       name: "Qwen3 Coder (local)",
       contextWindow: 131072,
@@ -278,10 +267,7 @@ describe("catalog inputs", () => {
     expect(readModelCatalog(CATALOG)?.harnesses.length).toBe(4);
     expect(readModelCatalog({ ...CATALOG, schemaVersion: 2 })).toBeUndefined();
     expect(readModelCatalog(null)).toBeUndefined();
-    expect(
-      readModelCatalog({ ...CATALOG, harnesses: [{ id: 1 }, ...CATALOG.harnesses] })?.harnesses
-        .length,
-    ).toBe(4);
+    expect(readModelCatalog({ ...CATALOG, harnesses: [{ id: 1 }, ...CATALOG.harnesses] })?.harnesses.length).toBe(4);
   });
 
   test("the bundled snapshot is a usable catalog with the five harnesses", () => {

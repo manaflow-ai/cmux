@@ -28,8 +28,7 @@ let pending: Promise<void> | undefined;
 export function receiveModelCatalog(value: unknown): void {
   const delivery = (value ?? {}) as ModelCatalogDelivery;
   const catalog = readModelCatalog(delivery.catalog);
-  const kind =
-    delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
+  const kind = delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
   state = {
     catalog: catalog ? { ...catalog, ...(kind ? { delivery: kind } : {}) } : state.catalog,
     user: delivery.user ?? undefined,
@@ -91,10 +90,7 @@ export function usePickerCatalog(
     catalog: picker,
     date: catalog.generatedAt,
     async refresh() {
-      await Promise.all([
-        loadModelCatalog(true),
-        queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] }),
-      ]);
+      await Promise.all([loadModelCatalog(true), queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] })]);
     },
   };
 }

@@ -70,10 +70,7 @@ export type ModelCatalog = {
 /** cmux.json `agentPane.models`, as the host passes it (unchecked JSON). */
 export type ModelUserLayer = {
   remoteCatalog?: boolean;
-  harnesses?: Record<
-    string,
-    { hidden?: boolean; name?: string; order?: number; defaultModel?: string }
-  >;
+  harnesses?: Record<string, { hidden?: boolean; name?: string; order?: number; defaultModel?: string }>;
   overrides?: Record<string, Partial<HarnessModel> & { hidden?: boolean }>;
 };
 
@@ -123,20 +120,11 @@ export const BUNDLED_MODEL_CATALOG: ModelCatalog = {
   delivery: "bundled",
 };
 
-const EFFORT_ORDER: readonly EffortValue[] = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-];
+const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** A host payload when it is a schema 1 catalog, else undefined (the page keeps what it has). */
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses))
-    return undefined;
+  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
   const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness);
   return { ...(value as ModelCatalog), harnesses };
@@ -171,8 +159,7 @@ export function applyUserLayer(catalog: ModelCatalog, user: unknown): ModelCatal
     const harnessId = key.slice(0, slash);
     const modelId = key.slice(slash + 1);
     for (const harness of harnesses) {
-      if (harnessId === "*" || harnessId === harness.id)
-        applyModelOverride(harness, modelId, raw, harnessId !== "*");
+      if (harnessId === "*" || harnessId === harness.id) applyModelOverride(harness, modelId, raw, harnessId !== "*");
     }
   }
   return { ...catalog, harnesses, ...(diagnostics.length > 0 ? { diagnostics } : {}) };
@@ -185,8 +172,7 @@ function withHarnessConfig(harness: CatalogHarness, config: unknown): CatalogHar
   };
   if (!isRecord(config)) return copy;
   if (typeof config.name === "string" && config.name.trim()) copy.name = config.name.trim();
-  if (typeof config.defaultModel === "string" && config.defaultModel)
-    copy.defaultModel = config.defaultModel;
+  if (typeof config.defaultModel === "string" && config.defaultModel) copy.defaultModel = config.defaultModel;
   return copy;
 }
 
@@ -204,9 +190,7 @@ function applyModelOverride(
   raw: Record<string, unknown>,
   add: boolean,
 ): void {
-  const index = harness.models.findIndex(
-    (model) => model.id === modelId || model.aliases?.includes(modelId),
-  );
+  const index = harness.models.findIndex((model) => model.id === modelId || model.aliases?.includes(modelId));
   if (raw.hidden === true) {
     if (index >= 0) harness.models.splice(index, 1);
     return;
@@ -222,21 +206,13 @@ function applyModelOverride(
 function modelFields(raw: Record<string, unknown>): Partial<HarnessModel> {
   const fields: Partial<HarnessModel> = {};
   for (const key of ["name", "shortName", "family", "provider"] as const)
-    if (typeof raw[key] === "string" && (raw[key] as string).trim())
-      fields[key] = (raw[key] as string).trim();
+    if (typeof raw[key] === "string" && (raw[key] as string).trim()) fields[key] = (raw[key] as string).trim();
   if (Array.isArray(raw.efforts))
     fields.efforts = EFFORT_ORDER.filter((effort) => (raw.efforts as unknown[]).includes(effort));
-  if (
-    typeof raw.defaultEffort === "string" &&
-    EFFORT_ORDER.includes(raw.defaultEffort as EffortValue)
-  )
+  if (typeof raw.defaultEffort === "string" && EFFORT_ORDER.includes(raw.defaultEffort as EffortValue))
     fields.defaultEffort = raw.defaultEffort as EffortValue;
   if (typeof raw.fast === "boolean") fields.fast = raw.fast;
-  if (
-    typeof raw.contextWindow === "number" &&
-    Number.isInteger(raw.contextWindow) &&
-    raw.contextWindow > 0
-  )
+  if (typeof raw.contextWindow === "number" && Number.isInteger(raw.contextWindow) && raw.contextWindow > 0)
     fields.contextWindow = raw.contextWindow;
   return fields;
 }
@@ -272,11 +248,9 @@ export function buildPickerCatalog({
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
     if (hidden.has(harness.id))
-      for (const entry of acpmux)
-        if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
   for (const entry of acpmux) {
-    if (!covered.has(entry.id) && !hidden.has(entry.id))
-      harnesses.push(uncataloguedHarness(entry, join));
+    if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
   return { harnesses, provisional };
 }
@@ -290,9 +264,7 @@ type Join = {
 function userOverrides(user: unknown): Join["overrides"] {
   const overrides = isRecord(user) && isRecord(user.overrides) ? user.overrides : {};
   return Object.fromEntries(
-    Object.entries(overrides).filter((entry): entry is [string, Record<string, unknown>] =>
-      isRecord(entry[1]),
-    ),
+    Object.entries(overrides).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])),
   );
 }
 
@@ -325,11 +297,7 @@ function layeredModel(
   return { ...model, ...declared, ...modelFields(user) };
 }
 
-function catalogHarness(
-  harness: CatalogHarness,
-  members: AcpmuxHarness[],
-  join: Join,
-): PickerHarness {
+function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
   const { catalog, session } = join;
   const chosen =
     members.find((entry) => entry.id === session?.harness) ??
@@ -346,10 +314,7 @@ function catalogHarness(
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  const live =
-    session?.harness !== undefined && chosen?.id === session.harness
-      ? session.configOptions
-      : undefined;
+  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   return {
     id: harness.id,
     name: harness.name,
@@ -387,11 +352,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   };
 }
 
-function pickerModel(
-  model: HarnessModel,
-  catalog: ModelCatalog,
-  unavailable?: string,
-): PickerModel {
+function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: string): PickerModel {
   const info = model.ref ? catalog.models[model.ref] : undefined;
   const providerName = model.provider ? catalog.providers[model.provider]?.name : undefined;
   const contextWindow = model.contextWindow ?? info?.contextWindow;
@@ -435,10 +396,7 @@ function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerM
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
-  return (
-    join.overrides[`${harnessId}/${modelId}`]?.hidden === true ||
-    join.overrides[`*/${modelId}`]?.hidden === true
-  );
+  return join.overrides[`${harnessId}/${modelId}`]?.hidden === true || join.overrides[`*/${modelId}`]?.hidden === true;
 }
 
 /** A host-served icon file: an http(s) or cmux page URL, or an absolute path the host serves. */
@@ -457,10 +415,7 @@ function probeMatches(model: HarnessModel, id: string): boolean {
 /** The session's own effort and fast options are the truth for the model it runs. */
 function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerModel {
   const effort = options.find(
-    (option) =>
-      option.category === "thought_level" ||
-      option.id === "effort" ||
-      option.id === "reasoning_effort",
+    (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
   const efforts = effort?.options
     ?.map((choice) => choice.value)
