@@ -65,6 +65,7 @@ mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
+pub mod store_schemas;
 mod stream_interrupt;
 mod surface;
 #[cfg(unix)]
