@@ -128,12 +128,11 @@ struct RemoteBrowserInputEncoderTests {
         #expect(RemoteBrowserTabRecord(url: file)?.initialURL == nil)
     }
 
-    @Test func cssCursorsMapToAppKitCursors() {
-        // #expect evaluates off the main actor: read the main-actor cursors first.
-        let mapped = ["pointer", "text", "no-such-cursor"].map(RemoteBrowserNativeUI.cursor)
-        let expected = [NSCursor.pointingHand, NSCursor.iBeam, NSCursor.arrow]
-        let same = zip(mapped, expected).map { $0 === $1 }
-        #expect(same == [true, true, true])
+    @Test func cssCursorsMapToAppKitCursorShapes() {
+        // Shapes, not NSCursor objects: NSCursor needs a GUI session, and
+        // this suite also runs in the headless lane.
+        let mapped = ["pointer", "text", "grabbing", "ew-resize", "no-such-cursor"].map(RemoteBrowserCursorShape.init(css:))
+        #expect(mapped == [.pointingHand, .iBeam, .closedHand, .resizeLeftRight, .arrow])
     }
 }
 #endif

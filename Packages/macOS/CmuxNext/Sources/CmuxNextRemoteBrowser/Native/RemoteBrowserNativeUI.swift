@@ -137,26 +137,7 @@ public final class RemoteBrowserNativeUI: NSObject {
 
     /// The page cursor (`rb.cursor`), as a CSS cursor name.
     public func setCursor(kind: String) {
-        view?.pageCursor = Self.cursor(kind)
-    }
-
-    /// CSS cursor names to AppKit cursors; unknown names and custom images
-    /// (the image cache is r3 work) show the arrow.
-    public static func cursor(_ kind: String) -> NSCursor {
-        switch kind {
-        case "pointer", "hand": .pointingHand
-        case "text", "vertical-text": .iBeam
-        case "crosshair": .crosshair
-        case "grab": .openHand
-        case "grabbing": .closedHand
-        case "not-allowed", "no-drop": .operationNotAllowed
-        case "copy": .dragCopy
-        case "alias": .dragLink
-        case "context-menu": .contextualMenu
-        case "col-resize", "ew-resize", "e-resize", "w-resize": .resizeLeftRight
-        case "row-resize", "ns-resize", "n-resize", "s-resize": .resizeUpDown
-        default: .arrow
-        }
+        view?.pageCursor = RemoteBrowserCursorShape(css: kind).cursor
     }
 }
 #endif
