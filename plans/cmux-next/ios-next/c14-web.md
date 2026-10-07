@@ -144,8 +144,8 @@ connection. The proxy and data store are the same as for a Mac route, keyed by t
   `BrowserChannelSession`: same encoder, packetizer, lane switch, recovery and bitrate control.
   Navigation is refused (`BrowserNavigationPolicy.none`). Pointer events with `pointer_type: touch` map
   to touch began/moved/ended in device points; `ime_commit` and keys map to text and HID keys. The real
-  capture (ScreenCaptureKit on the Simulator window, SimulatorKit HID) is app wiring; listing has a real
-  `SimctlSimulatorDirectory` (`xcrun simctl list devices booted -j`).
+  capture (ScreenCaptureKit on the Simulator window, SimulatorKit HID) is app wiring; listing has a pure
+  `SimctlSimulatorList` parser for `xcrun simctl list devices -j` (the app runs the command).
 - Phone: `BrowserChannelParams(simulator:)` targets the new kind; `LinkSimulatorStreamSource` (a
   `BrowserStreamSource` whose tabs are the booted simulators) feeds C2's `BrowserStreamViewController`
   in a `device` chrome (no address bar, history or tabs; one-finger pan is a touch drag, not a wheel).
