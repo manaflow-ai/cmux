@@ -152,6 +152,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
+        let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
         let mut accept = |v: Value| {
             if let Some(f) = on_accepted.take() {
@@ -231,7 +232,10 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        if let Err(e) = self.check_dispatch(session, control, &prompt_id, &turn_id, client) {
+        if let Err(e) = self
+            .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
+            .await
+        {
             drop(guard);
             return Err(e);
         }

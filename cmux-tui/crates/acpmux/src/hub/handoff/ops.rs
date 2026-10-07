@@ -551,6 +551,7 @@ impl Hub {
             resend: true,
             // A Web start is checked against the target in the remote guard.
             control: crate::hub::Control::Local,
+            trust_gate: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

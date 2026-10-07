@@ -319,6 +319,16 @@ impl Hub {
             }
             hub.wait_startup().await;
             let spec = hub.pool_spec(harness, preset, cwd).await?;
+            if let Some(paths) = hub.trust_gate() {
+                let folder = spec.draft.cwd.to_string_lossy().into_owned();
+                let family = spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
+                if !hub.folder_trusted_cwd(paths, folder, family).await {
+                    return Err(RpcError::invalid_params(
+                        "trust.pending: answer the trust question for the folder first",
+                    )
+                    .with_data(json!({"reason": "trust.pending"})));
+                }
+            }
             let key = spec.key.clone();
             hub.pool_want(Role::Hinted, spec).await;
             Ok::<_, RpcError>(Some(key))

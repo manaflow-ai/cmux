@@ -5,7 +5,7 @@ import type { StringKey } from "./i18n";
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't.
 export type FolderTrustAsk =
-  | { cwd: string; state: "ask" | "failed" }
+  | { cwd: string; state: "ask" | "failed" | "remote" }
   | { cwd: string; state: "decided"; level: Exclude<TrustLevel, "unknown"> };
 
 /// Why Send is off; no `reason` while the folder's trust is still being read.
@@ -19,6 +19,7 @@ export type SendBlock = { reason?: StringKey };
 export function useFolderTrustAsk(
   source: TrustSource,
   chat: { sessionId?: string; cwd?: string; family?: string; prompts: number },
+  canAnswer = true,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [reading, setReading] = useState(false);
@@ -43,13 +44,13 @@ export function useFolderTrustAsk(
       setReading(false);
       // A folder the pane can't read is not asked about; acpmux still refuses its prompts.
       const level = trust && sessionTrust(trust, family);
-      if (level === "unknown") setAsk({ cwd, state: "ask" });
+      if (level === "unknown") setAsk({ cwd, state: canAnswer ? "ask" : "remote" });
       else if (level === "untrusted") setAsk({ cwd, state: "decided", level });
     });
     return () => {
       live = false;
     };
-  }, [source, sessionId, cwd, family, reads]);
+  }, [source, sessionId, cwd, family, reads, canAnswer]);
 
   useEffect(() => {
     if (
@@ -85,6 +86,8 @@ export function useFolderTrustAsk(
     ? {}
     : ask?.state === "ask" || ask?.state === "failed"
       ? { reason: "trust.answerFirst" }
+      : ask?.state === "remote"
+        ? { reason: "trust.remote" }
       : ask?.state === "decided" && ask.level === "untrusted"
         ? { reason: "trust.untrustedNoPrompts" }
         : undefined;
