@@ -19,12 +19,16 @@ const turn = [
   summary(10, { status: "completed" }),
 ];
 
+const PROMPT = "[contenteditable='true']";
+const draftShown = (doc: Document) => doc.querySelector(PROMPT)?.textContent?.includes("POST") ?? false;
+
 export default agentPaneEntry({
   id: "agent-pane.docked-chat",
   title: "Docked chat",
   area: "Agent pane",
   height: 640,
   widths: { narrow: 300, normal: 400, wide: 480 },
+  anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["page:cmux.agent", "agent-session/acpmux/App.tsx#AcpmuxApp"],
   variants: {
     "new-chat": {
@@ -43,6 +47,15 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the net tests", 1), assistant("Running bun test src/net…", 0.5, { streaming: true })], {
         isWorking: true,
       }),
+    },
+    "typing-in-dock": {
+      note: "A two-line draft typed at dock width: the composer grows, the transcript stays put.",
+      snapshot: chat(turn),
+      play: async (ctx) => {
+        await ctx.click({ selector: PROMPT });
+        await ctx.type("Also add a circuit breaker after five failures, and keep the POST rule as it is.");
+        await ctx.waitFor(() => draftShown(ctx.document));
+      },
     },
     "long-title": {
       note: "A long chat title and model name in the dock's header.",
