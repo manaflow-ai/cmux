@@ -1,0 +1,98 @@
+extension MobileCatalog {
+    /// The cmux.mobile/1 version 1 table (a value, not shared state). Edit together with schemas/mobile-rpc/catalog.json
+    /// and the TS `mobileCatalog`; CatalogTests asserts they are equal.
+    public static let v1 = MobileCatalog(proto: "cmux.mobile/1", version: 1, families: [
+        MobileFamily("session", .stream, owner: "mac-host", messages: [
+            MobileMessage("rpc", .channel, .stream, .c2s, owner: "mac-host", channelClass: .interactive),
+        ]),
+        MobileFamily("host", .control, owner: "HostDO", stream: "host:<host>", messages: [
+            MobileMessage("host.list", .read, .control, .c2s, owner: "TeamDO"),
+            MobileMessage("host.presence.set", .owner, .control, .s2c, owner: "HostDO"),
+            MobileMessage("host.caps.set", .owner, .control, .s2c, owner: "HostDO"),
+            MobileMessage("host.wake", .op, .control, .c2s, owner: "HostDO", errors: ["host.not_wakeable"]),
+        ]),
+        MobileFamily("workspace", .control, owner: "mac-workspace-store", stream: "workspace:<host>", messages: [
+            MobileMessage("workspace.upsert", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.remove", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.tab.upsert", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.tab.remove", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.status.set", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.create", .op, .control, .c2s, owner: "mac-workspace-store"),
+            MobileMessage("workspace.rename", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
+            MobileMessage("workspace.tab.create", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
+            MobileMessage("workspace.tab.close", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.tab_not_found"]),
+        ]),
+        MobileFamily("terminal", .stream, owner: "mac-session-host", messages: [
+            MobileMessage("terminal", .channel, .stream, .c2s, owner: "mac-session-host", channelClass: .interactive, errors: ["terminal.not_found", "terminal.exited"]),
+            MobileMessage("terminal.output", .record, .stream, .s2c, owner: "mac-session-host"),
+            MobileMessage("terminal.input", .record, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.viewport", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.presence", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.snapshot_request", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.history", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.read_range", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.read_range.result", .message, .stream, .s2c, owner: "mac-session-host"),
+            MobileMessage("terminal.size", .message, .stream, .s2c, owner: "mac-session-host"),
+            MobileMessage("terminal.title", .message, .stream, .s2c, owner: "mac-session-host"),
+            MobileMessage("terminal.exited", .message, .stream, .s2c, owner: "mac-session-host"),
+            MobileMessage("terminal.kick", .message, .stream, .c2s, owner: "mac-session-host"),
+            MobileMessage("terminal.kicked", .message, .stream, .s2c, owner: "mac-session-host"),
+        ]),
+        MobileFamily("browser", .stream, owner: "mac-browser-host", messages: [
+            MobileMessage("browser", .channel, .stream, .c2s, owner: "mac-browser-host", channelClass: .interactive, errors: ["browser.tab_not_found"]),
+            MobileMessage("browser.rd", .record, .stream, .both, owner: "mac-browser-host"),
+        ]),
+        MobileFamily("rd", .stream, owner: "mac-rd-host", messages: [
+            MobileMessage("rd", .channel, .stream, .c2s, owner: "mac-rd-host", channelClass: .interactive, errors: ["rd.display_not_found"]),
+            MobileMessage("rd.frame", .record, .stream, .both, owner: "mac-rd-host"),
+        ]),
+        MobileFamily("files", .stream, owner: "mac-host", messages: [
+            MobileMessage("files.upload", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.too_large", "files.dest_invalid"]),
+            MobileMessage("files.download", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.not_found"]),
+            MobileMessage("files.chunk", .record, .stream, .both, owner: "mac-host"),
+            MobileMessage("files.upload.end", .message, .stream, .c2s, owner: "mac-host"),
+            MobileMessage("files.upload.done", .message, .stream, .s2c, owner: "mac-host", errors: ["files.digest_mismatch"]),
+            MobileMessage("files.list", .read, .stream, .c2s, owner: "mac-host", errors: ["files.not_found"]),
+        ]),
+        MobileFamily("feed", .control, owner: "FeedDO", stream: "feed:<user>", messages: [
+            MobileMessage("feed.list", .read, .control, .c2s, owner: "FeedDO", existing: true),
+            MobileMessage("feed.answer", .op, .control, .c2s, owner: "FeedDO", existing: true),
+            MobileMessage("feed.read", .op, .control, .c2s, owner: "FeedDO", existing: true),
+            MobileMessage("feed.archive", .op, .control, .c2s, owner: "FeedDO", existing: true),
+            MobileMessage("feed.post", .owner, .control, .s2c, owner: "FeedDO", existing: true),
+        ]),
+        MobileFamily("notify", .control, owner: "UserDO", messages: [
+            MobileMessage("push.target.register", .op, .control, .c2s, owner: "UserDO", existing: true),
+            MobileMessage("push.target.remove", .op, .control, .c2s, owner: "UserDO", existing: true),
+            MobileMessage("notify.activity.register", .op, .control, .c2s, owner: "UserDO"),
+            MobileMessage("notify.activity.end", .op, .control, .c2s, owner: "UserDO"),
+            MobileMessage("notify.badge.set", .owner, .control, .s2c, owner: "UserDO"),
+        ]),
+        MobileFamily("task", .control, owner: "mac-task-runner", stream: "task:<host>", messages: [
+            MobileMessage("task.dispatch", .op, .control, .c2s, owner: "mac-task-runner", errors: ["task.agent_unavailable", "task.attachment_missing"]),
+            MobileMessage("task.cancel", .op, .control, .c2s, owner: "mac-task-runner", errors: ["task.not_found"]),
+            MobileMessage("task.list", .read, .control, .c2s, owner: "mac-task-runner"),
+            MobileMessage("task.state.set", .owner, .control, .s2c, owner: "mac-task-runner"),
+        ]),
+        MobileFamily("ssh", .control, owner: "UserDO", stream: "ssh:<user>", messages: [
+            MobileMessage("ssh.host.upsert", .op, .control, .c2s, owner: "UserDO"),
+            MobileMessage("ssh.host.remove", .op, .control, .c2s, owner: "UserDO", errors: ["ssh.host_not_found"]),
+            MobileMessage("ssh.known_host.add", .op, .control, .c2s, owner: "UserDO", errors: ["ssh.host_not_found"]),
+        ]),
+        MobileFamily("pairing", .control, owner: "PairingDO", messages: [
+            MobileMessage("pairing.hosts", .read, .control, .c2s, owner: "UserDO"),
+            MobileMessage("pairing.offer", .op, .control, .c2s, owner: "PairingDO"),
+            MobileMessage("pairing.claim", .op, .control, .c2s, owner: "PairingDO", errors: ["pairing.code_invalid", "pairing.code_expired", "pairing.account_mismatch"]),
+            MobileMessage("pairing.trust.set", .owner, .control, .s2c, owner: "UserDO"),
+            MobileMessage("pairing.revoke", .op, .control, .c2s, owner: "UserDO", errors: ["pairing.device_not_found"]),
+        ]),
+        MobileFamily("signal", .control, owner: "HostDO", messages: [
+            MobileMessage("signal.turn_credentials", .read, .control, .c2s, owner: "UserDO"),
+            MobileMessage("signal.offer", .signal, .control, .both, owner: "HostDO"),
+            MobileMessage("signal.answer", .signal, .control, .both, owner: "HostDO"),
+            MobileMessage("signal.ice", .signal, .control, .both, owner: "HostDO"),
+            MobileMessage("signal.ice.end", .signal, .control, .both, owner: "HostDO"),
+            MobileMessage("signal.bye", .signal, .control, .both, owner: "HostDO"),
+        ]),
+    ])
+}
