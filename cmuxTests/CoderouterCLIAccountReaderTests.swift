@@ -159,14 +159,24 @@ struct CoderouterCLIAccountReaderTests {
 
     @Test("Canceling a running CLI terminates the child and unblocks its readers")
     func cancellationTerminatesRunningProcess() async throws {
+        let readyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-ready-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: readyURL) }
         let task = Task {
             try await CoderouterCLIAccountReader.runProcess(
                 executable: "/bin/sh",
-                arguments: ["-c", "while true; do printf x; done"],
-                environment: ["PATH": "/usr/bin:/bin"]
+                arguments: ["-c", "touch \"$CMUX_TEST_READY\"; while true; do printf x; done"],
+                environment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_TEST_READY": readyURL.path,
+                ]
             )
         }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !FileManager.default.fileExists(atPath: readyURL.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(FileManager.default.fileExists(atPath: readyURL.path))
         task.cancel()
 
         await #expect(throws: CancellationError.self) {
