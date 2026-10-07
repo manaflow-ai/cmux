@@ -880,8 +880,11 @@ final class SessionIndexStore: ObservableObject {
         let prefilteredByRipgrep: Bool
     }
 
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
-        let fm = FileManager.default
+    nonisolated static func claudeSessionRoots(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager fm: FileManager = .default
+    ) -> [ClaudeSessionRoot] {
         var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
 
@@ -890,7 +893,11 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(
+                configDir,
+                fileManager: fm,
+                homeDirectory: homeDirectory
+            )
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
@@ -913,10 +920,10 @@ final class SessionIndexStore: ObservableObject {
             )
         }
 
-        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        let environmentConfigDir = environment["CLAUDE_CONFIG_DIR"]
         appendRoot(environmentConfigDir, requireConfigured: false)
 
-        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
+        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
         if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
             for accountDir in accountDirs.sorted() {
                 appendRoot(
@@ -927,9 +934,22 @@ final class SessionIndexStore: ObservableObject {
         }
 
         appendRoot(
-            ("~/.claude" as NSString).expandingTildeInPath,
+            (homeDirectory as NSString).appendingPathComponent(".claude"),
             requireConfigured: false
         )
+
+        // People who run several Claude accounts often keep one config dir per
+        // account next to ~/.claude (~/.claude-work, ~/.claude-personal) and pick
+        // it per project through CLAUDE_CONFIG_DIR. Index the signed-in ones so
+        // their sessions show up in Vault and resume under the same account.
+        if let homeEntries = try? fm.contentsOfDirectory(atPath: homeDirectory) {
+            for entry in homeEntries.sorted() where entry.hasPrefix(".claude-") {
+                appendRoot(
+                    (homeDirectory as NSString).appendingPathComponent(entry),
+                    requireConfigured: true
+                )
+            }
+        }
 
         return roots
     }
