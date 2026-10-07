@@ -8453,6 +8453,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cards.tips.help",
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cards.tips",
+      "keywords" : [
+        "sidebar",
+        "tips",
+        "did you know",
+        "cards",
+        "learn",
+        "features"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cards",
+        "tips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cards.tips",
+        "text" : "Show Tips"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "left",
         "right"
       ],
@@ -15844,7 +15893,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "665e98bbc05ba8e173364f96157dbe32fba60fb43e3e169d98b29f86e36b8858",
+  "schema_hash" : "758795b46bbea91cc68453335566a5660086004e802bbaf9c3315764076c3ef1",
   "sections" : [
     {
       "id" : "general",
