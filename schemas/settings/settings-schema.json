@@ -1561,6 +1561,53 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.showWhatsNew.help",
+        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.showWhatsNew",
+      "keywords" : [
+        "whats new",
+        "release notes",
+        "changelog",
+        "update",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "showWhatsNew"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.showWhatsNew",
+        "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.announcements",
         "text" : "Announcements"
       },
@@ -15340,7 +15387,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "cd1b12f3e9fbf002aee49c0a33857c6a74f0dd82e833d93f85629845d8c282c6",
+  "schema_hash" : "d42f6a54a875fa516195509eccfc25b964c41493daf5ed3de477445ded8952ab",
   "sections" : [
     {
       "id" : "general",
