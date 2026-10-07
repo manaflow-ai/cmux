@@ -129,6 +129,6 @@ regressions and catalog replacement/removal coverage (`931219a37c`, `18ed29075f`
 scoped package-convention lint, and diff checks pass; native tests and live SSH verification remain
 blocked by the unavailable build host.
 
-Remaining parity: tmux control mode, SSH create/rename/kill, hashed cmux-tui sockets, SFTP (C4),
-importing private keys and known_hosts lines in the UI (the stores support both), key install through a
-jump host, and B1 sync behind `HostsSyncChannel`.
+Remaining parity: tmux control mode, SSH create/rename/kill, and hashed cmux-tui sockets. SFTP is
+landed by E5; importing private keys and known_hosts lines in the UI (the stores support both), key
+install through a jump host, and B1 sync behind `HostsSyncChannel` remain follow-ups.

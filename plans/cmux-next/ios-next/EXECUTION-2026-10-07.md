@@ -26,20 +26,21 @@ silently queue.
 
 ## Current evidence and selected work
 
-The D3 matrix at the current head reports 71 of 98 parity rows done, with the remaining
-work concentrated in the real Mac host adapters, the in-app browser/port-forward path,
-SSH multiplexer workspaces, carrier/device evidence, and a few explicitly mocked
-platform operations. The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the
-V1 WebRTC, V2 WebRTC-over-WireGuard, and V3 direct-address implementations remain
-separate behind `CmuxLink`.
+The refreshed D3 matrix at HEAD `7930870186` reports 83 of 98 parity rows done, with one
+implementation gap (tmux control-mode workspaces), six seam-only rows (including generic
+SOCKS routing), four mocked platform rows, and four intentional drops. The C14 browser,
+simulator and local-forward implementations, D1b host wiring, and E3/E4/E5 parity slices are
+landed; carrier/device evidence and the explicitly mocked or seam-only owners remain open.
+The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
+WebRTC-over-WireGuard, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
 The active wave is intentionally independent:
 
 | Workstream | Depends on | First deliverable | Verification gate |
 | --- | --- | --- | --- |
 | Product/design research and scope reconciliation | current PLAN + D3 evidence | research note with user journeys, invariants, and ranked gaps | every selected gap has an acceptance row and owner |
-| C14 browser parity | A0, A3, B5 seams | browser session/port-forward behavior over a mock link, then real adapter | bounded stream, reconnect, input ordering, and no transport import in UI |
-| C9 SSH workspace parity | A1, A2, existing SSH host seam | deterministic tmux/screen/cmux-tui discovery and attach model | discovery fixtures, changed-key and reconnect errors, attach idempotency |
+| C14 browser parity | A0, A3, B5 seams | landed browser session, simulator stream, direct-host route and local port-forward seams | tagged WKWebView/SSH/direct-host and simulator verification; generic SOCKS remains a seam |
+| C9 SSH workspace parity | A1, A2, existing SSH host seam | landed deterministic tmux/screen/cmux-tui discovery and safe attach | tagged SSH verification; tmux control mode and target lifecycle remain |
 | Integration and verification | completed slices | merged docs/code plus updated D3 rows | focused tests, static guards, tagged pair/device evidence |
 
 ## Completed in this wave
@@ -56,8 +57,9 @@ The active wave is intentionally independent:
 
 The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
 so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain
-explicitly unverified. The next action is to rerun the same focused tests and D3 journeys when a
-fleet/build slot is available; no local iOS build is substituted.
+explicitly unverified. Static checks and focused syntax/tests for the follow-ups pass. The next
+action is to rerun the same focused tests and D3 journeys when a fleet/build slot is available;
+no local iOS build is substituted.
 
 ## Dependency graph for this wave
 

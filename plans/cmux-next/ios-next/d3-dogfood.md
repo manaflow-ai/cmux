@@ -1,13 +1,14 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: first pass 2026-10-07 on `feat-cmux-next-ios-d3-dogfood` (base `feat-cmux-next-ios` at
-`afbc8c69b3b`, which includes B2's large-frame fix and C12 `cloud`). Plan: [PLAN.md](PLAN.md) D3. No build or device
-was available (no fleet manifest, dev backend VM unreachable, GitHub auth broken, 9 to 16 GiB free),
-so this pass covers everything that needs neither, and leaves the rest one command away (section 6).
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `7930870186` (B2, C3, C12, C14,
+D1b, E3, E4, E5 and F1 are in this ancestry). Plan: [PLAN.md](PLAN.md) D3. No tagged build,
+simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
+the matrix below separates implementation evidence from the still-pending live-pair gate.
 
-Lanes still open on their own branches and not audited here: C3 `rd` (7 commits ahead), C14 `web`
-(10 ahead), D1b `mac-integration` (3 ahead). B2's fix and C12 landed during this pass and are in
-the matrix; C12 got a light audit (l10n clean, one VoiceOver fix) and a UI test class.
+The first-pass matrix was recorded at `afbc8c69b3b` and is retained in
+[research-and-scope-2026-10.md](research-and-scope-2026-10.md) as historical context. This refresh
+reconciles the rows with the landed C14, D1b, E3, E4, E5 and SSH/browser follow-ups; it does not
+turn package or static checks into device evidence.
 
 ## 1. Parity matrix
 
@@ -63,10 +64,10 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.8 | Cloud machines in the list | C12 | seam only (`cloudWorkspaces` flag off until the VM Rust host, c12 4) |
 | 1.8 | Presence announce of the viewed workspace | C5 | done |
 | 1.9 | Detail container, title menu, terminal picker | C5, D1 | done |
-| 1.9 | Terminal surface | A2, C1, D1 | done (real Macs blocked on D1b, see 2.1) |
-| 1.9 | Browser stream surface | C2 | done (Mac `BrowserPageHost` adapter is D1b) |
-| 1.9 | In-app WKWebView browser, mode picker, Mac/SSH tunnel | C14 | missing (C14 pending) |
-| 1.9 | Simulator stream surface | C14 | missing (C14 pending) |
+| 1.9 | Terminal surface | A2, C1, D1 | done (D1b host wiring is landed; tagged-pair verification is pending) |
+| 1.9 | Browser stream surface | C2 | done (D1b `BrowserPageHost` adapter is landed; tagged-pair verification is pending) |
+| 1.9 | In-app WKWebView browser, mode picker, Mac/SSH tunnel | C14 | done (implementation and focused tests; live WKWebView, Mac/SSH tunnel, and direct-host verification pending) |
+| 1.9 | Simulator stream surface | C14 | done (implementation and focused tests; live ScreenCaptureKit/HID verification pending) |
 | 1.9 | Markdown and file-preview surfaces | C13 | done |
 | 1.9 | Todo surface | C13, E4 | done (E4: workspace todo file, read only; no daemon checklist op) |
 | 1.9 | Changes hint banner, action toasts | C13, C16 | done |
@@ -91,9 +92,9 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (plain PTY only) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (E3 discovery/attach is landed; tmux control mode and SSH target lifecycle remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
-| 1.15 | SOCKS proxy and local port forward | C14 | missing (C14 pending) |
+| 1.15 | SOCKS proxy and local port forward | C14 | seam only (C14's authenticated local port forward is implemented; a generic SOCKS route is not wired into cmux-next) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
 | 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
 | 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
@@ -117,17 +118,19 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.19 | Localization (en, ja translated) | all | done (section 4) |
 | 1.19 | Background modes, protected data | kept, C7, A2 | done |
 
-Counts (98 rows): done 71, mocked 3, seam only 5, missing 15, dropped 4. (Rows with partial notes
-count under their main status.)
+Counts (98 rows): done 83, mocked 4, seam only 6, missing 1, dropped 4. (Rows with partial notes
+count under their main status. “Done” means implementation and package/static evidence; it remains
+device-unverified unless the row says otherwise.)
 
-Missing, grouped by owner:
-- Pending lane C14: in-app browser, simulator stream, SOCKS and port forward.
-- C5 follow-up: group collapse, rename and drag reorder; customize sheet.
-- C9/C4 follow-up: SSH workspaces (tmux, screen, cmux-tui) in the list; SFTP.
-- C8/C4/D1 follow-up: terminal composer with image paste; drafts per terminal; composer uploader
-  (seam only above).
-- C13: todo surface. C11: haptics toggle, erase all data. C10/C16: keep-awake onboarding card.
-- C16: deferred sign-in.
+Open implementation gaps, grouped by owner:
+- C9: tmux control mode is still missing from the SSH workspace projection; E3 supplies discovery
+  and safe attach for tmux, screen and cmux-tui, but not create/rename/kill or control-mode tabs.
+- C14: local port forwarding and simulator/browser seams are landed; the generic SOCKS proxy remains
+  a seam because `CmuxMobileTunnel` is not wired into the cmux-next browser route.
+- Mocked rows: Mac capabilities/version gate, Keep Mac Awake (onboarding and per-Mac power assertion),
+  and StoreKit plans remain behind their DEV/mock owners.
+- Seam-only rows: remote feature flags (B1 config read), Cloud machines in the workspace list, Cloud
+  VM terminal/files attach, task composer attachments, generic SOCKS, and analytics upload.
 
 ## 2. Device verification checklist
 
@@ -136,14 +139,19 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
 
 ### 2.1 Blockers before any real-Mac path works
 
-1. D1b: the cmux-next Mac app has no `MobileLinkHostAccount` (host id, install, token minter,
-   signers), so `MobileLinkHostRunner` does not start; every real-Mac terminal, file, browser and
-   task path shows "No connection to this Mac" until D1b lands (d1-terminal-ux.md 7, c1 13).
-2. D1b: TURN credentials need a read on the host socket (STUN only today) (d1 7, b2 12).
-3. Backend: `wrangler secret put CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` on the dev
-   env, then `POST /v1/realtime/turn` returns `turn:` URLs (b2 12.1).
-4. D1b: `MobileTaskRunner` over acpmux, `BrowserPageHost`, `MobileFileRootsProvider`,
-   `MobileGitReader` adapters (c8 7, c2, c4 9, c13 7).
+1. A tagged Mac+iPhone build and pairing run are still required. D1b now supplies
+   `InstallHostAccount`, `MobileLinkHostRunner`, `MobileLinkService`, and the C2/C4/C8/C13/C14
+   adapters; the old “no `MobileLinkHostAccount`” blocker is resolved in source but has no live
+   build evidence yet (d1b-mac-integration.md 1–4).
+2. Host-role TURN credentials still need deployment: configure
+   `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` and verify
+   `POST /v1/realtime/turn` returns `turn:` URLs. Until then a host socket falls back to STUN
+   (d1b-mac-integration.md 2; b2 12.1).
+3. The Mac app's task dispatch and terminal spawn switches are off by default. A live composer/task
+   check must explicitly use the DEV switches after acpmux is available; otherwise the host reports
+   `spawn_unverified` (d1b-mac-integration.md 3; c8 7).
+4. Pairing, Secure Enclave signing, direct/relay route selection, and all C2/C4/C14 media and
+   tunnel adapters remain unverified until the tagged pair is available (checklist 2.2 and 2.5).
 
 ### 2.2 Trust, pairing, carriers (security and connectivity)
 
@@ -321,11 +329,11 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 + CmuxNextMobileHostUI 17 (Daemon/Wakeups in Swift 5 mode, as D1b); CmuxiOSApp builds for
 `arm64-apple-ios17.0-simulator`.
 
-## 5. Package tests on the integration state
+## 5. Package tests and current-head evidence
 
-`swift test` once per new Shared package on a `git archive` of `feat-cmux-next-ios` (Shared packages
-at `b3cffeafeda`, identical to `afbc8c69b3b` after C12, so B2's large-frame fix is included; `schemas/` and the terminal corpus copied for
-fixture paths), one package at a time, `.build` deleted after each. Toolchain: the local Xcode Swift 6.
+The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
+state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
+not a test result for current HEAD `7930870186`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -350,9 +358,15 @@ fixture paths), one package at a time, `.build` deleted after each. Toolchain: t
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), TS vitest (no `node_modules`), Rust (no cargo on this Mac).
 
+Current-head evidence is static only: Swift syntax parsing, scoped iOS package-convention lint,
+`git diff --check`, `check-concurrency.sh`, `check-crash-safety.sh`, and `check-theme-scope.sh`
+pass for the follow-up changes. Native Swift tests, the tagged iOS/Mac build, UI tests, and live
+network/device journeys remain blocked by the unavailable dedicated build host/fleet slot; do not
+read the historical 460-test total as current-head verification.
+
 ## 6. Runbook: tagged pair `nxd3`
 
-Run from the hq root (`HQ_ROOT`), worktree `worktrees/feat-cmux-next-ios-d3-dogfood` (`WT`). Physical
+Run from the hq root (`HQ_ROOT`), worktree `worktrees/feat-cmux-next-ios` (`WT`). Physical
 iPhone = Aziz `4A52829D-6427-599F-A166-4058881D2DF4`, auth profile `personal`.
 
 ### 6.1 Preflight
@@ -360,17 +374,18 @@ iPhone = Aziz `4A52829D-6427-599F-A166-4058881D2DF4`, auth profile `personal`.
 ```bash
 ./scripts/macfleet-doctor.sh report --probe          # must show a free direct slot (needs ~/.config/macfleet/hosts.json)
 ./scripts/dev-backend.sh status                      # dev backend VM reachable
-./scripts/ios-dogfood-doctor.sh --checkout worktrees/feat-cmux-next-ios-d3-dogfood
+./scripts/ios-dogfood-doctor.sh --checkout worktrees/feat-cmux-next-ios
 gh auth status                                       # pushes and workflow dispatch need it
 ```
 
-The real-Mac paths in 2.2 to 2.5 also need D1b merged into this branch (2.1). Without it the pair
-still verifies the mock flows, onboarding, settings, SSH and push.
+The real-Mac paths in 2.2 to 2.5 need a tagged build from this current integration branch and the
+host-role TURN deployment in 2.1. Without those, the pair still verifies mock flows, onboarding,
+settings, SSH and push, but cannot provide live Mac/media evidence.
 
 ### 6.2 Build and install
 
 ```bash
-cd worktrees/feat-cmux-next-ios-d3-dogfood
+cd worktrees/feat-cmux-next-ios
 ./scripts/reload-cloud.sh --tag nxd3 --direct-backend --launch
 ./ios/scripts/reload-cloud.sh --tag nxd3 --device-id 4A52829D-6427-599F-A166-4058881D2DF4 --wait
 CMUX_TAG=nxd3 scripts/cmux-debug-cli.sh auth status    # signed in, email = the account mobile-dev-launch printed
@@ -403,8 +418,8 @@ run, runs each test in its own xcodebuild with a screen recording and an xcresul
 through `test-ios.yml`, which calls it with `ui_tests=true` (the simulator build runs alongside):
 
 ```bash
-gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true
-gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios-d3-dogfood -f ui_tests=true \
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios -f ui_tests=true
+gh workflow run test-ios.yml --repo manaflow-ai/cmux --ref feat-cmux-next-ios -f ui_tests=true \
   -f test_filter="cmuxUITests/NextShellTabsUITests NextFeedUITests/testMockItemsList KeyboardAuditUITests"
 gh run list --repo manaflow-ai/cmux --workflow test-ios.yml --limit 3
 gh run download --repo manaflow-ai/cmux <run-id> -n ios-next-uitests -D artifacts/d3-uitests
