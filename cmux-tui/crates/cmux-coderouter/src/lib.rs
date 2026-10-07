@@ -322,7 +322,7 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     let store = Arc::new(KeychainInstallSecretStore::new("default"));
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let data = data_server(listener, keys.clone());
-    tokio::select! { result = data => result?, result = admin_loop(admin, keys) => result? }
+    tokio::select! { _ = data => (), result = admin_loop(admin, keys) => result? }
     Ok(())
 }
 
@@ -456,7 +456,11 @@ async fn authorize(
     let Some(token) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
-    let Some(scope) = keys.read().await.validate(token.trim()) else {
+    let scope = {
+        let guard = keys.read().await;
+        guard.validate(token.trim()).cloned()
+    };
+    let Some(scope) = scope else {
         return Err(StatusCode::UNAUTHORIZED);
     };
     if let Some(family) = ApiFamily::for_path(path)
