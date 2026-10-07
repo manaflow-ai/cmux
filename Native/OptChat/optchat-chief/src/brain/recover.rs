@@ -53,9 +53,17 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
                     state.undescribed.push(image.clone());
                 }
             }
-            if let Some(seq) = item.seq {
-                human = true;
-                state.logged_seq = state.logged_seq.max(seq);
+            match (item.seq, &item.conversation) {
+                (Some(seq), Some(side)) => {
+                    human = true;
+                    let id = item.id.as_deref().unwrap_or("");
+                    state.side.entry(side.clone()).or_default().handled(seq, id);
+                }
+                (Some(seq), None) => {
+                    human = true;
+                    state.logged_seq = state.logged_seq.max(seq);
+                }
+                _ => {}
             }
             if let Some(spawn) = &item.spawn {
                 state.spawn_logged(spawn);
