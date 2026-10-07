@@ -14,12 +14,11 @@ import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { hostAccessFor, mayEnrollServer, serverPlacementActive, type HostAccess, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 
-/** TeamDO: membership cache and the account directory of hosts (U2). */
-/** TeamDO.signInRules result (policy-gate.ts). */
+/** TeamDO.signInRules result (policy-gate.ts); TeamDO itself is below. */
 export interface SignInRules {
   readonly sso_required: boolean
   readonly minimum_version: string | null
@@ -28,7 +27,7 @@ export interface SignInRules {
 
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
-
+/** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -376,6 +375,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
+  async hostAccess(entity: string, host: string, principal: Principal): Promise<HostAccess | null> { return this.isBound(entity) ? hostAccessFor(this.bind(entity).currentState, this.rows, host, principal) : null } // RPC from the Worker before a HostDO control socket (b1-control-do.md 2)
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {

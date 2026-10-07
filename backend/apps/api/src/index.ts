@@ -1,4 +1,4 @@
-import { authenticate, withGrantClasses } from "./auth.ts"
+import { authenticate } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
@@ -11,9 +11,10 @@ import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { handleCloudAbandonedClear } from "./cloud-admin.ts"
 import { handleTeamVmAdmin } from "./team-vm-admin.ts"
-import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
+import { ssoGate } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
+import { bearerOfProtocols, handleHostWire, handleMobileConfig, handleTurn, HOST_PATH, requestPrincipal } from "./mobile-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 
@@ -44,22 +45,11 @@ export { UsageMeterDO } from "./usage-meter-do.ts"
  * to the owner DO; frames never carry identity.
  */
 const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
-  const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const authenticated = await authenticate(env, token)
-  if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
-  // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
-  if (authenticated.install_kind === "vm") return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
-  // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
-  const rules = await signInRules(env, authenticated.team, authenticated.user)
-  const gate = await ssoGate(env, authenticated)
-  // The Stack session id and the install's email domain serve only this gate; owners never receive them.
-  const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
-  const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
-  if (refused) return Response.json({ error: refused }, { status: 403 })
-  // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
-  const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
-  if (!principal) return new Response("forbidden", { status: 403 })
+  // Bearer, VM refusal, SSO and version policy (mobile-routes.ts). TeamDO and FeedDO cannot see
+  // UserDO's revocations, so their sockets resolve the grant first (UserDO checks its own installs).
+  const principal = await requestPrincipal(request, env, bearerOfProtocols(request), scope !== "user")
+  if (principal instanceof Response) return principal
+  if (!principal.user || !principal.team) return new Response("unauthenticated", { status: 401 })
   const [ns, entity] =
     scope === "user"
       ? [env.USER_DO, principal.user]
@@ -113,6 +103,11 @@ export default {
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
+    // The host's control plane (b1-control-do.md): the Mac and its devices; TeamDO resolves the role.
+    const hostWire = url.pathname.match(HOST_PATH)
+    if (hostWire && request.headers.get("Upgrade") === "websocket") return handleHostWire(request, env, hostWire[1]!)
+    if (url.pathname === "/v1/realtime/turn") return handleTurn(request, env)
+    if (url.pathname === "/v1/mobile/config") return handleMobileConfig(request, env)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
     if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, "conv", conv[1]!)
