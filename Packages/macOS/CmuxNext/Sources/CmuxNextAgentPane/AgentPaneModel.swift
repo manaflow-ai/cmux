@@ -178,7 +178,6 @@ public final class AgentPaneModel {
         guard sessionId == nil else { return }
         newTab = page
     }
-
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
@@ -226,9 +225,7 @@ public final class AgentPaneModel {
                    workspaceAgentHome?() != nil {
                     handshake.chooseFolder = true
                 }
-                if let cwd = handshake.cwd {
-                    handshake.githubRepository = await AgentPaneGitHubRepository.read(at: cwd)
-                }
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -364,11 +361,8 @@ public final class AgentPaneModel {
             } catch {
                 return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
             }
-        case .invalidGit:
-            return Self.gitFailure(.invalidRequest)
-        case .githubRepository(let cwd):
-            let repository = await AgentPaneGitHubRepository.read(at: cwd)
-            return AgentPaneReply.success(["repository": repository.map { $0 as Any } ?? NSNull()])
+        case .invalidGit: return Self.gitFailure(.invalidRequest)
+        case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .turnUndo(let undo): return await respondToTurnUndo(undo)
         case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:

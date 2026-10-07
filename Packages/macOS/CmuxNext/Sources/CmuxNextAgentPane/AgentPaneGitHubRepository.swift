@@ -7,13 +7,14 @@ import Foundation
 public nonisolated struct AgentPaneGitHubRepository {
     public init() {}
 
-    public static func read(at path: String) async -> String? {
+    public static func read(at path: String?) async -> String? {
         await Task.detached(priority: .utility) {
             readSync(at: path)
         }.value
     }
 
-    private static func readSync(at path: String) -> String? {
+    private static func readSync(at path: String?) -> String? {
+        guard let path else { return nil }
         guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
         let process = Process()
         let output = Pipe()

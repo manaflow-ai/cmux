@@ -894,20 +894,14 @@ function AcpmuxPane() {
   );
   useEffect(() => {
     const cwd = snapshot.summary?.cwd;
-    if (!cwd || snapshot.origin !== "local") {
-      setGithubRepository(undefined);
-      return;
-    }
+    if (!cwd || snapshot.origin !== "local") return;
     let current = true;
-    setGithubRepository(undefined);
     void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
       .then((value) => {
         if (!current) return;
         setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
       })
-      .catch(() => {
-        if (current) setGithubRepository(undefined);
-      });
+      .catch(() => {});
     return () => {
       current = false;
     };
