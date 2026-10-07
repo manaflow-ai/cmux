@@ -19,11 +19,16 @@ export type ScreenRow =
   | { type: "open"; url: string; text: string }
   | { type: "tab"; id: string; title: string; detail?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string };
+  | { type: "history"; url: string; title?: string }
+  | { type: "session"; id: string; title: string; detail?: string; harness?: string }
+  | { type: "folder"; path: string }
+  | { type: "command"; command: string }
+  | { type: "run"; text: string }
+  | { type: "ask"; text: string };
 
 /// Agents shown per query; more installed harnesses stay in the composer's picker.
 export const MAX_AGENT_ROWS = 4;
-/// Open tabs, workspaces and history matches shown under the typed rows.
+/// Open tabs, workspaces, chats, folders, commands and history matches shown under the typed rows.
 export const MAX_MATCH_ROWS = 4;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
@@ -80,6 +85,24 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
     ...omnibar.history.map((entry) => ({
       row: { type: "history", url: entry.url, ...(entry.title ? { title: entry.title } : {}) } as ScreenRow,
       score: matchScore(query, entry.title, entry.url.replace(/^https?:\/\/(www\.)?/, "")) + 0.1,
+    })),
+    ...omnibar.sessions.map((session) => ({
+      row: {
+        type: "session",
+        id: session.sessionId,
+        title: session.title,
+        harness: session.harness,
+        detail: session.detail,
+      } as ScreenRow,
+      score: matchScore(query, session.title, session.detail) + 0.55,
+    })),
+    ...omnibar.folders.map((path) => ({
+      row: { type: "folder", path } as ScreenRow,
+      score: matchScore(query, path) + 0.2,
+    })),
+    ...omnibar.commands.map((command) => ({
+      row: { type: "command", command } as ScreenRow,
+      score: matchScore(query, command) + 0.15,
     })),
   ];
   return rows

@@ -5,7 +5,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
 import { recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
-import { useT } from "../i18n";
+import { type Translate, useT } from "../i18n";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -19,6 +19,7 @@ export type NewTabScreenActions = {
   onShowAll(): void;
   onRunAction?(id: string): void;
   onInputReady?(token: string): void;
+  onOpenFolder?(path: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
 };
@@ -41,6 +42,18 @@ type Props = NewTabScreenActions & {
 export function NewTabScreen(props: Props) {
   const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
+  const enrichedOmnibar = useMemo(
+    () => ({
+      ...omnibar,
+      sessions: snapshot.sessions.map((session) => ({
+        sessionId: session.sessionId,
+        title: session.displayTitle ?? session.sessionId,
+        harness: session.harness,
+        detail: session.cwd,
+      })),
+    }),
+    [omnibar, snapshot.sessions],
+  );
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -63,8 +76,8 @@ export function NewTabScreen(props: Props) {
     [snapshot.catalog],
   );
   const rows = useMemo(
-    () => (touched && !shell ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
-    [touched, shell, text, agents, omnibar, lastAgent, home],
+    () => (touched && !shell ? screenRows(text, { agents, omnibar: enrichedOmnibar, lastAgent, home }) : []),
+    [touched, shell, text, agents, enrichedOmnibar, lastAgent, home],
   );
   const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
@@ -100,6 +113,16 @@ export function NewTabScreen(props: Props) {
       case "tab":
       case "workspace":
         return props.onJump(row.type, row.id);
+      case "session":
+        return props.onOpenSession(row.id);
+      case "folder":
+        return props.onOpenFolder?.(row.path);
+      case "command":
+        return props.onShell(row.command);
+      case "run":
+        return props.onShell(row.text);
+      case "ask":
+        return props.onAsk(lastAgent ?? agents[0]?.id ?? "agent", row.text);
     }
   };
   const edit = (next: string) => {
@@ -199,7 +222,7 @@ export function NewTabScreen(props: Props) {
               <span className="nt-row-title">{rowTitle(nt, row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
-                {rowAction(nt, row)}
+                {rowAction(t, row)}
                 {index === selected && <kbd>↵</kbd>}
               </span>
             </div>
@@ -281,6 +304,15 @@ function rowKey(row: ScreenRow): string {
       return `${row.type}:${row.id}`;
     case "history":
       return `history:${row.url}`;
+    case "session":
+      return `session:${row.id}`;
+    case "folder":
+      return `folder:${row.path}`;
+    case "command":
+      return `command:${row.command}`;
+    case "run":
+    case "ask":
+      return `${row.type}:${row.text}`;
     default:
       return row.type;
   }
@@ -295,8 +327,19 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.text;
     case "history":
       return row.title ?? row.url;
-    default:
+    case "session":
+    case "workspace":
+    case "tab":
       return row.title;
+    case "folder":
+      return row.path;
+    case "command":
+      return row.command;
+    case "run":
+    case "ask":
+      return row.text;
+    default:
+      return "";
   }
 }
 
@@ -310,25 +353,39 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
     case "tab":
     case "workspace":
+    case "session":
       return row.detail;
+    case "folder":
+    case "command":
+      return undefined;
     default:
       return undefined;
   }
 }
 
-function rowAction(nt: NewTabTranslate, row: ScreenRow): string {
+function rowAction(t: Translate, row: ScreenRow): string {
   switch (row.type) {
     case "agent":
       return "";
     case "search":
-      return nt("row.search");
+      return t("newTabPage.row.open");
     case "open":
-      return nt("row.open");
+      return t("newTabPage.row.open");
     case "tab":
-      return nt("row.tab");
+      return t("newTabPage.row.tab");
     case "workspace":
-      return nt("row.workspace");
+      return t("newTabPage.row.workspace");
     case "history":
-      return nt("row.history");
+      return t("newTabPage.row.history");
+    case "session":
+      return t("newTabPage.row.session");
+    case "folder":
+      return t("newTabPage.row.folder");
+    case "command":
+      return t("newTabPage.row.command");
+    case "run":
+      return t("newTabPage.row.run");
+    case "ask":
+      return t("newTabPage.ask", { agent: "agent" });
   }
 }
