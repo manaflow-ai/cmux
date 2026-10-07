@@ -57,6 +57,27 @@ public struct BrowserReplPageURL: Sendable, Equatable {
     }
 }
 
+/// The terms of a `history.search` query. The history is the user's and
+/// every session's, so no reader gets its URLs as written
+/// (``BrowserReplPageURL/creator`` is nil for every entry).
+public struct BrowserReplHistoryQuery: Sendable, Equatable {
+    /// The lowercased, non-empty terms; an entry matches when any term is in
+    /// its URL or its title. No term matches every entry.
+    public let terms: [String]
+
+    public init(_ queries: [String]) {
+        terms = queries.map { $0.lowercased() }.filter { !$0.isEmpty }
+    }
+
+    /// Whether the entry at `url` titled `title` matches.
+    public func matches(url: String, title: String?) -> Bool {
+        guard !terms.isEmpty else { return true }
+        let url = url.lowercased()
+        let title = (title ?? "").lowercased()
+        return terms.contains { url.contains($0) || title.contains($0) }
+    }
+}
+
 /// A request's or a response's headers, from a page's network traffic.
 /// The tab's live creator gets them as sent; every other reader gets them
 /// without the credential headers (``Swift/Dictionary/removingBrowserReplCredentialHeaders()``)

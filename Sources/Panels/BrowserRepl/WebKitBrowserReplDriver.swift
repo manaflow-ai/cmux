@@ -1840,7 +1840,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if stores.isEmpty {
             stores.append(BrowserProfileStore.shared.historyStore(for: BrowserProfileStore.shared.builtInDefaultProfileID))
         }
-        let queries = (params["queries"] as? [String] ?? []).map { $0.lowercased() }.filter { !$0.isEmpty }
+        let query = BrowserReplHistoryQuery(params["queries"] as? [String] ?? [])
         let from = (params["from"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         let to = (params["to"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         let limit = max(1, (params["limit"] as? NSNumber)?.intValue ?? 100)
@@ -1853,10 +1853,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             .filter { entry in
                 if let from, entry.lastVisited < from { return false }
                 if let to, entry.lastVisited > to { return false }
-                guard !queries.isEmpty else { return true }
-                let url = entry.url.lowercased()
-                let title = (entry.title ?? "").lowercased()
-                return queries.contains { url.contains($0) || title.contains($0) }
+                return query.matches(url: entry.url, title: entry.title)
             }
             .sorted { $0.lastVisited > $1.lastVisited }
         return matched.prefix(limit).map { entry in

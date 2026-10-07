@@ -149,4 +149,20 @@ import Testing
         }
         #expect(Self.read(Self.row(raw), creator: "reader")["url"] as? String == raw)
     }
+
+    /// r26: `history.search` showed each row's URL without its credential
+    /// values but matched the query against the URL as written, so whether
+    /// a row came back told a session whether a guessed token, password or
+    /// signature was in a URL in the history. A term matches only the URL
+    /// as the reader gets it.
+    @Test("A history query never matches a URL's hidden credential values")
+    func historyQueryMatchesOnlyTheCredentialFreeURL() {
+        for term in ["hunter2", "hunt", "s1g", "t0k", "user:hunter2@"] {
+            #expect(!BrowserReplHistoryQuery([term]).matches(url: Self.signed, title: "Report"), "\(term) matched a hidden credential value")
+        }
+        for term in ["files.example/report", "PAGE=2", "x-amz-signature", "report"] {
+            #expect(BrowserReplHistoryQuery([term]).matches(url: Self.signed, title: "Report"), "\(term) did not match what the reader sees")
+        }
+        #expect(BrowserReplHistoryQuery([]).matches(url: Self.signed, title: nil))
+    }
 }
