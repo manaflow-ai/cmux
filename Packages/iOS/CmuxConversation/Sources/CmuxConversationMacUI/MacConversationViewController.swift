@@ -827,7 +827,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 let spacing = topSpacing(at: index, transcriptModel)
                 var y = focus.convert(rowRect, from: tableView).minY + spacing + transcriptLayout.contentFrame.minY - layout.contentFrame.minY
                 if let timestamp = pendingTimestamp {
-                    let tsFrame = CGRect(x: 0, y: max(pinnedTop, y - 10 - MacTimestampRowView.height), width: width, height: MacTimestampRowView.height)
+                    // Over the transcript's own timestamp row when it has one,
+                    // so the two coincide instead of doubling up (a reply's
+                    // row is taller than its thread row by the quote pill).
+                    var tsY = y - 10 - MacTimestampRowView.height
+                    if index > 0, case .timestamp = rows[index - 1] {
+                        let tsRow = focus.convert(tableView.rect(ofRow: index - 1), from: tableView)
+                        tsY = tsRow.midY - MacTimestampRowView.height / 2
+                    }
+                    let tsFrame = CGRect(x: 0, y: max(pinnedTop, tsY), width: width, height: MacTimestampRowView.height)
                     placed.append((timestamp, tsFrame))
                     pinnedTop = tsFrame.maxY
                     pendingTimestamp = nil
