@@ -148,3 +148,7 @@ mod tests {
         assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
     }
 }
+
+#[cfg(test)]
+#[path = "program_status_notification_tests.rs"]
+mod program_status_notification_tests;
