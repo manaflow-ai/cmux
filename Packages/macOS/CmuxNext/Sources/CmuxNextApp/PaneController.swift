@@ -32,8 +32,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// New chats bound for a new chat dock: never shown in this strip, so the
-    /// move does not flash (``NewChatPlacement``).
+    /// New chats bound for a new chat dock, never shown in this strip (``NewChatPlacement``).
     var pendingDock: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
