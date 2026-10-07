@@ -7169,8 +7169,9 @@ remote relay (`cmux link`) are refused. These commands bypass the ordered
 surface queue.
 
 Every command names the tab by `surface`. The tab must be an `agent_session`
-tab of this store with a bound session, and the session must exist in this
-machine's acpmux; otherwise `agent_session.unknown_tab`. The session always
+tab of this store with a bound session, and acpmux must resolve it to a
+session whose id or full name is exactly that string (never a prefix);
+otherwise `agent_session.unknown_tab`. The session always
 comes from the store record: no command takes a session id, a cwd, a command,
 an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
@@ -7184,7 +7185,7 @@ flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 `{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
-`kinds` at most 8 acpmux record kinds or categories; at most 16 MiB of
+`kinds` at most 8 acpmux record kinds or categories; at most 8 MiB of
 records, the rest left for the next page with `hasMore`). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
@@ -7195,7 +7196,7 @@ status and queue changes as `{event:"agent-session-changed", surface, change}`
 `{event:"agent-session-closed", surface, reason}`: `detached` (the tab closed
 or now shows another session), `lagged` (acpmux dropped records), `overflow`
 (the client did not read its stream), `acpmux_closed`, or `too_large` (an
-acpmux line over 8 MiB). The close is a control message and can arrive before
+acpmux line over 32 MiB). The close is a control message and can arrive before
 records still queued, which may be dropped; what the client received is
 always a gap-free prefix of the log, so it attaches again with `after_seq` set
 to the newest seq it holds. A record never overtakes the attach reply.

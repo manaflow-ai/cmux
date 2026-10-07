@@ -46,8 +46,8 @@ fresh wire (the ended attachment's daemon connection closes). Notifications that
 daemon before acpmux's attach reply (a running turn) wait in a bounded buffer of 256 and go out
 after the reply; the reader never blocks. Bounds: 8 attachments per connection, 64 per daemon, 8
 worker calls and 16 acpmux calls in flight per attachment (a prompt holds none: its end-of-turn
-reply is not waited for), pages of 500 records and 16 MiB, prompts of 64 KiB, acpmux lines of
-8 MiB.
+reply is not waited for), pages of 500 records and 8 MiB, prompts of 64 KiB, acpmux lines of
+32 MiB, early notifications 256 and 16 MiB.
 On the SSH/server carrier every `agent-session-*` line uses the bulk lane in both directions
 (cmux-remote `mux_lanes.rs`), so a record never overtakes the attach reply.
 
@@ -68,7 +68,8 @@ clients are refused. Policy tests: `agent_session_attach_tests.rs`.
   reads are not reachable: the daemon has no verb for them and the wire refuses them.
 - Access to unowned objects: every verb names a tab of this daemon's store; the tab must be an
   `agent_session` tab with a bound session, and the session comes from the store record, never
-  from the client. The attach must find that session in this machine's acpmux. Records,
+  from the client. The attach must find that session in this machine's acpmux, by its exact id
+  or full name (acpmux also resolves unique prefixes; the daemon refuses those). Records,
   permission requests and status changes of other sessions on the same acpmux link are dropped
   (the link watches all sessions only to get this session's status). A closed tab, or one whose
   record now names another session, ends its attachment at its next record or call. Limit: the

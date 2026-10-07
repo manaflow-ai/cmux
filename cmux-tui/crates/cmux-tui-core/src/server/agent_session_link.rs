@@ -21,9 +21,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-/// Largest acpmux line the daemon reads. A transcript record with a big tool
-/// output stays under it; a longer line ends the link (the client resyncs).
-pub(super) const MAX_LINE_BYTES: usize = 8 << 20;
+/// Largest acpmux line the daemon reads: an attach or events page of
+/// records with big tool outputs stays under it (the daemon then trims the
+/// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
+pub(super) const MAX_LINE_BYTES: usize = 32 << 20;
 /// Calls waiting for a reply on one link.
 pub(super) const MAX_IN_FLIGHT: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
