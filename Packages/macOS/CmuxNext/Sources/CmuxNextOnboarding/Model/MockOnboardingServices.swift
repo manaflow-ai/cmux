@@ -43,6 +43,8 @@ public final class MockOnboardingServices: OnboardingServices {
     /// Each `openProjects` call's folders.
     public private(set) var openedProjects: [[URL]] = []
     public var agentChats: [AgentChat] = []
+    /// The chat ids classic cmux had open.
+    public var classicOpenChats: Set<String> = []
     public private(set) var resumedChats: [[AgentChat]] = []
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
@@ -77,6 +79,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
+    public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
     public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {

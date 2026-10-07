@@ -11671,7 +11671,7 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "browser import-data",
+      "cli_name" : "action import-from-browser",
       "context_menu" : "noObject",
       "context_menus" : [
 
