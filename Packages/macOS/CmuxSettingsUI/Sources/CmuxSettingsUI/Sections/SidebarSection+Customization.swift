@@ -6,7 +6,7 @@ extension SidebarSection {
     @ViewBuilder
     var customizationRows: some View {
         SettingsCardRow(
-            configurationReview: .json("sidebarAppearance.compositorGlass"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.liquidGlass", defaultValue: "Liquid Glass"),
             subtitle: String(localized: "settings.sidebar.liquidGlass.subtitle", defaultValue: "Blur what is behind the window through the sidebar.")
         ) {
@@ -18,7 +18,7 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebarAppearance.glassBlurRadius"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.blurOpacity", defaultValue: "Blur Opacity"),
             subtitle: String(localized: "settings.sidebar.blurOpacity.subtitle", defaultValue: "How much the glass blurs what is behind the window. Lower is lighter; higher is frostier."),
             controlWidth: 250
@@ -150,7 +150,7 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebar.peekReveal"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.peekReveal", defaultValue: "Sidebar Peek Reveal Speed"),
             subtitle: String(localized: "settings.sidebar.peekReveal.subtitle", defaultValue: "How eagerly the hidden sidebar peeks out when the pointer reaches the left edge or the sidebar button.")
         ) {
@@ -170,7 +170,7 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebar.peekDisabled"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.peekDisabled", defaultValue: "Disable Sidebar Peek"),
             subtitle: peekDisabled.current
                 ? String(localized: "settings.sidebar.peekDisabled.subtitleOn", defaultValue: "The hidden sidebar never peeks out; bring it back with the shortcut or the sidebar button.")
@@ -183,7 +183,7 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebar.rowDensity"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.rowDensity", defaultValue: "Row Density"),
             subtitle: String(localized: "settings.sidebar.rowDensity.subtitle", defaultValue: "Vertical breathing room inside each workspace row.")
         ) {
@@ -202,7 +202,7 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
-            configurationReview: .json("sidebar.dragSwitchDisabled"),
+            configurationReview: .settingsOnly,
             String(localized: "settings.sidebar.dragSwitchDisabled", defaultValue: "Disable Switch on Drag"),
             subtitle: dragSwitchDisabled.current
                 ? String(localized: "settings.sidebar.dragSwitchDisabled.subtitleOn", defaultValue: "Dragging a workspace only reorders it; your current workspace stays selected.")
