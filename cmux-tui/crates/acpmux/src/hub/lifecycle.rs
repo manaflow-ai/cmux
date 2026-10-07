@@ -88,9 +88,9 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote)?
+            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
         let agent = agent.as_str();
         if profile.kind == crate::config::HarnessKind::Terminal {
@@ -106,11 +106,21 @@ impl Hub {
             || defaults.env.values().any(|v| v.contains("${model}"));
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+        let env = [&defaults.env, &profile.env];
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
             Adoption::Found(recorded) => recorded,
         };
         let cwd = session_cwd(cwd, recorded, &family)?;
+        // A folder profile runs only in chats whose folder is inside its folder (H4).
+        if let Some(root) = &folder_root
+            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+        {
+            return Err(RpcError::invalid_params(format!(
+                "harness {agent} is a folder profile of {}; the chat folder must be inside it",
+                root.display()
+            )));
+        }
         let mut meta = draft_meta(Draft {
             id: String::new(),
             agent,
@@ -891,13 +901,13 @@ impl Hub {
             return Ok(child.clone());
         }
         self.wait_startup().await;
-        let agent = session.meta().harness;
+        let meta = session.meta();
+        let agent = meta.harness.clone();
         let (profile, defaults) = {
             let cfg = self.config.read().await;
-            let profile = cfg
-                .profile(&agent)
-                .cloned()
-                .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
+            let profile =
+                super::resolve::session_profile(&cfg, &agent, &meta.cwd, meta.remote_origin)
+                    .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;

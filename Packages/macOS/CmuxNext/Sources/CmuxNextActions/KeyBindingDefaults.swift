@@ -108,7 +108,13 @@ public nonisolated struct KeyBindingDefaults {
     /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
     /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
     /// binding keeps its own `when`.
-    public static let yieldsToTerminal: Set<ActionID> = ["focusHistoryBack", "focusHistoryForward"]
+    /// Cmd-=/-/0 and Cmd-Shift-G are Ghostty's per-terminal font size and previous match in a
+    /// focused terminal, as in Ghostty and the shipping cmux (decision K1 follow-up, 2026-10-06).
+    public static let yieldsToTerminal: Set<ActionID> = [
+        "focusHistoryBack", "focusHistoryForward",
+        "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
+        "groupSelectedWorkspaces",
+    ]
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
@@ -140,7 +146,7 @@ public nonisolated struct KeyBindingDefaults {
             bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
             bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
             bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            bind("k", [.command], "paletteKey.toggleActions", open),
+            // Decision K1: no Cmd-K in the palette; Tab opens the Actions menu.
             bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
             bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
             bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),

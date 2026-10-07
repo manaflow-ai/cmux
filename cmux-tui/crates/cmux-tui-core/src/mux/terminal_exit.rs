@@ -431,6 +431,7 @@ impl Mux {
                     Some(close),
                     None,
                     false,
+                    None,
                 )?;
                 (commit.resource.revision, commit.workspace_revision)
             }

@@ -1068,47 +1068,6 @@
           ]
         },
         {
-          "id": "paletteKey.toggleActions",
-          "title": {
-            "en": "Palette: Show or Hide Actions",
-            "ar": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها",
-            "bs": "Paleta: prikaži ili sakrij radnje",
-            "da": "Palet: Vis eller skjul handlinger",
-            "de": "Palette: Aktionen ein- oder ausblenden",
-            "es": "Paleta: mostrar u ocultar acciones",
-            "fr": "Palette : afficher ou masquer les actions",
-            "it": "Tavolozza: mostra o nascondi azioni",
-            "ja": "パレット: アクションの表示を切り替え",
-            "km": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព",
-            "ko": "팔레트: 작업 표시 또는 숨기기",
-            "no": "Palett: Vis eller skjul handlinger",
-            "pl": "Paleta: Pokaż lub ukryj akcje",
-            "pt-BR": "Paleta: Mostrar ou Ocultar Ações",
-            "ru": "Палитра: показать или скрыть действия",
-            "th": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน",
-            "tr": "Palet: Eylemleri Göster veya Gizle",
-            "uk": "Палітра: показати або сховати дії",
-            "vi": "Bảng lệnh: Hiện hoặc ẩn thao tác",
-            "zh-CN": "面板：显示或隐藏操作",
-            "zh-TW": "命令面板：顯示或隱藏動作"
-          },
-          "shortcut": null,
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "k",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "paletteOpen"
-            }
-          ]
-        },
-        {
           "id": "paletteKey.escape",
           "title": {
             "en": "Palette: Clear or Close",
@@ -3468,6 +3427,7 @@
           "shortcut": {
             "key": "k",
             "modifiers": [
+              "shift",
               "cmd"
             ]
           },
@@ -4811,6 +4771,40 @@
           },
           "shortcut": {
             "key": "v",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "terminal.clear",
+          "title": {
+            "en": "Clear Screen and Scrollback",
+            "ar": "مسح الشاشة وسجل التمرير",
+            "bs": "Očisti ekran i historiju",
+            "da": "Ryd skærm og rullehistorik",
+            "de": "Bildschirm und Verlauf löschen",
+            "es": "Limpiar pantalla e historial",
+            "fr": "Effacer l’écran et l’historique",
+            "it": "Pulisci schermo e scrollback",
+            "ja": "画面とスクロールバックを消去",
+            "km": "សម្អាតអេក្រង់ និងប្រវត្តិរំកិល",
+            "ko": "화면 및 스크롤백 지우기",
+            "no": "Tøm skjerm og rullehistorikk",
+            "pl": "Wyczyść ekran i historię przewijania",
+            "pt-BR": "Limpar Tela e Histórico de Rolagem",
+            "ru": "Очистить экран и прокрутку",
+            "th": "ล้างหน้าจอและประวัติเลื่อน",
+            "tr": "Ekranı ve Kaydırma Geçmişini Temizle",
+            "uk": "Очистити екран і прокрутку",
+            "vi": "Xóa màn hình và bộ đệm cuộn",
+            "zh-CN": "清除屏幕和回滚",
+            "zh-TW": "清除畫面與回捲內容"
+          },
+          "shortcut": {
+            "key": "k",
             "modifiers": [
               "cmd"
             ]
@@ -6366,6 +6360,7 @@
           "shortcut": {
             "key": "k",
             "modifiers": [
+              "shift",
               "cmd"
             ]
           },
@@ -6947,40 +6942,6 @@
             "key": "v",
             "modifiers": [
               "ctrl",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "agentPane.searchChats",
-          "title": {
-            "en": "Search Agent Chats",
-            "ar": "البحث في محادثات الوكيل",
-            "bs": "Pretraži razgovore agenta",
-            "da": "Søg i agentchats",
-            "de": "Agent-Chats durchsuchen",
-            "es": "Buscar chats del agente",
-            "fr": "Rechercher dans les discussions de l'agent",
-            "it": "Cerca chat dell'agente",
-            "ja": "エージェントのチャットを検索",
-            "km": "ស្វែងរកការជជែករបស់ភ្នាក់ងារ",
-            "ko": "에이전트 채팅 검색",
-            "no": "Søk i agentchatter",
-            "pl": "Szukaj czatów agenta",
-            "pt-BR": "Pesquisar conversas do agente",
-            "ru": "Поиск по чатам агента",
-            "th": "ค้นหาแชทของเอเจนต์",
-            "tr": "Ajan sohbetlerinde ara",
-            "uk": "Пошук у чатах агента",
-            "vi": "Tìm kiếm cuộc trò chuyện của tác tử",
-            "zh-CN": "搜索代理聊天",
-            "zh-TW": "搜尋代理聊天"
-          },
-          "shortcut": {
-            "key": "k",
-            "modifiers": [
               "cmd"
             ]
           },
