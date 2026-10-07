@@ -894,7 +894,10 @@ function AcpmuxPane() {
   );
   useEffect(() => {
     const cwd = snapshot.summary?.cwd;
-    if (!cwd || snapshot.origin !== "local") return;
+    if (!cwd || snapshot.origin !== "local") {
+      setGithubRepository(undefined);
+      return;
+    }
     let current = true;
     void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
       .then((value) => {
@@ -1492,7 +1495,9 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
-        if (typeof host.githubRepository === "string" && host.githubRepository) setGithubRepository(host.githubRepository);
+        setGithubRepository(
+          typeof host.githubRepository === "string" && host.githubRepository ? host.githubRepository : undefined,
+        );
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the

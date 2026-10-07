@@ -467,7 +467,9 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = opts.githubRepository ? { ...opts, githubRepository: undefined } : opts;
+  const labelOpts = opts.githubRepository
+    ? { ...opts, githubRepository: undefined, linkGithubReferences: false }
+    : opts;
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image" title={src}>
@@ -492,7 +494,10 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
     <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
-        ? renderInline(alt, opts.githubRepository ? { ...opts, githubRepository: undefined } : opts)
+        ? renderInline(
+            alt,
+            opts.githubRepository ? { ...opts, githubRepository: undefined, linkGithubReferences: false } : opts,
+          )
         : t("markdown.imageTooLarge")}
     </span>
   );
