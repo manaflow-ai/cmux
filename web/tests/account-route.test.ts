@@ -2862,6 +2862,92 @@ describe("account deletion resume cron", () => {
     }];
   }
 
+  function resumeRow(status: string, updatedAt = new Date()) {
+    return { userId: ACCOUNT_USER_ID, status, updatedAt };
+  }
+
+  const staleUpdatedAt = () => new Date(Date.now() - 20 * 60 * 1000);
+
+  test("resumes a stale in_progress tombstone left by a timed-out attempt", async () => {
+    const updatedAt = staleUpdatedAt();
+    selectResults = [[resumeRow("in_progress", updatedAt)], ...selectResults];
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "in_progress",
+      updatedAt,
+      hostedSubrouterDeletedTeamIds: [],
+    }]];
+
+    const response = await GET(cronRequest());
+
+    expect(await response.json()).toEqual({
+      ok: true,
+      resumed: 1,
+      completed: 1,
+      retryable: 0,
+    });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "completed"
+    )).toBe(true);
+  });
+
+  test("skips an in_progress tombstone whose lease is still live", async () => {
+    selectResults = [[resumeRow("in_progress")], ...selectResults];
+
+    const response = await GET(cronRequest());
+
+    expect(await response.json()).toEqual({
+      ok: true,
+      resumed: 0,
+      completed: 0,
+      retryable: 0,
+    });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(tombstoneUpdates).toEqual([]);
+  });
+
+  test("completes a stale Stack-delete phase whose Stack user is already gone", async () => {
+    const updatedAt = staleUpdatedAt();
+    selectResults = [[resumeRow("stack_delete_pending", updatedAt)], ...selectResults];
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "stack_delete_pending",
+      updatedAt,
+      hostedSubrouterDeletedTeamIds: [],
+    }]];
+    stackUserMissing = true;
+
+    const response = await GET(cronRequest());
+
+    expect(await response.json()).toEqual({
+      ok: true,
+      resumed: 1,
+      completed: 1,
+      retryable: 0,
+    });
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown }).status === "completed"
+    )).toBe(true);
+  });
+
+  test("fails a stale early attempt whose Stack user vanished before cleanup", async () => {
+    selectResults = [[resumeRow("in_progress", staleUpdatedAt())], ...selectResults];
+    stackUserMissing = true;
+
+    const response = await GET(cronRequest());
+
+    expect(await response.json()).toEqual({
+      ok: true,
+      resumed: 1,
+      completed: 0,
+      retryable: 1,
+    });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(tombstoneUpdates.at(-1)).toMatchObject({ status: "failed" });
+  });
+
   test("rejects a request without the cron secret", async () => {
     const response = await GET(cronRequest("wrong-secret"));
 
@@ -2871,7 +2957,7 @@ describe("account deletion resume cron", () => {
   });
 
   test("finishes a stuck deletion for a Stack user that still exists", async () => {
-    selectResults = [[{ userId: ACCOUNT_USER_ID }], ...selectResults];
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
     transactionTombstoneSelectResults = [hostedPendingTombstone()];
 
     const response = await GET(cronRequest());
@@ -2893,7 +2979,7 @@ describe("account deletion resume cron", () => {
   });
 
   test("finishes cmux cleanup when the Stack user is already gone", async () => {
-    selectResults = [[{ userId: ACCOUNT_USER_ID }], ...selectResults];
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
     transactionTombstoneSelectResults = [hostedPendingTombstone()];
     stackUserMissing = true;
 
@@ -2917,7 +3003,7 @@ describe("account deletion resume cron", () => {
   });
 
   test("leaves a failed cleanup retryable for the next run", async () => {
-    selectResults = [[{ userId: ACCOUNT_USER_ID }], ...selectResults];
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
     transactionTombstoneSelectResults = [hostedPendingTombstone()];
     postHogDeleteError = new Error("PostHog unavailable");
 
@@ -2936,7 +3022,7 @@ describe("account deletion resume cron", () => {
 
   test("does nothing while hosted Subrouter is still configured", async () => {
     process.env.SUBROUTER_HOSTED_URL = "https://sr.example.test";
-    selectResults = [[{ userId: ACCOUNT_USER_ID }], ...selectResults];
+    selectResults = [[resumeRow("hosted_delete_pending")], ...selectResults];
 
     const response = await GET(cronRequest());
 

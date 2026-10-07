@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, not, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -58,6 +58,8 @@ import {
   assertNoAccountAnalyticsForwardInProgress,
   assertNoAccountDeletionUserMutationInProgress,
   isBlockingAccountDeletionTombstone,
+  isStaleAccountDeletionTombstone,
+  ACCOUNT_DELETION_TOMBSTONE_LEASE_MS,
 } from "../../../services/account/deletionLock";
 import {
   unauthorized,
@@ -101,6 +103,18 @@ const HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS = 20_000;
 // Each resumed deletion repeats idempotent external cleanup (PostHog, Stripe,
 // TestFlight, VM providers, Stack), so one cron run finishes only a few.
 const ACCOUNT_DELETION_RESUME_BATCH_SIZE = 3;
+// Stop starting resumes once a run has used this much of maxDuration.
+const ACCOUNT_DELETION_RESUME_START_BUDGET_MS = 6 * 60 * 1000;
+// Tombstones parked at the retired hosted step.
+const HOSTED_CHECKPOINT_STATUSES = ["hosted_delete_pending", "legacy_delete_pending"] as const;
+// Statuses a live attempt holds and refreshes. Once the lease is stale, the
+// attempt timed out or crashed, and nothing else would ever pick it up.
+const LEASED_ATTEMPT_STATUSES = ["pending", "in_progress", "stack_delete_pending"] as const;
+
+// Three full deletions: each runs PostHog (10 s timeout), Stripe, TestFlight,
+// VM provider teardown, vault object deletion, and Stack calls. Matches the
+// VM route, whose destroy path this reuses.
+export const maxDuration = 600;
 
 type DeletableStackUser = {
   readonly id: string;
@@ -232,30 +246,54 @@ async function resumeStalledAccountDeletions(): Promise<{
   if (hostedSubrouterServiceConfigured()) {
     return { resumed: 0, completed: 0, retryable: 0 };
   }
+  const startedAt = Date.now();
+  const staleBefore = new Date(startedAt - ACCOUNT_DELETION_TOMBSTONE_LEASE_MS);
   const rows = await cloudDb()
-    .select({ userId: accountDeletionTombstones.userId })
+    .select({
+      userId: accountDeletionTombstones.userId,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
     .from(accountDeletionTombstones)
     .where(and(
-      inArray(accountDeletionTombstones.status, [
-        "hosted_delete_pending",
-        "legacy_delete_pending",
-      ]),
       isNotNull(accountDeletionTombstones.userId),
+      or(
+        inArray(accountDeletionTombstones.status, [...HOSTED_CHECKPOINT_STATUSES]),
+        and(
+          inArray(accountDeletionTombstones.status, [...LEASED_ATTEMPT_STATUSES]),
+          lt(accountDeletionTombstones.updatedAt, staleBefore),
+        ),
+      ),
     ))
     .orderBy(asc(accountDeletionTombstones.updatedAt))
     .limit(ACCOUNT_DELETION_RESUME_BATCH_SIZE);
   let completed = 0;
   let retryable = 0;
   for (const row of rows) {
-    if (!row.userId) continue;
-    if (await resumeAccountDeletion(row.userId)) completed += 1;
+    if (!row.userId || !isResumableTombstone(row)) continue;
+    if (Date.now() - startedAt > ACCOUNT_DELETION_RESUME_START_BUDGET_MS) break;
+    if (await resumeAccountDeletion(row.userId, row.status)) completed += 1;
     else retryable += 1;
   }
   return { resumed: completed + retryable, completed, retryable };
 }
 
-/** Returns true once the tombstone is completed. */
-async function resumeAccountDeletion(userId: string): Promise<boolean> {
+function isResumableTombstone(row: {
+  readonly status: string;
+  readonly updatedAt: Date | null;
+}): boolean {
+  if ((HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(row.status)) return true;
+  return (LEASED_ATTEMPT_STATUSES as readonly string[]).includes(row.status) &&
+    isStaleAccountDeletionTombstone(row.updatedAt);
+}
+
+/**
+ * Returns true once the tombstone is completed. A Stack user that still
+ * exists replays the normal deletion: markAccountDeletionTombstonePending
+ * takes the per-user advisory lock, refuses a tombstone whose lease is live,
+ * and adopts a stale one, and every later step is idempotent.
+ */
+async function resumeAccountDeletion(userId: string, status: string): Promise<boolean> {
   let stackUser: unknown;
   try {
     stackUser = await getStackServerApp().getUser(userId);
@@ -263,7 +301,7 @@ async function resumeAccountDeletion(userId: string): Promise<boolean> {
     logAccountDeleteError("account.delete.resume_stack_lookup_failed", error);
     return false;
   }
-  if (!stackUser) return await finishAccountDeletionWithoutStackUser(userId);
+  if (!stackUser) return await finishAccountDeletionWithoutStackUser(userId, status);
   const candidate = stackUser as Partial<DeletableStackUser>;
   if (typeof candidate.delete !== "function" || typeof candidate.update !== "function") {
     return false;
@@ -288,12 +326,29 @@ async function resumeAccountDeletion(userId: string): Promise<boolean> {
 }
 
 /**
- * The Stack user was removed outside this flow after the tombstone reached
- * the hosted step. PostHog, billing, TestFlight, identity, VM, networking,
- * and vault cleanup already ran for that attempt; finish the idempotent
- * post-Stack cmux cleanup and complete the tombstone.
+ * The Stack user is gone: removed outside this flow after the tombstone
+ * reached the hosted step, or by this flow just before a crash in the
+ * Stack-delete phase. PostHog, billing, TestFlight, identity, VM, networking,
+ * and vault cleanup already ran; finish the idempotent post-Stack cmux
+ * cleanup and complete the tombstone.
  */
-async function finishAccountDeletionWithoutStackUser(userId: string): Promise<boolean> {
+async function finishAccountDeletionWithoutStackUser(
+  userId: string,
+  status: string,
+): Promise<boolean> {
+  // Only the hosted checkpoint and the Stack-delete phase prove that the
+  // pre-Stack cleanup (billing, VMs, networking, vault) finished. A stale
+  // earlier attempt whose Stack user vanished needs an operator.
+  if (
+    !(HOSTED_CHECKPOINT_STATUSES as readonly string[]).includes(status) &&
+    status !== "stack_delete_pending"
+  ) {
+    await markAccountDeletionTombstoneFailed(
+      userId,
+      new Error("Stack user is gone before pre-Stack cleanup was confirmed"),
+    );
+    return false;
+  }
   const start = await markAccountDeletionTombstonePending(userId);
   if (start.kind === "completed") return true;
   if (start.kind !== "started") return false;
