@@ -3,28 +3,15 @@ import CoreText
 import CmuxNextDesign
 import CmuxNextPages
 
-/// SF Symbols for the icon picker's Symbols tab: the names this Mac draws,
-/// and each visible cell's image, drawn on request (the page never bundles
-/// symbol images). `cmux-page://cmux.icon-picker/__symbol/<name>.png` is a
+/// SF Symbols for the icon picker's Symbols tab: each visible cell's image,
+/// drawn on request (the page never bundles symbol images; the names come from
+/// ``IconPickerSymbolCatalog``). `cmux-page://cmux.icon-picker/__symbol/<name>.png` is a
 /// black template image; the page tints it with its theme color (CSS mask).
 @MainActor
 final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated static let prefix = "__symbol"
     /// Points of the drawn symbol; the page shows it at 24 px (2x for Retina).
     static let pointSize: CGFloat = 48
-
-    nonisolated static let systemCatalog =
-        URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/name_availability.plist")
-
-    /// The Symbols tab's names, sorted, read at run time from the running system's catalog
-    /// (off the main actor). The app ships no copy of Apple's symbol names (SF Symbols
-    /// license); a missing or unreadable catalog gives no names, and the page shows its empty
-    /// state.
-    @concurrent nonisolated static func names(catalog: URL = systemCatalog) async -> [String] {
-        // concurrency-allow: @concurrent, so this file read never runs on the main actor
-        guard let plist = NSDictionary(contentsOf: catalog), let symbols = plist["symbols"] as? [String: Any] else { return [] }
-        return symbols.keys.filter(IconValue.isSymbolName).sorted()
-    }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
     /// emoji that would show as empty boxes: one new single code point per version, newest first.

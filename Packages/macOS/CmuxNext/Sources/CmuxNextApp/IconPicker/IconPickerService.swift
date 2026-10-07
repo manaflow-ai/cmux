@@ -34,8 +34,8 @@ final class IconPickerService {
     private weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
-    /// Loaded off the main actor at the first open; nil until then.
-    private var symbolNames: [String]?
+    /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
+    private var catalog: IconPickerSymbolCatalog?
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
 
@@ -46,20 +46,20 @@ final class IconPickerService {
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
     func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
-        guard let symbolNames else {
-            // First open: the symbol names load off the main actor (two file reads), then the picker shows.
+        guard let catalog else {
+            // First open: the symbol catalog loads off the main actor (a few plist reads), then the picker shows.
             // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
             Task { [weak self] in
-                let names = await IconPickerSymbols.names()
+                let loaded = await IconPickerSymbolCatalog.load()
                 guard let self else { return }
-                self.symbolNames = names
+                self.catalog = loaded
                 self.pick(current: current, target: target, at: anchor, completion: completion)
             }
             return
         }
         open?.provider.finish(.cancel)
         prefs.load()
-        let session = IconPickerSession(id: UUID().uuidString, current: current, symbols: symbolNames, maxEmojiVersion: maxEmojiVersion)
+        let session = IconPickerSession(id: UUID().uuidString, current: current, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
         let provider = IconPickerProvider(session: session, prefs: prefs) { [weak self] result in
             self?.close()
             completion(result)

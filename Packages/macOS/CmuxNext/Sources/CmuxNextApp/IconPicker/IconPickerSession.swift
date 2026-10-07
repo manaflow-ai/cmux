@@ -24,9 +24,10 @@ struct IconPickerSession: Equatable {
     var canClear: Bool { IconValue(wire: current) != nil }
     /// Image and SVG tabs work only when the owner stores assets (the daemon blob store, later).
     var assets = false
-    /// The SF Symbol names this Mac draws; sent with the first session of a page only.
-    var symbols: [String]?
-    /// The newest Emoji version (times 10) the system font draws; sent with `symbols`.
+    /// The SF Symbol catalog this Mac ships (names, keywords, categories); sent with the first
+    /// session of a page only.
+    var catalog: IconPickerSymbolCatalog?
+    /// The newest Emoji version (times 10) the system font draws; sent with `catalog`.
     var maxEmojiVersion: Int?
 
     private static func tab(_ value: IconValue) -> String {
@@ -44,7 +45,7 @@ struct IconPickerSession: Equatable {
             "id": .string(id), "tab": .string(tab), "canClear": .bool(canClear), "assets": .bool(assets),
         ]
         if let current { members["value"] = .string(current) }
-        if let symbols { members["symbols"] = .array(symbols.map(JSONValue.string)) }
+        if let catalog { members.merge(catalog.eventMembers) { _, catalogValue in catalogValue } }
         if let maxEmojiVersion { members["maxEmojiVersion"] = JSONValue(maxEmojiVersion) }
         return .object(members)
     }
