@@ -6584,7 +6584,12 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            hostedInspectorReapplyScheduler.cancel()
+            // AppKit can call this override without Swift's MainActor token.
+            // Keep scheduler mutation on its owning actor while the responder
+            // path remains synchronously available to the framework.
+            Task { @MainActor [weak self] in
+                self?.hostedInspectorReapplyScheduler.cancel()
+            }
             isHostedInspectorDividerDragActive = true
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
                 containerView: hostedInspectorHit.containerView,
