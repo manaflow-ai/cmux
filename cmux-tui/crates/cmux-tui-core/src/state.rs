@@ -18,6 +18,8 @@ pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
+#[cfg(test)]
+mod closed_relaunch_tests;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
