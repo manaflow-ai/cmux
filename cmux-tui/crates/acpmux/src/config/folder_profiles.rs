@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::profiles::{Diagnostic, MAX_PROFILE_BYTES, Severity, parse_folder_profile_toml};
+use super::profiles::{
+    Diagnostic, MAX_PROFILE_BYTES, ProfileMeta, Severity, parse_folder_profile_toml,
+};
 use super::{Config, HarnessProfile};
 use crate::trust;
 
@@ -114,6 +116,9 @@ pub struct FolderProfile {
     pub diagnostics: Vec<Diagnostic>,
     #[serde(skip)]
     pub profile: Option<HarnessProfile>,
+    /// The file's display data (name, icon); set once the file parsed.
+    #[serde(skip)]
+    pub meta: Option<ProfileMeta>,
 }
 
 /// Every profile file in `folder`'s `.cmux/harnesses`, by file name.
@@ -152,6 +157,7 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         checked_files: vec![],
         diagnostics: vec![],
         profile: None,
+        meta: None,
     };
     let bytes = match read_folder_file(&path) {
         Ok(bytes) => bytes,
@@ -165,7 +171,11 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         return Some(fp);
     };
     let (profile, icon, warnings) = match parse_folder_profile_toml(text, &path, Some(id)) {
-        Ok((_, profile, meta, warnings)) => (profile, meta.icon, warnings),
+        Ok((_, profile, meta, warnings)) => {
+            let icon = meta.icon.clone();
+            fp.meta = Some(meta);
+            (profile, icon, warnings)
+        }
         Err(errors) => {
             fp.diagnostics = errors;
             return Some(fp);
@@ -274,6 +284,24 @@ pub fn disable(gate: &FolderGate, folder: &Path, id: &str) -> Result<bool, Strin
     }
     write_record(&gate.enable_record, &record)?;
     Ok(true)
+}
+
+/// Every folder profile a chat in `cwd` sees: those of `cwd` and of each
+/// parent, nearest folder first. An id in a nearer folder hides the same id
+/// further up, as `resolve_for_session` picks the nearest. An id the catalog
+/// has stays in the list as an error (`load_one`).
+pub fn scan_for_cwd(cfg: &Config, gate: &FolderGate, cwd: &Path) -> Vec<FolderProfile> {
+    let Ok(cwd) = canonical(cwd) else { return vec![] };
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for folder in cwd.ancestors().filter(|f| profile_dir(f).is_dir()) {
+        for fp in scan(cfg, gate, folder).unwrap_or_default() {
+            if seen.insert(fp.id.clone()) {
+                out.push(fp);
+            }
+        }
+    }
+    out
 }
 
 /// Folder profile `id` of `start` or of its nearest parent that has
