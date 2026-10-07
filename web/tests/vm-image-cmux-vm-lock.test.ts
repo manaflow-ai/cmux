@@ -47,7 +47,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -308,6 +308,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(browser.env).toEqual({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0", CMUX_BROWSER_HOST_CHROMIUM: `/opt/cmux/store/${CFT_SHA256}/chrome-linux64/chrome` });
     expect(browser.programs).toEqual([
       expect.objectContaining({ name: "chrome-for-testing", version: "154.0.8037.92", sha256: CFT_SHA256, size: 196202491, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
+      expect.objectContaining({ name: "cmux-browser-host" }),
     ]);
     expect(rolesManifest(lock).roles.display.programs).toEqual([]);
   });
