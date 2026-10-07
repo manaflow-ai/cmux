@@ -7,6 +7,10 @@
 //! writer; acpmux never writes them. `set` records the user's decision in
 //! acpmux's own per-folder record (`<home>/trust.json`); level `unknown`
 //! clears it, so each agent's own level answers again.
+//!
+//! A folder the app made for a new chat (agent-home, `made_by_cmux`) is
+//! trusted by construction when acpmux has no record for it: nobody is asked.
+//! This one rule serves `get` and the trust gate (`session_level`) alike.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -158,14 +162,37 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let decided = read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level));
-    // acpmux's own decision answers first; without one, the stricter of the agents' levels.
-    let level = decided.unwrap_or_else(|| claude.stricter(codex));
+    let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
+    // acpmux's own decision answers first; then a folder cmux made for a chat (trusted by
+    // construction); then the stricter of the agents' levels.
+    let level = decided.unwrap_or_else(|| {
+        if agent_home { Level::Trusted } else { claude.stricter(codex) }
+    });
     Ok(json!({
         "cwd": cwd,
         "level": level.as_str(),
         "harnesses": {"claude": claude.as_str(), "codex": codex.as_str()},
-        "decided": decided.is_some(),
+        // acpmux answered (its record, or its agent-home rule): `level` holds for every agent.
+        "decided": decided.is_some() || agent_home,
     }))
+}
+
+/// Whether `cwd` (normalized: canonical when it exists) is an agent-home folder the app made: a
+/// real folder that is a direct child of the canonical `root`, holding the app's marker as a
+/// regular file. A symlink in agent-home resolves to its target, which is then no child of the
+/// root; a folder inside an agent-home folder is not one either.
+fn made_by_cmux(root: &Path, cwd: &str) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
+    let path = Path::new(cwd);
+    if path.parent() != Some(root.as_path()) {
+        return false;
+    }
+    // The path is its own canonical spelling and a folder, never a symlink to one.
+    let canonical = std::fs::canonicalize(path).is_ok_and(|resolved| resolved == path);
+    let folder = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_dir());
+    let marker = std::fs::symlink_metadata(path.join(AGENT_HOME_MARKER))
+        .is_ok_and(|meta| meta.file_type().is_file());
+    canonical && folder && marker
 }
 
 /// The folder's level for a session of the agent `family`: acpmux's own
