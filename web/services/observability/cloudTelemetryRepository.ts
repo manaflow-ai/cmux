@@ -129,32 +129,34 @@ export const CLOUD_DIAGNOSTICS_DELIVERED_RETENTION_SECONDS = CLOUD_TELEMETRY_MAX
 export const CLOUD_DIAGNOSTICS_UNDELIVERED_RETENTION_SECONDS = 7 * 24 * 3600;
 const CLOUD_DIAGNOSTICS_EXPIRY_BATCH = 1000;
 
-/** Bounded retention. Return lost records so a full queue cannot disappear silently. */
-export async function expireCloudDiagnostics(): Promise<{ expiredDelivered: number; expiredUndelivered: number; pending: number }> {
+/**
+ * Bounded retention. Return lost records so a full queue cannot disappear silently.
+ * `onlyOwner` scopes the event deletes for tests that share a database; production runs globally.
+ */
+export async function expireCloudDiagnostics(onlyOwner?: string): Promise<{ expiredDelivered: number; expiredUndelivered: number; pending: number }> {
+  const owner = onlyOwner ? sql`and user_id = ${onlyOwner}` : sql``;
   // Two bounded deletes per run, each walking the received_at index from its oldest row.
+  // Each serves only its own window, so a delivered backlog cannot starve undelivered expiry.
   const delivered = await cloudDb().execute(sql`
     delete from cloud_diagnostic_events where (user_id, event_id) in (
       select user_id, event_id from cloud_diagnostic_events
       where received_at < now() - ${CLOUD_DIAGNOSTICS_DELIVERED_RETENTION_SECONDS} * interval '1 second'
-        and delivered_at is not null
+        and delivered_at is not null ${owner}
       order by received_at limit ${CLOUD_DIAGNOSTICS_EXPIRY_BATCH}
-    ) returning delivered_at
+    ) returning event_id
   `);
-  const expired = await cloudDb().execute(sql`
+  const undelivered = await cloudDb().execute(sql`
     delete from cloud_diagnostic_events where (user_id, event_id) in (
       select user_id, event_id from cloud_diagnostic_events
       where received_at < now() - ${CLOUD_DIAGNOSTICS_UNDELIVERED_RETENTION_SECONDS} * interval '1 second'
+        and delivered_at is null ${owner}
       order by received_at limit ${CLOUD_DIAGNOSTICS_EXPIRY_BATCH}
-    ) returning delivered_at
+    ) returning event_id
   `);
   await cloudDb().execute(sql`delete from cloud_diagnostic_budgets where minute < ${Math.floor(Date.now() / 60_000) - 60}`);
   await cloudDb().execute(sql`delete from cloud_operation_steps where expires_at < now()`);
   const pending = await cloudDb().execute(sql`select count(*)::int as count from cloud_diagnostic_events where delivered_at is null`);
-  return {
-    expiredDelivered: delivered.length + expired.filter((row) => row.delivered_at !== null).length,
-    expiredUndelivered: expired.filter((row) => row.delivered_at === null).length,
-    pending: Number(pending[0]?.count ?? 0),
-  };
+  return { expiredDelivered: delivered.length, expiredUndelivered: undelivered.length, pending: Number(pending[0]?.count ?? 0) };
 }
 
 function canonicalJSON(value: unknown): string {

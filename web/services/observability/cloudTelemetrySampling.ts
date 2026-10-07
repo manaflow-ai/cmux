@@ -29,6 +29,12 @@ export type SampledCloudTelemetryBatch = {
  * that has a non-success span in this batch. Successful poll spans of other
  * traces are kept with weight `CLOUD_POLL_SAMPLE_WEIGHT` when their trace is
  * sampled, and otherwise dropped. Development builds keep everything.
+ *
+ * Contract: the decision holds no state across batches. Whether a trace is kept is a
+ * deterministic hash of its trace ID, shared with the Mac uploader, and every
+ * non-success span is always kept. A sampled-in trace is therefore always whole. The
+ * only loss is successful siblings of a sampled-out trace that were sent in an earlier
+ * batch than that trace's failure; the failure itself and any siblings in its batch remain.
  */
 export function sampleCloudTelemetryBatch(batch: CloudTelemetryBatch): SampledCloudTelemetryBatch {
   const sampleWeights = new Map<string, number>();

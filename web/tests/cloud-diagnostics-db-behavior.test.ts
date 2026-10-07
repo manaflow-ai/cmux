@@ -126,13 +126,27 @@ describe("Cloud diagnostic durable storage", () => {
         where user_id = ${owner} and event_id = ${ids[name]}::uuid
       `);
     }
-    // Other suites may share the database; repeat until this owner's expired rows are gone.
-    for (let round = 0; round < 50; round += 1) {
-      const result = await expireCloudDiagnostics();
-      if (result.expiredDelivered === 0 && result.expiredUndelivered === 0) break;
-    }
+    // Scoped to this owner: other suites' rows in a shared database cannot consume the batches.
+    expect(await expireCloudDiagnostics(owner)).toMatchObject({ expiredDelivered: 1, expiredUndelivered: 1 });
     const rows = await cloudDb().execute(sql`select event_id::text from cloud_diagnostic_events where user_id = ${owner}`);
     expect(new Set(rows.map((row) => String(row.event_id)))).toEqual(new Set([ids.deliveredFresh!, ids.pendingOld!]));
+  });
+  dbTest("a delivered backlog larger than both batches cannot starve undelivered expiry", async () => {
+    const { owner, batch } = fixture();
+    await cloudDb().execute(sql`
+      insert into cloud_diagnostic_events (user_id, event_id, payload, payload_hash, received_at, delivered_at)
+      select ${owner}, gen_random_uuid(), '{}'::jsonb, 'backlog', now() - interval '9 days', now()
+      from generate_series(1, 2001)
+    `);
+    const stranded = batch.spans[0]!.eventId;
+    await acceptCloudTelemetry(owner, batch);
+    await cloudDb().execute(sql`
+      update cloud_diagnostic_events set received_at = now() - interval '8 days'
+      where user_id = ${owner} and event_id = ${stranded}::uuid
+    `);
+    expect(await expireCloudDiagnostics(owner)).toMatchObject({ expiredDelivered: 1000, expiredUndelivered: 1 });
+    const left = await cloudDb().execute(sql`select count(*)::int as count from cloud_diagnostic_events where user_id = ${owner} and event_id = ${stranded}::uuid`);
+    expect(Number(left[0]?.count)).toBe(0);
   });
   dbTest("progress is owner-only and preserves parallel provider steps", async () => {
     const { owner, batch } = fixture();
