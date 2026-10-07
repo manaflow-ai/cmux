@@ -49,6 +49,8 @@ mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+#[cfg(unix)]
+mod terminal_rehost;
 mod terminal_relaunch;
 mod terminal_work;
 mod topology_result;
@@ -3479,6 +3481,9 @@ impl Mux {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
         };
+        if let Some(root) = options.terminal_host_root.as_deref() {
+            crate::terminal_host_runtime::sweep_released_pty_locks(root);
+        }
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),

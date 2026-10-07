@@ -14,7 +14,7 @@ use ghostty_vt::KittyGraphicsLimits;
 
 use super::*;
 
-fn run_in_new_workspace(socket: &Path, argv: &[&str], name: &str) -> u64 {
+pub(super) fn run_in_new_workspace(socket: &Path, argv: &[&str], name: &str) -> u64 {
     let created = request(
         socket,
         serde_json::json!({"id":1,"cmd":"run","argv":argv,"new_workspace":true,"name":name}),
@@ -22,18 +22,18 @@ fn run_in_new_workspace(socket: &Path, argv: &[&str], name: &str) -> u64 {
     created["surface"].as_u64().unwrap()
 }
 
-fn send_line(socket: &Path, surface: u64, line: &str) {
+pub(super) fn send_line(socket: &Path, surface: u64, line: &str) {
     request(socket, serde_json::json!({"cmd":"send","surface":surface,"text":format!("{line}\n")}));
 }
 
-fn signal_pid(pid: u32, signal: libc::c_int) {
+pub(super) fn signal_pid(pid: u32, signal: libc::c_int) {
     // SAFETY: the PID is a process this test started (a terminal host or its
     // shell); the signal is a constant.
     assert_eq!(unsafe { libc::kill(pid as libc::pid_t, signal) }, 0, "signal {signal} to {pid}");
 }
 
 /// Alive and not a zombie of whichever process inherited it.
-fn process_running(pid: u32) -> bool {
+pub(super) fn process_running(pid: u32) -> bool {
     // SAFETY: signal 0 only probes the PID.
     if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
         return false;
@@ -47,13 +47,26 @@ fn process_running(pid: u32) -> bool {
     true
 }
 
-fn wait_for_dead_host(record_path: &Path, record: &TerminalHostRecord) {
+pub(super) fn wait_for_dead_host(record_path: &Path, record: &TerminalHostRecord) {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
     while terminal_host_record_liveness(record_path, record).unwrap() != TerminalHostLiveness::Dead
     {
         assert!(Instant::now() < deadline, "the SIGKILLed host still holds its liveness lock");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// End a terminal's shell and then its host so that no shell is left to
+/// serve: stop the host (it can neither observe the shell's end nor write
+/// an exit record), SIGKILL the shell, then SIGKILL the host. The owner
+/// then sees a dead host without an exit record and a dead shell, which is
+/// a host loss and never gets a replacement host.
+pub(super) fn kill_shell_then_host(record_path: &Path, record: &TerminalHostRecord) -> u32 {
+    let shell = request_terminal_host_pty_custody(record, record_path).unwrap().child_pid;
+    signal_pid(record.host_pid, libc::SIGSTOP);
+    signal_pid(shell, libc::SIGKILL);
+    signal_pid(record.host_pid, libc::SIGKILL);
+    shell
 }
 
 fn adoption<'a>(
