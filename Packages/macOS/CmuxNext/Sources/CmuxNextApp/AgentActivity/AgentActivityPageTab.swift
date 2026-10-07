@@ -30,7 +30,7 @@ final class AgentActivityPageTab: BrowserTab {
         var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
         state.phase = .finished
         self.state = state
-        model = AgentActivityModel(source: source)
+        model = AgentActivityModel(source: source, stopAllCoordinator: AgentActivityStopAllCoordinator(sources: [source]))
         contentView = AgentActivityHostView(model: model, source: source)
         model.start()
     }

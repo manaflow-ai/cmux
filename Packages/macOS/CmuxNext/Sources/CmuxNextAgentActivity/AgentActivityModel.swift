@@ -59,11 +59,13 @@ public final class AgentActivityModel {
     @ObservationIgnored private var changeObservers: [() -> Void] = []
 
     @ObservationIgnored private let source: any AgentActivitySource
+    @ObservationIgnored private let stopAllCoordinator: AgentActivityStopAllCoordinator?
     @ObservationIgnored private var followed: [String] = []
     @ObservationIgnored private var extraFollowed: Set<String> = []
 
-    public init(source: any AgentActivitySource) {
+    public init(source: any AgentActivitySource, stopAllCoordinator: AgentActivityStopAllCoordinator? = nil) {
         self.source = source
+        self.stopAllCoordinator = stopAllCoordinator
     }
 
     /// Adds a view observer without replacing the host's renderer callback.
@@ -220,6 +222,18 @@ public final class AgentActivityModel {
 
     /// Stops every live session on a machine through the injected source.
     public func stopAll(machine: String = AgentActivityModel.localMachine) {
+        if let stopAllCoordinator {
+            Task { @MainActor in
+                do {
+                    try await stopAllCoordinator.stopAll(machine: machine)
+                    self.lastOperationError = nil
+                } catch {
+                    self.lastOperationError = String(describing: error)
+                }
+                self.notifyChange()
+            }
+            return
+        }
         perform(.stopAll(machine: machine))
     }
 
