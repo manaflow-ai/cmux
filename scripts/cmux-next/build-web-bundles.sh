@@ -48,11 +48,26 @@ APP="Resources/markdown-viewer/webviews-app"
 STAMP="$ROOT/.web-bundles.key"
 KEY="$ROOT/scripts/cmux-next/web-bundle-key.py"
 
+# CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 (scripts/reload.sh while the bundles are
+# still committed): a missing or wrong bun or node is a warning and exit 0, so
+# a build log does not show an "error:" line for a build that ships the
+# committed bundles. Any other failure still fails.
+missing_tool() {
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ]; then
+    echo "warning: $1 (this build ships the committed bundles)" >&2
+    exit 0
+  fi
+  echo "error: $1" >&2
+  exit 1
+}
+
 need_bun() {
+  want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
-    want="$(sed -n 's/.*"name": *"bun", *"version": *"\([0-9.]*\)".*/\1/p' "$ROOT/webviews/package.json" | head -1)"
-    echo "error: the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
-    exit 1
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
+  fi
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && [ -n "$want" ] && [ "$(bun --version)" != "$want" ]; then
+    missing_tool "the cmux-next web bundles need bun $want; $(command -v bun) is bun $(bun --version)"
   fi
   "$ROOT/scripts/check-webviews-bun-version.sh"
   # `vp build` (the webviews app) runs on node when node is on PATH and on bun
@@ -61,8 +76,7 @@ need_bun() {
   # every host builds the same app; Vite+ needs node 22.18 or newer.
   if ! command -v node >/dev/null 2>&1 \
     || ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 18) ? 0 : 1)'; then
-    echo "error: the webviews app build needs node 22.18 or newer on PATH (found: $(command -v node >/dev/null 2>&1 && node --version || echo none))" >&2
-    exit 1
+    missing_tool "the webviews app build needs node 22.18 or newer on PATH (found: $(command -v node >/dev/null 2>&1 && node --version || echo none))"
   fi
 }
 
