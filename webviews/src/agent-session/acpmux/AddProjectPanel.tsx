@@ -16,7 +16,7 @@ export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
   peers?: string[];
-  /** Existing native folder chooser, used until a reviewed directory-list host operation exists. */
+  /** Existing native folder chooser, retained as a fallback for older hosts. */
   onBrowse?(): Promise<string | undefined> | string | undefined | void;
   onPick(path: string): void;
   onClose(): void;
@@ -42,6 +42,12 @@ export function AddProjectPanel({
   const [retry, setRetry] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
+  const fallbackToNative = () => {
+    void Promise.resolve(onBrowse?.()).then((path) => {
+      if (path) onPick(path);
+      else if (path === undefined) onClose();
+    });
+  };
   useEffect(() => {
     input.current?.focus();
   }, [step, directory?.path]);
@@ -62,6 +68,11 @@ export function AddProjectPanel({
         }
       })
       .catch((failure: unknown) => {
+        const code = (failure as { code?: unknown })?.code;
+        if (live && (code === "unsupported" || code === "native.invalid_request") && onBrowse) {
+          fallbackToNative();
+          return;
+        }
         if (live && request.current === id) setError(failure instanceof Error ? failure.message : String(failure));
       })
       .finally(() => {

@@ -68,6 +68,8 @@ import Testing
         #expect(AgentPaneRequest(body: ["method": "pane.checkpointAvailability", "params": ["available": "yes"]]) == .unsupported("pane.checkpointAvailability"))
         let long = AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": Array(repeating: 6.25, count: 1000)]])
         #expect(long == .framePacing(Array(repeating: 6.25, count: AgentPaneRequest.maximumPacingFrames)))
+        #expect(AgentPaneRequest(body: ["method": "project.listDirectory", "params": ["path": "/tmp"]]) == .listDirectory("/tmp"))
+        #expect(AgentPaneRequest(body: ["method": "project.listDirectory", "params": [:]]) == .unsupported("project.listDirectory"))
         #expect(AgentPaneRequest(body: ["method": "chat.send", "params": ["text": "hi"]]) == .unsupported("chat.send"))
         #expect(AgentPaneRequest(body: "ready") == .unsupported(""))
     }

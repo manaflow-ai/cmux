@@ -59,6 +59,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// Lists readable child folders for the keyboard-first project picker.
+    case listDirectory(String)
     /// The empty-chat action opens the existing onboarding project/history import flow.
     case importAndSync
     /// The new-tab omnibar invoked a host-owned action id.
@@ -254,6 +256,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "project.listDirectory":
+            if let path = params?["path"] as? String, !path.isEmpty, path.utf8.count <= 4096 {
+                self = .listDirectory(path)
+            } else {
+                self = .unsupported(method)
+            }
         case "onboarding.importAndSync": self = .importAndSync
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }

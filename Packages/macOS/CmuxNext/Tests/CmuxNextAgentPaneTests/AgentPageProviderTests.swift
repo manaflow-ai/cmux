@@ -107,6 +107,22 @@ import Testing
         #expect(imported)
     }
 
+    @Test func directoryListingUsesThePaneWorkspaceRoots() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-page-directory-\(UUID().uuidString)")
+        let child = root.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.workspaceRoots = { [root.path] }
+        model.transport.homeFolder = root.path
+        let (router, _) = router(model)
+        let reply = await call(router, "cmux.agent.project.listDirectory", ["path": root.path])
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(reply["value"]?["path"]?.stringValue == root.path)
+        #expect(reply["value"]?["directories"] == .array([.string(child.path)]))
+        #expect(reply["value"]?["parent"] == .null)
+    }
+
     @Test func sessionPersistRecordsTheSession() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let (router, _) = router(model)

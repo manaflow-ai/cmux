@@ -294,6 +294,25 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
+        case .listDirectory(let path):
+            let roots = roots()
+            let home = transport.homeFolder ?? NSHomeDirectory()
+            let result = await Task.detached {
+                AgentPaneDirectoryListing.list(path: path, roots: roots, home: home)
+            }.value
+            switch result {
+            case .success(let listing):
+                return AgentPaneReply.success([
+                    "path": listing.path,
+                    "parent": listing.parent ?? NSNull(),
+                    "home": listing.home,
+                    "directories": listing.directories,
+                ])
+            case .failure:
+                // The page has a localized empty/error state and falls back to the native chooser
+                // when an older host does not know this operation.
+                return AgentPaneReply.failure(code: "project.directory_unavailable", message: "")
+            }
         case .importAndSync:
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
