@@ -50,7 +50,43 @@ check_cla_guard_runner() {
   # needs the guard step that also admits Blacksmith scale-set VM names.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
+
+  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
+  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
+  # owned-host marker back out of the guard and check that it admits those
+  # names and refuses owned glaeda hosts.
+  local prefixes marker case_line expected name admitted prefix
+  prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
+  marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
+  if [[ -z "$prefixes" || -z "$marker" ]]; then
+    echo "FAIL: CLA runner guard must name Blacksmith prefixes and an owned-host marker"
+    exit 1
+  fi
+  for case_line in \
+    'admit blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
+    'refuse cmuxs-mac-mini-5-glaeda-1' \
+    'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
+    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'refuse blacksmith-4vcpu-ubuntu-2404'; do
+    expected="${case_line%% *}"
+    name="${case_line#* }"
+    admitted=refuse
+    while IFS= read -r prefix; do
+      if [[ "$name" == "$prefix"* ]]; then
+        admitted=admit
+      fi
+    done <<<"$prefixes"
+    if [[ "$name" == *"$marker"* ]]; then
+      admitted=refuse
+    fi
+    if [[ "$admitted" != "$expected" ]]; then
+      echo "FAIL: CLA runner guard must $expected self-hosted runner $name"
+      exit 1
+    fi
+  done
   if [[ "$runs_on" == "$hosted" ]] && ! grep -Fqx "$hosted_guard" "$CLA_GUARD_FILE" && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
     echo "FAIL: cla-policy-guard.yml must refuse a runner that is not GitHub-hosted"
     exit 1
