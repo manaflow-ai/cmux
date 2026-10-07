@@ -241,6 +241,26 @@ class SideLaneVariable(unittest.TestCase):
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
 
 
+class AwsSideRunnerVariable(unittest.TestCase):
+    def test_only_an_owned_aws_label_is_allowed(self) -> None:
+        # CI_AWS_SIDE_RUNNER is attempt 1 of the cmux-tui relay job and the
+        # cmux-tui-artifacts macOS legs: the owned AWS minis (aws-m4pro-7..9).
+        name = "CI_AWS_SIDE_RUNNER"
+        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-light-xcode-26.3"}), [])
+        self.assertEqual(drifted_runner_variables({name: ""}), [])
+        self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-15"}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-aws-nonsense",
+                      "glaeda-trusted-std-xcode-26.6", "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [found for found, _, _ in drifted_runner_variables({name: label})],
+                    [name],
+                )
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_BACKGROUND": "glaeda-aws-std-xcode-26.6"}))
+
+
 class TrustedPoolVariable(unittest.TestCase):
     def test_only_a_trusted_owned_label_is_allowed(self) -> None:
         # CI_SEED_TRUSTED_POOL carries the ci-cache-writer seeds and nightly.yml's

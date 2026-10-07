@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
+import Observation
 
 /// "Chief: Open Memory Inspector" (DEV and nightly, palette; the Chief
 /// settings sidebar's Show Memory runs it too): the local Chief's brain host
@@ -10,13 +12,15 @@ import Foundation
 /// `<mux home>/optchat/inspector.json`. The app trades the token for a
 /// one-time ticket and opens the page as a browser tab in a new column to
 /// the right of the focused pane's column, so no live secret is ever in a URL.
+/// From Home (no focused pane) the column goes right of the window's
+/// workspace's last column, and the app shows that workspace.
 @MainActor
 enum ChiefInspectorHandlers {
     static let actionID: ActionID = "chief.openMemoryInspector"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind(actionID, requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
-            let pane = try context.pane(invocation)
+            let anchor = try anchorPane(invocation, context: context)
             let muxHome = HomeBrainHost.muxHome(tag: context.services.environment.tag)
             // task-owner: one file read, one ticket request and one tab open; ends
             // with them (a caller such as `cmux action run` waits and gets the failure).
@@ -24,10 +28,14 @@ enum ChiefInspectorHandlers {
                 do {
                     let endpoint = try await Task.detached { try ChiefInspectorEndpoint.read(muxHome: muxHome) }.value
                     let url = try await endpoint.ticketURL()
-                    try await openInNewColumn(url, from: pane, context: context)
+                    try await openInNewColumn(url, anchor: anchor, context: context)
                     return nil
                 } catch {
-                    let reason = error is ChiefInspectorEndpoint.Missing ? ChiefInspectorStrings.noLocalChief : ChiefInspectorStrings.unreachable
+                    let reason = switch error {
+                    case is ChiefInspectorEndpoint.Missing: ChiefInspectorStrings.noLocalChief
+                    case let failure as ActionWorkFailure: failure.message
+                    default: ChiefInspectorStrings.unreachable
+                    }
                     context.daemon.logger.error("memory inspector: \(String(describing: error), privacy: .public)")
                     context.registry.refuse(reason)
                     return ActionWorkFailure(reason)
@@ -36,23 +44,48 @@ enum ChiefInspectorHandlers {
         })
     }
 
-    /// A new browser tab at `url` in `pane`, moved into a new column right
-    /// of the pane's column; a daemon without columns splits it to the right.
-    private static func openInNewColumn(_ url: URL, from pane: PaneController, context: AppActionContext) async throws {
-        let handle = pane.pane.handle
+    /// The pane the new column goes right of: the focused (or targeted) pane;
+    /// with none (Home is shown), the last pane of the window's workspace
+    /// unless that is the home workspace, else of the first user workspace.
+    private static func anchorPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneModel {
+        let scope = context.scope(invocation)
+        if let pane = scope.pane { return pane.pane }
+        guard invocation.target == nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
+        // The home workspace (kind "home") holds only the Chief conversation
+        // that the Home page shows: the column goes into a user workspace.
+        let user = { (w: WorkspaceModel) in w.kind != "home" && w.screens.first?.panes.last != nil }
+        let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
+            ?? context.daemon.store.workspaces.first(where: user)
+        guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
+        return pane
+    }
+
+    /// A new browser tab at `url` in `anchor`, moved into a new column right
+    /// of the anchor's column (a daemon without columns splits it to the
+    /// right), then shown and selected.
+    private static func openInNewColumn(_ url: URL, anchor: PaneModel, context: AppActionContext) async throws {
+        let handle = anchor.handle
         let connection = try context.requireConnection()
         guard let browserTabs = context.services.cache.browserTabs,
               case .open(let choice) = browserTabs.resolve(requested: nil) else {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }
         let surface = try await browserTabs.open(choice, in: handle, url: url.absoluteString, profile: nil)
-        let spawn = context.services.newColumnWidth(nextTo: pane.pane)
+        let spawn = context.services.newColumnWidth(nextTo: anchor)
         do {
             _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: spawn.width)
             spawn.commit()
         } catch DaemonError.missingCapabilities {
             try await connection.split(handle, direction: .right, movingTab: surface)
         }
+        // The mirror reports the moved tab after the reply: show it once it does.
+        let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
+            for await tab in Observations({ context.allTabs.first { $0.tab.surface == surface } }) {
+                if let tab { return tab }
+            }
+            return nil as LocatedTab?
+        }
+        if let located = located ?? nil { context.reveal(located) }
     }
 }
 

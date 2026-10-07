@@ -46,7 +46,11 @@ export function ChangedFilesTree({
     createTextMeasure('system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'),
   );
   const statsSpriteSheet = useMemo(
-    () => diffStatSpriteSheet(files.map((file) => ({ added: file.additions, deleted: file.deletions })), measureStats),
+    () =>
+      diffStatSpriteSheet(
+        files.map((file) => ({ added: file.additions, deleted: file.deletions })),
+        measureStats,
+      ),
     [files, measureStats],
   );
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
