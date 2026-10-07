@@ -33,6 +33,21 @@ import Testing
         #expect(mode(path) == 0o700)
     }
 
+    /// acpmux trusts an agent-home folder by construction only when it holds the app's marker
+    /// (`.cmux-agent-home`, a regular file): ensure writes it, also into a folder an older build
+    /// made without one, so a new chat there is never stopped by the folder trust question.
+    @Test func ensureMarksTheFolderAsMadeByCmux() throws {
+        let home = AgentHome(base: try base())
+        let path = try #require(home.ensure("ws-mark"))
+        let marker = path + "/.cmux-agent-home"
+        var info = stat()
+        #expect(lstat(marker, &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG)
+        // A folder from before the marker gets it on its next use.
+        unlink(marker)
+        #expect(home.ensure("ws-mark") == path)
+        #expect(lstat(marker, &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG)
+    }
+
     @Test func onlyASafeWorkspaceIdNamesAFolder() throws {
         let home = AgentHome(base: try base())
         for id in ["", ".", "..", "a/b", "../x", "x/..", "with space", "a\u{0}b", "é", String(repeating: "a", count: 129)] {

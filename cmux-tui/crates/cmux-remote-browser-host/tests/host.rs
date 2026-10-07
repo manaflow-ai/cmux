@@ -12,6 +12,8 @@ use cmux_remote_browser_host::tab::{HostTab, Presentation};
 #[derive(Default)]
 struct Fake {
     calls: Vec<String>,
+    /// The shim refuses capture (the browser has no view yet).
+    refuse_capture: bool,
 }
 
 impl Presentation for Fake {
@@ -28,7 +30,7 @@ impl Presentation for Fake {
     }
     fn capture(&mut self, browser: i32, on: bool) -> bool {
         self.calls.push(format!("capture {browser} {on}"));
-        true
+        !self.refuse_capture
     }
     fn input(&mut self, browser: i32, call: &RpCall) -> bool {
         let name = match call {
@@ -351,4 +353,47 @@ fn a_new_dialog_cancels_the_one_still_open_on_the_viewer() {
         out,
         vec![Control::DialogCancel { token: 1 }, Control::DialogShow { token: 2, dialog: two }]
     );
+}
+
+#[test]
+fn a_refused_capture_is_retried_until_the_shim_accepts_it() {
+    let mut fake = Fake { refuse_capture: true, ..Fake::default() };
+    let mut tab = HostTab::new(1, 7, "https://example.com/");
+    tab.control("v1", &open("v1", screen(800, 600, 2.0)), &mut fake);
+    tab.tab_created(42, &mut fake);
+    assert!(!tab.capturing(), "the shim refused: no capture yet");
+    fake.calls.clear();
+    fake.refuse_capture = false;
+    tab.retry_capture(&mut fake);
+    assert_eq!(fake.calls, vec!["capture 42 true".to_string()]);
+    assert!(tab.capturing());
+    fake.calls.clear();
+    tab.retry_capture(&mut fake);
+    assert!(fake.calls.is_empty(), "a running capture is not started twice");
+}
+
+#[test]
+fn a_select_popup_the_page_closed_is_cancelled_on_the_viewer_only() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let menu = Menu {
+        kind: MenuKind::Select,
+        anchor: Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+        surface: 0,
+        items: vec![item(0, "Red", "option"), item(1, "Green", "option")],
+        selected: Some(0),
+        multiple: false,
+        right_aligned: false,
+    };
+    let shown = tab.menu_opened(77, menu, &mut fake);
+    let Some(Control::MenuShow { token, .. }) = shown.first().cloned() else {
+        panic!("menu shown: {shown:?}");
+    };
+    fake.calls.clear();
+    assert!(tab.menu_closed_by_page(76).is_empty(), "another fork token is stale");
+    assert_eq!(tab.menu_closed_by_page(77), vec![Control::MenuCancel { token }]);
+    assert!(fake.calls.is_empty(), "Chromium closed it: no answer goes back");
+    let late = Control::MenuResult { token, choice: MenuChoice::Indices { indices: vec![1] } };
+    tab.control("v1", &late, &mut fake);
+    assert!(fake.calls.is_empty(), "a late viewer answer reaches nothing");
 }
