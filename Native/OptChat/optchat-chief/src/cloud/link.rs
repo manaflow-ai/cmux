@@ -1,9 +1,10 @@
 //! The cloud link: the brain's connection to a cmux-tui daemon that proxies
 //! cloud conversations (`cloud-conversations-v1`). It leases a chief token
 //! to the daemon (`cloud-session-set`), subscribes to the chief's main
-//! conversation, hands the brain a port, turns cloud events into the same
-//! `DaemonEvent`s the local owner produces, renews the lease before it
-//! expires or when the daemon asks, and reconnects after any loss.
+//! conversation and to its wake queue (`cloud-mux-subscribe`, G9), hands the
+//! brain a port, turns cloud events into the same `DaemonEvent`s the local
+//! owner produces (and wakes into `DaemonEvent::MuxWake`), renews the lease
+//! before it expires or when the daemon asks, and reconnects after any loss.
 //!
 //! The lease is daemon-wide: every unbound local client of that daemon acts
 //! as the chief. So the brain gets a daemon of its own (DESIGN section 3).
@@ -150,6 +151,16 @@ fn session(
         config.conversation,
         state.get("state").and_then(Value::as_str).unwrap_or("?")
     ));
+    // G9: the chief's wake queue, on the same lease (the daemon takes the
+    // chief from the lease's token; the request names none). A person's
+    // lease is refused (`mux_needs_chief`): the main conversation still runs.
+    match control.call("cloud-mux-subscribe", json!({})) {
+        Ok(_) => log("cloud wake queue subscribed"),
+        Err(OpError::Rejected(why)) => log(&format!(
+            "the daemon refused the chief's wake queue ({why}); only the main conversation is answered"
+        )),
+        Err(e) => return Err(retry(e)),
+    }
     let mut port = CloudPort::new(connect(Duration::from_secs(60))?, config.chief.clone());
     let (summary, _) = match port.snapshot(&config.conversation, 1) {
         Ok(found) => found,
@@ -228,7 +239,8 @@ fn session(
                     Err(e) => break format!("minting a chief token: {e}"),
                 }
             }
-            Some(CloudSignal::MuxWakes(_)) | None => {}
+            Some(CloudSignal::MuxWakes(wakes)) => sink(DaemonEvent::MuxWake(wakes)),
+            None => {}
         }
     };
     log(&format!("cloud link down: {ended}"));
