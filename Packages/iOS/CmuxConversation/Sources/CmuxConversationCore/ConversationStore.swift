@@ -28,6 +28,8 @@ public enum ConversationStoreChange: Sendable, Equatable {
     case connection
     /// Unread count, read marker or catch-up target changed.
     case readState
+    /// Pin, Hide Alerts, Mark as Unread or delete changed; the transcript is unaffected.
+    case listState
 }
 
 /// Backend-agnostic transcript state: one ordered window of messages that
@@ -98,6 +100,9 @@ public final class ConversationStore {
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
+    /// Bumps on every list state change so a stale reply or rollback never
+    /// overwrites a newer state.
+    private var listStateGeneration = 0
 
     public init(
         backend: any ConversationBackend,
@@ -172,6 +177,10 @@ public final class ConversationStore {
                 lastReadSeq = state.lastReadSeq
             }
             refreshReadState()
+        case let .conversationChanged(info):
+            listStateGeneration += 1
+            self.info = info
+            notify(.listState)
         }
     }
 
@@ -919,6 +928,39 @@ public final class ConversationStore {
         let base = serverRead.lastReadSeq == lastReadSeq ? serverRead.unreadCount : 0
         return base + (hasLoadedNewest ? incoming(after: max(serverRead.headSeq, lastReadSeq)) : 0)
     }
+    // MARK: Conversation list state
+
+    /// Pin, Hide Alerts, Mark as Unread and delete state; default until connected.
+    public var listState: ConversationListState { info?.listState ?? ConversationListState() }
+
+    /// Applies a list action at once and confirms it with the backend. A
+    /// rejected action (the pin limit, a network failure) rolls back unless a
+    /// newer state arrived meanwhile. `rejected` receives the backend's error
+    /// (code `-32004` is the pin limit, reached from another device).
+    public func updateListState(_ change: ConversationListStateChange, rejected: (@MainActor (ConversationBackendError) -> Void)? = nil) {
+        guard !change.isEmpty, var optimistic = info else { return }
+        let previous = optimistic.listState
+        optimistic.listState = previous.applying(change)
+        guard optimistic.listState != previous else { return }
+        listStateGeneration += 1
+        let generation = listStateGeneration
+        info = optimistic
+        notify(.listState)
+        Task { [weak self, backend] in
+            do {
+                let confirmed = try await backend.updateListState(change)
+                guard let self, self.listStateGeneration == generation else { return }
+                self.info = confirmed
+                self.notify(.listState)
+            } catch {
+                rejected?(error as? ConversationBackendError ?? ConversationBackendError(code: -1, message: String(describing: error)))
+                guard let self, self.listStateGeneration == generation, var current = self.info else { return }
+                current.listState = previous
+                self.info = current
+                self.notify(.listState)
+            }
+        }
+    }
 }
 
 /// Unread totals across conversations: the iOS back-button count (every
@@ -943,4 +985,5 @@ public final class ConversationUnreadBadge {
     public func total(excluding store: ConversationStore) -> Int {
         stores.reduce(0) { $0 + ($1 === store ? 0 : $1.unreadCount) }
     }
+
 }

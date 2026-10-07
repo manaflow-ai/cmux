@@ -13,6 +13,9 @@ public enum ConversationBackendEvent: Sendable {
     case disconnected(reason: String)
     /// The read marker moved (any device read or sent) or the session began.
     case readState(ConversationReadState)
+    /// The conversation's metadata or list state changed (pin, Hide Alerts,
+    /// Mark as Unread, delete), from this or another device.
+    case conversationChanged(ConversationInfo)
 }
 
 public struct ConversationBackendError: Error, Sendable, Hashable, CustomStringConvertible {
@@ -48,6 +51,15 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment
     func close()
+    /// Applies a conversation list action and returns the updated conversation.
+    func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo
+}
+
+extension ConversationBackend {
+    /// Backends without a conversation list reject list actions.
+    public func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+        throw ConversationBackendError(code: -32601, message: "list state unsupported")
+    }
 }
 
 extension ConversationBackend {

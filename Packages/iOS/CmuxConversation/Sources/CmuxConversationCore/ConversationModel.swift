@@ -28,12 +28,21 @@ public struct ConversationInfo: Sendable, Hashable {
     public var title: String
     public var kind: ConversationKind
     public var participants: [ConversationParticipant]
+    /// Pin, Hide Alerts, Mark as Unread and Delete state in the conversation list.
+    public var listState: ConversationListState
 
-    public init(id: String, title: String, kind: ConversationKind, participants: [ConversationParticipant]) {
+    public init(
+        id: String,
+        title: String,
+        kind: ConversationKind,
+        participants: [ConversationParticipant],
+        listState: ConversationListState = ConversationListState()
+    ) {
         self.id = id
         self.title = title
         self.kind = kind
         self.participants = participants
+        self.listState = listState
     }
 
     public func participant(_ id: String) -> ConversationParticipant? {

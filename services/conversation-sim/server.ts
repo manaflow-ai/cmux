@@ -22,7 +22,14 @@ interface Conversation {
   title: string;
   kind: "group" | "direct";
   participants: Participant[];
+  // Conversation list state (pin, Hide Alerts, Mark as Unread, delete).
+  pinned: boolean;
+  pinOrder?: number;
+  muted: boolean;
+  markedUnread: boolean;
+  deleted: boolean;
 }
+const MAX_PINNED = Number(process.env.MAX_PINNED ?? 9);
 interface AttachmentRef {
   id: string;
   kind: "image" | "audio";
@@ -245,6 +252,10 @@ class Store {
     for (const c of this.conns) if (c.subscribed) c.pushEvent(ev);
   }
 
+  broadcastConversation() {
+    for (const c of this.conns) if (c.subscribed) c.notify("conversation", { conversation: wireConversation(this.conv) }, true);
+  }
+
   broadcastTyping(participantId: string, isTyping: boolean) {
     for (const c of this.conns) if (c.subscribed) c.notify("typing", { participantId, isTyping }, true);
   }
@@ -263,6 +274,11 @@ class Store {
       ...(isMe ? { status: opts.status ?? "sent" } : {}),
     });
     this.emit("message.created", m);
+    // Messages: a new message from someone else brings a deleted conversation back.
+    if (!isMe && this.conv.deleted) {
+      this.conv.deleted = false;
+      this.broadcastConversation();
+    }
     if (m.replyToId) {
       const parent = this.byId.get(m.replyToId);
       if (parent) {
@@ -464,8 +480,9 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
 const stores = new Map<string, Store>();
 function boot() {
   const t0 = performance.now();
-  const group = new Store({ id: "group", title: "cmux", kind: "group", participants: [ME, LAWRENCE, AUSTIN, LEO] });
-  const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN] });
+  const listState = { pinned: false, muted: false, markedUnread: false, deleted: false };
+  const group = new Store({ id: "group", title: "cmux", kind: "group", participants: [ME, LAWRENCE, AUSTIN, LEO], ...listState });
+  const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN], ...listState });
   generateHistory(group, GROUP_COUNT, 0.25, SEED);
   generateHistory(direct, DIRECT_COUNT, 0.45, SEED + 1);
   // A real backlog never contains my own messages (sending reads the
@@ -551,6 +568,57 @@ class Conn {
     this.notify("event", params, delayed);
     if (R() < knobs.duplicateRate) this.notify("event", params, delayed);
   }
+}
+
+function wireConversation(c: Conversation) {
+  const out: Record<string, unknown> = {
+    id: c.id,
+    title: c.title,
+    kind: c.kind,
+    participants: c.participants,
+    pinned: c.pinned,
+    muted: c.muted,
+    markedUnread: c.markedUnread,
+    deleted: c.deleted,
+  };
+  if (c.pinned && c.pinOrder !== undefined) out.pinOrder = c.pinOrder;
+  return out;
+}
+
+/** Applies a list action with Messages' rules; throws on an invalid one. */
+function updateConversation(store: Store, p: any): Conversation {
+  const c = store.conv;
+  for (const key of ["pinned", "muted", "markedUnread", "deleted"])
+    if (p?.[key] !== undefined && typeof p[key] !== "boolean") throw invalid(key);
+  if (p?.pinOrder !== undefined && (!Number.isInteger(p.pinOrder) || p.pinOrder < 0)) throw invalid("pinOrder");
+  const deleting = p?.deleted === true;
+  const willBeDeleted = p?.deleted ?? c.deleted;
+  if (p?.pinned === true && !c.pinned && !deleting) {
+    if (willBeDeleted) throw invalid("cannot pin a deleted conversation");
+    let pinnedElsewhere = 0;
+    for (const s of stores.values()) if (s !== store && s.conv.pinned && !s.conv.deleted) pinnedElsewhere++;
+    if (pinnedElsewhere >= MAX_PINNED) throw new RpcError(-32004, "pin limit");
+    let last = -1;
+    for (const s of stores.values()) if (s !== store && s.conv.pinned) last = Math.max(last, s.conv.pinOrder ?? -1);
+    c.pinned = true;
+    c.pinOrder = last + 1;
+  }
+  if (p?.pinned === false) {
+    c.pinned = false;
+    delete c.pinOrder;
+  }
+  if (p?.pinOrder !== undefined && c.pinned) c.pinOrder = p.pinOrder;
+  if (p?.muted !== undefined) c.muted = p.muted;
+  if (p?.markedUnread !== undefined) c.markedUnread = p.markedUnread;
+  if (p?.deleted !== undefined) {
+    c.deleted = p.deleted;
+    if (c.deleted) {
+      c.pinned = false;
+      delete c.pinOrder;
+      c.markedUnread = false;
+    }
+  }
+  return c;
 }
 
 function wireMessage(m: Message, base: string) {
@@ -645,7 +713,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       }
       conn.subscribed = true;
       const result = {
-        conversation: store.conv,
+        conversation: wireConversation(store.conv),
         me: ME,
         headSeq: store.headSeq,
         headEventSeq: store.headEventSeq,
@@ -746,6 +814,13 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (typeof p?.isTyping !== "boolean") throw invalid("isTyping");
       vlog(`typing conn=${conn.id} ${p.isTyping}`);
       return {};
+    case "updateConversation": {
+      await sleep(lat(60, 300));
+      const conv = updateConversation(store, p);
+      log(`updateConversation conv=${conv.id} ${JSON.stringify(p ?? {})}`);
+      store.broadcastConversation();
+      return { conversation: wireConversation(conv) };
+    }
     case "markRead":
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
       // The read receipt: on direct, the other side would now see "Read".
@@ -1110,6 +1185,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         connections: s.conns.size,
         lastReadSeq: s.lastReadSeq,
         unreadCount: s.unreadCount(),
+        listState: { pinned: s.conv.pinned, pinOrder: s.conv.pinOrder, muted: s.conv.muted, markedUnread: s.conv.markedUnread, deleted: s.conv.deleted },
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }
