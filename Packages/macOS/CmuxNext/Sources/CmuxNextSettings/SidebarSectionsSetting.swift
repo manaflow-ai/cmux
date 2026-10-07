@@ -15,6 +15,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showRecentsPath = ["sidebar", "showRecents"]
     public static let groupByPath = ["sidebar", "groupBy"]
+    public static let showChatsPath = ["sidebar", "showChats"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -60,6 +61,14 @@ public nonisolated enum SidebarSectionsSetting {
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
                               keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
         ]
+    }
+
+    static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showChatsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show Chats"),
+                          help: SettingsText.keyed("settings.sidebar.showChats.help", "Shows the device-wide Chats section in the sidebar."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
+                          keywords: ["sidebar", "chats", "agents", "conversations"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -119,6 +128,13 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: showChatsPath) {
+            if let flag = value.boolValue {
+                result.showChats = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showChats", message: "expected true or false"))
             }
         }
         return result

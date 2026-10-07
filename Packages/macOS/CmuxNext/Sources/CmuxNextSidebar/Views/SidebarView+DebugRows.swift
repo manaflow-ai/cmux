@@ -52,7 +52,7 @@ extension SidebarView {
         return model.layout.sections.flatMap { section in
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
-                for region in regions {
+                for region in bandRegions {
                     guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
                     let inWindow = view.convert(view.bounds, to: nil)
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)

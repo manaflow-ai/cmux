@@ -103,6 +103,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The user muted the workspace's notifications
     /// (`notifications.mutedWorkspaces`); the row draws a quiet mark.
     public var muted: Bool
+    /// False for a workspace no close path closes (the store's home
+    /// workspace, `home_not_closable`): the row offers no close button.
+    public var isClosable: Bool
     /// The front tab's working directory, abbreviated (`~/src/app`): the
     /// bucket Group by Folder puts the row in. Nil when no tab reports one.
     public var folder: String?
@@ -131,6 +134,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
         muted: Bool = false,
+        isClosable: Bool = true,
         folder: String? = nil
     ) {
         self.id = id
@@ -156,6 +160,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.tabs = tabs
         self.rowState = rowState
         self.muted = muted
+        self.isClosable = isClosable
         self.folder = folder
     }
 }

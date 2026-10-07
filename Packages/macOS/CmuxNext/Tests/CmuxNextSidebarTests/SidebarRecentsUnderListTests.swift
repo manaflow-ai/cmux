@@ -30,10 +30,10 @@ import Testing
 
     @Test func recentsSitsRightUnderTheLastRow() throws {
         let (view, recents) = sidebar(height: 2000)
-        #expect(view.trailRegion.superview === view.list, "in the list's document")
+        #expect(view.list.trailer.region.superview === view.list, "in the list's document")
         #expect(recents.view.enclosingScrollView === view.scrollView)
-        #expect(view.trailRegion.frame.minY == view.list.displayed.totalHeight, "no gap")
-        #expect(view.trailRegion.layoutResult.height > 0)
+        #expect(view.list.trailer.region.frame.minY == view.list.displayed.totalHeight, "no gap")
+        #expect(view.list.trailer.region.layoutResult.height > 0)
         // The footer band keeps Settings at the bottom, without Recents.
         #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
         #expect(!view.belowRegion.layoutResult.rows.contains { $0.kind == .app(SidebarLayoutDocument.recentsSectionID) })
@@ -41,7 +41,7 @@ import Testing
 
     @Test func aLongListScrollsWithRecentsAsOne() throws {
         let (view, _) = sidebar(height: 300)
-        #expect(view.list.frame.height == view.list.displayed.totalHeight + view.trailRegion.frame.height)
+        #expect(view.list.frame.height == view.list.displayed.totalHeight + view.list.trailer.region.frame.height)
         #expect(view.list.frame.height > view.scrollView.contentView.bounds.height)
     }
 }

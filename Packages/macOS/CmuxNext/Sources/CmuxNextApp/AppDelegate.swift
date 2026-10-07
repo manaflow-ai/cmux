@@ -209,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        services.chatsFeed?.keepCurrent()
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -244,6 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
+            // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
+            _ = try? await settings.migrateLegacyWorkspaceRowKeys()
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -253,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
-                control.registerPageDebugMethods()
+                control.registerPageDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

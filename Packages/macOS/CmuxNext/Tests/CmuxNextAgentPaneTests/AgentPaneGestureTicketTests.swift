@@ -42,6 +42,17 @@ import Testing
             ((await reserve(["intent": intent]))["value"] as? [String: Any])?["ticket"] as? String
         }
 
+        /// A prompt with `promptId` in `_meta.acpmux` and, when set, the ticket beside it.
+        func prompt(_ promptId: String, ticket: String?, session: String = "s") async -> AgentPaneTransportError? {
+            nextID += 1
+            var meta: [String: Any] = ["acpmux": ["promptId": promptId]]
+            if let ticket { meta["cmuxGesture"] = ticket }
+            let params: [String: Any] = ["sessionId": session, "prompt": [Any](), "_meta": meta]
+            let object: [String: Any] = ["jsonrpc": "2.0", "id": nextID, "method": "session/prompt", "params": params]
+            let text = String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+            return await transport.send(connection: connection, frames: [text])
+        }
+
         /// Sends `method` with `params` plus the ticket in `_meta.cmuxGesture`.
         func send(_ method: String, _ params: [String: Any], ticket: String?) async -> AgentPaneTransportError? {
             nextID += 1
@@ -103,15 +114,42 @@ import Testing
         #expect(rig.server.peers.first?.frames.contains { $0.contains("cmuxGesture") } == false)
     }
 
+    /// A prompt acpmux held for the folder trust answer keeps its send's gesture, as a ticket bound
+    /// to its promptId: the Trust click's own gesture goes to the trust answer, and the held prompt
+    /// then goes exactly once, only as itself, and only into a session of the pane.
+    @Test func aPromptHeldForTrustGoesOnceWithItsSendsGesture() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let held = { (id: String) in ["method": "session/prompt", "params": ["promptId": id]] as [String: Any] }
+        // Enter: acpmux held the prompt; its send's gesture is kept for it.
+        let ticket = try #require(await rig.ticket(held("p1")))
+        // The Trust click: its gesture is spent on the trust answer.
+        rig.transport.gestures.record()
+        #expect(rig.transport.gestures.consume())
+        // Without its ticket the held prompt has no gesture; with it, it goes once.
+        #expect(await rig.prompt("p1", ticket: nil) == .gestureRequired)
+        #expect(await rig.prompt("p1", ticket: ticket) == nil)
+        #expect(await rig.prompt("p1", ticket: ticket) == .gestureRequired, "a ticket goes once")
+        // A ticket for one prompt does not send another.
+        #expect(await rig.prompt("p3", ticket: try #require(await rig.ticket(held("p2")))) == .gestureRequired)
+        // Nor into a session outside the pane.
+        #expect(await rig.prompt("p4", ticket: try #require(await rig.ticket(held("p4"))), session: "s-foreign") == .sessionNotInPane)
+        // The held prompt keeps its gesture longer than a held pick: the user reads the question.
+        #expect(AgentPaneGestureIntent(gestureParams: ["intent": held("p5")])?.lifetime == AgentPaneUserGestures.heldPromptLifetime)
+        #expect(rig.server.peers.first?.frames.contains { $0.contains("cmuxGesture") } == false)
+    }
+
     @Test func onlySetModeAndSetConfigRedeemATicket() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
-        // A ticket on a permission allow, a prompt or a trust: refused (only a live gesture counts).
-        // Their _meta may hold only acpmux, so the params rule refuses them first (P1).
+        // A ticket on a permission allow or a trust: refused (only a live gesture counts). Their
+        // _meta may hold only acpmux, so the params rule refuses them first (P1). A prompt redeems
+        // only a held-prompt ticket for its promptId, never a mode pick's.
         #expect(await rig.send("_acpmux/permission_group_respond", ["sessionId": "s", "groupId": "g", "revision": 1, "decision": "allow_once"],
                                ticket: await rig.ticket(Self.mode)) == .intentInvalid)
-        #expect(await rig.send("session/prompt", ["sessionId": "s", "prompt": [Any]()], ticket: await rig.ticket(Self.mode)) == .intentInvalid)
+        #expect(await rig.send("session/prompt", ["sessionId": "s", "prompt": [Any]()], ticket: await rig.ticket(Self.mode)) == .gestureRequired)
         // The ticket was spent by the refused frame: its own pick no longer passes.
         let spent = await rig.ticket(Self.mode)
         _ = await rig.send("_acpmux/permission_group_respond", ["sessionId": "s", "groupId": "g", "revision": 2, "decision": "allow_once"], ticket: spent)
