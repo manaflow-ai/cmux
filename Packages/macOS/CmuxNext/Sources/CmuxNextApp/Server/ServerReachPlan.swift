@@ -55,7 +55,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         }
 
         /// The files whose change re-reads the link.
-        var watchedFiles: [String] { [peersFile].compactMap { $0 } } // RED: no registration watch
+        var watchedFiles: [String] { [peersFile, registrationFile].compactMap { $0 } }
     }
 
     static func make(chiefs: [CloudChief], hosts: [PairedServer], local: LocalServer?, link: LinkPeers? = nil) -> ServerReachPlan {
@@ -94,6 +94,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// and another Mac with the same name never does); by host name only
     /// when this Mac has no link install (bead cx-ill).
     static func isThisMac(_ host: PairedServer, install: String?, local: LocalServer, link: LinkPeers?) -> Bool {
+        if let mine = link?.install { return mine == install }
         guard let theirs = ServerReach.dnsLabel(host.name) else { return false }
         return local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs })
     }
@@ -103,7 +104,6 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// when `show` is not an object.
     static func linkPeers(show: Data, peers: Data?) -> LinkPeers? {
         guard let object = (try? JSONSerialization.jsonObject(with: show)) as? [String: Any] else { return nil }
-        guard parseLinkShow(show) != nil else { return nil } // RED: a stopped link reads as none
         let install = (object["install"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return LinkPeers(socket: parseLinkShow(show), installs: peers.map(parsePeerList) ?? [],
                          peersFile: parseLinkPeersFile(show), install: install)
