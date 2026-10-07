@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { PNG } from "pngjs";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,6 +155,28 @@ test("the comment is marked, links the diff page and shows thumbnails; nondeterm
   expect(md).toContain("[Diff page](https://g/pr-18189/diff/)");
   expect(md).toContain('<img src="https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer--idle-chromium.png" width="480">');
   expect(md).toContain("1 nondeterministic state differed from a second render");
+});
+
+// Prints the name scripts/pr-media.py stores a file under (its sanitize()).
+const STORED_NAME = [
+  "import importlib.util, sys",
+  "spec = importlib.util.spec_from_file_location('pr_media', sys.argv[1])",
+  "module = sys.modules[spec.name] = importlib.util.module_from_spec(spec)",
+  "spec.loader.exec_module(module)",
+  "print(module.sanitize(sys.argv[2]))",
+].join("\n");
+
+// gallery-pr.yml uploads each thumbnail as <prefix><key> through scripts/pr-media.py, which stores it
+// under that tool's sanitized name, so a link must name the file the uploader actually wrote.
+test("thumbnail links name the file pr-media.py stores", () => {
+  const o = outcome({});
+  const local = `gallery-e574a65-${o.key}`;
+  const tool = join(import.meta.dir, "..", "pr-media.py");
+  const run = spawnSync("python3", ["-I", "-c", STORED_NAME, tool, local], { encoding: "utf8" });
+  expect(run.status).toBe(0);
+  const stored = run.stdout.trim();
+  expect(commentMarkdown([o], meta)).toContain(`<img src="https://raw/pr-media/18189/${stored}" width="480">`);
+  expect(feedSummary([o], meta).changed[0]?.thumb).toBe(`https://raw/pr-media/18189/${stored}`);
 });
 
 test("the diff page embeds its data safely and lists changed states first", () => {
