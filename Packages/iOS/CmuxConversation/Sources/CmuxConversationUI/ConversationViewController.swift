@@ -88,6 +88,8 @@ public final class ConversationViewController: UIViewController {
     var composerDropConstraint: NSLayoutConstraint?
     /// Height of the docked keyboard when fully shown, from its notifications.
     var dockedKeyboardHeight: CGFloat = 0
+    /// Set by the layout pass in which the keyboard rose.
+    var keyboardRoseThisPass = false
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
         self.store = store
@@ -207,6 +209,7 @@ public final class ConversationViewController: UIViewController {
         super.viewDidLayoutSubviews()
         followKeyboardProgress()
         updateInsets()
+        keyboardRoseThisPass = false
         let available = composerContainer.frame.maxY - header.frame.maxY - 8
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, available - 8)
         layoutReplyOverlay()
@@ -243,7 +246,11 @@ public final class ConversationViewController: UIViewController {
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
         if !collectionView.isTracking, hasPositionedInitially {
-            if isPinnedToBottom {
+            if isPinnedToBottom, keyboardRoseThisPass, bottom > old.bottom {
+                // Messages moves a pinned transcript to its final place in
+                // the keyboard's first frame; only the composer rides it up.
+                UIView.performWithoutAnimation { collectionView.contentOffset = bottomOffset }
+            } else if isPinnedToBottom {
                 collectionView.contentOffset = bottomOffset
             } else {
                 var offset = collectionView.contentOffset
@@ -286,6 +293,7 @@ public final class ConversationViewController: UIViewController {
         // A drawer in the keyboard's place keeps the composer on its base line.
         let p = photoDrawer == nil ? keyboardProgress : 0
         let drop = photoDrawer == nil ? Self.composerDrop(keyboardProgress: p) : 0
+        if p > composer.keyboardProgress { keyboardRoseThisPass = true }
         guard composerDropConstraint?.constant != drop || composer.keyboardProgress != p else { return }
         composerDropConstraint?.constant = drop
         composer.keyboardProgress = p
