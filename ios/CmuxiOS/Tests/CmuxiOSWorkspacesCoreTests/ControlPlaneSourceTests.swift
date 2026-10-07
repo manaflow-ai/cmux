@@ -47,6 +47,7 @@ import Testing
         await channel.send(.event(wire.event(seq: 5, "workspace.remove", ["workspace": .string("ws_a")])))
         await channel.send(.event(wire.event(seq: 6, "workspace.remove", ["workspace": .string("ws_a")])))
         let stale = await waiter.until { $0.value.first?.isResyncing == true }
+        for _ in 0..<1000 where await channel.snapshotRequests < 1 { await Task.yield() }
         #expect(stale.map { titles($0, mac) } == ["alpha"])
         await channel.send(.snapshot(wire.snapshot(seq: 6, [])))
         #expect(await waiter.until { $0.value.first?.isResyncing == false && titles($0, mac).isEmpty } != nil)
@@ -189,6 +190,47 @@ import Testing
         reader.cancel()
         await waitUntilClosed(factory[mac])
         #expect(await factory[mac].closed)
+    }
+
+    @Test func reopenResumesFromTheKeptSeq() async throws {
+        let (source, factory, _) = make()
+        let channel = factory[mac]
+        let reader = Task { for await _ in await source.updates() {} }
+        await channel.waitForSubscriber()
+        await channel.send(.live(path: nil, caps: allCaps))
+        await channel.send(.snapshot(wire.snapshot(seq: 1, [WireFrames.simple("ws_a", name: "alpha", order: 0)])))
+        while titles(await source.current, mac) != ["alpha"] { await Task.yield() }
+        reader.cancel()
+        await waitUntilClosed(channel)
+        await channel.reopenedForTest()
+        var waiter = SnapshotWaiter(await source.updates())
+        await channel.waitForSubscriber()
+        await channel.send(.live(path: nil, caps: allCaps))
+        // A resumed stream delivers the next event without a snapshot.
+        await channel.send(.event(wire.event(seq: 2, "workspace.upsert", [
+            "workspace": WireFrames.simple("ws_b", name: "beta", order: 1),
+        ])))
+        #expect(await waiter.until { titles($0, mac) == ["alpha", "beta"] } != nil)
+        #expect(await channel.snapshotRequests == 0)
+    }
+
+    @Test func reconnectRetriesALostResync() async throws {
+        let (source, factory, _) = make()
+        var waiter = SnapshotWaiter(await source.updates())
+        let channel = factory[mac]
+        await channel.waitForSubscriber()
+        await channel.send(.live(path: nil, caps: allCaps))
+        await channel.send(.snapshot(wire.snapshot(seq: 1, [WireFrames.simple("ws_a", name: "alpha", order: 0)])))
+        _ = await waiter.until { titles($0, mac) == ["alpha"] }
+        await channel.send(.event(wire.event(seq: 9, "workspace.remove", ["workspace": .string("ws_a")])))
+        _ = await waiter.until { $0.value.first?.isResyncing == true }
+        await channel.send(.offline(reason: nil))
+        _ = await waiter.until { $0.value.first?.isReachable == false }
+        await channel.send(.live(path: nil, caps: allCaps))
+        _ = await waiter.until { $0.value.first?.isReachable == true }
+        // The request is sent from a child task; let it run.
+        for _ in 0..<1000 where await channel.snapshotRequests < 2 { await Task.yield() }
+        #expect(await channel.snapshotRequests == 2)
     }
 
     private func waitUntilClosed(_ channel: FakeWorkspaceChannel) async {

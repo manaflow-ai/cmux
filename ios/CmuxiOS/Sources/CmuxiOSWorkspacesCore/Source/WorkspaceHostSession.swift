@@ -12,6 +12,9 @@ struct WorkspaceHostSession {
     /// A snapshot was requested after a gap and has not arrived yet.
     var resyncRequested = false
     var tasks: [Task<Void, Never>] = []
+    /// Bumped on every open; frames and states from an older channel's
+    /// tasks (already past their cancellation check) are dropped.
+    var generation = 0
 
     init(descriptor: WorkspaceHostDescriptor) {
         self.descriptor = descriptor

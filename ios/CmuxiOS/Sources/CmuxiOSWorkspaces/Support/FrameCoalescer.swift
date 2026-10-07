@@ -17,9 +17,13 @@ final class FrameCoalescer<Value> {
     func submit(_ value: Value) {
         pending = value
         guard link == nil else { return }
-        let proxy = DisplayLinkProxy { [weak self] in self?.fire() }
+        let proxy = DisplayLinkProxy { [weak self] in
+            guard let self else { return false }
+            self.fire()
+            return true
+        }
         // wakeup-allow: one-shot display link, armed only while a snapshot is pending
-        let made = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick))
+        let made = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick(_:)))
         made.add(to: .main, forMode: .common)
         link = made
     }

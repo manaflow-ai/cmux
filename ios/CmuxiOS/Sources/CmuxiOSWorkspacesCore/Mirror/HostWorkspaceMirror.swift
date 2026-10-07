@@ -27,7 +27,10 @@ public struct HostWorkspaceMirror: Sendable {
     /// A malformed state leaves the mirror unchanged and throws.
     public mutating func apply(_ snapshot: SnapshotFrame) throws {
         let state = try snapshot.state.decode(as: WireWorkspaceState.self)
-        workspaces = state.workspaces.sorted { $0.order < $1.order }
+        // Ids are unique per owner; a duplicate keeps its first copy so rows
+        // stay uniquely identified.
+        var seen = Set<String>()
+        workspaces = state.workspaces.filter { seen.insert($0.id).inserted }.sorted { $0.order < $1.order }
         seq = snapshot.seq
         needsSnapshot = false
     }

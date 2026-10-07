@@ -42,16 +42,23 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
             throw FeatureSourceError.offline
         }
         let frame = try WorkspaceOpEncoder(hostID: hostID).frame(for: intent, key: key)
-        sessions[hostID]?.log.append(intent, key: key)
-        publish()
+        // A second perform with a key already in flight sends again (the owner
+        // dedupes) but leaves the first call's log entry to the first call.
+        let owns = sessions[hostID]?.log.entries.contains { $0.key == key } == false
+        if owns {
+            sessions[hostID]?.log.append(intent, key: key)
+            publish()
+        }
         let outcome: WorkspaceOpOutcome
         do {
             outcome = try await channel.submit(frame)
         } catch {
             // Not sent, or the socket closed mid-flight: the overlay goes; a
             // resend after reconnect carries the same key (B1 client).
-            sessions[hostID]?.log.remove(key)
-            publish()
+            if owns {
+                sessions[hostID]?.log.remove(key)
+                publish()
+            }
             throw FeatureSourceError.offline
         }
         switch outcome {
@@ -63,6 +70,8 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
                 sessions[hostID]?.log.remove(key)
             }
             publish()
+            // The merged stream's revision (one counter across hosts), not
+            // the host seq: screens compare it with `SourceSnapshot.revision`.
             return .committed(key: key, revision: revision)
         case .rejected(let reject):
             sessions[hostID]?.log.remove(key)
@@ -104,15 +113,21 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
     private func open(_ id: HostID) {
         guard var session = sessions[id], session.channel == nil else { return }
         let channel = channels.channel(for: session.descriptor)
+        session.generation += 1
+        let generation = session.generation
         session.channel = channel
         session.state = .connecting
         session.resyncRequested = false
         session.tasks = [
             Task { [weak self] in
-                for await state in await channel.states() { await self?.apply(state: state, host: id) }
+                for await state in await channel.states() {
+                    await self?.apply(state: state, host: id, generation: generation)
+                }
             },
             Task { [weak self] in
-                for await update in await channel.updates() { await self?.apply(update: update, host: id) }
+                for await update in await channel.updates() {
+                    await self?.apply(update: update, host: id, generation: generation)
+                }
             },
         ]
         sessions[id] = session
@@ -124,7 +139,8 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
         session.tasks = []
         session.channel = nil
         session.state = .connecting
-        session.mirror.invalidate()
+        // The mirror keeps its seq: a resumed stream's contiguous events
+        // still apply, anything else is a gap and resyncs.
         sessions[id] = session
         Task { await channel.close() }
     }
@@ -150,14 +166,22 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
         publish()
     }
 
-    func apply(state: WorkspaceChannelState, host id: HostID) {
-        guard sessions[id] != nil, sessions[id]?.state != state else { return }
-        sessions[id]?.state = state
+    func apply(state: WorkspaceChannelState, host id: HostID, generation: Int) {
+        guard var session = sessions[id], session.generation == generation, session.channel != nil,
+              session.state != state else { return }
+        session.state = state
+        if case .live = state {
+            // A (re)connected socket gets a fresh chance to repair a gap whose
+            // snapshot request may have been lost with the old connection.
+            session.resyncRequested = false
+            if session.mirror.needsSnapshot { requestSnapshot(&session) }
+        }
+        sessions[id] = session
         publish()
     }
 
-    func apply(update: WorkspaceStreamUpdate, host id: HostID) {
-        guard var session = sessions[id] else { return }
+    func apply(update: WorkspaceStreamUpdate, host id: HostID, generation: Int) {
+        guard var session = sessions[id], session.generation == generation, session.channel != nil else { return }
         let stream = WorkspaceOpEncoder(hostID: id).stream
         switch update {
         case .snapshot(let frame):
@@ -200,7 +224,10 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
             guard sessions[hostID] != nil else { throw FeatureSourceError.notFound(hostID.rawValue) }
             return hostID
         case .rename(let id, _), .close(let id), .markRead(let id):
-            for hostID in order where sessions[hostID]?.value.workspaces.contains(where: { $0.id == id }) == true {
+            // The confirmed mirror decides the owner, so a repeated close of a
+            // row the overlay already hides still reaches its host (which
+            // answers by key or with `workspace.not_found`).
+            for hostID in order where sessions[hostID]?.mirror.summaries(hostID: hostID).contains(where: { $0.id == id }) == true {
                 return hostID
             }
             throw FeatureSourceError.notFound(id)

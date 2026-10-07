@@ -48,7 +48,11 @@ actor FakeWorkspaceChannel: WorkspaceControlChannel {
         closed = true
         stateSinks.forEach { $0.finish() }
         updateSinks.forEach { $0.finish() }
+        stateSinks = []
+        updateSinks = []
     }
+
+    func reopenedForTest() { closed = false }
 
     func setAnswer(_ answer: (@Sendable (OpFrame) -> WorkspaceOpOutcome?)?) { self.answer = answer }
 

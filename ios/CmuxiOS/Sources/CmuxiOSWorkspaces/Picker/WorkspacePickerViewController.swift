@@ -96,7 +96,7 @@ final class WorkspacePickerViewController: UITableViewController {
 
     private func finish(_ selection: WorkspaceSelection?) {
         chosen = selection
-        (navigationController ?? self).dismiss(animated: true)
+        (navigationController ?? self).dismiss(animated: true) { [weak self] in self?.report(selection) }
     }
 
     private func report(_ selection: WorkspaceSelection?) {

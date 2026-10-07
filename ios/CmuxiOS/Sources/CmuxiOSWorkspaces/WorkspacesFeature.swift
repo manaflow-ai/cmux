@@ -46,8 +46,9 @@ public final class WorkspacesFeature {
     }
 
     /// The workspace picker for the composer: present the returned
-    /// controller; `completion` gets the choice (nil when cancelled) after
-    /// the picker dismissed itself.
+    /// controller modally (not pushed); `completion` gets the choice (nil
+    /// when cancelled or swiped away) exactly once, after the picker
+    /// dismissed itself.
     public func makePicker(request: WorkspacePickerRequest,
                            completion: @escaping @MainActor (WorkspaceSelection?) -> Void) -> UIViewController {
         let picker = WorkspacePickerViewController(

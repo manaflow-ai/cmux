@@ -42,6 +42,15 @@ import Testing
         #expect(mirror.summaries(hostID: host).map(\.id) == ["ws_c"])
     }
 
+    @Test func duplicateIdsInASnapshotKeepTheFirst() throws {
+        var mirror = HostWorkspaceMirror()
+        try mirror.apply(wire.snapshot(seq: 1, [
+            WireFrames.simple("ws_a", name: "first", order: 0),
+            WireFrames.simple("ws_a", name: "second", order: 1),
+        ]))
+        #expect(mirror.summaries(hostID: host).map(\.title) == ["first"])
+    }
+
     @Test func eventsBeforeSnapshotWait() {
         var mirror = HostWorkspaceMirror()
         #expect(mirror.apply(wire.event(seq: 1, "workspace.remove", ["workspace": .string("ws_a")])) == .awaitingSnapshot)
