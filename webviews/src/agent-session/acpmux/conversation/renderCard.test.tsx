@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { RENDER_FRAME_URL, RenderCard } from "./RenderCard";
+import { RenderCard, canRender, setRenderFrame } from "./RenderCard";
 import { renderCall } from "./renderCall";
 import { RENDER, turnView } from "./turns";
 
@@ -59,15 +59,36 @@ describe("render calls", () => {
     ).toBe(false);
   });
 
-  test("the card frames the render origin sandboxed without same-origin", () => {
+  test("off the bundled pane, only a host's http(s) frame renders", () => {
+    // The test page is not cmux-agent:, so it has no render origin of its own.
+    expect(canRender()).toBe(false);
+    for (const url of [
+      undefined,
+      7,
+      "",
+      "javascript:alert(1)",
+      "data:text/html,<p>x</p>",
+      "file:///tmp/frame.html",
+      "frame",
+    ])
+      setRenderFrame(url);
+    expect(canRender()).toBe(false);
+    setRenderFrame("http://127.0.0.1:4176/render-frame.html");
+    expect(canRender()).toBe(true);
+  });
+
+  test("the card frames the render frame sandboxed without same-origin", () => {
+    setRenderFrame("http://127.0.0.1:4176/render-frame.html");
     const html = renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>", title: "Mock" } }));
-    expect(html).toContain(`src="${RENDER_FRAME_URL}"`);
+    expect(html).toContain('src="http://127.0.0.1:4176/render-frame.html"');
     expect(html).toContain('sandbox="allow-scripts"');
     expect(html).not.toContain("allow-same-origin");
     expect(html).toContain(">Mock</span>");
     // The HTML goes to the frame by message, never into the pane's own markup.
     expect(html).not.toContain("<p>x</p>");
-    expect(renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }))).toContain(">Preview</span>");
+    expect(renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }))).toContain(
+      ">Preview</span>",
+    );
   });
 
   test("the card's classes leave the row's own class alone", () => {

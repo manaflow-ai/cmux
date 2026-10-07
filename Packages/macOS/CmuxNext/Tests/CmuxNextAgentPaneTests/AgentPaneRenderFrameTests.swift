@@ -61,4 +61,27 @@ import Testing
         #expect(text.contains("event.source !== host"))
         #expect(text.contains("cmux-render-size"))
     }
+
+    /// The app serves the web file's bytes (acpmux/renderFrame.html, which the gallery serves too),
+    /// and the file carries the same policy the header sends.
+    @Test func theDocumentIsTheWebFileWithThePolicy() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let web = try Data(contentsOf: repo.appending(path: "webviews/src/agent-session/acpmux/renderFrame.html"))
+        #expect(!AgentPaneRenderFrame.document.isEmpty)
+        #expect(AgentPaneRenderFrame.document == web)
+        let text = try #require(String(data: web, encoding: .utf8))
+        #expect(text.contains(#"http-equiv="Content-Security-Policy""#))
+        #expect(text.contains(#"content="\#(AgentPaneRenderFrame.policy)""#))
+    }
+
+    /// The document is never a file of the pane's own origin, where its HTML would run as the pane.
+    @Test func thePaneOriginDoesNotServeTheFrameFile() throws {
+        let root = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/agent-pane")
+        for path in ["render-frame.html", "RENDER-FRAME.HTML", "/./render-frame.html"] {
+            #expect(AgentPaneSchemeHandler.fileURL(for: URL(string: "cmux-agent://pane/\(path)")!, root: root) == nil, "\(path)")
+        }
+        #expect(AgentPaneSchemeHandler.fileURL(for: URL(string: "cmux-agent://pane/pane.js")!, root: root) != nil)
+    }
 }

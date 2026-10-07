@@ -2,8 +2,9 @@
 // (`cmux-agent://render/frame`, AgentPaneRenderFrame.swift). The frame is an origin of its own,
 // sandboxed without same-origin, so the HTML cannot reach the pane, its bridge or acpmux; its
 // policy allows no connection. The frame asks for the HTML once it loads and reports its height;
-// the card grows to it, up to a cap a reader can lift. The pane on a dev server has no render
-// frame, so there the call stays a plain tool row.
+// the card grows to it, up to a cap a reader can lift. A pane on a dev server has a render frame
+// only when its host names one (the `ready` answer's `renderFrame`, as the gallery's does), with
+// the same document (renderFrame.html); else the call stays a plain tool row.
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
@@ -14,8 +15,23 @@ const COLLAPSED_MAX_HEIGHT = 560;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
 const EXPANDED_MAX_HEIGHT = 4000;
 
-/// Whether this page can frame renders: only the bundled pane has the render origin.
-export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
+let frameURL: string | undefined =
+  typeof location !== "undefined" && location.protocol === "cmux-agent:" ? RENDER_FRAME_URL : undefined;
+
+/// The frame a host serves renderFrame.html at, from its `ready` answer; the bundled pane keeps
+/// its own render origin.
+export function setRenderFrame(url: unknown) {
+  if (frameURL === RENDER_FRAME_URL || typeof url !== "string") return;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") frameURL = parsed.href;
+  } catch {
+    // Not a URL: no render frame.
+  }
+}
+
+/// Whether this page can frame renders: the bundled pane's render origin, or a host's frame.
+export const canRender = () => frameURL !== undefined;
 
 /// The pane's theme as variables the HTML can use (`var(--cmux-text)`), under its own styles.
 function themeCSS(): string {
@@ -49,7 +65,11 @@ export function RenderCard({ call }: { call: RenderCall }) {
       const message = data as { type?: unknown; height?: unknown };
       if (message.type === "cmux-render-ready")
         target.postMessage({ type: "cmux-render", html: call.html, css: themeCSS() }, "*");
-      else if (message.type === "cmux-render-size" && typeof message.height === "number" && Number.isFinite(message.height))
+      else if (
+        message.type === "cmux-render-size" &&
+        typeof message.height === "number" &&
+        Number.isFinite(message.height)
+      )
         setHeight(Math.min(EXPANDED_MAX_HEIGHT, Math.max(RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))));
     };
     addEventListener("message", onMessage);
@@ -77,7 +97,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
       <iframe
         ref={frame}
         className="acpmux-render-card-frame"
-        src={RENDER_FRAME_URL}
+        src={frameURL}
         title={title}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"

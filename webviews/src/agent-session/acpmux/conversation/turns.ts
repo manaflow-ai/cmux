@@ -177,7 +177,15 @@ function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
     row.kind === "activity"
       ? (row.items ?? []).flatMap((item, index) =>
           item.tool && renderCall(item.tool)
-            ? [{ id: `${RENDER}-${item.tool.id || `${row.id}-${index}`}`, version, at: row.at, kind: RENDER, items: [item] }]
+            ? [
+                {
+                  id: `${RENDER}-${item.tool.id || `${row.id}-${index}`}`,
+                  version,
+                  at: row.at,
+                  kind: RENDER,
+                  items: [item],
+                },
+              ]
             : [],
         )
       : [],
