@@ -524,7 +524,7 @@ async function routeRounds(
         response: anthropicError(
           403,
           "permission_error",
-          "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
+          "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
         ),
       };
     }

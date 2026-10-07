@@ -253,7 +253,7 @@ describe("claude proxy auth", () => {
       type: "error",
       error: {
         type: "permission_error",
-        message: "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
+        message: "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
       },
     });
     expect(outcome).toMatchObject({

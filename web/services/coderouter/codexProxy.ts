@@ -353,7 +353,10 @@ async function proxyCodexRequestWith(
       attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
     });
     if (!account) {
-      if (attempt === 0 && !await teamHasCodexAccount(dependencies, identity, request.signal)) {
+      if (
+        attempt === 0 &&
+        !await teamHasCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now)
+      ) {
         noAccountConfigured = true;
         break;
       }
@@ -1437,24 +1440,30 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
 }
 
 /**
- * Only a failed lookup or a team with an account answers true: an unknown
- * answer keeps the retryable 503 rather than telling a client to stop.
+ * False only when the lookup proves the caller can see no Codex-family
+ * account. An unknown answer keeps the retryable 503 rather than telling a
+ * client to stop.
  */
 async function teamHasCodexAccount(
   dependencies: Pick<CodexResponsesDependencies, "hasConfiguredAccount">,
   identity: RouteTokenIdentity,
-  signal: AbortSignal,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
 ): Promise<boolean> {
-  if (!dependencies.hasConfiguredAccount) return true;
+  const lookup = dependencies.hasConfiguredAccount;
+  if (!lookup) return true;
   try {
-    return await dependencies.hasConfiguredAccount({
+    return await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
       teamId: identity.teamId,
       provider: RESPONSES_PROVIDERS,
       access: accountAccessForIdentity(identity),
       signal,
-    });
+    }));
   } catch (error) {
-    if (signal.aborted) throw error;
+    // A caller cancellation still ends the request; a lookup failure or the
+    // request deadline keeps the retryable answer.
+    if (requestSignal.aborted) throw error;
     return true;
   }
 }
@@ -1481,7 +1490,7 @@ function noCodexAccountConfigured(input: {
   });
   return Response.json({
     error: {
-      message: "No Codex account is configured for this team. Add one with `cr add codex` or at coderouter.dev.",
+      message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
       type: "invalid_request_error",
       code: "no_account_configured",
     },

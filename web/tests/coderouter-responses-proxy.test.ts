@@ -799,7 +799,7 @@ describe("codex responses proxy with no account configured", () => {
     expect(response.headers.get("retry-after")).toBeNull();
     expect(await response.json()).toEqual({
       error: {
-        message: "No Codex account is configured for this team. Add one with `cr add codex` or at coderouter.dev.",
+        message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
         type: "invalid_request_error",
         code: "no_account_configured",
       },
