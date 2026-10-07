@@ -31,13 +31,27 @@ const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace
 // `T` is the runtime's agentTools namespace (pure pattern and TOTP helpers).
 export function createBoundary(T, { now = () => Date.now() } = {}) {
   const store = new Map(); // name -> { value, domains, totp }
+  // As BrowserReplSecretStore.retired: a deleted, cleared or replaced
+  // value stays masked (text, files, captures) for the session's life, under
+  // its first name, on the union of the domains of its registrations.
+  const retired = []; // { name, value, domains, totp }
+  function retire(name, s) {
+    const kept = retired.find((r) => r.value === s.value && r.totp === s.totp);
+    if (!kept) {
+      retired.push({ name, value: s.value, domains: [...s.domains], totp: s.totp });
+      return;
+    }
+    for (const d of s.domains) if (!kept.domains.some((k) => k.raw === d.raw)) kept.domains.push(d);
+  }
+  // Every value the session masks: its current and retired ones, as [name, entry].
+  const maskedEntries = () => [...store.entries(), ...retired.map((r) => [r.name, r])];
   let policy = { allowed: null, prohibited: [], blockIPs: false, locked: false };
   const policyListeners = new Set();
   let matchers = [];
 
   function rebuild() {
     codeCache = null;
-    matchers = [...store.entries()]
+    matchers = maskedEntries()
       .sort((a, b) => b[1].value.length - a[1].value.length)
       .map(([name, s]) => {
         const v = s.value;
@@ -60,7 +74,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   function validCodes() {
     const window = Math.floor(now() / TOTP_PERIOD_MS);
     if (codeCache && codeCache.window === window) return codeCache.codes;
-    const codes = [...store.entries()]
+    const codes = maskedEntries()
       .filter(([, s]) => s.totp)
       .map(([name, s]) => {
         const list = [...new Set(Array.from({ length: 2 * TOTP_SKEW + 1 }, (_, i) => T.totp(s.value, (window + i - TOTP_SKEW) * TOTP_PERIOD_MS)))].sort();
@@ -176,6 +190,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         throw new BoundaryError("invalid", "secrets: a TOTP secret must be base32");
       }
     }
+    const prior = store.get(name);
+    if (prior) retire(name, prior);
     store.set(name, { value, domains: parsed, totp: isTotp });
     rebuild();
   }
@@ -238,11 +254,14 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       case "has":
         return store.has(args.name);
       case "delete": {
+        const s = store.get(args.name);
+        if (s) retire(args.name, s);
         const had = store.delete(args.name);
         rebuild();
         return had;
       }
       case "clear":
+        for (const [name, s] of store) retire(name, s);
         store.clear();
         rebuild();
         return null;
@@ -395,8 +414,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       if (reason) throw new BoundaryError("blocked", `${p.url} is blocked: ${reason}`);
     } else if (method === "session.configure" && "contentRules" in p) {
       throw new BoundaryError("invalid", "session.configure: content rules come from the domain policy (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses)");
-    } else if ((method === "tab.screenshot" || method === "tab.pdf") && store.size) {
-      const masks = [...store.values()].filter((s) => !s.totp).map((s) => ({ value: s.value, domains: s.domains }));
+    } else if ((method === "tab.screenshot" || method === "tab.pdf") && (store.size || retired.length)) {
+      const masks = maskedEntries().map(([, s]) => s).filter((s) => !s.totp).map((s) => ({ value: s.value, domains: s.domains }));
       for (const c of validCodes()) for (const value of c.codes) masks.push({ value, domains: c.domains });
       if (masks.length) p.secretMasks = masks;
     }

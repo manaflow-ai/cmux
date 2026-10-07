@@ -120,6 +120,11 @@ emitCmux("secret-fetch-text", await (await fetch(page.url())).text().then((t) =>
 // from the same field showing that text unregistered.
 await page.goto(`${PRIMARY}/agent-tools.html`);
 const keyField = page.locator("#apikey");
+// The same field showing text that is never registered, for the check that
+// every capture removes its masks when it ends.
+await keyField.fill("yy-yyyy-yyyy");
+await keyField.evaluate((e) => e.blur());
+const shotPlain = (await keyField.screenshot()).toString("base64");
 await keyField.fill(secret("key"));
 await keyField.evaluate((e) => e.blur());
 const shotSecret = (await keyField.screenshot()).toString("base64");
@@ -132,8 +137,17 @@ const shotDecoy = (await keyField.screenshot()).toString("base64");
 // field, and the field is unmasked once both end.
 const [shotA, shotB] = await Promise.all([keyField.screenshot(), keyField.screenshot()]);
 const concurrentMasked = shotA.toString("base64") === shotDecoy && shotB.toString("base64") === shotDecoy;
+// A deleted secret stays masked in captures for the session's life
+// (driver-protocol.md, Guards: secrets.delete), so the field still shows
+// the mask. Until 2026-10-04 a deleted secret was unmasked again and this
+// key was `restored: shotAfter === shotText`.
 secrets.delete("decoy");
 const shotAfter = (await keyField.screenshot()).toString("base64");
-emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, restored: shotAfter === shotText });
-emitCmux("secret-screenshot-concurrent", { masked: concurrentMasked, restored: shotAfter === shotText });
+// Unregistered text again: no capture left a mask on the field.
+await keyField.fill("yy-yyyy-yyyy");
+await keyField.evaluate((e) => e.blur());
+const shotPlainAfter = (await keyField.screenshot()).toString("base64");
+const restored = shotPlainAfter === shotPlain;
+emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, deletedStaysMasked: shotAfter === shotDecoy, restored });
+emitCmux("secret-screenshot-concurrent", { masked: concurrentMasked, restored });
 emitCmux("secret-needs-domains", (() => { try { secrets.set("x", "y"); } catch (e) { return e.message; } })());
