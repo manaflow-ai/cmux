@@ -12157,6 +12157,7 @@ struct CMUXCLI {
         var newWindow = false
         var transport: String?
         var transportPort: Int?
+        var transportHelperPath: String?
         var broker: String?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
@@ -12206,6 +12207,22 @@ struct CMUXCLI {
                 }
                 transportPort = parsed
                 index += 2
+            case "--transport-helper-path":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.helperPathRequired",
+                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
+                    ))
+                }
+                let path = commandArgs[index + 1]
+                guard path.hasPrefix("/") else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.helperPathRequired",
+                        defaultValue: "ssh-tmux: --transport-helper-path requires an absolute path"
+                    ))
+                }
+                transportHelperPath = path
+                index += 2
             case "--broker":
                 // A NAME, not a command: it selects one of the brokers declared under
                 // remoteTmux.brokers in cmux.json. Taking an executable here would let anything
@@ -12254,6 +12271,7 @@ struct CMUXCLI {
         }
         if let transport { params["transport"] = transport }
         if let transportPort { params["transport_port"] = transportPort }
+        if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
         if let broker { params["transport_broker"] = broker }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if !newWindow {
@@ -20536,7 +20554,11 @@ struct CMUXCLI {
                   --new-window        Open the mirror in a dedicated new window
                 """
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let helperPathHelp = String(
+                localized: "cli.help.ssh-tmux.helperPath",
+                defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
+            )
+            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":

@@ -76,6 +76,8 @@ extension TerminalController {
         // The transport's own port, kept apart from ssh's: one-shots still ride ssh.
         let transportPort = params["transport_port"] as? Int
         if let transportPort, !(1...65535).contains(transportPort) { return nil }
+        guard remoteTmuxHelperPathFailureMessage(from: params) == nil else { return nil }
+        let transportHelperPath = params["transport_helper_path"] as? String
         // A broker is chosen BY NAME from what the user declared under `remoteTmux.brokers`, never
         // described inline here. The socket is reachable by anything running as the user, so taking
         // an executable and its arguments from a parameter would be a wider local-execution surface
@@ -96,7 +98,7 @@ extension TerminalController {
             // refuses two paragraphs up, just arrived at by agreeing instead of by defaulting. And
             // since `transport` defaults to ssh, `--broker <name>` with no `--transport et` would hit
             // it. Refuse instead, and say which part disagreed.
-            guard transport.usesTransportBroker else { return nil }
+            guard transport.usesTransportBroker, transportHelperPath == nil else { return nil }
             broker = resolved
         case .unknown, .unusable, .malformed:
             return nil
@@ -107,7 +109,8 @@ extension TerminalController {
             identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
             transport: transport,
             transportPort: transportPort,
-            transportBroker: broker
+            transportBroker: broker,
+            transportHelperPath: transportHelperPath
         )
     }
 
@@ -137,6 +140,7 @@ extension TerminalController {
                 defaultValue: "transport_port must be between 1 and 65535"
             )
         }
+        if let failure = remoteTmuxHelperPathFailureMessage(from: params) { return failure }
         switch selectBroker(params["transport_broker"] as? String) {
         case .none:
             return nil
@@ -144,9 +148,16 @@ extension TerminalController {
             // The name resolved, but a transport that ignores brokers must not accept one silently —
             // see the refusal in `remoteTmuxHost(from:)`. Naming the transport is the useful part of
             // the message: the likeliest cause is `--broker` without `--transport et`.
-            guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String),
-                  !transport.usesTransportBroker
-            else { return nil }
+            guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String) else {
+                return nil
+            }
+            if transport.usesTransportBroker, params["transport_helper_path"] != nil {
+                return String(
+                    localized: "socket.remoteTmux.transportHelperPathBrokerConflict",
+                    defaultValue: "transport_helper_path cannot be used with a broker; the broker supplies the remote helper"
+                )
+            }
+            guard !transport.usesTransportBroker else { return nil }
             return String(
                 localized: "socket.remoteTmux.brokerNotUsedByTransport",
                 defaultValue: "the '\(transport.rawValue)' transport does not use a broker; pass --transport et to connect through one"
@@ -167,6 +178,28 @@ extension TerminalController {
                 defaultValue: "transport_broker is not a usable name: \(reason)"
             )
         }
+    }
+
+    /// Validate the transport helper once for every socket entrypoint, preserving
+    /// the exact path instead of silently trimming a meaningful filename space.
+    nonisolated static func remoteTmuxHelperPathFailureMessage(from params: [String: Any]) -> String? {
+        guard let rawPath = params["transport_helper_path"] else { return nil }
+        guard let path = rawPath as? String,
+              path.hasPrefix("/"),
+              !RemoteTmuxBrokerRegistry.hasHiddenCharacter(path)
+        else {
+            return String(
+                localized: "socket.remoteTmux.transportHelperPathInvalid",
+                defaultValue: "transport_helper_path must be an absolute path without control or hidden characters"
+            )
+        }
+        guard RemoteTmuxTransportKind.parse(params["transport"] as? String)?.supportsTransportHelperPath == true else {
+            return String(
+                localized: "socket.remoteTmux.transportHelperPathUnsupported",
+                defaultValue: "transport_helper_path is not supported by the selected transport"
+            )
+        }
+        return nil
     }
 
     /// Rejects control / format / separator scalars in an SSH destination or

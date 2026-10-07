@@ -32,7 +32,8 @@ extension RemoteTmuxController {
         // channel and every later one falls back to a connection the host refuses.
         if Self.isMultiplexerEnabled {
             return try await attachHostMultiplexed(
-                host: host, windowTarget: windowTarget, activate: activate)
+                host: host, windowTarget: windowTarget, activate: activate,
+                workspaceName: workspaceName)
         }
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")

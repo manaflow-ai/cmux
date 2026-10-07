@@ -436005,6 +436005,53 @@
         }
       }
     },
+    "socket.remoteTmux.transportHelperPathInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_helper_path must be an absolute path without control or hidden characters"
+          }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "يجب أن يكون transport_helper_path مسارًا مطلقًا لنقل مدعوم" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path muss ein absoluter Pfad für einen unterstützten Transport sein" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path debe ser una ruta absoluta para un transporte compatible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path doit être un chemin absolu pour un transport pris en charge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path は対応するトランスポートの絶対パスである必要があります" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 지원되는 전송의 절대 경로여야 합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必须是受支持传输的绝对路径" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 必須是支援傳輸的絕對路徑" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path is not supported by the selected transport" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "النقل المحدد لا يدعم transport_helper_path" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der ausgewählte Transport unterstützt transport_helper_path nicht" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El transporte seleccionado no admite transport_helper_path" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transport sélectionné ne prend pas en charge transport_helper_path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したトランスポートは transport_helper_path に対応していません" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "선택한 전송은 transport_helper_path를 지원하지 않습니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选传输不支持 transport_helper_path" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選取的傳輸不支援 transport_helper_path" } }
+      }
+    },
+    "socket.remoteTmux.transportHelperPathBrokerConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "transport_helper_path cannot be used with a broker; the broker supplies the remote helper" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يمكن استخدام transport_helper_path مع وسيط؛ فالوسيط يوفّر المساعد البعيد" } },
+        "de": { "stringUnit": { "state": "translated", "value": "transport_helper_path kann nicht mit einem Broker verwendet werden; der Broker stellt den Remote-Helfer bereit" } },
+        "es": { "stringUnit": { "state": "translated", "value": "transport_helper_path no puede usarse con un broker; el broker proporciona el auxiliar remoto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "transport_helper_path ne peut pas être utilisé avec un broker ; le broker fournit l’assistant distant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "transport_helper_path はブローカーと併用できません。ブローカーがリモートヘルパーを提供します" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "transport_helper_path는 브로커와 함께 사용할 수 없습니다. 브로커가 원격 헬퍼를 제공합니다" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能与 broker 一起使用；broker 会提供远程辅助程序" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "transport_helper_path 不能與 broker 一起使用；broker 會提供遠端輔助程式" } }
+      }
+    },
     "socket.remoteTmux.transportUnknown": {
       "extractionState": "manual",
       "localizations": {
@@ -641750,7 +641797,243 @@
           }
         }
       }
+    },
+    "cli.help.ssh-tmux.helperPath": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Absoluter Pfad zu etterminal auf dem Remote-Host (nur direktes ET). Ohne Angabe verwendet ET seine PATH-Suche; ein Broker liefert seinen eigenen Helferpfad."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Chemin absolu vers etterminal sur l’hôte distant (ET direct uniquement). Omettre pour utiliser la recherche PATH d’ET ; un broker fournit son propre chemin."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  المسار المطلق إلى etterminal على المضيف البعيد (ET المباشر فقط). اتركه فارغًا لاستخدام بحث ET في PATH؛ يوفّر الوسيط مساره الخاص."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  Ruta absoluta a etterminal en el host remoto (solo ET directo). Omítela para usar la búsqueda PATH de ET; un broker proporciona su propia ruta."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  遠端主機上 etterminal 的絕對路徑（僅限直接 ET）。省略即可使用 ET 的 PATH 搜尋；broker 會提供自己的輔助程式路徑。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  远程主机上 etterminal 的绝对路径（仅限直接 ET）。省略即可使用 ET 的 PATH 查找；broker 会提供自己的辅助程序路径。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  원격 호스트의 etterminal 절대 경로(직접 ET만 해당)입니다. 생략하면 ET의 PATH 검색을 사용하며, 브로커는 자체 헬퍼 경로를 제공합니다."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "--transport-helper-path <path>  リモートホスト上の etterminal の絶対パス（直接 ET のみ）。省略すると ET の PATH 検索を使い、ブローカーは独自のヘルパーパスを提供します。"
+      }
     }
+  }
+},
+    "cli.sshTmux.error.helperPathRequired": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path requires an absolute path"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path erfordert einen absoluten Pfad"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux : --transport-helper-path nécessite un chemin absolu"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: يتطلب --transport-helper-path مسارًا مطلقًا"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path requiere una ruta absoluta"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux：--transport-helper-path 必須是絕對路徑"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux：--transport-helper-path 必须是绝对路径"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path에는 절대 경로가 필요합니다"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ssh-tmux: --transport-helper-path には絶対パスが必要です"
+      }
+    }
+  }
+},
+    "socket.remoteTmux.routeConflict": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "This host is already connected through a different route; detach it before changing the route."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dieser Host ist bereits über eine andere Route verbunden. Trennen Sie ihn, bevor Sie die Route ändern."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cet hôte est déjà connecté via une autre route ; détachez-le avant de changer de route."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "هذا المضيف متصل بالفعل عبر مسار مختلف؛ افصل الاتصال قبل تغيير المسار."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Este host ya está conectado mediante otra ruta; desconéctalo antes de cambiarla."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主機已透過不同路由連線；請先解除連線再變更路由。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主机已通过其他路由连接；请先断开连接再更改路由。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "이 호스트는 이미 다른 경로로 연결되어 있습니다. 경로를 변경하기 전에 연결을 해제하세요."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "このホストはすでに別の経路で接続されています。経路を変更する前に切断してください。"
+      }
+    }
+  }
+},
+    "socket.remoteTmux.transportHelperPathConflict": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "This host is already connected with a different helper path; detach it before changing the helper path."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dieser Host ist bereits mit einem anderen Helferpfad verbunden. Trennen Sie ihn, bevor Sie den Helferpfad ändern."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cet hôte est déjà connecté avec un autre chemin d’assistant ; détachez-le avant de le modifier."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "هذا المضيف متصل بالفعل بمسار مساعد مختلف؛ افصل الاتصال قبل تغيير مسار المساعد."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Este host ya está conectado con otra ruta del auxiliar; desconéctalo antes de cambiarla."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主機已使用不同的輔助程式路徑連線；請先解除連線再變更路徑。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "此主机已使用其他辅助程序路径连接；请先断开连接再更改路径。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "이 호스트는 이미 다른 헬퍼 경로로 연결되어 있습니다. 헬퍼 경로를 변경하기 전에 연결을 해제하세요."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "このホストはすでに別のヘルパーパスで接続されています。ヘルパーパスを変更する前に切断してください。"
+      }
+    }
+  }
+}
   },
   "version": "1.0"
 }

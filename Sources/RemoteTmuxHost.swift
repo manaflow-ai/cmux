@@ -66,10 +66,15 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// Set when reaching this host means going through a broker that resolves the route — a
     /// tunnel, an agent socket, a short-lived credential — and then launches the client itself.
-    /// It is deliberately absent from ``connectionHash``: it describes how to reach the endpoint, not which endpoint it is, so a host reached directly
-    /// and the same host reached through a broker are one endpoint that should share one
-    /// connection rather than two competing ones.
+    /// It is deliberately absent from ``connectionHash``: it describes how to reach the endpoint,
+    /// not which endpoint it is, so a host reached directly and the same host reached through a
+    /// broker are one endpoint that should share one connection rather than two competing ones.
     let transportBroker: RemoteTmuxTransportBroker?
+
+    /// Optional transport-owned helper path. This is unset by default so the
+    /// remote transport can use its own environment-based discovery. It is an
+    /// launch setting; changing it on a live endpoint requires detaching first.
+    let transportHelperPath: String?
 
     init(
         destination: String,
@@ -77,7 +82,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         identityFile: String? = nil,
         transport: RemoteTmuxTransportKind = .ssh,
         transportPort: Int? = nil,
-        transportBroker: RemoteTmuxTransportBroker? = nil
+        transportBroker: RemoteTmuxTransportBroker? = nil,
+        transportHelperPath: String? = nil
     ) {
         self.destination = destination
         self.port = port
@@ -85,6 +91,17 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         self.transport = transport
         self.transportPort = transportPort
         self.transportBroker = transportBroker
+        self.transportHelperPath = transportHelperPath
+    }
+
+    /// Resolve launch options together so dedicated and shared connections cannot
+    /// accidentally omit an explicit host override.
+    var transportProfile: RemoteTmuxTransportProfile {
+        transport.profile(
+            port: transportPort,
+            broker: transportBroker,
+            transportHelperPath: transportHelperPath
+        )
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -104,10 +121,12 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return mapped.isEmpty ? "host" : String(mapped)
     }
 
-    /// A stable, deterministic, collision-resistant hex digest of this host's full
-    /// **connection identity** — the case-sensitive ``destination`` plus the
-    /// explicit ``port`` and ``identityFile`` — over a unit-separated fingerprint
-    /// (FNV-1a/64).
+    /// A stable, deterministic, collision-resistant hex digest of this host's endpoint identity —
+    /// the case-sensitive ``destination`` plus the explicit ``port``, ``identityFile``, transport,
+    /// and resolved transport port — over a unit-separated fingerprint (FNV-1a/64). Launch-only
+    /// route settings such as ``transportBroker`` and ``transportHelperPath`` are intentionally
+    /// excluded; a live endpoint has one route, and a conflicting launch setting is rejected
+    /// instead of creating a second connection.
     ///
     /// Two hosts that share a lossy ``slug`` (e.g. `alice@host` vs `alice.host`),
     /// *or* the same destination reached on a different port or with a different
@@ -155,7 +174,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// Namespaced under `~/.cmux/ssh/`. The filename combines the lossy
     /// human-readable ``slug`` with the collision-resistant ``connectionHash`` of
-    /// the exact connection identity (destination + port + identity file), so two
+    /// the exact endpoint identity (destination + port + identity file + transport), so two
     /// distinct endpoints never collide on one socket (which would otherwise route
     /// commands — including the destructive `kill-session` — to the wrong host
     /// through a shared master).

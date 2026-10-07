@@ -610,11 +610,7 @@ final class RemoteTmuxControlConnection {
         transportProfile: RemoteTmuxTransportProfile? = nil,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) {
-        self.transportProfile = transportProfile
-            ?? host.transport.profile(
-                port: host.transportPort,
-                broker: host.transportBroker
-            )
+        self.transportProfile = transportProfile ?? host.transportProfile
         self.host = host
         self.sessionName = sessionName
         self.attachMode = attachMode

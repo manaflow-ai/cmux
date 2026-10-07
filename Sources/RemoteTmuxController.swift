@@ -6,7 +6,7 @@ import OSLog
 /// Coordinates cmux's mirroring of remote tmux servers.
 ///
 /// Owns one ``RemoteTmuxSSHTransport`` per endpoint (keyed by
-/// ``RemoteTmuxHost/connectionHash`` — destination + port + identity) and
+/// ``RemoteTmuxHost/connectionHash`` — destination + port + identity + transport) and
 /// is the entry point the socket/CLI layer and (later) the UI call into. It is
 /// `@MainActor` because it will own sidebar/workspace state as the feature
 /// grows; today it performs discovery by delegating to the per-host transport
@@ -116,6 +116,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let existing = connectionsByHostSession[key] {
             if !existing.exited { return existing }
@@ -146,6 +147,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) async throws -> [String]? {
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
         if let sshArgv = try await preflightControlAttach(
             host: host,
             sessionName: sessionName,
@@ -190,6 +192,13 @@ final class RemoteTmuxController {
                 )
             }
         )
+    }
+
+    /// Socket-only attaches also own live streams, even when no mirror exists.
+    func cachedControlHost(sharingEndpointWith host: RemoteTmuxHost) -> RemoteTmuxHost? {
+        connectionsByHostSession.values.first {
+            !$0.exited && $0.host.connectionHash == host.connectionHash
+        }?.host
     }
 
     @discardableResult
@@ -309,6 +318,11 @@ final class RemoteTmuxController {
     /// The hidden view connection's own `$id` per host. A changed id means the tmux
     /// server restarted and may have reused `$N`s, so all id-scoped intents are stale.
     var viewEpochSessionIdByHost: [String: Int] = [:]
+    /// A pending local title from the initial multiplexed attach. It is consumed by the first
+    /// workspace that the shared stream publishes, matching the dedicated mirror path's
+    /// `workspaceName` semantics. It must be host-scoped because the stream publishes sessions
+    /// asynchronously after the attach call returns.
+    var pendingMultiplexWorkspaceNamesByHost: [String: String] = [:]
 
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()

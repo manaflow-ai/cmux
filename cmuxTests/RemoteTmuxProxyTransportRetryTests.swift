@@ -459,8 +459,9 @@ import Testing
         }
         #expect(conflict(nil, nil) == nil)
         #expect(conflict(corp, corp) == nil)
-        #expect(conflict(nil, corp)?.contains("/opt/site/bin/broker") == true)
-        #expect(conflict(corp, nil)?.contains("somehost") == true)
+        #expect(conflict(nil, corp)?.contains("different route") == true)
+        #expect(conflict(corp, nil)?.contains("different route") == true)
+        #expect(conflict(nil, corp)?.contains("/opt/site/bin/broker") == false)
         #expect(conflict(other, corp) != nil, "the same executable with other arguments is another route")
     }
 
@@ -484,6 +485,33 @@ import Testing
         }
         #expect(refusal?.message.contains("already connected") == true, "got \(String(describing: refusal))")
         #expect(controller.multiplexedViewsByHost[brokered.connectionHash] === view, "the refusal disturbed the live connection")
+    }
+
+    @Test @MainActor func anAttachWithAnotherHelperPathIsRefusedWhileTheHostIsConnected() async {
+        let destination = "helper-route-\(UUID().uuidString).example.test"
+        let live = RemoteTmuxHost(
+            destination: destination,
+            transport: .et,
+            transportPort: 2022,
+            transportHelperPath: "/opt/et/etterminal")
+        let requested = RemoteTmuxHost(
+            destination: destination,
+            transport: .et,
+            transportPort: 2022)
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: live, ownerId: "helper-route-conflict-test")
+        controller.multiplexedViewsByHost[live.connectionHash] = view
+        defer { controller.multiplexedViewsByHost[live.connectionHash] = nil }
+
+        var refusal: RemoteTmuxError?
+        do {
+            _ = try await controller.attachHostMultiplexed(
+                host: requested, windowTarget: .contextualWindow(nil), activate: false)
+        } catch {
+            refusal = error as? RemoteTmuxError
+        }
+        #expect(refusal?.message.contains("different helper path") == true)
+        #expect(controller.multiplexedViewsByHost[live.connectionHash] === view)
     }
 
     /// Go's flag package wording for a rejected argv. Wrappers that front a transport are commonly
@@ -761,6 +789,35 @@ import Testing
         #expect(!argv.contains("--terminal-path"))
     }
 
+    @Test func anExplicitTransportHelperPathReachesDirectET() {
+        let host = RemoteTmuxHost(
+            destination: "user@host",
+            transport: .et,
+            transportPort: 2039,
+            transportHelperPath: "/usr/local/bin/etterminal"
+        )
+        let profile = host.transport.profile(
+            port: host.transportPort,
+            transportHelperPath: host.transportHelperPath
+        )
+        let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        #expect(consecutive(argv, "--terminal-path", "/usr/local/bin/etterminal"))
+    }
+
+    @Test func helperPathDoesNotCreateASecondEndpoint() {
+        let unset = RemoteTmuxHost(destination: "user@host", transport: .et)
+        let explicit = RemoteTmuxHost(
+            destination: "user@host", transport: .et,
+            transportHelperPath: "/usr/local/bin/etterminal"
+        )
+        let same = RemoteTmuxHost(
+            destination: "user@host", transport: .et,
+            transportHelperPath: "/usr/local/bin/etterminal"
+        )
+        #expect(unset.connectionHash == explicit.connectionHash)
+        #expect(explicit.connectionHash == same.connectionHash)
+    }
+
     /// et bootstraps over ssh before its own protocol takes over, and inherits none of the host's
     /// ssh settings. Without these the ssh preflight succeeds and et's bootstrap fails on defaults.
     @Test func etCarriesTheHostsSSHPortAndIdentityIntoItsBootstrap() {
@@ -928,6 +985,39 @@ import Testing
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "s", mode: .attach
         )
         #expect(consecutive(argv, "--terminal-path", "/usr/local/bin/etterminal"))
+    }
+
+    @Test func etQuotesAHelperPathOnlyWhenTheRemoteShellNeedsIt() {
+        let profile = RemoteTmuxETTransportProfile(
+            port: 2022, remoteTerminalPath: "/opt/et tools/etterminal"
+        )
+        let argv = profile.controlStreamArgv(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "s", mode: .attach
+        )
+        #expect(consecutive(argv, "--terminal-path", "'/opt/et tools/etterminal'"))
+    }
+
+    @Test func socketHostCarriesTheExplicitHelperPathOnlyForET() {
+        let select: (String?) -> RemoteTmuxBrokerSelection = { _ in .none }
+        let host = TerminalController.remoteTmuxHost(
+            from: [
+                "host": "user@host",
+                "transport": "et",
+                "transport_helper_path": "/usr/local/bin/etterminal",
+            ],
+            selectBroker: select
+        )
+        #expect(host?.transportHelperPath == "/usr/local/bin/etterminal")
+
+        let ssh = TerminalController.remoteTmuxHost(
+            from: [
+                "host": "user@host",
+                "transport": "ssh",
+                "transport_helper_path": "/usr/local/bin/etterminal",
+            ],
+            selectBroker: select
+        )
+        #expect(ssh == nil)
     }
 
     /// The two properties that decide behavior rather than argv.

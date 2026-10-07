@@ -410,17 +410,18 @@ extension RemoteTmuxController {
     /// differ only by broker share one connection, and one connection has one route. Serving the
     /// second attach over the first one's route would use a path its caller did not ask for.
     nonisolated static func routeConflictMessage(
-        destination: String,
+        destination _: String,
         requested: RemoteTmuxTransportBroker?,
         live: RemoteTmuxTransportBroker?
     ) -> String? {
         guard requested != live else { return nil }
-        func describe(_ broker: RemoteTmuxTransportBroker?) -> String {
-            guard let broker else { return "a direct connection" }
-            return "the broker " + ([broker.executable] + broker.leadingArguments).joined(separator: " ")
-        }
-        return "\(destination) is already connected through \(describe(live)); "
-            + "detach it before attaching through \(describe(requested))"
+        // Broker commands are user configuration and may contain secrets or paths that should
+        // not be echoed into an error. The caller already knows which host it requested; the
+        // actionable fact is that one endpoint has one live route, regardless of its spelling.
+        return String(
+            localized: "socket.remoteTmux.routeConflict",
+            defaultValue: "This host is already connected through a different route; detach it before changing the route."
+        )
     }
 }
 
@@ -430,13 +431,20 @@ extension RemoteTmuxController {
     func liveHost(sharingEndpointWith host: RemoteTmuxHost) -> RemoteTmuxHost? {
         if let view = multiplexedViewsByHost[host.connectionHash] { return view.host }
         return sessionMirrors.values.first { $0.host.connectionHash == host.connectionHash }?.host
+            ?? cachedControlHost(sharingEndpointWith: host)
     }
 
     /// Refuses an attach whose route differs from the live connection's; see
     /// ``routeConflictMessage(destination:requested:live:)``.
     func refuseARouteTheLiveConnectionDoesNotUse(_ host: RemoteTmuxHost) throws {
-        guard let live = liveHost(sharingEndpointWith: host),
-              let message = Self.routeConflictMessage(
+        guard let live = liveHost(sharingEndpointWith: host) else { return }
+        if host.transportHelperPath != live.transportHelperPath {
+            throw RemoteTmuxError.unreachable(String(
+                localized: "socket.remoteTmux.transportHelperPathConflict",
+                defaultValue: "This host is already connected with a different helper path; detach it before changing the helper path."
+            ))
+        }
+        guard let message = Self.routeConflictMessage(
                   destination: host.destination,
                   requested: host.transportBroker,
                   live: live.transportBroker

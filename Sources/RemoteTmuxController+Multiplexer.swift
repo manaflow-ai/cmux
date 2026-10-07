@@ -125,7 +125,8 @@ extension RemoteTmuxController {
     func attachHostMultiplexed(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
-        activate: Bool
+        activate: Bool,
+        workspaceName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -239,6 +240,17 @@ extension RemoteTmuxController {
         }
         let bootstrapWorkspaceId = dedicatedWindowId == nil ? nil : targetManager.tabs.first?.id
 
+        // The shared stream publishes its sessions asynchronously. Keep the cosmetic title beside
+        // the host until the first successful channel/workspace creation consumes it; passing it as
+        // an argument to the first reconcile would race the `%enter` callback. Set it only after
+        // window resolution succeeds so an invalid attach cannot leave stale title state behind.
+        if multiplexedViewsByHost[host.connectionHash] == nil,
+           !hostHasLiveMirror(host),
+           let workspaceName,
+           !workspaceName.isEmpty {
+            pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = workspaceName
+        }
+
         // Reuse a live view: the host is already mirrored; just surface it.
         if multiplexedViewsByHost[host.connectionHash] == nil {
             do {
@@ -286,9 +298,7 @@ extension RemoteTmuxController {
             // `cmux ssh-tmux` CLI can authenticate inline in the user's own terminal. The parked
             // view is deliberately kept: the login (CLI-run or the in-app tab) opens the shared
             // master, and the retry resumes this stream over it instead of starting over.
-            let profile = host.transport.profile(
-                port: host.transportPort,
-                broker: host.transportBroker)
+            let profile = host.transportProfile
             let awaitingLogin = hostAuth.isAwaiting(host)
                 || heldView?.lastStreamAwaitedCredentials == true
                 || heldView?.connection?.isAwaitingCredentials == true
@@ -520,6 +530,7 @@ extension RemoteTmuxController {
                 sessionId: sessionView.sessionId,
                 connection: channel,
                 into: manager,
+                customTitle: pendingMultiplexWorkspaceNamesByHost[hostHash],
                 select: selectNewlyCreated
             ) != nil else {
                 // A finalized window manager admits no workspace; drop the
@@ -527,6 +538,7 @@ extension RemoteTmuxController {
                 channelsByHostSession.removeValue(forKey: key)
                 continue
             }
+            pendingMultiplexWorkspaceNamesByHost.removeValue(forKey: hostHash)
         }
     }
 
@@ -597,6 +609,7 @@ extension RemoteTmuxController {
         multiplexedViewsByHost[host.connectionHash] = nil
         multiplexIntentsByHost[host.connectionHash] = nil
         viewEpochSessionIdByHost[host.connectionHash] = nil
+        pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = nil
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
             closeSharedSSHMasterIfAny(host: host)

@@ -41,10 +41,23 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
         }
     }
 
+    /// Whether this transport understands an explicit remote helper path.
+    ///
+    /// The option belongs to the transport seam rather than to EternalTerminal's
+    /// public API: a future transport can opt into the same host/socket field
+    /// without making the host model grow another transport-specific property.
+    var supportsTransportHelperPath: Bool {
+        switch self {
+        case .ssh: return false
+        case .et: return true
+        }
+    }
+
     /// The profile that carries this transport.
     func profile(
         port: Int?,
-        broker: RemoteTmuxTransportBroker? = nil
+        broker: RemoteTmuxTransportBroker? = nil,
+        transportHelperPath: String? = nil
     ) -> RemoteTmuxTransportProfile {
         switch self {
         case .ssh:
@@ -58,8 +71,8 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
             // Leave the remote helper path unspecified. `--terminal-path` is an explicit override;
             // choosing `/usr/local/bin/etterminal` here would assume both a host OS and an install
             // prefix for a direct connection. ET can resolve its helper from the remote PATH when
-            // no override is supplied, and callers that know a non-standard path can construct an
-            // `RemoteTmuxETTransportProfile` with `remoteTerminalPath` explicitly.
+            // no override is supplied, and callers that know a non-standard path can set the
+            // host's generic `transportHelperPath` override.
             return RemoteTmuxETTransportProfile(
                 port: resolvedTransportPort(port),
                 // Forwarded, and worth stating why this line is load-bearing: omitting it left the
@@ -67,6 +80,7 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
                 // endpoint flags and all — and would have failed against a wrapper that rejects a
                 // client flag before the destination. Caught by
                 // `brokeredArgvPutsBrokerFlagsFirstAndDropsEndpointFlags`.
+                remoteTerminalPath: transportHelperPath,
                 broker: broker
             )
         }
@@ -730,8 +744,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     let executable: String
     /// Set when the host is reached through a wrapper rather than directly.
     let broker: RemoteTmuxTransportBroker?
-    /// Optional path to `etterminal` on the server. When nil, ET resolves the helper using the
-    /// remote environment; a caller may set this only when it knows the host's actual path.
+    /// Optional path to the transport's remote helper. When nil, ET resolves
+    /// `etterminal` using the remote environment; a caller may set this only
+    /// when it knows the host's actual path.
     let remoteTerminalPath: String?
 
     init(
@@ -799,7 +814,23 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         // exactly as the ssh profile does. Including it here would pass `et` twice.
         var argv = ["-p", String(port)]
         if let remoteTerminalPath {
-            argv += ["--terminal-path", remoteTerminalPath]
+            // ET interpolates this value into its SSH bootstrap shell command. Keep the
+            // ordinary absolute path spelling unchanged — ET treats the option value as the
+            // executable path — and quote only paths that need shell protection (for example a
+            // path containing spaces). The host/socket boundary rejects control characters.
+            let needsShellQuoting = remoteTerminalPath.unicodeScalars.contains { scalar in
+                switch scalar.value {
+                case 0x30...0x39, 0x41...0x5A, 0x61...0x7A,
+                     0x2F, 0x2D, 0x2E, 0x5F, 0x2B:
+                    return false
+                default:
+                    return true
+                }
+            }
+            let shellPath = needsShellQuoting
+                ? RemoteTmuxHost.shellSingleQuoted(remoteTerminalPath)
+                : remoteTerminalPath
+            argv += ["--terminal-path", shellPath]
         }
         // et bootstraps over ssh before its own protocol takes over, and it does not inherit the
         // host's ssh settings from anywhere. Passing them through `--ssh-option` is what makes
@@ -876,7 +907,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
 
 /// Owns the per-endpoint ``RemoteTmuxSSHTransport`` instances ``RemoteTmuxController``
 /// uses for SSH discovery, keyed by ``RemoteTmuxHost/connectionHash`` (destination +
-/// port + identity).
+/// port + identity + transport).
 ///
 /// Factored out of the controller so the get-or-create lifecycle and the scattered
 /// dictionary bookkeeping live behind a small `@MainActor` surface. It only manages

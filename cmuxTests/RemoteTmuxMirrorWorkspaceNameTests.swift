@@ -134,4 +134,38 @@ struct RemoteTmuxMirrorWorkspaceNameTests {
         #expect(alphaWorkspace.customTitle == "custom")
         #expect(!betaWorkspace.hasCustomTitle)
     }
+
+    @Test func multiplexedAttachAppliesWorkspaceNameToTheFirstPublishedSession() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowID = appDelegate.createMainWindow()
+        defer {
+            let identifier = "cmux.main.\(windowID.uuidString)"
+            NSApp.windows.first { $0.identifier?.rawValue == identifier }?.performClose(nil)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+        }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
+        let controller = RemoteTmuxController()
+        let host = RemoteTmuxHost(destination: "user@workspace-name-multiplexed.test")
+        let shared = RemoteTmuxControlConnection(host: host, sessionName: "cmux-view")
+        controller.multiplexedViewsByHost[host.connectionHash] = RemoteTmuxViewConnection(
+            host: host, ownerId: "workspace-name-test")
+        controller.pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = "custom"
+
+        controller.applyMultiplexedWorkspaces(
+            host: host,
+            manager: manager,
+            workspaces: [
+                .init(sessionName: "alpha", windowIds: ["@1"], sessionId: 1),
+                .init(sessionName: "beta", windowIds: ["@2"], sessionId: 2),
+            ],
+            shared: shared
+        )
+        defer { controller.stopMultiplexedHost(host: host) }
+
+        let alpha = try #require(controller.sessionMirrors.values.first { $0.sessionName == "alpha" }?.mirroredWorkspace)
+        let beta = try #require(controller.sessionMirrors.values.first { $0.sessionName == "beta" }?.mirroredWorkspace)
+        #expect(alpha.customTitle == "custom")
+        #expect(!beta.hasCustomTitle)
+        #expect(controller.pendingMultiplexWorkspaceNamesByHost[host.connectionHash] == nil)
+    }
 }
