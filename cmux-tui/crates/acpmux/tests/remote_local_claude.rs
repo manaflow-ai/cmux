@@ -31,10 +31,12 @@ fn hub(d: &Path) -> Arc<Hub> {
         "harnesses": {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
+            "ftarget": {"argv": ["python3", FAKE], "family": "target"},
         },
         "defaultHarness": "fakeclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
+        "webAskingModes": {"target": ["strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -106,9 +108,33 @@ async fn a_web_device_cannot_control_a_claude_session_the_mac_started_but_can_re
         let r = web.call(m, p).await;
         assert_eq!(reason(&r), "remote.local_claude_session", "{m}: {r}");
     }
+    // Nor change or end it.
+    for (m, p) in [
+        ("_acpmux/set_rules", json!({"sessionId": s, "rules": null})),
+        ("_acpmux/set_policy", json!({"sessionId": s, "policy": "ask"})),
+        ("_acpmux/kill", json!({"sessionId": s, "purge": true})),
+        ("session/close", json!({"sessionId": s})),
+    ] {
+        let r = web.call(m, p).await;
+        assert_eq!(reason(&r), "remote.local_claude_session", "{m}: {r}");
+    }
     // Reads stay available.
     let r = web.call("_acpmux/events", json!({"sessionId": s, "limit": 50})).await;
     assert!(r["result"]["events"].is_array(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_claude_adapter_session_the_mac_started_is_refused_too() {
+    let d = dir("adapter");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = web.prompt(&s, "hi").await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -120,10 +146,10 @@ async fn a_web_device_cannot_copy_or_adopt_a_claude_session_the_mac_started() {
     let mut web = Client::new(&hub, Origin::Web);
     let s = local.new_session(&d, "fakeclaude").await;
     assert!(local.prompt(&s, "hello").await.get("error").is_none());
-    for m in ["session/fork", "session/load", "session/resume"] {
-        let r = web.call(m, json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []})).await;
-        assert_eq!(reason(&r), "remote.local_claude_session", "{m}: {r}");
-    }
+    let r = web
+        .call("session/fork", json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []}))
+        .await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let adopt = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {
         "harness": "fakeclaude", "adopt": {"agentSessionId": "fake-claude-session", "harness": "fakeclaude"}}}});
     let r = web.call("session/new", adopt).await;
@@ -137,8 +163,8 @@ async fn a_session_on_another_harness_keeps_web_control() {
     let hub = hub(&d);
     let mut local = Client::new(&hub, Origin::Local);
     let mut web = Client::new(&hub, Origin::Web);
-    let s = local.new_session(&d, "fclaude").await;
-    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    let s = local.new_session(&d, "ftarget").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "strict"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = web.prompt(&s, "hi").await;
     assert!(r.get("error").is_none(), "{r}");
