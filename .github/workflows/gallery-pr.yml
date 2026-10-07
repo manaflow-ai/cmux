@@ -147,6 +147,7 @@ jobs:
             # A stage that fails to mount makes the runner exit 1; compare.ts reports it, so only a
             # shard that wrote no results.json fails here.
             local shard
+            mkdir -p "$(dirname "$2")"
             for shard in $(seq 0 $((SHARDS - 1))); do
               bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$1" --output-dir "$2.$shard" \
                 --engines "$GALLERY_ENGINES" --shard-count "$SHARDS" --shard-index "$shard" > "$2.$shard.log" 2>&1 &
