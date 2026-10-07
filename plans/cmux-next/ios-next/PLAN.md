@@ -94,6 +94,20 @@ Each lane is one agent, one branch `feat-cmux-next-ios-<id>` off `feat-cmux-next
 - **C11 `settings`**: settings and devices: account, devices and revoke, terminal theme and font,
   notification preferences, transport diagnostics (path badge, RTT), about. Needs A1, B6.
 
+### Wave 2b: parity gaps found by A1 (`a1-shell.md` section 1.20)
+
+- **C12 `cloud`**: Cloud tab: Cloud VM list and lifecycle, Cloud onboarding, attach to a VM's
+  terminals over `CmuxLink` (replaces the CloudVPN packet-tunnel extension). Needs A1, B1.
+- **C13 `viewers`**: changes/diff viewer, artifact and file viewer (text, Markdown, images, PDF),
+  todo and Markdown surfaces. Needs A1, C4.
+- **C14 `web`**: in-app browser over Mac and SSH tunnels (loopback port forwarding on `CmuxLink`),
+  simulator streaming on the C2 video path. Needs B5, C2.
+- **C15 `search`**: search across feed, workspaces, hosts and terminals. Needs C5, C6.
+- **C16 `platform`**: Sentry and diagnostics export, analytics, toasts, `ShellRoute` URL router and
+  deferred deep links, remote flags served by B1, What's New, Mac version gate, App Review demo
+  mode, Keep Mac Awake, StoreKit billing, deferred sign-in for SSH-only use. Needs A1 (remote
+  flags and version gate also need B1, B5).
+
 ### Wave 3: integration and choice
 
 - **D1 `terminal-ux`**: end-to-end terminal on a real carrier: workspace to terminal navigation, key
@@ -153,6 +167,18 @@ graph TD
   C9 --> D3
   C10 --> D3
   C11 --> D3
+  A1 --> C12[C12 cloud]
+  B1 --> C12
+  C4 --> C13[C13 viewers]
+  C2 --> C14[C14 web]
+  C5 --> C15[C15 search]
+  C6 --> C15
+  A1 --> C16[C16 platform]
+  C12 --> D3
+  C13 --> D3
+  C14 --> D3
+  C15 --> D3
+  C16 --> D3
 ```
 
 Critical path: A0/A3 -> B1 -> B2 -> D2 -> D3, and A0/A3 -> B5 -> C1 -> D1 -> D3.
@@ -168,4 +194,6 @@ Critical path: A0/A3 -> B1 -> B2 -> D2 -> D3, and A0/A3 -> B5 -> C1 -> D1 -> D3.
 - Tests: Swift Testing in the package; TS with vitest in `backend/apps/api`; conformance tests from
   A3 for every carrier. No `xcodebuild test` on the local Mac; use the fleet or CI.
 - UI lanes hand off a tagged iOS build (`ios/scripts/reload-cloud.sh --tag <tag>`), tags `nx<lane>`.
+- Disk is tight (~30 GiB) and there is no fleet manifest on this Mac: build one package at a
+  time, delete your own `.build`/DerivedData scratch after verifying, never others'.
 - Record the lane in `plans/cmux-next/coordination/ios-next.md` (stream open, landed).
