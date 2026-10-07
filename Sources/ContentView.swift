@@ -757,7 +757,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
                             remoteDaemonStatus: nil,
-                            activeRemoteTerminalSessionCount: 0
+                            activeRemoteTerminalSessionCount: 0,
                             title: nil
                         )
                     )
@@ -797,7 +797,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
                             remoteDaemonStatus: remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount,
                             title: title
                         )
                     }

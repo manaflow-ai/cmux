@@ -227,6 +227,9 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    let configFile: String? = nil
+    let jumpHost: String? = nil
+    let controlPath: String? = nil
     let sshOptions: [String]
 }
 
@@ -643,6 +646,15 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
         if let identityFile = connection.identityFile {
             args += ["-i", identityFile]
+        }
+        if let configFile = connection.configFile, !configFile.isEmpty {
+            args += ["-F", configFile]
+        }
+        if let jumpHost = connection.jumpHost, !jumpHost.isEmpty {
+            args += ["-J", jumpHost]
+        }
+        if let controlPath = connection.controlPath, !controlPath.isEmpty {
+            args += ["-o", "ControlPath=\(controlPath)"]
         }
         for option in connection.sshOptions {
             args += ["-o", option]
@@ -1217,6 +1229,10 @@ final class FileExplorerStore: ObservableObject {
         unavailableDetail: String?,
         sshTransport: SSHFileExplorerTransport
     ) {
+        cancelRemoteHomeResolution()
+        setRootStatusMessage(nil)
+        setWorkspaceRootIdentity(workspaceId)
+
         let existingProvider = provider as? SSHFileExplorerProvider
         let sshProvider: SSHFileExplorerProvider
         if let existingProvider,
@@ -1290,14 +1306,16 @@ final class FileExplorerStore: ObservableObject {
         resolveRemoteHome(
             workspaceId: workspaceId,
             provider: sshProvider,
-            connection: connection
+            connection: connection,
+            requestedRootPath: requestedRootPath
         )
     }
 
     private func resolveRemoteHome(
         workspaceId: UUID,
         provider sshProvider: SSHFileExplorerProvider,
-        connection: SSHFileExplorerConnection
+        connection: SSHFileExplorerConnection,
+        requestedRootPath: String?
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
@@ -1313,7 +1331,7 @@ final class FileExplorerStore: ObservableObject {
         setRootPath("")
         setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
 
-        remoteHomeResolutionTask = Task { [weak self, weak sshProvider] in
+        remoteHomeResolutionTask = Task { [weak self, weak sshProvider, requestedRootPath] in
             guard let sshProvider else { return }
             do {
                 let homePath = try await sshProvider.resolveHomePath()
@@ -1326,7 +1344,12 @@ final class FileExplorerStore: ObservableObject {
                     self.remoteHomeResolutionTask = nil
                     sshProvider.updateAvailability(true, homePath: homePath)
                     self.setRootStatusMessage(nil)
-                    self.setRootPath(homePath)
+                    if let requestedRootPath,
+                       requestedRootPath == "~" || requestedRootPath.hasPrefix("~/") {
+                        self.setRootPath(Self.expandTilde(requestedRootPath, home: homePath))
+                    } else {
+                        self.setRootPath(homePath)
+                    }
                 }
             } catch {
                 await MainActor.run { [weak self, weak sshProvider] in
@@ -1352,11 +1375,6 @@ final class FileExplorerStore: ObservableObject {
         remoteHomeResolutionTask?.cancel()
         remoteHomeResolutionTask = nil
         remoteHomeResolutionKey = nil
-    }
-
-    private func setRootStatusMessage(_ message: String?) {
-        guard rootStatusMessage != message else { return }
-        rootStatusMessage = message
     }
 
     private static func path(_ candidate: String, isContainedIn root: String) -> Bool {

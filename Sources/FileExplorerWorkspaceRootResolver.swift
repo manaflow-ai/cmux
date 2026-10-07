@@ -131,6 +131,9 @@ struct FileExplorerWorkspaceRootResolver {
                     destination: sshSession.destination,
                     port: sshSession.port,
                     identityFile: sshSession.identityFile,
+                    configFile: sshSession.configFile,
+                    jumpHost: sshSession.jumpHost,
+                    controlPath: sshSession.controlPath,
                     sshOptions: sshSession.sshOptions
                 ),
                 displayTarget: sshSession.destination,
