@@ -19,7 +19,7 @@ SH
 # A throwaway acpmux session: a process started from $BRAIN/bin, as acpmux __agent-host is.
 cat > "$BRAIN/bin/agent-host" <<'SH'
 #!/usr/bin/env bash
-exec sleep 300
+exec -a "$0" sleep 300
 SH
 cat > "$BRAIN/bin/acpmux" <<'SH'
 #!/usr/bin/env bash
