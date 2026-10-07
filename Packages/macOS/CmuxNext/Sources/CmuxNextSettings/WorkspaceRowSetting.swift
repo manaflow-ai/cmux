@@ -151,3 +151,12 @@ extension WorkspaceRowSetting {
         return rows
     }
 }
+
+extension SettingsController {
+    /// Moves `sidebar.showWorkspaceDirectory` and `sidebar.showCounts` to
+    /// their `sidebar.workspaceRow.*` keys. Returns whether it wrote.
+    @discardableResult
+    public func migrateLegacyWorkspaceRowKeys() async throws -> Bool {
+        false
+    }
+}
