@@ -89,6 +89,11 @@ pub struct HostState {
     pub side: BTreeMap<String, SideFloor>,
 }
 
+/// A side conversation's floor is dropped after this many days without a
+/// wake (its conversation is quiet or gone; a later wake starts a new floor
+/// at that wake).
+pub const FLOOR_RETENTION_DAYS: u64 = 30;
+
 /// How many handled message ids a side floor keeps (crash dedupe by id).
 pub const FLOOR_IDS: usize = 64;
 

@@ -129,6 +129,8 @@ pub struct Owner {
     pub stores: BTreeMap<String, Store>,
     /// The conversation of every snapshot and history read, in order.
     pub reads: Vec<String>,
+    /// Every `cloud-mux-ack` the brain sent: (conversation, seq).
+    pub acks: Vec<(String, u64)>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -138,6 +140,8 @@ pub struct Store {
     pub messages: Vec<Message>,
     /// Every op the brain sent to this conversation: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
+    /// Rejections for the next `message.send` ops here (None: accept).
+    pub rejects: VecDeque<Option<String>>,
 }
 
 impl Store {
@@ -281,6 +285,9 @@ impl ConversationPort for FakeDaemon {
                 .ok_or_else(|| OpError::Rejected("not_found".into()))?;
             store.ops.push((key.to_owned(), op.clone()));
             if let Op::MessageSend { parts, .. } = op {
+                if let Some(Some(reason)) = store.rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
                 let seq = store.messages.len() as u64 + 1;
                 let mut m = side_message(conversation, seq, "agent_mux", "");
                 m.parts = parts.clone();
@@ -334,6 +341,15 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .acks
+            .push((conversation.to_owned(), seq));
         Ok(())
     }
 }
@@ -853,6 +869,7 @@ impl Harness {
                 summary: side_summary(conversation, person),
                 messages: Vec::new(),
                 ops: Vec::new(),
+                rejects: VecDeque::new(),
             },
         );
     }
