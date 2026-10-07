@@ -16,7 +16,10 @@ final class MobileBrowserDirtyMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         let body = message.body as? [String: Any]
         let editableFocused = body?["editable_focused"] as? Bool
-        Task { @MainActor in
+        // WebKit delivers script messages on the main thread. Apply this
+        // snapshot synchronously so mobile chrome observes the edit state from
+        // this message before handling the next input event.
+        MainActor.assumeIsolated {
             receive(editableFocused)
         }
     }

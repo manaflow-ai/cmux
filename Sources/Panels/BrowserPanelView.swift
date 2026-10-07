@@ -6358,10 +6358,16 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private func syncHostedInspectorDockConfiguration(reason: String) {
             guard let hostedInspectorFrontendWebView else { return }
+            let queriedFrontendID = ObjectIdentifier(hostedInspectorFrontendWebView)
             hostedInspectorFrontendWebView.evaluateJavaScript(
                 "typeof WI === 'undefined' ? null : WI.dockConfiguration"
             ) { [weak self] result, _ in
-                self?.applyHostedInspectorDockConfiguration(result as? String, reason: reason)
+                guard let self,
+                      let currentFrontend = self.hostedInspectorFrontendWebView,
+                      ObjectIdentifier(currentFrontend) == queriedFrontendID else {
+                    return
+                }
+                self.applyHostedInspectorDockConfiguration(result as? String, reason: reason)
             }
         }
 

@@ -93,9 +93,15 @@ struct BrowserViewportRuntimeTests {
         // A layout pass after mouse-up must not immediately promote the inline
         // split back into the side dock after WebKit reported a bottom dock.
         host.layoutSubtreeIfNeeded()
-        for _ in 0..<3 {
-            await Task.yield()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        var remainedInline = true
+        while remainedInline, ContinuousClock.now < deadline {
+            remainedInline = page.superview === slot && inspector.superview === slot
+            if remainedInline {
+                await AppKitTestEventPump().drain()
+            }
         }
+        #expect(remainedInline)
         #expect(page.superview === slot)
         #expect(inspector.superview === slot)
     }
