@@ -277,6 +277,14 @@ impl HostTab {
         }
     }
 
+    /// Chromium closed its menu itself (the `<select>` went away or the
+    /// page navigated): the viewers get `rb.menu.cancel`, Chromium gets no
+    /// answer.
+    pub fn menu_closed_by_page(&mut self, fork_token: i64) -> Vec<Control> {
+        let _ = fork_token;
+        Vec::new()
+    }
+
     /// Chromium opened a context menu or a `<select>` popup (fork token);
     /// returns the messages for the viewers.
     pub fn menu_opened(
