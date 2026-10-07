@@ -16,7 +16,6 @@ import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
 import "./composerAttachments.css";
-import "./searchChats.css";
 import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
