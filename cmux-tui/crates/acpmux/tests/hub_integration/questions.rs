@@ -53,6 +53,14 @@ async fn questions_incomplete_answers_are_refused_and_the_ask_stays() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let (id, pending) = ask(&mut c, "question: Which one?").await;
     let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    // An allow with no answers would hand the agent a blank answer.
+    let blank = c
+        .request(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": id, "permissionId": pid, "optionId": "allow_once"}),
+        )
+        .await;
+    assert!(blank.is_err());
     for answers in [json!({}), json!({"Which one?": ""}), json!({"Which one?": "A", "other": "x"})]
     {
         let refused = c

@@ -52,6 +52,8 @@ pub(super) fn eligible(request: &Value) -> bool {
             tool.pointer("/_meta/claude/tool").and_then(Value::as_str),
             Some("AskUserQuestion" | "ExitPlanMode")
         )
+        // A question (any harness) is answered on its own card, never in a batch.
+        && !super::questions::needs_person(request)
 }
 
 pub(super) fn option(request: &Value, kind: &str) -> Option<String> {

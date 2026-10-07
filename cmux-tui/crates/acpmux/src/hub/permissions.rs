@@ -502,9 +502,7 @@ impl Hub {
                         .with_data(json!({"reason":"policy_changed"})));
                 }
             }
-            if let Some(a) = &answers {
-                super::questions::check_answers(&p.request, a)?;
-            }
+            super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {

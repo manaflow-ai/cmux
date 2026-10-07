@@ -20,17 +20,36 @@ pub(super) fn question(request: &Value) -> Option<&Value> {
     request.pointer("/toolCall/_meta/acpmux/question").filter(|q| q["items"].is_array())
 }
 
-/// True when policy must not answer the request: a question, or any
-/// request a harness marks as needing a person.
+/// True when policy and batches must not answer the request: a question.
+/// Other interactive requests (plan approval) keep their policy behavior.
 pub(super) fn needs_person(request: &Value) -> bool {
-    let tool = &request["toolCall"];
     question(request).is_some()
-        || tool.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) == Some(true)
-        || tool.pointer("/_meta/claude/interactive").and_then(Value::as_bool) == Some(true)
         || matches!(
-            tool.pointer("/_meta/claude/tool").and_then(Value::as_str),
+            request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str),
             Some("AskUserQuestion")
         )
+}
+
+/// Checks a reply to `request`: answers go only with an allow option, and a
+/// question is allowed only with answers (an empty allow would hand the
+/// agent a blank answer nobody gave). A reject or a cancel needs none.
+pub(super) fn check_reply(
+    request: &Value,
+    option_id: Option<&str>,
+    answers: Option<&Value>,
+) -> Result<(), RpcError> {
+    let kind = option_id.and_then(|id| {
+        request["options"].as_array()?.iter().find(|o| o["optionId"] == id)?["kind"].as_str()
+    });
+    let allows = kind.is_some_and(|k| k.starts_with("allow"));
+    match answers {
+        Some(_) if !allows => Err(RpcError::invalid_params("answers go only with an allow option")),
+        Some(answers) => check_answers(request, answers),
+        None if allows && needs_person(request) => {
+            Err(RpcError::invalid_params("a question is answered with answers"))
+        }
+        None => Ok(()),
+    }
 }
 
 /// Adds `toolCall._meta.acpmux.question` when the tool input holds
@@ -76,7 +95,9 @@ fn text(value: &Value) -> Option<String> {
 }
 
 fn item(q: &Value, index: usize, codex: bool) -> Option<Value> {
-    let prompt = text(&q["question"])?;
+    // The prompt keeps its exact text: Claude Code matches answers by it.
+    text(&q["question"])?;
+    let prompt = q["question"].as_str()?.to_owned();
     let mut seen: Map<String, Value> = Map::new();
     let options: Vec<Value> = q["options"]
         .as_array()
@@ -128,7 +149,9 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
     let codex = question["harness"] == "codex";
     let keys: Vec<String> = items
         .iter()
-        .filter_map(|item| if codex { text(&item["id"]) } else { text(&item["prompt"]) })
+        .filter_map(|item| {
+            if codex { text(&item["id"]) } else { item["prompt"].as_str().map(str::to_owned) }
+        })
         .collect();
     if answers.len() != keys.len() || keys.iter().any(|k| !answers.contains_key(k)) {
         return invalid("must answer every question and nothing else");
@@ -209,6 +232,45 @@ mod tests {
         assert!(check_answers(&request, &json!({})).is_err());
         assert!(check_answers(&request, &json!({"Which auth?": "OAuth", "extra": "x"})).is_err());
         assert!(check_answers(&request, &json!("OAuth")).is_err());
+    }
+
+    #[test]
+    fn a_question_needs_answers_with_an_allow_and_none_with_a_reject() {
+        let mut request = claude_request();
+        normalize(&mut request);
+        let answers = json!({"Which auth?": "OAuth"});
+        assert!(check_reply(&request, Some("allow_once"), Some(&answers)).is_ok());
+        assert!(check_reply(&request, Some("allow_once"), None).is_err());
+        assert!(check_reply(&request, Some("reject_once"), None).is_ok());
+        assert!(check_reply(&request, Some("reject_once"), Some(&answers)).is_err());
+        assert!(check_reply(&request, None, None).is_ok());
+        assert!(check_reply(&request, None, Some(&answers)).is_err());
+    }
+
+    #[test]
+    fn the_prompt_keeps_its_exact_text_as_the_answer_key() {
+        let mut request = json!({"toolCall": {"rawInput": {"questions": [
+            {"question": "Which one? ", "options": [{"label": "A"}]}]},
+            "_meta": {"claude": {"tool": "AskUserQuestion"}}}});
+        normalize(&mut request);
+        assert_eq!(question(&request).unwrap()["items"][0]["prompt"], "Which one? ");
+        assert!(check_answers(&request, &json!({"Which one? ": "A"})).is_ok());
+        assert!(check_answers(&request, &json!({"Which one?": "A"})).is_err());
+    }
+
+    #[test]
+    fn a_question_never_joins_a_permission_batch() {
+        let mut request = json!({"toolCall": {"kind": "execute", "rawInput": {"questions": [
+            {"id": "name", "question": "Name?"}]}}, "options": [{"optionId": "a", "kind": "allow_once"}]});
+        normalize(&mut request);
+        assert!(!super::super::permission_groups::eligible(&request));
+    }
+
+    #[test]
+    fn plan_approval_keeps_its_policy() {
+        let request = json!({"toolCall": {"kind": "other", "rawInput": {"plan": "x"},
+            "_meta": {"claude": {"tool": "ExitPlanMode", "interactive": true}}}});
+        assert!(!needs_person(&request));
     }
 
     #[test]
