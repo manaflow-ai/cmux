@@ -5,16 +5,12 @@ import { trace, type Span } from "@opentelemetry/api";
 
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { reportError } from "../observability/report";
-import { setSpanAttributes, spanTraceIds } from "../telemetry";
+import { setSpanAttributes, spanTraceIds, VM_ERROR_CODE_HEADER } from "../telemetry";
 import { currentVmRequestContext, type VmRequestContext } from "./requestContext";
 import type { VmErrorResponseInput } from "./routeHelpers";
 
-/**
- * Response header carrying the machine-readable VM error code. Set by
- * `vmErrorResponse` on every error so response finalizers (analytics,
- * timing) can classify an outcome without re-parsing the body.
- */
-export const VM_ERROR_CODE_HEADER = "x-cmux-vm-error";
+// Defined with the route span, which reads it to label an unreported 5xx.
+export { VM_ERROR_CODE_HEADER };
 
 /**
  * Error codes that are the operator's fault, never the caller's: a
