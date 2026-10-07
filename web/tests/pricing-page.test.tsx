@@ -37,7 +37,7 @@ const proUser = {
   id: "user-pro",
   isAnonymous: false,
   primaryEmail: "pro@example.com",
-  clientReadOnlyMetadata: { cmuxPlan: "pro" },
+  clientReadOnlyMetadata: { cmuxPlan: "pro" } as Record<string, string>,
   update: mock(async () => undefined),
 };
 let currentUser: typeof proUser | null = proUser;
@@ -259,7 +259,7 @@ describe("localized pricing page", () => {
     stackConfigured = false;
     currentUser = proUser;
     stripeSubscriptionRows = [];
-    getUser.mockReset();
+    getUser.mockClear();
     getUser.mockImplementation(async () => currentUser);
     proUser.update.mockClear();
   });
