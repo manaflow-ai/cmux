@@ -13,3 +13,11 @@ Plan and graph: plans/cmux-next/ios-next/PLAN.md.
   Dynamic Type, theme, 120 Hz gestures); `TerminalBenchViewController` replays flood/htop/vim/corpus
   with signposted frame timing. Design: plans/cmux-next/ios-next/a2-ghostty.md. Tagged build `nxa2`
   blocked (no fleet manifest on this host, controller iOS builds need a pushed ref).
+- 2026-10-06 C9 ssh (branch `feat-cmux-next-ios-c9-ssh`, local only: GitHub push auth broken):
+  `CmuxiOSSSHCore` (`LocalHostsStore` real `HostsStore` with `HostsSyncChannel` seam for B1, ssh_config
+  import, known_hosts + TOFU verifier, `SSHTerminalByteSource` `.local` with PTY/window-change/backoff
+  reconnect/kernel keepalive) and `CmuxiOSSSH` (Hosts tab, editor, Ed25519/Secure Enclave keys, trust
+  alerts, SSH terminal screen). Shell change: `ShellContent(screens:)` injects feature tab roots; FeatureKit
+  gains `HostID.added(by:)`; CmuxMobileSSH gains `generateEd25519Key` and `connect(keepalive:)`. 34 tests
+  green on macOS; simulator compile green. Design: plans/cmux-next/ios-next/c9-ssh.md. Tagged build `nxc9`
+  blocked (dev backend VM unreachable, no fleet manifest, 20 GiB free).

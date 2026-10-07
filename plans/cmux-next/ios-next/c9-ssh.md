@@ -104,3 +104,23 @@ paired Mac refusal, persistence across instances, sync publish), reconnect polic
 against a fake session factory (PTY size, window-change dedupe, offline send refused, reconnect
 after drop, no reconnect after auth failure). They run with `swift test` on macOS through a scratch
 package linking the same sources (the CmuxiOS package is iOS-only), and compile for the simulator.
+
+## 9. Status (2026-10-06)
+
+Done: `CmuxiOSSSHCore` and `CmuxiOSSSH` as above, wired into the shell (`AppContainer` registers
+one `LocalHostsStore` as the real `hosts` factory; in DEBUG the seam defaults to its mock, so use
+`CMUX_IOS_SOURCE_HOSTS=real` or the DEV switch to exercise the on-device store). 34 Swift Testing
+tests in `CmuxiOSSSHCoreTests` pass with `swift test` on macOS (plus the 13 FeatureKit tests after
+the `HostID.added(by:)` change); `CmuxiOSApp`, `CmuxiOSSSHCoreTests`, `CmuxiOSShellTests` and
+`CmuxiOSFeatureKitTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Unverified: everything visual and every live SSH path (trust alert, key install, PTY, resize,
+reconnect, keepalive drop detection, Secure Enclave keys) on a simulator or device. Tagged build
+`nxc9` BLOCKED: `ios/scripts/reload-cloud.sh --tag nxc9` fails on the dev backend VM
+(`cmux-dev-backend-1` SSH timeout); with `CMUX_DEV_BACKEND_MODE=local` there is no fleet manifest
+(`~/.config/macfleet/hosts.json`), so it falls back to a local Mac build that refuses at 20 GiB free
+(floor 40 GiB). Rerun the same command when a fleet slot or disk is available.
+
+Not done here: SSH workspaces in the Workspaces list (tmux, screen, cmux-tui; with C5), SFTP (C4),
+port forwarding for the in-app browser (C14), importing private keys and known_hosts lines in the
+UI (the stores support both), key install through a jump host, B1 sync behind `HostsSyncChannel`.
