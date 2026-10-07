@@ -194,7 +194,8 @@ import Testing
     /// One synthetic profile per Chromium browser in the catalog, each sealed
     /// with a key only that browser's "<Name> Safe Storage" item opens.
     @Test func everyChromiumBrowserImportsWithItsOwnSafeStorageKey() async throws {
-        for browser in ImportBrowser.allCases where browser.family == .chromium && !browser.refusesSessionData && browser != .yandex {
+        // Rows without a known Keychain item (registry) read no passwords; Yandex uses its own scheme.
+        for browser in ImportBrowser.allCases where browser.family == .chromium && browser.readsSavedPasswords && browser.safeStorageService != nil {
             let home = try FixtureHome()
             let profile = home.directory(browser).appending(path: "Default", directoryHint: .isDirectory)
             try FixtureHome.sqlite(profile.appending(path: "Login Data"), [

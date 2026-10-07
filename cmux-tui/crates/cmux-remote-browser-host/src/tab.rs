@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens};
+use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect, RefuseReason, SessionState,
+    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, Rect, RefuseReason, SessionState,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -23,6 +23,8 @@ pub trait Presentation {
     fn context_menu_result(&mut self, fork_token: i64, command: Option<i64>) -> bool;
     /// `None` cancels.
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool;
+    /// Answers the JS dialog with the fork's token (`text` for a prompt).
+    fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool;
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -46,18 +48,21 @@ pub struct HostTab {
     pub menus: MenuTokens,
     fork_menu: Option<ForkMenu>,
     capture_wanted: bool,
+    /// The shim accepted the capture (it refuses while the tab has no view).
+    capture_on: bool,
     screen: Option<ScreenSize>,
     /// Each open viewer's last screen seq (`rb.open` is seq 0).
     viewer_seqs: BTreeMap<String, u32>,
+    /// The token the next JS dialog gets (tokens start at 1, never repeat).
+    next_dialog: u64,
+    fork_dialog: Option<ForkDialog>,
 }
 
-fn flatten_ids(items: &[MenuItem], out: &mut Vec<i64>) {
-    for item in items {
-        if item.item_type != "separator" && item.item_type != "submenu" {
-            out.push(item.id);
-        }
-        flatten_ids(&item.items, out);
-    }
+/// The JS dialog Chromium has open, with the fork's own token.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ForkDialog {
+    rb_token: u64,
+    fork_token: i64,
 }
 
 impl HostTab {
@@ -71,8 +76,11 @@ impl HostTab {
             menus: MenuTokens::default(),
             fork_menu: None,
             capture_wanted: false,
+            capture_on: false,
             screen: None,
             viewer_seqs: BTreeMap::new(),
+            next_dialog: 1,
+            fork_dialog: None,
         }
     }
 
@@ -104,7 +112,7 @@ impl HostTab {
                 SessionEffect::StartCapture => {
                     self.capture_wanted = true;
                     if let Some(browser) = self.browser {
-                        p.capture(browser, true);
+                        self.capture_on = p.capture(browser, true);
                     }
                 }
                 SessionEffect::StopCapture => {
@@ -112,12 +120,14 @@ impl HostTab {
                     if let Some(browser) = self.browser {
                         p.capture(browser, false);
                     }
+                    self.capture_on = false;
                 }
                 SessionEffect::NotifyState { state } => out.push(Control::State { state }),
                 SessionEffect::StopPage => {
                     if let Some(browser) = self.browser.take() {
                         p.close_tab(browser);
                     }
+                    self.capture_on = false;
                 }
             }
         }
@@ -128,7 +138,7 @@ impl HostTab {
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
         if self.capture_wanted {
-            p.capture(browser, true);
+            self.capture_on = p.capture(browser, true);
         }
     }
 
@@ -223,6 +233,12 @@ impl HostTab {
                 }
                 Vec::new()
             }
+            Control::DialogResult { token, accept, text } => {
+                if let Some(open) = self.fork_dialog.take_if(|d| d.rb_token == *token) {
+                    p.dialog_result(open.fork_token, *accept, text.as_deref());
+                }
+                Vec::new()
+            }
             _ => Vec::new(),
         }
     }
@@ -261,6 +277,26 @@ impl HostTab {
         }
     }
 
+    /// Chromium closed its menu itself (the `<select>` went away or the
+    /// page navigated): the viewers get `rb.menu.cancel`, Chromium gets no
+    /// answer.
+    pub fn menu_closed_by_page(&mut self, fork_token: i64) -> Vec<Control> {
+        let Some(open) = self.fork_menu.take_if(|m| m.fork_token == fork_token) else {
+            return Vec::new();
+        };
+        let Ok(outcome) = self.menus.apply(MenuInput::PageCancel { token: open.rb_token }) else {
+            return Vec::new();
+        };
+        outcome
+            .effects
+            .into_iter()
+            .filter_map(|e| match e {
+                MenuEffect::ViewerCancel { token } => Some(Control::MenuCancel { token }),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Chromium opened a context menu or a `<select>` popup (fork token);
     /// returns the messages for the viewers.
     pub fn menu_opened(
@@ -270,7 +306,7 @@ impl HostTab {
         p: &mut dyn Presentation,
     ) -> Vec<Control> {
         let mut item_ids = Vec::new();
-        flatten_ids(&menu.items, &mut item_ids);
+        command_ids(&menu.items, &mut item_ids);
         let item_count = u32::try_from(menu.items.len()).unwrap_or(u32::MAX);
         let Ok(outcome) = self.menus.apply(MenuInput::Show {
             kind: menu.kind,
@@ -335,6 +371,47 @@ impl HostTab {
             pixel_height: (f64::from(applied.css_height) * applied.scale).ceil() as u32,
             scale: applied.scale,
         })
+    }
+
+    /// Chromium opened a JS dialog (alert, confirm, prompt, beforeunload)
+    /// with the fork's token; returns the messages for the viewers. A
+    /// dialog still open on the viewers is cancelled first (Chromium shows
+    /// one at a time, so a new one means the old one is gone).
+    pub fn dialog_opened(
+        &mut self,
+        fork_token: i64,
+        dialog: Dialog,
+        _p: &mut dyn Presentation,
+    ) -> Vec<Control> {
+        let mut out = self.dialog_reset();
+        let token = self.next_dialog;
+        self.next_dialog += 1;
+        self.fork_dialog = Some(ForkDialog { rb_token: token, fork_token });
+        out.push(Control::DialogShow { token, dialog });
+        out
+    }
+
+    /// Chromium reset its dialog state (the page navigated away or closed):
+    /// its callback is gone, so the open dialog is cancelled on the viewers
+    /// (`rb.dialog.cancel`) and a late answer reaches nothing.
+    pub fn dialog_reset(&mut self) -> Vec<Control> {
+        match self.fork_dialog.take() {
+            Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
+            None => Vec::new(),
+        }
+    }
+
+    /// Starts the wanted capture that the shim refused before (call it on
+    /// the tab's later shim callbacks: title, URL, load).
+    pub fn retry_capture(&mut self, p: &mut dyn Presentation) {
+        if let (true, false, Some(browser)) = (self.capture_wanted, self.capture_on, self.browser) {
+            self.capture_on = p.capture(browser, true);
+        }
+    }
+
+    /// The shim captures this tab now.
+    pub fn capturing(&self) -> bool {
+        self.capture_on
     }
 
     pub fn state(&self) -> SessionState {

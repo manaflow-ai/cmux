@@ -1532,6 +1532,16 @@ describe("direct client session state", () => {
     expect(latest().connection).toBe("connected");
   });
 
+  /// A prompt acpmux held for the trust answer goes after Trust with the gesture its send kept: the
+  /// ticket rides beside its promptId (`_meta.cmuxGesture`), which the host strips.
+  test("a held prompt carries its kept gesture ticket beside its promptId", async () => {
+    const client = await connect();
+    void client.send("after trust", [], "p-held", undefined, "ticket-1").catch(() => undefined);
+    await settle();
+    const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt");
+    expect(prompt?.params?._meta).toEqual({ acpmux: { promptId: "p-held" }, cmuxGesture: "ticket-1" });
+  });
+
   /// A trust refusal names the folder acpmux asks about, so the pane can ask about it.
   test("a trust refusal carries the folder acpmux named", async () => {
     const client = await connect();

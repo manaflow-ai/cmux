@@ -96,6 +96,18 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                 cliName: "bookmark import", mainMenu: .file
             ),
             ActionDescriptor(
+                id: "bookmark.importFromBrowser", title: t("action.bookmark.importFromBrowser", "Import Bookmarks from Browser…"),
+                keywords: ["bookmark", "import", "browser", "chrome", "safari", "firefox", "arc", "brave", "edge", "dia", "zen", "helium", "comet"],
+                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu],
+                arguments: [
+                    ActionArgument(name: "browser", title: t("argument.bookmark.browser", "Browser"), kind: .string, isRequired: false),
+                    ActionArgument(name: "source", title: t("argument.bookmark.sourceProfile", "Profile to Import"), kind: .string,
+                                   isRequired: false),
+                    profile,
+                ],
+                cliName: "bookmark import-from-browser", mainMenu: .file
+            ),
+            ActionDescriptor(
                 id: "bookmark.export", title: t("action.bookmark.export", "Export Bookmarks…"),
                 keywords: ["bookmark", "export", "html", "netscape", "backup"], category: .browser, symbol: "square.and.arrow.up",
                 surfaces: [.palette, .keyboard, .menu], arguments: [path, profile], cliName: "bookmark export", mainMenu: .file

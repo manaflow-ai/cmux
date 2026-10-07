@@ -59,6 +59,16 @@ typedef struct {
                         int selected, int multiple);
   // Viz needs begin frames for this browser (RP3) or not.
   void (*on_needs_begin_frames)(void* context, int browser_id, int needs);
+  // A JS dialog (token answered with rb_shim_dialog_result). `kind` is
+  // "alert", "confirm", "prompt" or "beforeunload"; `default_text` is NULL
+  // except for a prompt.
+  void (*on_dialog)(void* context, int browser_id, int64_t token,
+                    const char* kind, const char* origin_utf8,
+                    const char* message_utf8, const char* default_text_utf8,
+                    int is_reload);
+  // Chromium reset this browser's dialog state (navigation, close): its
+  // pending dialog callbacks are gone; the host cancels them on the viewers.
+  void (*on_dialog_reset)(void* context, int browser_id);
 } rb_shim_callbacks_t;
 
 // Runs the process: helper processes return their exit code at once; the
@@ -113,6 +123,9 @@ int rb_shim_ime_cancel(int browser_id);
 // Menu answers: command id (-1 cancels) / option indices (count < 0 cancels).
 int rb_shim_context_menu_result(int64_t token, int command_id);
 int rb_shim_popup_menu_result(int64_t token, const int* indices, int count);
+// Dialog answer: accept (OK/Leave) or not, with the prompt text (may be NULL).
+// Returns 0 when the token is not pending (answered or reset).
+int rb_shim_dialog_result(int64_t token, int accept, const char* text_utf8);
 
 #ifdef __cplusplus
 }

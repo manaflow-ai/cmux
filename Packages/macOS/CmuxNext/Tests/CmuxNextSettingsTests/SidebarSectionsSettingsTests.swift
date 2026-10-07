@@ -29,6 +29,17 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
+    @Test func chatsAreHiddenByDefaultAndOptIn() throws {
+        #expect(try !parse("{}").sidebarSections.showChats)
+        #expect(try parse(#"{"sidebar": {"showChats": true}}"#).sidebarSections.showChats)
+        let bad = try parse(#"{"sidebar": {"showChats": "yes"}}"#)
+        #expect(bad.sidebarSections == .defaults)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.showChats"])
+        let descriptor = try #require(SettingsSchema.all.first { $0.path == ["sidebar", "showChats"] })
+        #expect(descriptor.section == .appearance)
+        #expect(SettingsSchema.agentSettable(descriptor) == true)
+    }
+
     /// The S1 key is still read for one release when the new key is absent.
     @Test func countsAreOptIn() throws {
         #expect(try !parse("{}").sidebarSections.workspaceRow.base.shows(.tabCount))

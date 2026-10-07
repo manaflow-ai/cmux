@@ -58,6 +58,21 @@ pub struct RbCallbacks {
         ),
     >,
     pub on_needs_begin_frames: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int)>,
+    /// browser, token, kind, origin, message, default text (NULL unless a
+    /// prompt), is_reload.
+    pub on_dialog: Option<
+        unsafe extern "C" fn(
+            *mut c_void,
+            c_int,
+            i64,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            c_int,
+        ),
+    >,
+    pub on_dialog_reset: Option<unsafe extern "C" fn(*mut c_void, c_int)>,
 }
 
 unsafe extern "C" {
@@ -133,6 +148,7 @@ unsafe extern "C" {
     pub fn rb_shim_ime_cancel(browser: c_int) -> c_int;
     pub fn rb_shim_context_menu_result(token: i64, command_id: c_int) -> c_int;
     pub fn rb_shim_popup_menu_result(token: i64, indices: *const c_int, count: c_int) -> c_int;
+    pub fn rb_shim_dialog_result(token: i64, accept: c_int, text: *const c_char) -> c_int;
 }
 
 fn cstr(s: &str) -> CString {
@@ -257,6 +273,13 @@ impl Presentation for ShimPresentation {
         let id = command.and_then(|c| c_int::try_from(c).ok()).unwrap_or(-1);
         // SAFETY: plain values.
         unsafe { rb_shim_context_menu_result(fork_token, id) == 1 }
+    }
+
+    fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool {
+        let text = text.map(cstr);
+        let ptr = text.as_ref().map_or(std::ptr::null(), |t| t.as_ptr());
+        // SAFETY: `text` outlives the call; the shim copies it.
+        unsafe { rb_shim_dialog_result(fork_token, c_int::from(accept), ptr) == 1 }
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {

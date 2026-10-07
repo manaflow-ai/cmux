@@ -6,12 +6,9 @@ import Foundation
 /// (Localizable.xcstrings, keys `home.list.*`, `home.compose.*`,
 /// `home.invite.*`, `home.chief.new.*`).
 enum HomeConversationStrings {
-    static var listTitle: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
-    static var newMenu: String { String(localized: "home.list.new", defaultValue: "New", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
-    static var archiveChief: String { String(localized: "home.list.archiveChief", defaultValue: "Archive Chief", bundle: .module) }
     static var empty: String {
         String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
     }
@@ -107,8 +104,6 @@ enum HomeConversationStrings {
         }
     }
 
-    static var pin: String { String(localized: "home.sidebar.pin", defaultValue: "Pin", bundle: .module) }
-    static var unpin: String { String(localized: "home.sidebar.unpin", defaultValue: "Unpin", bundle: .module) }
 
     // MARK: Outcomes
 
@@ -161,12 +156,4 @@ extension HomeComposeOutcome {
 
     /// An invite or op the owner refused with `code`, as the user reads it.
     public static func refusal(code: String) -> HomeComposeOutcome { .refused(HomeConversationStrings.inviteRefusal(code)) }
-}
-
-extension NSMenuItem {
-    /// The list row menu's Archive Chief title.
-    public static var homeArchiveChiefTitle: String { HomeConversationStrings.archiveChief }
-    /// The sidebar row menu's Pin and Unpin titles.
-    public static var homePinTitle: String { HomeConversationStrings.pin }
-    public static var homeUnpinTitle: String { HomeConversationStrings.unpin }
 }

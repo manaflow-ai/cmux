@@ -71,46 +71,6 @@ import Testing
         #expect(merged.map(\.source) == [.team, .team, .connection])
     }
 
-    @Test func choosingARowAsksTheHostAndArrowKeysSkipHeaders() throws {
-        let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
-        var chosen: [String] = []
-        list.onSelect = { chosen.append($0.rawValue) }
-        list.update(rows: Self.rows, me: Self.me)
-        list.layoutSubtreeIfNeeded()
-        #expect(list.table.numberOfRows == 10, "4 headers and 6 conversations")
-        list.select(ConversationID("conv_chief"))
-        #expect(chosen.isEmpty, "a selection the host made is not echoed")
-        list.table.step(1)
-        #expect(chosen == ["conv_pinned"], "down from the last Chief skips the Pinned header")
-        list.table.step(-1)
-        #expect(chosen == ["conv_pinned", "conv_chief"])
-        #expect(list.selection == ConversationID("conv_chief"))
-    }
-
-    @Test func aRowSaysItsUnreadAndMentionStateToVoiceOver() throws {
-        let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
-        list.update(rows: Self.rows, me: Self.me)
-        let index = try #require(list.lines.firstIndex { $0.conversation?.rawValue == "conv_austin" })
-        let cell = try #require(list.tableView(list.table, viewFor: nil, row: index) as? HomeConversationCellView)
-        #expect(!cell.badge.isHidden && cell.badge.stringValue == "2")
-        #expect(!cell.mention.isHidden)
-        let label = try #require(cell.accessibilityLabel())
-        #expect(label.contains("Austin") && label.contains(HomeConversationStrings.unread(2)) && label.contains(HomeConversationStrings.mentioned))
-    }
-
-    @Test func thePlusMenuOffersNewMessageNewChiefAndInvite() {
-        let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
-        var picked: [String] = []
-        list.onNewMessage = { picked.append("message") }
-        list.onNewChief = { picked.append("chief") }
-        list.onInvite = { picked.append("invite") }
-        let menu = list.addMenu()
-        #expect(menu.items.map(\.title) == [HomeConversationStrings.newMessage, HomeConversationStrings.newChief, HomeConversationStrings.invite])
-        for item in menu.items { _ = item.target?.perform(item.action) }
-        #expect(picked == ["message", "chief", "invite"])
-        #expect(list.addButton.accessibilityLabel() != nil)
-    }
-
     @Test func theComposeSheetStartsWithThePickedPeopleAndOffersAnInviteWhenRefused() async throws {
         let sheet = HomeComposeSheet(contacts: [HomeContact(id: ParticipantID("user_austin"), name: "Austin", source: .team),
                                                 HomeContact(id: ParticipantID("user_aziz"), name: "Aziz", source: .team)])
