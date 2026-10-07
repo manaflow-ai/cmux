@@ -67,7 +67,9 @@ describe("render calls", () => {
     expect(html).toContain(">Mock</span>");
     // The HTML goes to the frame by message, never into the pane's own markup.
     expect(html).not.toContain("<p>x</p>");
-    expect(renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }))).toContain(">Preview</span>");
+    expect(renderToStaticMarkup(createElement(RenderCard, { call: { html: "<p>x</p>" } }))).toContain(
+      ">Preview</span>",
+    );
   });
 
   test("the card's classes leave the row's own class alone", () => {

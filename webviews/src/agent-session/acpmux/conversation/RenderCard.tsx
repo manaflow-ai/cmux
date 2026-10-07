@@ -49,7 +49,11 @@ export function RenderCard({ call }: { call: RenderCall }) {
       const message = data as { type?: unknown; height?: unknown };
       if (message.type === "cmux-render-ready")
         target.postMessage({ type: "cmux-render", html: call.html, css: themeCSS() }, "*");
-      else if (message.type === "cmux-render-size" && typeof message.height === "number" && Number.isFinite(message.height))
+      else if (
+        message.type === "cmux-render-size" &&
+        typeof message.height === "number" &&
+        Number.isFinite(message.height)
+      )
         setHeight(Math.min(EXPANDED_MAX_HEIGHT, Math.max(RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))));
     };
     addEventListener("message", onMessage);
