@@ -66,6 +66,10 @@ public final class ConversationViewController: UIViewController {
     /// Whether the reader is following the bottom. Only the reader's own
     /// scrolling (or a send) changes it; inset changes never do.
     var isPinnedToBottom = true
+    /// A status-bar tap's animated scroll to the top is running. Messages
+    /// loads history only once it comes to rest at the spinner, so a page
+    /// never lands under (and is never chased by) that animation.
+    var isScrollingToTop = false
     var layoutMargin: CGFloat { view.directionalLayoutMargins.leading }
 
     // Interaction state (see +Gestures).
@@ -446,6 +450,12 @@ public final class ConversationViewController: UIViewController {
                 self.restore(anchor)
             }
         } else {
+            if isScrollingToTop {
+                // Stop a running scroll-to-top so it cannot carry the reader
+                // past the anchor into the page that just landed.
+                collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+                isScrollingToTop = false
+            }
             UIView.performWithoutAnimation {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
@@ -574,9 +584,13 @@ public final class ConversationViewController: UIViewController {
         return false
     }
 
-    func maybeLoadOlder() {
-        guard hasPositionedInitially, store.hasLoadedNewest else { return }
-        let fromTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+    /// Loads the page above when `offsetY` (the current offset, or where a
+    /// fling will come to rest) is near the top-of-history spinner. Messages
+    /// checks the fling target at release too, so a hard fling toward the top
+    /// starts its fetch before the deceleration gets there.
+    func maybeLoadOlder(targetOffsetY: CGFloat? = nil) {
+        guard hasPositionedInitially, store.hasLoadedNewest, !isScrollingToTop else { return }
+        let fromTop = (targetOffsetY ?? collectionView.contentOffset.y) + collectionView.adjustedContentInset.top
         let viewport = collectionView.bounds.height
         if fromTop < viewport * 1.5 {
             store.loadOlder()
@@ -673,15 +687,29 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        // Messages ignores a status-bar tap while a message's menu covers the
+        // transcript (CKChatController isFullScreenBalloonViewOnScreen).
+        if view.subviews.contains(where: { $0 is MessageActionOverlay }) { return false }
         // A status-bar tap leaves the bottom on purpose.
         isPinnedToBottom = false
+        isScrollingToTop = true
         return true
+    }
+
+    public func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+        isScrollingToTop = false
+        maybeLoadOlder()
+    }
+
+    public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
         dismissPhotoDrawer()
+        isScrollingToTop = false
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -695,6 +723,11 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if scrollView.isTracking || scrollView.isDecelerating {
             isPinnedToBottom = isNearBottom(tolerance: 44)
+        }
+        // The scroll-to-top is over once it rests at the top (not every path
+        // reports scrollViewDidScrollToTop).
+        if isScrollingToTop, scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 0.5 {
+            isScrollingToTop = false
         }
         maybeLoadOlder()
         if store.hasLoadedNewest, isNearBottom(tolerance: 60) {

@@ -163,7 +163,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(composer.textView)
-        if hasPositioned, isPinnedToBottom { scrollToBottom() }
+        // Messages opens a conversation at its newest message every time it
+        // is selected; a place the reader scrolled to earlier is not kept.
+        if hasPositioned {
+            isPinnedToBottom = true
+            scrollToBottom()
+        }
     }
 
 

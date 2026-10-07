@@ -70,7 +70,9 @@ enum MacConversationRowBuilder {
         rows.reserveCapacity(store.messages.count + 4)
         if store.older == .exhausted {
             rows.append(.conversationStart)
-        } else if store.hasLoadedNewest, store.older != .idle {
+        } else if store.hasLoadedNewest {
+            // Messages keeps its load-more spinner at the top for as long as
+            // older history exists; reaching it is what loads the next page.
             rows.append(.loadingOlder)
         }
         rows += messageRows(

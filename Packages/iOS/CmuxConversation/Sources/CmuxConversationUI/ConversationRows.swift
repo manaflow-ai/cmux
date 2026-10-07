@@ -69,8 +69,9 @@ enum ConversationRowBuilder {
         rows.reserveCapacity(store.messages.count * 2 + 3)
         if store.older == .exhausted {
             rows.append(.conversationStart)
-        } else if store.hasLoadedNewest, !hidesLoadingRow, store.older != .idle {
-            // Spinner only while an older page is in flight (or retrying).
+        } else if store.hasLoadedNewest, !hidesLoadingRow {
+            // Messages keeps its load-more spinner at the top for as long as
+            // older history exists; reaching it is what loads the next page.
             rows.append(.loadingOlder)
         }
         let isGroup = info.kind == .group

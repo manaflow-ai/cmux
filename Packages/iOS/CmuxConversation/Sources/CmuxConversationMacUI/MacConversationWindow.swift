@@ -11,7 +11,7 @@ final class MacConversationEntry {
 
     init(id: String, endpoint: URL) {
         self.id = id
-        store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint))
+        store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint), pageSize: ConversationStore.macPageSize)
     }
 }
 

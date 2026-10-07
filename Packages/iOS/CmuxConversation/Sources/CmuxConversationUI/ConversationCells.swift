@@ -452,13 +452,15 @@ final class TimestampCell: UICollectionViewCell {
 /// Spinner shown while an older page is in flight.
 final class LoadingCell: UICollectionViewCell {
     static let reuseID = "loading"
-    static let height: CGFloat = 44
+    /// ChatKit's load-more row (CKTranscriptHeaderCell.defaultCellHeight).
+    static let height: CGFloat = 20
     let spinner = UIActivityIndicatorView(style: .medium)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(spinner)
         spinner.hidesWhenStopped = false
+        spinner.color = .secondaryLabel
         accessibilityIdentifier = "conversation.loadingOlder"
         isAccessibilityElement = true
         accessibilityLabel = String(localized: "conversation.loadingOlder", defaultValue: "Loading earlier messages", bundle: .module)
