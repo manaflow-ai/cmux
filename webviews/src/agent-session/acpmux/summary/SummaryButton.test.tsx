@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import type { TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 
 const dom = new JSDOM("<!doctype html><div id=outside></div><div id=root></div>", {
@@ -50,12 +51,26 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
+async function render(
+  opened: string[],
+  shown: readonly AcpmuxRow[] = rows,
+  changeFiles?: readonly TurnFile[],
+  onOutput?: (path: string) => void,
+) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) })),
+      root.render(
+        createElement(SummaryButton, {
+          rows: next,
+          changeFiles,
+          onOpenOutput: (path) => {
+            opened.push(path);
+            onOutput?.(path);
+          },
+        }),
+      ),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
@@ -79,7 +94,7 @@ test("the button opens the summary, focuses its first link, and Escape returns f
   await act(async () => button.click());
   expect(button.getAttribute("aria-expanded")).toBe("true");
   // The Codex app's three sections first, always; pull requests and wakeups after, when there are any.
-  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources", "Pull requests"]);
+  expect(titles(popover()!)).toEqual(["Changes", "Subagents", "Sources", "Pull requests"]);
   const link = popover()!.querySelector<HTMLAnchorElement>("a.acpmux-summary-link")!;
   expect(link.href).toBe("https://github.com/a/b/pull/9");
   expect(link.textContent).toContain("Fix scroll");
@@ -92,12 +107,65 @@ test("the button opens the summary, focuses its first link, and Escape returns f
 
 test("an output opens the changes view at that file and closes the popover", async () => {
   const opened: string[] = [];
-  const { button, popover, unmount } = await render(opened);
+  const focused: string[] = [];
+  const { button, popover, unmount } = await render(opened, rows, undefined, () => {
+    focused.push(dom.window.document.activeElement?.getAttribute("aria-label") ?? "");
+  });
   await act(async () => button.click());
   await act(async () => popover()!.querySelector<HTMLButtonElement>("button.acpmux-summary-link")!.click());
   expect(opened).toEqual(["/repo/notes.md"]);
+  expect(focused).toEqual(["Chat summary"]);
   expect(popover()).toBeNull();
   await unmount();
+});
+
+test("the Changes files match the totals' turn", async () => {
+  const opened: string[] = [];
+  const shown = [
+    ...rows,
+    {
+      id: "activity-3",
+      version: 1,
+      at: 3,
+      kind: "activity",
+      items: [
+        tool({ id: "edit-2", kind: "edit", title: "Write", diffs: [{ path: "/repo/latest.md", newText: "new\n" }] }),
+      ],
+    },
+  ] satisfies AcpmuxRow[];
+  const { button, popover, unmount } = await render(opened, shown, [
+    {
+      path: "/repo/latest.md",
+      displayPath: "latest.md",
+      edits: [],
+      additions: 1,
+      deletions: 0,
+      created: true,
+    },
+  ]);
+  await act(async () => button.click());
+  const fileLinks = [...popover()!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-link[title]")];
+  expect(fileLinks.map((link) => link.getAttribute("title"))).toEqual(["/repo/latest.md"]);
+  await unmount();
+});
+
+test("empty Changes totals leave the section non-actionable", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(SummaryButton, {
+        rows: rows.slice(0, 1),
+        changes: { additions: 0, deletions: 0 },
+        onOpenChanges: () => undefined,
+      }),
+    ),
+  );
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
+  await act(async () => button.click());
+  expect(container.querySelectorAll("button.acpmux-summary-link")).toHaveLength(0);
+  expect([...container.querySelectorAll(".acpmux-summary-none")].map((node) => node.textContent)).toContain("None");
+  await act(async () => root.unmount());
 });
 
 test("Sources opens the last turn's Changes and closes the popover", async () => {
@@ -158,7 +226,7 @@ test("following a pull request link closes the summary", async () => {
 test("an empty chat shows the three sections with None, not a sentence", async () => {
   const { button, popover, unmount } = await render([], rows.slice(0, 1));
   await act(async () => button.click());
-  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources"]);
+  expect(titles(popover()!)).toEqual(["Changes", "Subagents", "Sources"]);
   expect([...popover()!.querySelectorAll(".acpmux-summary-none")].map((node) => node.textContent)).toEqual([
     "None",
     "None",

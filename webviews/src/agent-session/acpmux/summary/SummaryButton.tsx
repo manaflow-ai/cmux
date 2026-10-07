@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo } from "react";
+import type { TurnFile } from "../diff";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
-import { Popover } from "../../../ui/Popover";
+import { usePopover } from "./usePopover";
+import { useUiAnchor } from "../../../ui/anchor";
 import { registerPicker } from "../pickerOpeners";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
@@ -12,30 +14,22 @@ import { registerPicker } from "../pickerOpeners";
 /// nothing for it while it is closed.
 export function SummaryButton({
   rows,
+  changeFiles,
   onOpenOutput,
   changes,
   onOpenChanges,
 }: {
   rows: readonly AcpmuxRow[];
+  changeFiles?: readonly TurnFile[];
   onOpenOutput?: (path: string) => void;
   changes?: { additions: number; deletions: number };
   onOpenChanges?: () => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
+  const { open, setOpen, button, popover, toggle } = usePopover();
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
-  useEffect(() => {
-    if (!open) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover")) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", dismissOutside, true);
-    return () => document.removeEventListener("pointerdown", dismissOutside, true);
-  }, [open]);
+  // At the header's right end, beside the chat menu: the popover's right edge meets the button's.
+  const popoverStyle = useUiAnchor(button, popover, open && Boolean(summary), { side: "below", align: "end" });
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("summary.open");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
@@ -49,21 +43,22 @@ export function SummaryButton({
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggle}
       >
         <Icon name="view.list" size={15} />
       </button>
-      {summary ? (
-        <Popover
-          open={open}
-          onOpenChange={setOpen}
-          anchor={button.current}
-          label={label}
+      {open && summary && (
+        <dialog
+          ref={popover}
+          open
+          tabIndex={-1}
+          aria-label={label}
           className="acpmux-summary-popover"
-          finalFocus={button}
+          style={popoverStyle}
         >
           <SummaryPopover
             summary={summary}
+            changeFiles={changeFiles}
             changes={changes}
             onOpenChanges={() => {
               // Diff review restores focus to its opener after closing. Keep the
@@ -77,13 +72,17 @@ export function SummaryButton({
             onOpenOutput={
               onOpenOutput &&
               ((path) => {
+                // Diff review restores focus to its opener. Focus the persistent
+                // summary button before unmounting the popover so file rows do not
+                // leave a detached button as the opener.
+                button.current?.focus();
                 setOpen(false);
                 onOpenOutput(path);
               })
             }
           />
-        </Popover>
-      ) : null}
+        </dialog>
+      )}
     </span>
   );
 }
