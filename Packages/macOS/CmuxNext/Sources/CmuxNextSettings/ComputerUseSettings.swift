@@ -10,6 +10,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
+        if let value = reader.bool("enabled") { settings.enabled = value }
         diagnostics = reader.diagnostics
         return settings
     }

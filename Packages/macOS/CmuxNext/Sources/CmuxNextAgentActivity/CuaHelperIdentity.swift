@@ -91,8 +91,8 @@ public nonisolated struct CuaHelperIdentity: Sendable {
                                            home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                            isDevBuild: Bool) -> [URL] {
         let own = mainBundle.appending(path: "Contents/Library/\(appName)")
-        let apps = ["cmux.app", "cmux NIGHTLY.app", "cmux RC.app"]
-        var candidates = [own]
+        let apps = isDevBuild ? ["cmux NIGHTLY.app", "cmux RC.app", "cmux.app"] : ["cmux.app", "cmux NIGHTLY.app", "cmux RC.app"]
+        var candidates = isDevBuild ? [] : [own]
         for root in [URL(fileURLWithPath: "/Applications"), home.appending(path: "Applications")] {
             for app in apps {
                 candidates.append(root.appending(path: "\(app)/Contents/Library/\(appName)"))

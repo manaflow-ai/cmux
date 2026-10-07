@@ -108,7 +108,41 @@ final class ComputerUseHelperDaemon {
     }
 
     /// Computer Use on: starts the signed helper (once); off: stops it.
-    func apply(enabled: Bool) async {}
+    func apply(enabled: Bool) async {
+        generation &+= 1
+        let current = generation
+        guard enabled else { return stop() }
+        if case .running = state { return }
+        let resolution = await Self.resolve(identity, candidates)
+        guard current == generation else { return }
+        guard case .signed(let helper) = resolution else {
+            helperLogger.notice("Computer Use is on, but no Developer ID signed cmux Computer Use helper is installed")
+            state = .unavailable
+            return
+        }
+        guard prepareDirectories() else {
+            state = .unavailable
+            return
+        }
+        let agent = Self.makeToken()
+        let host = Self.makeToken()
+        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath),
+                                        environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
+        guard current == generation else {
+            if let pid { launcher.terminate(pid) }
+            return
+        }
+        guard let pid else {
+            state = .unavailable
+            return
+        }
+        agentToken = agent
+        hostToken = host
+        state = .running(pid)
+        helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
+        exportEnvironment(AgentActivitySocketSource.Configuration.socketEnvironmentKey, socketPath)
+        exportEnvironment(AgentActivitySocketSource.Configuration.authTokenEnvironmentKey, agent)
+    }
 
     /// Stops the helper this app started (exact pid) and withdraws the exports.
     func stop() {
