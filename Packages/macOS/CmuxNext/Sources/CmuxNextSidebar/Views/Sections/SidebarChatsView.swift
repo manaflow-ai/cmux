@@ -65,6 +65,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     private func configure() {
         search.placeholderString = Self.searchPlaceholder
         search.controlSize = .small
+        search.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         search.target = self
         search.action = #selector(searchChanged)
         onSearchChanged = { [weak self] in
@@ -72,6 +73,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             self.update(self.rows, enabled: self.lastEnabled, ready: self.lastReady)
         }
         search.setAccessibilityLabel(Self.searchPlaceholder)
+        grouping.controlSize = .small
+        grouping.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        grouping.isBordered = false
         grouping.addItems(withTitles: [Self.harnessGroup, Self.folderGroup, Self.accountGroup])
         grouping.selectItem(at: SidebarChatsGrouping.allCases.firstIndex(of: selectedGrouping) ?? 0)
         grouping.target = self
@@ -115,16 +119,35 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             if visible.isEmpty { items = [.message(Self.emptyMessage)] }
             else {
                 let label: (Row) -> String? = switch selectedGrouping {
-                case .harness: { $0.harness }
-                case .folder: { $0.folder }
+                case .harness: { Self.harnessName($0.harness) }
+                case .folder: { $0.folder.map { ($0 as NSString).lastPathComponent } }
                 case .account: { $0.account }
                 }
                 items = Self.grouped(visible, label: { label($0) ?? Self.emptyGroup })
             }
         }
         table.reloadData()
-        preferredHeight = max(Metrics.sidebarRowHeight, CGFloat(items.count) * Metrics.sidebarRowHeight)
+        let shown = min(max(items.count, 1), Self.maxVisibleRows)
+        preferredHeight = Metrics.sidebarRowHeight * CGFloat(1 + shown)
         needsLayout = true
+    }
+
+    /// The most chat rows the section shows before it scrolls inside, so the
+    /// bottom band keeps room for the footer.
+    static let maxVisibleRows = 6
+
+    /// A harness's product name for group headers (proper nouns; same in every language).
+    static func harnessName(_ id: String) -> String {
+        switch id {
+        case "claude-code": String(localized: "sidebar.chats.harness.claude-code", defaultValue: "Claude Code", bundle: .module)
+        case "codex": String(localized: "sidebar.chats.harness.codex", defaultValue: "Codex", bundle: .module)
+        case "opencode": String(localized: "sidebar.chats.harness.opencode", defaultValue: "OpenCode", bundle: .module)
+        case "pi": String(localized: "sidebar.chats.harness.pi", defaultValue: "Pi", bundle: .module)
+        case "gemini": String(localized: "sidebar.chats.harness.gemini", defaultValue: "Gemini CLI", bundle: .module)
+        case "cursor-agent": String(localized: "sidebar.chats.harness.cursor-agent", defaultValue: "Cursor Agent", bundle: .module)
+        case "amp": String(localized: "sidebar.chats.harness.amp", defaultValue: "Amp", bundle: .module)
+        default: id
+        }
     }
 
     private static var emptyGroup: String { String(localized: "sidebar.chats.group.other", defaultValue: "Other", bundle: .module) }
@@ -157,8 +180,11 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public override func layout() {
         super.layout()
         let top = Metrics.sidebarRowHeight
-        search.frame = NSRect(x: Metrics.space2, y: Metrics.space2, width: max(0, bounds.width - 88), height: top - Metrics.space4)
-        grouping.frame = NSRect(x: max(0, bounds.width - 84), y: Metrics.space2, width: 82, height: top - Metrics.space4)
+        let controlHeight: CGFloat = 20
+        let y = (top - controlHeight) / 2
+        let groupWidth: CGFloat = 76
+        search.frame = NSRect(x: Metrics.space3, y: y, width: max(0, bounds.width - Metrics.space3 - groupWidth - Metrics.space2), height: controlHeight)
+        grouping.frame = NSRect(x: max(0, bounds.width - groupWidth - Metrics.space1), y: y, width: groupWidth, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
     }
 
@@ -168,13 +194,21 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         guard items.indices.contains(row) else { return nil }
         switch items[row] {
         case .header(let title):
+            // A container keeps the inset: the table sizes a cell view to the full row.
+            let cell = NSView()
             let label = NSTextField(labelWithString: title)
             label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
             performWithTheme { label.textColor = Palette.textSecondary }
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(x: Metrics.space3, y: 0, width: max(0, table.bounds.width - Metrics.space4), height: Metrics.sidebarRowHeight)
-            label.setAccessibilityLabel(title)
-            return label
+            label.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.space3),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space2),
+                label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            cell.setAccessibilityLabel(title)
+            return cell
         case .message(let message):
             let label = NSTextField(wrappingLabelWithString: message)
             label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
