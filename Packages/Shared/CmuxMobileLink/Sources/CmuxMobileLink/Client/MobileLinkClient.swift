@@ -90,6 +90,19 @@ public actor MobileLinkClient {
         return try await Self.handshake(channel, request: request, generation: generation)
     }
 
+    /// Opens the datagram lane paired with `opened` on the same link session
+    /// (c2-browser-stream.md 2). Throws `linkLost` when that session is gone
+    /// or the path offers no unreliable lane; the channel then keeps
+    /// carrying everything.
+    public func openDatagramLane(pairedWith opened: MobileOpenedChannel) async throws -> MobileDatagramLane {
+        guard !closed, let session, session.generation == opened.generation else { throw MobileLinkClientError.linkLost }
+        do {
+            return try await MobileDatagramLane.open(on: session.link, pairedWith: opened.channel.id)
+        } catch {
+            throw MobileLinkClientError.linkLost
+        }
+    }
+
     private nonisolated static func handshake(_ channel: MobileChannel, request: MobileChannelRequest,
                                               generation: UInt64) async throws -> MobileOpenedChannel {
         let open = ChannelOpenFrame(channel: channel.id, kind: request.kind, channelClass: request.channelClass,

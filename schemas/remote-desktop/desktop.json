@@ -1,0 +1,54 @@
+{
+  "description": "cmux.rd/1 service desktop/1 (plans/cmux-next/ios-next/c3-rd.md 2.3). Every implementation (Swift CmuxRemoteDesktop, Rust cmux-rd-proto desktop module) decodes each message and re-encodes it to the same value. rd carries them as {t: service, service: desktop/1, body}.",
+  "service": "desktop/1",
+  "messages": [
+    { "t": "desktop.view", "seq": 3, "x": 512, "y": 300, "width": 1024, "height": 2220, "pixel_width": 1178, "pixel_height": 2554 },
+    { "t": "desktop.view_applied", "seq": 3, "x": 512, "y": 0, "width": 1024, "height": 1964, "pixel_width": 1024, "pixel_height": 1964 },
+    { "t": "desktop.target", "target": { "kind": "vnc", "width": 1920, "height": 1080, "scale": 1.0, "name": "build-vm" } },
+    { "t": "desktop.select", "display": 2 },
+    { "t": "desktop.windows.list" },
+    { "t": "desktop.windows", "windows": [ { "id": 812, "app": "Simulator", "title": "iPhone 17" }, { "id": 90, "app": "cmux", "title": "~/src" } ] },
+    { "t": "desktop.mode", "mode": "control" },
+    { "t": "desktop.mode_applied", "mode": "view", "reason": "accessibility" },
+    { "t": "desktop.mode_applied", "mode": "control" },
+    { "t": "desktop.clipboard.push", "seq": 1, "text": "make test" },
+    { "t": "desktop.clipboard.pull", "seq": 2 },
+    { "t": "desktop.clipboard", "seq": 2, "text": "コピー" },
+    { "t": "desktop.clipboard", "text": "from the VNC server" },
+    { "t": "desktop.auth", "password": "hunter22" },
+    { "t": "desktop.state", "state": "waiting_consent" },
+    { "t": "desktop.state", "state": "auth_required", "reason": "vnc" },
+    { "t": "desktop.state", "state": "live" },
+    { "t": "desktop.state", "state": "paused", "reason": "display_asleep" },
+    { "t": "desktop.ended", "reason": "stopped_by_host" }
+  ],
+  "invalid": [
+    { "t": "desktop.view", "seq": -1, "x": 0, "y": 0, "width": 10, "height": 10, "pixel_width": 10, "pixel_height": 10 },
+    { "t": "desktop.mode", "mode": "admin" },
+    { "t": "desktop.state", "state": "hacked" },
+    { "t": "desktop.select" },
+    { "t": "desktop.unknown" }
+  ],
+  "open_params": [
+    { "service": "desktop", "target": { "kind": "display" }, "mode": "control", "screen": { "pixel_width": 1179, "pixel_height": 2556, "scale": 3.0 }, "codecs": ["h264"], "datagram_lane": true },
+    { "service": "desktop", "target": { "kind": "display", "display": 2 }, "mode": "view", "screen": { "pixel_width": 2048, "pixel_height": 2732, "scale": 2.0 }, "codecs": ["h264"], "datagram_lane": false },
+    { "service": "desktop", "target": { "kind": "window", "window": 812 }, "mode": "control", "screen": { "pixel_width": 1179, "pixel_height": 2556, "scale": 3.0 }, "codecs": ["h264"], "datagram_lane": true },
+    { "service": "desktop", "target": { "kind": "vnc", "host": "10.0.0.12", "port": 5901, "name": "build-vm" }, "mode": "control", "screen": { "pixel_width": 1179, "pixel_height": 2556, "scale": 3.0 }, "codecs": ["h264"], "datagram_lane": true }
+  ],
+  "invalid_open_params": [
+    { "service": "desktop", "target": { "kind": "vnc", "host": "vnc://10.0.0.12", "port": 5900 }, "mode": "view" },
+    { "service": "desktop", "target": { "kind": "vnc", "host": "user@10.0.0.12" }, "mode": "view" },
+    { "service": "desktop", "target": { "kind": "vnc", "host": "10.0.0.12", "port": 0 }, "mode": "view" },
+    { "service": "desktop", "target": { "kind": "vnc", "host": "10.0.0.12/path" }, "mode": "view" },
+    { "service": "desktop", "target": { "kind": "shell" }, "mode": "view" },
+    { "service": "browser", "target": { "kind": "display" }, "mode": "view" },
+    { "service": "desktop", "target": { "kind": "display" }, "mode": "root" }
+  ],
+  "opened": [
+    { "media": "rd_datagrams", "datagram_channel": 9, "encoder": "h264",
+      "target": { "kind": "display", "width": 3024, "height": 1964, "scale": 2.0, "name": "Built-in Retina Display" },
+      "view": { "seq": 0, "x": 0, "y": 0, "width": 3024, "height": 1964, "pixel_width": 1178, "pixel_height": 764 },
+      "displays": [ { "id": 1, "name": "Built-in Retina Display", "width": 3024, "height": 1964, "scale": 2.0, "main": true }, { "id": 2, "name": "Studio Display", "width": 5120, "height": 2880, "scale": 2.0, "main": false } ],
+      "mode": "control", "cursor": "local", "caps": ["clipboard", "displays", "windows", "view"] }
+  ]
+}

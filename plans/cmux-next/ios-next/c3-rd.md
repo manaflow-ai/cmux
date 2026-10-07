@@ -119,7 +119,7 @@ window) or to X11 keysyms (VNC, `HidKeysymMap`).
 
 - The first view is the whole target fit into the phone viewport: encode size = target size scaled to
   fit `screen.pixel_width x pixel_height`, capped at the target's own pixels and 2560 on the long edge,
-  even. A 3024x1964 Retina display on a 1179x2556 portrait iPhone encodes at 1178x766.
+  even. A 3024x1964 Retina display on a 1179x2556 portrait iPhone encodes at 1178x764.
 - Pinch zooms the current frame locally at once (no round trip). At gesture end the phone sends
   `desktop.view` with the visible target rect and the viewport's pixel size; the Mac crops there
   (`SCStreamConfiguration.sourceRect` for displays and windows, a framebuffer crop for VNC), answers
