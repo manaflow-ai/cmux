@@ -1,11 +1,8 @@
-//! The hub owns every session, its child agent, its event log, and the
-//! fan-out channel that attached clients subscribe to.
-//!
-//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle`
-//! (spawn, resume, fork), `permissions` (agent requests and policy), `turns`
-//! (prompt, cancel, config), `transfer` (export, import), `views` (summaries),
-//! `handoff` (a reviewed first message to a new session on another harness),
-//! `adoption` (resuming a harness's own session on `session/new`).
+//! The hub owns every session, its child agent, its event log, and the clients' fan-out channel.
+//! Method groups live in sibling files: `peers` (remote daemons), `lifecycle` (spawn, resume,
+//! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
+//! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
+//! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
 mod catalog_reload;
@@ -23,6 +20,7 @@ pub(crate) mod model_availability;
 mod model_options;
 pub use model_options::{current_model, current_option, resolve_config_id, web_url};
 mod model_hint;
+mod models_view;
 mod paging;
 mod pool;
 mod resolve;
@@ -47,6 +45,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod questions;
 mod remote_floor;
 mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
@@ -180,6 +179,7 @@ pub(super) struct StreamState {
     pub(super) trailing_overflow: bool,
 }
 
+
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
@@ -245,7 +245,10 @@ pub struct Hub {
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    pub catalog: Arc<crate::catalog::CatalogService>,
 }
+
+
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
@@ -288,6 +291,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
+            catalog: Arc::new(crate::catalog::CatalogService::new()),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -481,6 +485,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
+            subagents: StdMutex::new(Default::default()),
         })
     }
 

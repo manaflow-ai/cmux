@@ -400,6 +400,9 @@ run_package_tests() {
   # or hung package cannot hide the results of the packages after it.
   # test_package returns the package's status instead of exiting; every
   # package gets a summary row, and the summary at the end fails the lane.
+  if grep -Eqx 'CmuxNext|Packages/macOS/CmuxNext/?' "$selected"; then
+    ensure_web_bundles
+  fi
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -496,6 +499,14 @@ run_package_tests() {
   fi
 }
 
+# The cmux-next package tests read the web bundles, which are build output since cx-vn5:
+# make them current before a CmuxNext build (scripts/ci/ensure-web-bundles.sh).
+ensure_web_bundles() {
+  echo "::group::cmux-next web bundles"
+  bash scripts/ci/ensure-web-bundles.sh
+  echo "::endgroup::"
+}
+
 run_suite() {
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
@@ -510,6 +521,9 @@ run_suite() {
   # release suite build turns that one SIL pass off.
   if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
     configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+    ensure_web_bundles
   fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null

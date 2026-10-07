@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b. */
+/* cmux-tui mux protocol 12, IR 50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -196,6 +196,7 @@ export type ColorHex = string;
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "role"?: (string) | null;
 };
 
 export type ConversationChange = {
@@ -970,7 +971,7 @@ export type SizeDetachActor = {
   "user_id"?: (string) | null;
 };
 
-export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "linux" | "windows" | "unknown";
 
 export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
 

@@ -21094,6 +21094,530 @@
           }
         }
       }
+    },
+    "handlers.refusal.topPageIsNotAWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page is not a workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このページはワークスペースではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الصفحة ليست مساحة عمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica nije radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne side er ikke et arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Seite ist kein Arbeitsbereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página no es un espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette page n’est pas un espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa pagina non è uno spazio di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះមិនមែនជាកន្លែងធ្វើការទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지는 작업 공간이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne siden er ikke et arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta strona nie jest obszarem roboczym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página não é um espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта страница не является рабочим пространством."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้ไม่ใช่เวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfa bir çalışma alanı değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця сторінка не є робочим простором."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này không phải là không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面不是工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面不是工作區。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeNotClosable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home can't be closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホームは閉じられません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إغلاق الرئيسية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Početna se ne može zatvoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem kan ikke lukkes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start kann nicht geschlossen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicio no se puede cerrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accueil ne peut pas être fermé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home non può essere chiusa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបិទទំព័រដើមបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈은 닫을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem kan ikke lukkes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zamknąć Startu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Início não pode ser fechado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Главную» нельзя закрыть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดหน้าแรกไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa kapatılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Головну» не можна закрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đóng Trang chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法关闭主页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法關閉首頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.personOnlyFromPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can start this, with a click or key in the page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作は、ページ内でのクリックまたはキー操作によってのみ開始できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكنك وحدك بدء هذا، بنقرة أو بضغطة مفتاح في الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo vi ovo možete pokrenuti, klikom ili tipkom na stranici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun du kan starte dette med et klik eller en tast på siden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Sie können dies starten, mit einem Klick oder einer Taste auf der Seite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes iniciar esto, con un clic o una tecla en la página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez lancer cette action, par un clic ou une touche dans la page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi avviarlo, con un clic o un tasto nella pagina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកប៉ុណ្ណោះដែលអាចចាប់ផ្ដើមវា ដោយចុច ឬប្រើគ្រាប់ចុចនៅក្នុងទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 클릭하거나 키를 눌러야만 시작할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare du kan starte dette, med et klikk eller en tast på siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko Ty możesz to uruchomić, klikając lub naciskając klawisz na stronie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode iniciar isso, com um clique ou uma tecla na página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустить это можете только вы — щелчком или нажатием клавиши на странице."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณเท่านั้นที่เริ่มสิ่งนี้ได้ ด้วยการคลิกหรือกดแป้นในหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu yalnızca siz, sayfada bir tıklama veya tuşla başlatabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустити це можете лише ви — клацанням або натисканням клавіші на сторінці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới có thể bắt đầu việc này, bằng một cú nhấp hoặc phím trong trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能通过在页面中点击或按键来开始此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能透過在頁面中點按或按鍵來開始此操作。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.proxiedTabStaysInChromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض علامة التبويب هذه localhost لجهاز سحابي عبر الوكيل الخاص به، لذا تبقى في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj tab prikazuje localhost cloud mašine preko njenog proxyja, pa ostaje u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane viser en cloudmaskines localhost via dens proxy, så den bliver i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab zeigt den localhost einer Cloud-Maschine über deren Proxy und bleibt deshalb in Chromium."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña muestra el localhost de una máquina en la nube a través de su proxy, así que se queda en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet affiche le localhost d’une machine cloud via son proxy, il reste donc dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda mostra il localhost di una macchina cloud tramite il suo proxy, quindi resta in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはクラウドマシンの localhost をプロキシ経由で表示しているため、Chromium のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថេបនេះបង្ហាញ localhost របស់ម៉ាស៊ីនក្លោដតាមរយៈ proxy របស់វា ដូច្នេះវានៅក្នុង Chromium។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭은 프록시를 통해 클라우드 머신의 localhost를 표시하므로 Chromium에 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen viser localhost på en skymaskin via proxyen, så den blir i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta pokazuje localhost maszyny w chmurze przez jej proxy, więc pozostaje w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba mostra o localhost de uma máquina na nuvem pelo proxy dela, então ela continua no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка показывает localhost облачной машины через её прокси, поэтому остаётся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้แสดง localhost ของเครื่องคลาวด์ผ่านพร็อกซีของเครื่องนั้น จึงอยู่ใน Chromium ต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme bir bulut makinesinin localhost'unu proxy'si üzerinden gösterir, bu yüzden Chromium'da kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка показує localhost хмарної машини через її проксі, тому залишається в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab này hiển thị localhost của máy đám mây qua proxy của máy đó, nên nó vẫn ở trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页通过代理显示云机器的 localhost，因此保留在 Chromium 中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁透過代理伺服器顯示雲端機器的 localhost，因此保留在 Chromium 中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

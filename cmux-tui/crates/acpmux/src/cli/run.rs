@@ -11,7 +11,7 @@ use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
-pub(crate) use permission::answer_permission;
+pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
 mod standard;

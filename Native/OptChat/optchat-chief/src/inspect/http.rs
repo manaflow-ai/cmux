@@ -27,8 +27,12 @@ use serde_json::json;
 
 use super::Inspector;
 
-/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh).
-pub const PAGE: &str = include_str!("../../inspector/index.html");
+/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh),
+/// copied into OUT_DIR by build.rs; a placeholder when the bundle was not built.
+pub const PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));
+/// Whether this binary carries the placeholder page instead of the inspector
+/// (build.rs set `optchat_inspector_placeholder`: nothing built the bundle).
+pub const PAGE_IS_PLACEHOLDER: bool = cfg!(optchat_inspector_placeholder);
 
 /// The session cookie's name, with the port in it: a browser sends a
 /// 127.0.0.1 cookie to every port, so two Chiefs (two tags) must not share it.
@@ -37,6 +41,15 @@ fn cookie_name(port: u16) -> String {
 }
 /// How long a session cookie stays valid.
 const SESSION_LIFE: Duration = Duration::from_secs(12 * 3600);
+struct Ticket {
+    minted: Instant,
+    spent: Option<(String, Instant)>,
+}
+
+/// How long a spent ticket still answers with the session it bought: the
+/// app's browser loads the ticket URL again when it moves the new tab into
+/// its column, before the first load's redirect lands.
+const RESPEND: Duration = Duration::from_secs(10);
 /// How long a ticket from `/api/ticket` can be spent.
 const TICKET_LIFE: Duration = Duration::from_secs(60);
 /// Connections served at once; more are answered 503.
@@ -63,7 +76,8 @@ struct Shared {
     inspector: Arc<Inspector>,
     token: String,
     port: u16,
-    tickets: Mutex<HashMap<String, Instant>>,
+    /// Each ticket: when it was minted, and the session it bought once spent.
+    tickets: Mutex<HashMap<String, Ticket>>,
     sessions: Mutex<Vec<(String, Instant)>>,
     live: AtomicUsize,
 }
@@ -321,24 +335,34 @@ impl Shared {
             .tickets
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        tickets.retain(|_, at| at.elapsed() < TICKET_LIFE);
-        tickets.insert(ticket.clone(), Instant::now());
+        tickets.retain(|_, t| t.minted.elapsed() < TICKET_LIFE);
+        tickets.insert(
+            ticket.clone(),
+            Ticket {
+                minted: Instant::now(),
+                spent: None,
+            },
+        );
         Ok(ticket)
     }
 
-    /// Spends `ticket` (once, within its life) for a new session id.
+    /// Spends `ticket` (within its life) for a new session id. A ticket
+    /// works once; the same ticket again within `RESPEND` of its first use
+    /// (a reload of the same URL) gets the same session, never a new one.
     fn spend_ticket(&self, ticket: &str) -> Option<String> {
-        let fresh = {
-            let mut tickets = self
-                .tickets
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            tickets.retain(|_, at| at.elapsed() < TICKET_LIFE);
-            let found = tickets.keys().find(|k| same(k, ticket)).cloned();
-            found.and_then(|k| tickets.remove(&k))
-        };
-        fresh?;
+        let mut tickets = self
+            .tickets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tickets.retain(|_, t| t.minted.elapsed() < TICKET_LIFE);
+        let key = tickets.keys().find(|k| same(k, ticket)).cloned()?;
+        let entry = tickets.get_mut(&key)?;
+        if let Some((session, at)) = &entry.spent {
+            return (at.elapsed() < RESPEND).then(|| session.clone());
+        }
         let session = new_secret().ok()?;
+        entry.spent = Some((session.clone(), Instant::now()));
+        drop(tickets);
         let mut sessions = self
             .sessions
             .lock()

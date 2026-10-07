@@ -101,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3494fdc61366d8a0cde7cdc09992587744aac137/CCmuxAppFFI.xcframework.zip",
-    checksum: "968a7a2d6484753b8f92d2e50d6b9da9a9865f7b579ab9c151d8712961b84588"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-51ced0d4ee783fb6bd7bacbe26c6eec801eb73ae/CCmuxAppFFI.xcframework.zip",
+    checksum: "445e54014d50ea0ff602d4c450114fd1baa1afcdd2fb3d1e9eda82c9019fef0e"
 )
 
 let package = Package(
@@ -125,6 +125,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
+        // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
+        .package(path: "../../Shared/CmuxAgentQuestion"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -142,6 +144,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
+                "CmuxNextAgentQuestion",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -175,6 +179,7 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -275,6 +280,11 @@ let package = Package(
         // and the cancellable importer. No UI, nothing main-actor.
         .target(
             name: "CmuxNextBrowserImport",
+            // browser-sources.json: the one browser source registry (decision
+            // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
+            resources: [
+                .copy("Resources/browser-sources.json"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -296,6 +306,27 @@ let package = Package(
         .testTarget(
             name: "CmuxNextOnboardingTests",
             dependencies: ["CmuxNextOnboarding", "CmuxNextBrowserImport", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The agent question card (plans/cmux-next/agent-questions.md): one
+        // AppKit view and layout for Home rows, agent panes and the UI Gallery.
+        .target(
+            name: "CmuxNextAgentQuestion",
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentQuestionTests",
+            dependencies: [
+                "CmuxNextAgentQuestion", "CmuxNextDesign",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
@@ -515,6 +546,9 @@ let package = Package(
         .target(
             name: "CmuxNextRemoteBrowser",
             dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -922,7 +956,8 @@ let package = Package(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender")],
+                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

@@ -209,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        services.chatsFeed?.keepCurrent()
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -234,9 +236,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.updater.follow(settings)
+        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
+            services?.registry.disabledFeatures.contains(.computerUse) ?? true
+        })
         services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
         services.themes.start()
+        services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
@@ -244,6 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
+            // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
+            _ = try? await settings.migrateLegacyWorkspaceRowKeys()
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -253,7 +261,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
-                control.registerPageDebugMethods()
+                control.registerPageDebugMethods(services)
+                control.registerRemoteBrowserDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)
@@ -303,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()

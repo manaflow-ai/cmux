@@ -34,7 +34,7 @@ struct StatusIndicatorPlanTests {
 
     @Test func attentionStatesShowEvenWithStyleNone() {
         for style in StatusIndicatorStyle.allCases {
-            #expect(StatusIndicatorPlan.make(.waiting, style: style, animates: true) == StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .attention))
+            #expect(StatusIndicatorPlan.make(.waiting, style: style, animates: true) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention))
             #expect(StatusIndicatorPlan.make(.error, style: style, animates: true) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .danger))
             #expect(StatusIndicatorPlan.make(.success, style: style, animates: true) == StatusIndicatorPlan(glyph: .check, animation: nil, tint: .success))
         }

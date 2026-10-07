@@ -108,6 +108,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Allow { session, option } => answer_permission(&session, option, true).await,
         Command::Deny { session } => answer_permission(&session, None, false).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -405,7 +406,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::DaemonRun { .. }
+        Command::Router(_)
+        | Command::DaemonRun { .. }
         | Command::Stdio { .. }
         | Command::Session(_)
         | Command::Daemon(_)

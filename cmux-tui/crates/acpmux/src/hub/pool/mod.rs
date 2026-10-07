@@ -173,6 +173,7 @@ fn initialize_params() -> Value {
         "protocolVersion": 1,
         "clientCapabilities": {
             "fs": {"readTextFile": true, "writeTextFile": true},
+            "subagents": {},
             "terminal": false
         },
         "clientInfo": {"name": "acpmux", "version": VERSION}

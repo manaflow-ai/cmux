@@ -32,6 +32,11 @@ public nonisolated struct OnboardingStateFile: Sendable {
         var finished: Bool?
         /// The step an unfinished first run is at (`Step` raw value).
         var step: String?
+        /// False after the person closed it ("not now") until they move to a
+        /// step again; nil or true: it was in use (a quit or crash resumes it).
+        var active: Bool?
+        /// Launches left that show it again after "not now".
+        var launchesLeft: Int?
     }
 
     private func read() -> Record? {
@@ -51,9 +56,57 @@ public nonisolated struct OnboardingStateFile: Sendable {
         return record.version < Self.currentVersion || record.finished == false
     }
 
+    /// What a launch does about onboarding.
+    public enum LaunchShow: Equatable, Sendable {
+        /// Never seen: the first run from its start.
+        case start
+        /// An unfinished first run at its step.
+        case resume(OnboardingModel.Step)
+        /// Nothing: finished, skipped, or "not now" ran out.
+        case none
+    }
+
+    /// How many later launches show the first run again after the person
+    /// closed it ("not now").
+    public static let notNowLaunches = 2
+
+    /// The person closed the first run without Skip or Done ("not now").
+    /// A close while a "not now" is already pending (the window came back
+    /// at a launch and was closed again, or the quit closed it) starts no
+    /// new count: each launch that showed it was already counted.
+    public func markNotNow(now: Date = Date()) throws {
+        guard var record = read(), record.finished == false, record.active != false else { return }
+        record.active = false
+        record.launchesLeft = Self.notNowLaunches
+        record.date = now
+        try write(record)
+    }
+
+    /// The launch decision; a "not now" show uses up one of its launches.
+    public func takeLaunchShow(now: Date = Date()) -> LaunchShow {
+        guard let record = read() else { return .start }
+        guard needsOnboarding() else { return .none }
+        let step = record.step.flatMap(OnboardingModel.Step.init(rawValue:))
+        let show = step.map(LaunchShow.resume) ?? .start
+        guard record.active == false else { return show }
+        let left = record.launchesLeft ?? 0
+        guard left > 0 else { return .none }
+        var used = record
+        used.launchesLeft = left - 1
+        used.date = now
+        try? write(used)
+        return show
+    }
+
     /// Records that the first run is unfinished and at `step`.
-    public func markProgress(_ step: OnboardingModel.Step, now: Date = Date()) throws {
-        try write(Record(version: Self.currentVersion, completed: false, date: now, finished: false, step: step.rawValue))
+    public func markProgress(_ step: OnboardingModel.Step, interacted: Bool = true, now: Date = Date()) throws {
+        var record = Record(version: Self.currentVersion, completed: false, date: now, finished: false, step: step.rawValue)
+        if !interacted, let previous = read(), previous.finished == false {
+            // Only showing a step keeps a pending "not now" and its launches.
+            record.active = previous.active
+            record.launchesLeft = previous.launchesLeft
+        }
+        try write(record)
     }
 
     /// The step an unfinished first run was left at, or nil.

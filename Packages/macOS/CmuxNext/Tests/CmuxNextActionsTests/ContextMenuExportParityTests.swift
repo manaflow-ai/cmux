@@ -44,6 +44,8 @@ import Testing
             return context.isSuperset(of: requires(row))
         }
         func plain(_ title: String) -> String { title.hasSuffix("…") ? String(title.dropLast()) : title }
+        // A row's menu-only label wins over its action's title.
+        func shownTitle(_ row: [String: Any], _ id: ActionID) -> String? { row["label"] as? String ?? registry.title(for: id) }
         var nodes: [Node] = []
         for row in entries.sorted(by: { ($0["order"] as? Int ?? 0) < ($1["order"] as? Int ?? 0) }) {
             let id = (row["id"] as? String).map(ActionID.init(rawValue:))
@@ -51,17 +53,17 @@ import Testing
             case "separator":
                 if let last = nodes.last, last != .separator { nodes.append(.separator) }
             case "action":
-                guard visible(row), let id, let title = registry.title(for: id) else { continue }
+                guard visible(row), let id, let title = shownTitle(row, id) else { continue }
                 nodes.append(.item(title))
             case "choices":
-                guard visible(row), let id, let title = registry.title(for: id),
+                guard visible(row), let id, let title = shownTitle(row, id),
                       let choices = row["choices"] as? [String: Any], let values = choices["values"] as? [[String: Any]] else { continue }
                 var children = values.compactMap { $0["title"] as? String }.map(Node.item)
                 if (choices["more_opens_palette"] as? Bool) == true { children += [.separator, .item(ActionSuggestionsStrings.more)] }
                 nodes.append(.menu(plain(title), children))
             case "submenu":
                 let children = render(row["children"] as? [[String: Any]] ?? [], registry: registry, context: context)
-                guard visible(row), !children.isEmpty, let id, let title = registry.title(for: id) else { continue }
+                guard visible(row), !children.isEmpty, let id, let title = shownTitle(row, id) else { continue }
                 nodes.append(.menu(plain(title), children))
             case "folder":
                 let children = render(row["children"] as? [[String: Any]] ?? [], registry: registry, context: context)
@@ -83,6 +85,13 @@ import Testing
         let gap = try #require(root["context_menus_not_exported"] as? [[String: String]])
         #expect(!gap.isEmpty && gap.allSatisfy { $0["name"]?.isEmpty == false && $0["source"]?.isEmpty == false })
         return try #require(root["context_menus"] as? [String: Any])
+    }
+
+    /// F3 (2fa9520ccdf) gave menu rows a menu-only `label` ("Change Space
+    /// Icon…" for Set Space Icon…) and exports it with the row, so the rules a
+    /// client renders by must say the label replaces the action's title.
+    @Test func theRulesSayARowsLabelReplacesItsTitle() {
+        #expect(ContextMenuCatalog.exportRenderRules.contains { $0.contains("label") && $0.contains("instead of") })
     }
 
     @Test(arguments: [false, true])
