@@ -14,3 +14,8 @@ declare module "virtual:cmux-gallery/fixtures" {
   const fixtures: Record<string, unknown>;
   export default fixtures;
 }
+declare module "virtual:cmux-gallery/metrics" {
+  /** MetricTunables.swift defaults per density. */
+  const metrics: Record<string, { compact: number; comfortable: number }>;
+  export default metrics;
+}

@@ -13,7 +13,7 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
-  area: "Agent pane",
+  area: "New Tab",
   height: 560,
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",

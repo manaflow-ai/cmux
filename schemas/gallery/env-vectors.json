@@ -5,11 +5,10 @@
       "query": {},
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
         "width": "normal",
@@ -23,16 +22,15 @@
     {
       "query": {
         "locale": "ja",
-        "scheme": "light",
-        "light": "Catppuccin Latte"
+        "colorScheme": "light",
+        "theme": "Catppuccin Latte"
       },
       "env": {
         "locale": "ja",
-        "scheme": "light",
-        "dark": "Apple System Colors",
-        "light": "Catppuccin Latte",
-        "font": "",
-        "size": 0,
+        "theme": "Catppuccin Latte",
+        "colorScheme": "light",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
         "width": "normal",
@@ -46,15 +44,14 @@
     {
       "query": {
         "locale": "xx",
-        "scheme": "purple"
+        "colorScheme": "purple"
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
         "width": "normal",
@@ -73,11 +70,10 @@
       },
       "env": {
         "locale": "ar-XB",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1.25,
         "width": "narrow",
@@ -92,16 +88,15 @@
       "query": {
         "width": "1000",
         "height": "300",
-        "size": "16",
-        "font": "Georgia, serif"
+        "fontSize": "16",
+        "fontFamily": "Georgia, serif"
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "Georgia, serif",
-        "size": 16,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "Georgia, serif",
+        "fontSize": 16,
         "density": "comfortable",
         "scale": 1,
         "width": 1000,
@@ -116,15 +111,15 @@
       "query": {
         "width": "10",
         "scale": "9",
-        "size": "-3"
+        "fontSize": "-3",
+        "colorScheme": "auto"
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 3,
         "width": 240,
@@ -144,11 +139,10 @@
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "compact",
         "scale": 1,
         "width": "normal",
@@ -163,15 +157,15 @@
       "query": {
         "dynamicSize": "xlarge",
         "windowKey": "inactive",
-        "dark": "Dracula"
+        "theme": "Dracula",
+        "colorScheme": "dark"
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Dracula",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Dracula",
+        "colorScheme": "dark",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
         "width": "normal",
@@ -190,11 +184,10 @@
       },
       "env": {
         "locale": "en",
-        "scheme": "dark",
-        "dark": "Apple System Colors",
-        "light": "Apple System Colors Light",
-        "font": "",
-        "size": 0,
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
         "width": "normal",

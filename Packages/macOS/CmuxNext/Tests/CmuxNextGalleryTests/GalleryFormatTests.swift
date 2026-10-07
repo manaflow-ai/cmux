@@ -13,11 +13,10 @@ import Testing
         }
         struct Expected: Decodable {
             let locale: String
-            let scheme: String
-            let dark: String
-            let light: String
-            let font: String
-            let size: Double
+            let theme: String
+            let colorScheme: String
+            let fontFamily: String
+            let fontSize: Double
             let density: String
             let scale: Double
             let width: Width
@@ -51,9 +50,8 @@ import Testing
             let env = GalleryEnvironment(query: vector.query)
             let expected = vector.env
             #expect(env.locale == expected.locale, "\(vector.query)")
-            #expect(env.scheme.rawValue == expected.scheme, "\(vector.query)")
-            #expect(env.dark == expected.dark && env.light == expected.light, "\(vector.query)")
-            #expect(env.font == expected.font && env.size == expected.size, "\(vector.query)")
+            #expect(env.theme == expected.theme && env.colorScheme.rawValue == expected.colorScheme, "\(vector.query)")
+            #expect(env.fontFamily == expected.fontFamily && env.fontSize == expected.fontSize, "\(vector.query)")
             #expect(env.density.rawValue == expected.density && env.scale == expected.scale, "\(vector.query)")
             #expect(env.height == expected.height, "\(vector.query)")
             #expect(env.reducedMotion == expected.reducedMotion && env.highContrast == expected.highContrast)

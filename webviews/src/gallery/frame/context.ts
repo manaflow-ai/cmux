@@ -6,7 +6,7 @@ import type { ThemeTokens } from "../theme/tokens";
 /** What a host gets besides its state: the controls, resolved to the app's inputs. */
 export type StageContext = {
   env: GalleryEnv;
-  /** The theme the scheme shows, and the pair. */
+  /** The theme the window shows, and the pair the two-sided pages get. */
   theme: GhosttyTheme;
   pair: { dark: GhosttyTheme; light: GhosttyTheme };
   tokens: ThemeTokens;

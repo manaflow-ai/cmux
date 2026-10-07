@@ -8,6 +8,8 @@
 //                                          document start in every cmux web view (WebTheme.swift)
 //   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet, the files and the
 //                                          order scripts/cmux-next/build-agent-pane-web.sh inlines
+//   virtual:cmux-gallery/metrics           the chrome metrics (MetricTunables.swift: sidebar width,
+//                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
 //                                          roots, the Swift packages' Fixtures folders) by repo path
 import fs from "node:fs";
@@ -26,6 +28,8 @@ const galleryDir = path.join(webviewsRoot, "src/gallery");
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
 const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
+const METRICS_ID = "virtual:cmux-gallery/metrics";
+const METRICS_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift");
 const THEMES_ID = "virtual:cmux-gallery/themes";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
@@ -61,6 +65,17 @@ export function readSharedFixtures(): Record<string, unknown> {
     }
   };
   for (const root of fixtureRoots()) walk(path.join(repoRoot, root));
+  return out;
+}
+
+/** Every MetricTunable's default per density: `{ sidebarWidth: { compact: 208, comfortable: 240 }, ... }`. */
+export function readChromeMetrics(file = METRICS_SWIFT): Record<string, { compact: number; comfortable: number }> {
+  const swift = fs.readFileSync(file, "utf8");
+  const out: Record<string, { compact: number; comfortable: number }> = {};
+  for (const match of swift.matchAll(/MetricTunable\.make\(\s*"(\w+)"[^)]*?compact:\s*([\d.]+),\s*comfortable:\s*([\d.]+)/g))
+    out[match[1]!] = { compact: Number(match[2]), comfortable: Number(match[3]) };
+  for (const name of ["sidebarWidth", "titlebarHeight", "tabStripHeight", "tabHeight", "columnGap"])
+    if (!out[name]) throw new Error(`gallery: no ${name} in ${file}; update readChromeMetrics`);
   return out;
 }
 
@@ -107,12 +122,13 @@ export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
     resolveId(source) {
-      if (source === THEMES_ID || source === WEB_THEME_ID || source === FIXTURES_ID) return `\0${source}`;
+      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID].includes(source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },
     load(id) {
       if (id === `\0${THEMES_ID}`) return `export default ${JSON.stringify(readShippedThemes())};`;
+      if (id === `\0${METRICS_ID}`) return `export default ${JSON.stringify(readChromeMetrics())};`;
       if (id === `\0${FIXTURES_ID}`) return `export default ${JSON.stringify(readSharedFixtures())};`;
       if (id === `\0${WEB_THEME_ID}`) return `export default ${JSON.stringify(readWebThemeBootstrap())};`;
       if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
@@ -122,12 +138,14 @@ export function galleryModules(): Plugin {
       // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
       // where Vite does not watch: watch them, and reload the module built from a changed one.
       const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
-      server.watcher.add([THEMES_DIR, WEB_THEME_SWIFT, PANE_BUILD_SCRIPT, FIXTURE_INDEX, ...roots]);
+      server.watcher.add([THEMES_DIR, WEB_THEME_SWIFT, PANE_BUILD_SCRIPT, FIXTURE_INDEX, METRICS_SWIFT, ...roots]);
       server.watcher.on("all", (_event, file) => {
         const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
         const id = fixture
           ? `\0${FIXTURES_ID}`
-          : file.startsWith(`${THEMES_DIR}/`)
+          : file === METRICS_SWIFT
+            ? `\0${METRICS_ID}`
+            : file.startsWith(`${THEMES_DIR}/`)
           ? `\0${THEMES_ID}`
           : file === WEB_THEME_SWIFT
             ? `\0${WEB_THEME_ID}`

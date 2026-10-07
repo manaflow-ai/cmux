@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, shardCases, writeLedger } from "./runner";
+import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, writeLedger } from "./runner";
 
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
@@ -33,5 +33,26 @@ test("ledger cleanup deletes exact recorded ids without listing", async () => {
   expect(deleted).toEqual(["vm-exact"]);
   expect(listed).toBe(false);
   expect(readFileSync(path, "utf8")).toContain("vm-exact");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("an earlier run's undeleted ids block a new run until cleanup", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "gallery-ledger-")); const path = join(dir, "ledger.json");
+  expect(undeletedLedgerIds(path)).toEqual([]);
+  writeLedger(path, { runId: "old", createdAt: new Date().toISOString(), vmIds: ["vm-a", "vm-b"], deletedVmIds: ["vm-a"] });
+  expect(undeletedLedgerIds(path)).toEqual(["vm-b"]);
+  await deleteLedgerIds(path, async () => {});
+  expect(undeletedLedgerIds(path)).toEqual([]);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pausing touches only the ledger's own unsettled ids, each once", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "gallery-ledger-")); const path = join(dir, "ledger.json");
+  writeLedger(path, { runId: "r", createdAt: new Date().toISOString(), vmIds: ["vm-1", "vm-2", "vm-3"], pausedVmIds: ["vm-1"], deletedVmIds: ["vm-3"] });
+  const paused: string[] = [];
+  await pauseLedgerIds(path, async (id) => { paused.push(id); });
+  await pauseLedgerIds(path, async (id) => { paused.push(id); });
+  expect(paused).toEqual(["vm-2"]);
+  expect(undeletedLedgerIds(path)).toEqual([]);
   rmSync(dir, { recursive: true, force: true });
 });

@@ -25,11 +25,11 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   if (state.text !== null) files.set(state.path, { text: state.text, hash: hash(state.text) });
   for (const [path, text] of Object.entries(state.files ?? {})) files.set(path, { text, hash: hash(text) });
   const settings = { ...state.settings } as Record<string, unknown>;
-  if (context.env.font || context.env.size)
+  if (context.env.fontFamily || context.env.fontSize)
     settings.font = {
       ...(settings.font as object | undefined),
-      ...(context.env.font && { family: context.env.font }),
-      ...(context.env.size && { size: context.env.size }),
+      ...(context.env.fontFamily && { family: context.env.fontFamily }),
+      ...(context.env.fontSize && { size: context.env.fontSize }),
     };
   const config = (path: string) => {
     const file = files.get(path);

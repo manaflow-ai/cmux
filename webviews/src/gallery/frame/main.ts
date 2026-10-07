@@ -6,10 +6,11 @@ import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
 import type { GalleryEntry } from "../format";
 import { entries } from "../registry";
-import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, type GhosttyTheme } from "../theme/ghostty";
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
+import metrics from "virtual:cmux-gallery/metrics";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 
@@ -44,12 +45,18 @@ for (const key of ["languages", "language"] as const)
     get: () => (key === "languages" ? [env.locale] : env.locale),
   });
 
-const pair = { dark: themeNamed(env.dark, DEFAULT_DARK_THEME), light: themeNamed(env.light, DEFAULT_LIGHT_THEME) };
-const theme = env.scheme === "dark" ? pair.dark : pair.light;
+const theme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
+// Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
+// window shows and the default on the other, as `theme = light:A,dark:B` would.
+const pair =
+  scheme === "dark"
+    ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
+    : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme);
 
 emulateMedia({
-  "prefers-color-scheme": env.scheme,
+  "prefers-color-scheme": scheme,
   "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
   "prefers-contrast": env.highContrast ? "more" : "no-preference",
 });
@@ -73,9 +80,14 @@ const context: StageContext = {
   pair,
   tokens,
   agentTheme: agentPaneTheme(tokens, env.reducedMotion),
-  appearance: diffAppearance(pair, { family: env.font || undefined, size: env.size || undefined }),
+  appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
 };
+
+function markReady(): void {
+  root.dataset.galleryReady = "1";
+  parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+}
 
 /** Ready once the page has painted and its DOM has been still for a moment (fonts loaded). */
 function markReadyWhenStill(): void {
@@ -83,8 +95,7 @@ function markReadyWhenStill(): void {
   const started = performance.now();
   const done = () => {
     observer.disconnect();
-    root.dataset.galleryReady = "1";
-    parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+    markReady();
   };
   const arm = () => {
     clearTimeout(timer);
@@ -113,6 +124,14 @@ async function mount(): Promise<void> {
   }
 }
 
-mount().then(markReadyWhenStill, (error: unknown) =>
+// Window mode: this frame is the window; the entry runs in a nested component frame in its pane,
+// and the window is ready when that frame is.
+const windowed = env.frame === "window" && entry.host !== "native";
+const start = windowed
+  ? import("./windowChrome").then(({ mountWindow }) =>
+      mountWindow({ entry, variant: variantName, env, tokens, metrics, onReady: markReady }),
+    )
+  : mount().then(markReadyWhenStill);
+start.catch((error: unknown) =>
   fail(`${entry.id}#${variantName} failed to mount:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`),
 );

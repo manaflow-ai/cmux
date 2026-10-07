@@ -1,7 +1,13 @@
 // The gallery's controls: one value set, kept in the URL query, so a link reproduces a view.
+// The query keys are the one contract of every gallery tool: the shell, the stage frames, the
+// matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
+// GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
+// fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
+// frame, window, zoom, layout.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
-import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
+import { DEFAULT_DARK_THEME } from "./theme/ghostty";
+import { PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "./window";
 
 /** The 21 languages the app ships (Localizable.xcstrings, scripts/pages/gen-strings.mjs LOCALES). */
 export const LOCALES = [
@@ -48,14 +54,14 @@ export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 
 export type GalleryEnv = {
   locale: string;
-  scheme: "dark" | "light";
-  /** The Ghostty theme for each scheme, as `theme = light:A,dark:B` names them. */
-  dark: string;
-  light: string;
+  /** The Ghostty theme the window shows (a shipped theme's file name). */
+  theme: string;
+  /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
+  colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
-  font: string;
+  fontFamily: string;
   /** Px; 0 is the page's own size. */
-  size: number;
+  fontSize: number;
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
@@ -69,15 +75,22 @@ export type GalleryEnv = {
   dynamicSize: DynamicSize;
   /** Native only: the window is key or inactive. */
   windowKey: "key" | "inactive";
+  /** `window`: the entry at its real size in a cmux window; `component`: the entry alone. */
+  frame: "window" | "component";
+  /** The window's size: a preset (window.ts) or `<width>x<height>`. */
+  window: string;
+  /** The shell's scale of a window: `fit` the view, or a fraction. */
+  zoom: "fit" | number;
+  /** The panes around the entry. */
+  layout: PaneLayout;
 };
 
 export const DEFAULT_ENV: GalleryEnv = {
   locale: "en",
-  scheme: "dark",
-  dark: DEFAULT_DARK_THEME,
-  light: DEFAULT_LIGHT_THEME,
-  font: "",
-  size: 0,
+  theme: DEFAULT_DARK_THEME,
+  colorScheme: "auto",
+  fontFamily: "",
+  fontSize: 0,
   density: "comfortable",
   scale: 1,
   width: "normal",
@@ -86,7 +99,13 @@ export const DEFAULT_ENV: GalleryEnv = {
   highContrast: false,
   dynamicSize: "default",
   windowKey: "key",
+  frame: "window",
+  window: "16x9",
+  zoom: "fit",
+  layout: "one",
 };
+
+export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
 const KEYS = Object.keys(DEFAULT_ENV) as (keyof GalleryEnv)[];
 
@@ -106,11 +125,11 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const env: GalleryEnv = { ...DEFAULT_ENV };
   const locale = params.get("locale");
   if (locale && ([...LOCALES, ...PSEUDO_LOCALES] as readonly string[]).includes(locale)) env.locale = locale;
-  if (params.get("scheme") === "light") env.scheme = "light";
-  env.dark = params.get("dark") || env.dark;
-  env.light = params.get("light") || env.light;
-  env.font = (params.get("font") ?? "").slice(0, 200);
-  env.size = finite(params.get("size"), 0, 0, 40);
+  env.theme = params.get("theme") || env.theme;
+  const scheme = params.get("colorScheme");
+  if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
+  env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
+  env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
   const width = params.get("width");
@@ -122,6 +141,13 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const dynamicSize = params.get("dynamicSize");
   if ((DYNAMIC_SIZES as readonly string[]).includes(dynamicSize ?? "")) env.dynamicSize = dynamicSize as DynamicSize;
   if (params.get("windowKey") === "inactive") env.windowKey = "inactive";
+  if (params.get("frame") === "component") env.frame = "component";
+  const window = params.get("window");
+  if (window && (window in WINDOW_PRESETS || /^\d{3,4}x\d{3,4}$/.test(window))) env.window = window;
+  const zoom = params.get("zoom");
+  if (zoom && zoom !== "fit") env.zoom = finite(zoom, 1, 0.1, 2);
+  const layout = params.get("layout");
+  if (layout && layout in PANE_LAYOUTS) env.layout = layout as PaneLayout;
   return env;
 }
 
@@ -136,8 +162,6 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   return params;
 }
 
-/** The Ghostty theme the scheme shows. */
-export const activeTheme = (env: GalleryEnv) => (env.scheme === "dark" ? env.dark : env.light);
 
 /** What a stage frame renders: one variant of one entry, under the controls. */
 export type StageAddress = { entry: string; variant: string };

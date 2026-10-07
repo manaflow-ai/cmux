@@ -10,7 +10,8 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { validateEntries, type GalleryEntry } from "../src/gallery/format";
+import { validateEntries } from "../src/gallery/format";
+import { loadEntries } from "../scripts/gallery/entries";
 
 const SRC = path.resolve(import.meta.dir, "../src");
 const REPO = path.resolve(import.meta.dir, "../..");
@@ -58,16 +59,10 @@ function pages(): string[] {
   return [...ids].sort();
 }
 
-async function galleryEntries(): Promise<GalleryEntry[]> {
-  const files = walk(SRC, (file) => /\.gallery\.tsx?$/.test(file));
-  const modules = await Promise.all(files.map((file) => import(file) as Promise<{ default: GalleryEntry }>));
-  return modules.map((module) => module.default);
-}
-
 type Allowlist = { comment?: string; components: string[]; pages: string[] };
 
 describe("gallery coverage", async () => {
-  const entries = await galleryEntries();
+  const entries = await loadEntries();
   const byFile = components();
   const allComponents = [...byFile].flatMap(([file, names]) => names.map((name) => `${file}#${name}`)).sort();
   const allPages = pages();

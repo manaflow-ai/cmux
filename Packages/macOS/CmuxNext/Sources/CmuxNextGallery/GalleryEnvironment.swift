@@ -5,12 +5,12 @@ public import Foundation
 /// holds query/value pairs that both sides' tests replay, so a link means the same in each.
 ///
 /// ```swift
-/// let env = GalleryEnvironment(query: ["scheme": "light", "width": "narrow"])
+/// let env = GalleryEnvironment(query: ["colorScheme": "light", "width": "narrow"])
 /// env.widthPoints(presets: GalleryEnvironment.nativeWidths) // 320
 /// ```
 public nonisolated struct GalleryEnvironment: Hashable, Sendable {
-    /// The window appearance; picks ``dark`` or ``light`` as the Ghostty theme.
-    public enum Scheme: String, Hashable, Sendable, CaseIterable { case dark, light }
+    /// The window appearance; `auto` is the theme's own.
+    public enum ColorScheme: String, Hashable, Sendable, CaseIterable { case auto, dark, light }
     /// Native only: the text size.
     public enum DynamicSize: String, Hashable, Sendable, CaseIterable { case standard = "default", large, xlarge }
     /// Native only: whether the window is key.
@@ -23,14 +23,13 @@ public nonisolated struct GalleryEnvironment: Hashable, Sendable {
     }
 
     public var locale: String
-    public var scheme: Scheme
-    /// The Ghostty theme for each scheme, as `theme = light:A,dark:B` names them.
-    public var dark: String
-    public var light: String
+    /// The Ghostty theme the window shows (a shipped theme's file name).
+    public var theme: String
+    public var colorScheme: ColorScheme
     /// Empty: the view's own font.
-    public var font: String
+    public var fontFamily: String
     /// Points; 0 is the view's own size.
-    public var size: Double
+    public var fontSize: Double
     public var density: Density
     /// Interface scale (DesignSettings.uiScale).
     public var scale: Double
@@ -55,11 +54,10 @@ public nonisolated struct GalleryEnvironment: Hashable, Sendable {
     /// The defaults (`DEFAULT_ENV`).
     public init() {
         locale = "en"
-        scheme = .dark
-        dark = "Apple System Colors"
-        light = "Apple System Colors Light"
-        font = ""
-        size = 0
+        theme = "Apple System Colors"
+        colorScheme = .auto
+        fontFamily = ""
+        fontSize = 0
         density = .comfortable
         scale = 1
         width = .normal
@@ -76,11 +74,10 @@ public nonisolated struct GalleryEnvironment: Hashable, Sendable {
     public init(query: [String: String]) {
         self.init()
         if let value = query["locale"], Self.locales.contains(value) { locale = value }
-        if query["scheme"] == "light" { scheme = .light }
-        if let value = query["dark"], !value.isEmpty { dark = value }
-        if let value = query["light"], !value.isEmpty { light = value }
-        font = String((query["font"] ?? "").prefix(200))
-        size = Self.number(query["size"], fallback: 0, in: 0...40)
+        if let value = query["theme"], !value.isEmpty { theme = value }
+        if let value = query["colorScheme"], let parsed = ColorScheme(rawValue: value) { colorScheme = parsed }
+        fontFamily = String((query["fontFamily"] ?? "").prefix(200))
+        fontSize = Self.number(query["fontSize"], fallback: 0, in: 0...40)
         if query["density"] == "compact" { density = .compact }
         scale = Self.number(query["scale"], fallback: 1, in: 0.5...3)
         switch query["width"] {
@@ -96,9 +93,6 @@ public nonisolated struct GalleryEnvironment: Hashable, Sendable {
         if let value = query["dynamicSize"], let parsed = DynamicSize(rawValue: value) { dynamicSize = parsed }
         if query["windowKey"] == "inactive" { windowKey = .inactive }
     }
-
-    /// The Ghostty theme the scheme shows.
-    public var activeTheme: String { scheme == .dark ? dark : light }
 
     /// The width in points under `presets` (an entry's own, else the host's).
     public func widthPoints(presets: [String: Double]) -> Double {
