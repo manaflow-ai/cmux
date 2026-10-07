@@ -188,7 +188,7 @@ enum SidebarSectionResolve {
     /// another text. A workspace is named by its qualified `<session>:ws_…`
     /// id, its `ws_…` id or its sidebar id, and must be open.
     @MainActor static func workspaceOrApp(_ text: String, machines: MachineRegistry) throws -> LayoutItemRef? {
-        guard text.isEmpty, let colon = text.firstIndex(of: ":") else { return nil }
+        guard let colon = text.firstIndex(of: ":") else { return nil }
         let kind = text[..<colon], value = String(text[text.index(after: colon)...])
         switch kind {
         case "app":

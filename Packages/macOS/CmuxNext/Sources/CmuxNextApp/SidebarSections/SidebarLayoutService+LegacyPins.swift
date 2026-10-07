@@ -18,5 +18,22 @@ extension SidebarLayoutService {
     /// Sessions this Mac has moved.
     var legacyPinsMigrated: Set<String> { Set(recentsOffered.stringArray(forKey: Self.legacyPinsMigratedKey) ?? []) }
 
-    func migrateLegacyPins() {}
+    func migrateLegacyPins() {
+        guard let remote, usesOwner else { return }
+        var migrated = legacyPinsMigrated
+        let before = migrated
+        for group in remote.legacyPins where !migrated.contains(group.session) {
+            if group.refs.allSatisfy(mirror.isOnTop) {
+                migrated.insert(group.session)
+                continue
+            }
+            // Once per run: the next fetch after the owner's replies marks it done.
+            guard !legacyPinsSent.contains(group.session) else { continue }
+            legacyPinsSent.insert(group.session)
+            for op in document.legacyPinMigrationOps(group.refs) {
+                do { try send(op) } catch { break }
+            }
+        }
+        if migrated != before { recentsOffered.set(migrated.sorted(), forKey: Self.legacyPinsMigratedKey) }
+    }
 }
