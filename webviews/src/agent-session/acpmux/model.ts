@@ -1,5 +1,6 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
+import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -69,6 +70,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 
@@ -84,6 +87,9 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+  /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
+  /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
+  question?: AgentQuestion;
 };
 
 /** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
@@ -169,6 +175,15 @@ export type AcpmuxSnapshot = {
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
+    /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
+     * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
+     * (`diagnostic`: its first problem). Global harnesses have none. */
+    folder?: {
+      folder: string;
+      path?: string;
+      state: "enabled" | "needs-enable" | "needs-trust" | "error";
+      diagnostic?: string;
+    };
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */

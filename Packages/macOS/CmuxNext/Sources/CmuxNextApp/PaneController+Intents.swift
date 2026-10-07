@@ -155,24 +155,10 @@ extension PaneController {
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
-            ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
-            : commands
-        // The user's own refused close says so; automation gets the task's failure.
-        let userClose = CloseUndoToasts.isUserClose
+        let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task {
-            var failed = false
-            var unknown = false
-            var codes: [String] = []
-            for command in runs {
-                switch await daemon.runReportingTimeout(command.0, command.1) {
-                case .succeeded: break
-                case .failed(let code):
-                    failed = true
-                    if let code { codes.append(code) }
-                case .unknown: unknown = true
-                }
-            }
+            let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
@@ -254,7 +240,9 @@ extension PaneController {
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
-            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))
+            let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
+            return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
+                                            entries: TabGroupPinMenu.entries(saved: saved))
         case .emptyStrip:
             let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
             return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)

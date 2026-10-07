@@ -5708,6 +5708,25 @@
             }
           },
           "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
         }
       },
       "extra": false
@@ -16697,6 +16716,17 @@
             },
             "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -16708,7 +16738,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
         ]
       },
       "result": {
@@ -20087,6 +20117,25 @@
             },
             "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20098,7 +20147,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, or top_index is present.",
+          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },

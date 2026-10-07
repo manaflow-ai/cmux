@@ -9,6 +9,7 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
+import { questionFromPermission } from "./question/model";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -102,7 +103,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
+  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
   return {
+    ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
@@ -220,6 +223,7 @@ export function mergeToolItem(
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
         update.content === undefined
           ? placeDiffs(before?.diffs, update.locations)
@@ -261,6 +265,25 @@ function textFromContent(content: any): string {
   if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
+}
+
+/// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
+const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
+
+/// The data URLs of ACP `image` content blocks (`{type: "image", mimeType, data}`, bare or in a
+/// `content` wrapper), images only and each under the cap.
+function imagesFromContent(content: any): string[] | undefined {
+  const found: string[] = [];
+  const visit = (block: any) => {
+    if (Array.isArray(block)) return block.forEach(visit);
+    if (block?.type === "content") return visit(block.content);
+    if (block?.type !== "image" || typeof block.data !== "string") return;
+    const type = String(block.mimeType ?? "");
+    if (/^image\/(png|jpeg|gif|webp)$/.test(type) && block.data.length <= MAX_TOOL_IMAGE_LENGTH)
+      found.push(`data:${type};base64,${block.data}`);
+  };
+  visit(content);
+  return found.length ? found : undefined;
 }
 
 function sessionUpdate(event: EventRecord): any | undefined {
@@ -1522,12 +1545,15 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
-  async permission(permissionId: string, optionId: string): Promise<void> {
+  /// Answers a permission: `optionId` picks an option (absent cancels the request), and
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", {
         sessionId: this.selectedSessionId,
         permissionId,
-        optionId,
+        ...(optionId === undefined ? {} : { optionId }),
+        ...(answers === undefined ? {} : { answers }),
       });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
@@ -1712,14 +1738,35 @@ export class AcpmuxDirectClient {
         ...gestureMeta(ticket),
       });
   }
-  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
-  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
+  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.
+   *  With `cwd` (the chat's folder) it also holds that folder's harness profiles (`folder` entries,
+   *  docs/add-your-harness.md). A refused `cwd` (an older acpmux, a folder outside the roots)
+   *  falls back to the list without it, so the catalog never empties over a folder. */
+  async harnesses(cwd?: string): Promise<AcpmuxSnapshot["catalog"]> {
     // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
     const [names, probed] = await Promise.all([
-      this.request("_acpmux/harnesses", {}),
+      cwd
+        ? this.request("_acpmux/harnesses", { cwd }).catch(() => this.request("_acpmux/harnesses", {}))
+        : this.request("_acpmux/harnesses", {}),
       this.request("_acpmux/models", {}).catch(() => undefined),
     ]);
-    return mergeModelCatalog(names, probed);
+    const catalog = mergeModelCatalog(names, probed);
+    const profiles = normalizeFolderProfiles(names);
+    if (profiles.length === 0) return catalog;
+    // A probed folder profile keeps its models; it is listed once, as the folder's.
+    const ids = new Set(profiles.map((profile) => profile.id));
+    const models = new Map(catalog.map((entry) => [entry.id, entry.models]));
+    return [
+      ...catalog.filter((entry) => !ids.has(entry.id)),
+      ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
+    ];
+  }
+  /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
+  /// click or key handler, with no await before it: the host takes the gesture, shows its own
+  /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
+  /// rejects with code `transport.harness_not_confirmed`.
+  harnessEnable(folder: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/harness_enable", { folder, id });
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
@@ -1778,6 +1825,56 @@ export function isTrustRefusal(error: unknown): boolean {
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
   for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
   return undefined;
+}
+
+const FOLDER_STATES = ["enabled", "needs-enable", "needs-trust", "error"] as const;
+
+/// The folder profiles of a `_acpmux/harnesses {cwd}` reply (`folderProfiles`) as catalog entries.
+/// An entry without an id, a folder or a known state is dropped.
+export function normalizeFolderProfiles(value: any): AcpmuxSnapshot["catalog"] {
+  const profiles: any[] = Array.isArray(value?.folderProfiles) ? value.folderProfiles : [];
+  return profiles.flatMap((profile) => {
+    const id = typeof profile?.id === "string" ? profile.id : "";
+    const folder = typeof profile?.folder === "string" ? profile.folder : "";
+    const state = FOLDER_STATES.find((candidate) => candidate === profile?.state);
+    if (!id || !folder || !state) return [];
+    const first = Array.isArray(profile.diagnostics) ? profile.diagnostics[0] : undefined;
+    const diagnostic =
+      typeof first === "string" ? first : typeof first?.message === "string" ? first.message : undefined;
+    return [
+      {
+        id,
+        name: typeof profile.displayName === "string" && profile.displayName ? profile.displayName : id,
+        models: Array.isArray(profile.models) ? profile.models.map((model: unknown) => catalogModel(model)) : [],
+        ...(typeof profile.family === "string" && profile.family ? { family: profile.family } : {}),
+        ...(typeof profile.icon === "string" && profile.icon ? { icon: profile.icon } : {}),
+        folder: {
+          folder,
+          ...(typeof profile.path === "string" ? { path: profile.path } : {}),
+          state,
+          ...(diagnostic ? { diagnostic } : {}),
+        },
+      },
+    ];
+  });
+}
+
+/// A `session/new` acpmux refused because the chat's folder profile is not enabled yet
+/// (`harness.needs_enable`) or its folder has no Trust answer (`harness.needs_trust`).
+export type HarnessBlock = { reason: "needs-enable" | "needs-trust"; harness: string; folder: string };
+
+export function harnessBlock(error: unknown): HarnessBlock | undefined {
+  const data = (error as { data?: unknown } | null)?.data as
+    | { reason?: unknown; harness?: unknown; folder?: unknown }
+    | undefined;
+  const reason =
+    data?.reason === "harness.needs_enable"
+      ? "needs-enable"
+      : data?.reason === "harness.needs_trust"
+        ? "needs-trust"
+        : undefined;
+  if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
+  return { reason, harness: data.harness, folder: data.folder };
 }
 
 /// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.

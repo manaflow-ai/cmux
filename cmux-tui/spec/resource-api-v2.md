@@ -83,7 +83,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
-| Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (newest 50 tabs, screens, workspaces) | shared | `closed.list`, `closed.reopen` |
@@ -105,7 +105,7 @@ Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
 workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `back`, `forward`, `owner` (the install id of the app
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -180,6 +180,19 @@ again with its id, name, color, collapse, room and place, and puts back each
 member whose personal row still exists and that is still ungrouped; a group
 that exists again is left as it is. Its result names the session's active
 workspace.
+`workspace-group-icon-v1` gives a personal group an icon:
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji
+or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
+it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
+and the raw `list-personal` groups report it (null: no icon, and clients draw
+their default group glyph). Older daemons omit the field.
+`workspace-group-pin-v1` pins (saves) a personal group:
+`workspace_group.update {pinned: true}` pins it and `false` unpins it;
+`WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
+The daemon never removes a group because it is empty, pinned or not; the pin
+tells clients to keep an empty group as a saved group (closing its
+workspaces leaves it collapsed and empty, and opening it restores them)
+instead of hiding it. Older daemons omit the field (not pinned).
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the

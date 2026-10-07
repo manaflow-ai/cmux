@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
+// cmux-tui mux protocol 12, IR 50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -554,6 +554,32 @@ pub struct CloudInboxUnsubscribeRequest {
 
 #[rustfmt::skip]
 pub type CloudInboxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxAckRequest {
+    pub conversation: String,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudMuxAckResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxSubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudMuxUnsubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudMuxUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2560,6 +2586,8 @@ pub struct SetColumnDockRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub role: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
@@ -3500,6 +3528,18 @@ impl CmuxClient {
         self.execute(&CLOUD_INBOX_UNSUBSCRIBE_METADATA, &request)
     }
 
+    pub fn cloud_mux_ack(&mut self, request: CloudMuxAckRequest) -> Result<CloudMuxAckResult> {
+        self.execute(&CLOUD_MUX_ACK_METADATA, &request)
+    }
+
+    pub fn cloud_mux_subscribe(&mut self, request: CloudMuxSubscribeRequest) -> Result<CloudMuxSubscribeResult> {
+        self.execute(&CLOUD_MUX_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_mux_unsubscribe(&mut self, request: CloudMuxUnsubscribeRequest) -> Result<CloudMuxUnsubscribeResult> {
+        self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
+    }
+
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
         self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
     }
@@ -4261,6 +4301,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.role.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "dock-column-role-v1")?;
+        }
         self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 

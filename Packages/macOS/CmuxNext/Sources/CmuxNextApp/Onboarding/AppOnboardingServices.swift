@@ -187,6 +187,11 @@ final class AppOnboardingServices: OnboardingServices {
             return resolvedComputerUseSource
         }
         #endif
+        if ComputerUseHelperDaemon.shared.state == .unavailable {
+            // Computer Use is on, but no Developer ID signed helper is
+            // installed: the step shows, and Allow says it is unavailable.
+            return AppComputerUsePermissionSource(configuration: owner.computerUseConfiguration)
+        }
         resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
         return resolvedComputerUseSource
     }
@@ -216,7 +221,11 @@ final class AppOnboardingServices: OnboardingServices {
         owner.didEnd(completed: completed)
     }
 
-    func onboardingDidReach(_ step: OnboardingModel.Step) {
-        owner.recordProgress(step)
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        owner.recordProgress(step, interacted: interacted)
+    }
+
+    func onboardingDidLeave(notNow: Bool) {
+        if notNow { owner.recordNotNow() }
     }
 }

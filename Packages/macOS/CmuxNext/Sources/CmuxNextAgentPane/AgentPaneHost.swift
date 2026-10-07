@@ -43,6 +43,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
+    /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
+    /// read at each daemon start, since Computer Use turns on and off while the app runs.
+    private let computerUse: @Sendable () -> [String: String]
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
@@ -50,12 +53,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public init(environment: AcpmuxEnvironment?) {
         self.resolveEnvironment = { environment }
+        self.computerUse = { [:] }
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
     /// off the main thread, at the first handshake that needs it.
-    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?) {
+    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+                computerUse: @escaping @Sendable () -> [String: String] = { [:] }) {
         self.resolveEnvironment = resolve
+        self.computerUse = computerUse
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -82,10 +88,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
         if environment == nil { environment = resolveEnvironment() }
-        guard let environment else {
+        guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
             throw AgentPaneHostError.acpmuxNotFound
         }
+        environment.computerUse = computerUse()
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }

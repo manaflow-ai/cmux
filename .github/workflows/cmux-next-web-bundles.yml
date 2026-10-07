@@ -1,16 +1,15 @@
 name: cmux-next web bundles
 
 # feat-cmux-next takes direct pushes, so ci-web.yml's PR checks never run there.
-# This backstop rebuilds the committed web bundles on every push that touches them.
-# safe-push.sh runs the same checks before the push.
+# This backstop builds the web bundles (build output since cx-vn5, gitignored) on
+# every push that touches their sources. safe-push.sh runs the same build first.
 on:
   push:
     branches: [feat-cmux-next]
     paths:
       - "webviews/**"
-      - "Resources/markdown-viewer/webviews-app/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/**"
+      - "Resources/markdown-viewer/marked.min.js"
+      - "schemas/settings/**"
       - "scripts/build-webviews-app.sh"
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/cmux-next/build-palette-ranker.sh"
@@ -19,7 +18,6 @@ on:
       - "scripts/cmux-next/build-pages-web.sh"
       - "scripts/cmux-next/build-web-bundles.sh"
       - "scripts/cmux-next/web-bundle-key.py"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/**"
       - "Native/OptChat/optchat-chief/inspector/**"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
@@ -51,27 +49,18 @@ jobs:
         with:
           node-version: "24.11.1"
 
-      - name: Verify generated webviews assets
+      - name: Verify webviews source checks
         run: ./scripts/build-webviews-app.sh --check
 
-      - name: Verify generated cmux-next agent pane
-        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
-
-      - name: Verify generated cmux-next palette ranker
-        run: ./scripts/cmux-next/build-palette-ranker.sh --check
-
-      - name: Verify generated cmux-next Agent Activity
-        run: ./scripts/cmux-next/build-agent-activity-web.sh --check
-
-      - name: Verify generated Chief memory inspector
-        run: ./scripts/cmux-next/build-optchat-inspector-web.sh --check
-
-      # The app build path (cx-vn5): build-web-bundles.sh, which every build
-      # entry runs before it compiles, must produce the committed bundles byte
-      # for byte, the pages included.
-      - name: Verify the app build path's web bundles
+      # The app build path (cx-vn5): every build entry runs build-web-bundles.sh
+      # before it compiles. The bundles must build, the strings tables (still
+      # committed) must be current, and the build must be deterministic: a second
+      # build into another root gives the same bytes.
+      - name: Build the web bundles twice and compare
         run: |
           set -euo pipefail
+          ./scripts/cmux-next/build-web-bundles.sh --force
+          git diff --exit-code -- ':(glob)webviews/src/**/generated/strings.json' || { echo "::error::generated strings tables are stale; run bun webviews/scripts/pages/gen-strings.mjs and commit them"; exit 1; }
           out="$RUNNER_TEMP/web-bundles"
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$out"
           status=0
@@ -80,8 +69,9 @@ jobs:
             Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages \
             Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity \
             Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js \
-            Resources/markdown-viewer/webviews-app; do
-            diff -r "$path" "$out/$path" >/dev/null || { echo "::error::$path differs from build-web-bundles.sh output"; diff -rq "$path" "$out/$path" || true; status=1; }
+            Resources/markdown-viewer/webviews-app \
+            Native/OptChat/optchat-chief/inspector; do
+            diff -r -x GENERATED.md "$path" "$out/$path" >/dev/null || { echo "::error::$path differs between two builds"; diff -rq -x GENERATED.md "$path" "$out/$path" || true; status=1; }
           done
           exit "$status"
 
@@ -112,6 +102,10 @@ jobs:
       - name: Install webviews dependencies
         working-directory: webviews
         run: bun install --frozen-lockfile
+
+      # Some webviews tests read the built bundles (build output since cx-vn5).
+      - name: Build the web bundles
+        run: ./scripts/cmux-next/build-web-bundles.sh
 
       - name: vp check
         working-directory: webviews

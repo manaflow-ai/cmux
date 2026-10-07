@@ -133,6 +133,9 @@ public struct DaemonCapabilities: Sendable {
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"
+    /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
+    /// and `columns[].dock`: the agent chat column.
+    public let dockColumnRole = "dock-column-role-v1"
     /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
     /// (plans/cmux-next/rows.md). Without it no row op is sent.
     public let rows = "rows-v1"
@@ -178,6 +181,10 @@ public struct DaemonCapabilities: Sendable {
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).
     public let personalMixedOrder = "personal-mixed-order-v1"
+    /// `icon` on `workspace_group.update` and on personal groups.
+    public let workspaceGroupIcon = "workspace-group-icon-v1"
+    /// `pinned` (saved) on `workspace_group.update` and on personal groups.
+    public let workspaceGroupPin = "workspace-group-pin-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
@@ -232,12 +239,13 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout,
+                                            workspaceGroupIcon, workspaceGroupPin] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
+// cmux-tui mux protocol 12, IR 50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -145,6 +145,24 @@ pub struct CloudInboxResetEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxResyncedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub pending: Nullable<T::JsonValue>,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxWakeEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub seq: u64,
+    pub wakes: Nullable<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -737,6 +755,8 @@ pub enum Event {
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
+    CloudMuxResynced(CloudMuxResyncedEvent),
+    CloudMuxWake(CloudMuxWakeEvent),
     CloudSessionNeeded(CloudSessionNeededEvent),
     CloudSubscriptionState(CloudSubscriptionStateEvent),
     ColorsChanged(ColorsChangedEvent),
@@ -811,6 +831,8 @@ impl Event {
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
+            Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
+            Self::CloudMuxWake(_) => Some("cloud-mux-wake"),
             Self::CloudSessionNeeded(_) => Some("cloud-session-needed"),
             Self::CloudSubscriptionState(_) => Some("cloud-subscription-state"),
             Self::ColorsChanged(_) => Some("colors-changed"),
@@ -884,6 +906,8 @@ impl Event {
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
+            Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
+            Self::CloudMuxWake(_) => Some(&CLOUD_MUX_WAKE_EVENT_METADATA),
             Self::CloudSessionNeeded(_) => Some(&CLOUD_SESSION_NEEDED_EVENT_METADATA),
             Self::CloudSubscriptionState(_) => Some(&CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
@@ -1045,6 +1069,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-inbox-reset") => match serde_json::from_value::<CloudInboxResetEvent>(raw.clone()) {
             Ok(event) => Event::CloudInboxReset(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-mux-resynced") => match serde_json::from_value::<CloudMuxResyncedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudMuxResynced(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-mux-wake") => match serde_json::from_value::<CloudMuxWakeEvent>(raw.clone()) {
+            Ok(event) => Event::CloudMuxWake(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
