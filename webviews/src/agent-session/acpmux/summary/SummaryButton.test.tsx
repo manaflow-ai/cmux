@@ -114,7 +114,7 @@ test("the Changes files match the totals' turn", async () => {
     },
   ] satisfies AcpmuxRow[];
   const { button, popover, unmount } = await render(opened, shown, [
-    { path: "/repo/latest.md", displayPath: "latest.md", additions: 1, deletions: 0, created: true },
+    { path: "/repo/latest.md", displayPath: "latest.md", edits: [], additions: 1, deletions: 0, created: true },
   ]);
   await act(async () => button.click());
   const fileLinks = [...popover()!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-link[title]")];
