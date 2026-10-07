@@ -210,8 +210,10 @@ public final class ConversationViewController: UIViewController {
         followKeyboardProgress()
         updateInsets()
         keyboardRoseThisPass = false
-        let available = composerContainer.frame.maxY - header.frame.maxY - 8
-        composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, available - 8)
+        // A full field stops 3.3 pt below the header's bottom edge, just under
+        // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
+        let fieldBottom = composerContainer.frame.maxY - 4
+        composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
         layoutReplyOverlay()
     }
 
