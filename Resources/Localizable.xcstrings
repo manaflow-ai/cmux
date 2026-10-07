@@ -626922,6 +626922,17 @@
         }
       }
     },
+    "coderouter.addAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add account"
+          }
+        }
+      }
+    },
     "coderouter.newAccount": {
       "extractionState": "manual",
       "localizations": {
@@ -626940,7 +626951,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New %@ Account"
+            "value": "Add %@ account"
           }
         },
         "es": {
@@ -627567,6 +627578,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "在此側邊欄中"
+          }
+        }
+      }
+    },
+    "coderouter.guide.sidebar.addMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click + in the Coderouter header, choose a provider and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
           }
         }
       }

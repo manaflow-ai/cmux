@@ -17,8 +17,8 @@ struct CoderouterGuideView: View {
             paragraph(Self.summary)
             heading(String(localized: "coderouter.guide.sidebar.title", defaultValue: "In this sidebar"))
             paragraph(String(
-                localized: "coderouter.guide.sidebar",
-                defaultValue: "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+                localized: "coderouter.guide.sidebar.addMenu",
+                defaultValue: "Click + in the Coderouter header, choose a provider and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
             ))
             heading(String(localized: "coderouter.guide.cli.title", defaultValue: "From a terminal"))
             command("cr add codex", String(localized: "coderouter.guide.cli.add", defaultValue: "Add an account. Also claude or opencode."))

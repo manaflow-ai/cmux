@@ -17,15 +17,18 @@ struct CloudTreeRowHoverButtons: View {
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
         case .coderouterSection:
-            MachinesChromeIconButton(
-                symbolName: "questionmark.circle",
-                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
-                isBusy: false
-            ) {
-                nodeActions.showRowGuide(nodeID)
+            HStack(spacing: 2) {
+                CoderouterAddMenuButton(nodeActions: nodeActions)
+                MachinesChromeIconButton(
+                    symbolName: "questionmark.circle",
+                    accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
+                    isBusy: false
+                ) {
+                    nodeActions.showRowGuide(nodeID)
+                }
+                .help(CoderouterGuideView.summary)
+                .accessibilityIdentifier("CoderouterGuideButton")
             }
-            .help(CoderouterGuideView.summary)
-            .accessibilityIdentifier("CoderouterGuideButton")
         case .coderouterAccount(let account):
             xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) {
                 nodeActions.removeCoderouterAccount(account)
@@ -171,10 +174,12 @@ struct CloudTreeRowHoverButtons: View {
         }
     }
 
-    /// True when the row's buttons stay visible without hover. Machine rows
-    /// keep + and ⋯ on screen so their actions are discoverable at rest.
+    /// True when the row's buttons stay visible without hover. Machine and
+    /// CodeRouter section rows keep their actions on screen so they are
+    /// discoverable at rest.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
         if case .machine = kind { return true }
+        if case .coderouterSection = kind { return true }
         return false
     }
 
@@ -200,6 +205,42 @@ struct CloudTreeRowHoverButtons: View {
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
+    }
+}
+
+/// One discoverable add affordance for the whole account roster. Provider
+/// groups keep their contextual plus button on hover, while this menu makes
+/// the action available without requiring the user to guess which row to
+/// hover first.
+private struct CoderouterAddMenuButton: View {
+    let nodeActions: CloudTreeNodeActions
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            ForEach(CoderouterProvider.addable, id: \.id) { provider in
+                Button(provider.newAccountTitle) {
+                    nodeActions.addCoderouterAccount(provider)
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: 22, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .onHover { isHovered = $0 }
+        .help(String(localized: "coderouter.addAccount", defaultValue: "Add account"))
+        .accessibilityLabel(String(localized: "coderouter.addAccount", defaultValue: "Add account"))
+        .accessibilityIdentifier("CoderouterAddAccountButton")
     }
 }
 
