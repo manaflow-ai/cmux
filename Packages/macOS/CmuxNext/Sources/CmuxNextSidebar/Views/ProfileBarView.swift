@@ -63,10 +63,16 @@ final class ProfileBarView: NSView {
 
     // MARK: Drawing
 
+    /// The dots drawn now: none for a lone space at rest (it switches nothing; the bar stays
+    /// mounted so the chrome never shifts), every space otherwise.
+    var drawnDotCount: Int {
+        ProfileBarLogic.isVisible(profileCount: model.profiles.count) || isPointerInside ? model.profiles.count : 0
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             let rects = slotRects()
-            for (offset, profile) in model.profiles.enumerated() {
+            for (offset, profile) in model.profiles.enumerated().prefix(drawnDotCount) {
                 var rect = rects[offset]
                 if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
                 let active = profile.id == model.activeProfileID
