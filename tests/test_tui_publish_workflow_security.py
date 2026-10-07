@@ -300,16 +300,22 @@ def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     next_workflow = workflow("cmux-next.yml")
-    # Every step that waits for the same-tree cmux-tui (the gate's `wait` and
-    # each job's `fetch`) uses the full bounded wait, pull requests included.
-    waiting = [
+    jobs = yaml.safe_load(next_workflow)["jobs"]
+    # No step waits for the same-tree cmux-tui: path routing probes it once
+    # (pull requests included: the base push's tree when the merge keeps it,
+    # else the pull request's own), and each tree job's `fetch` runs only on a
+    # published tree, so its bound is a download's.
+    assert not re.search(r"pin-cmux-tui\.sh wait\b", next_workflow)
+    fetching = [
         step
-        for job in yaml.safe_load(next_workflow)["jobs"].values()
+        for job in jobs.values()
         for step in job.get("steps", [])
-        if re.search(r"pin-cmux-tui\.sh (?:fetch|wait)\b", step.get("run", ""))
+        if re.search(r"pin-cmux-tui\.sh fetch\b", step.get("run", ""))
     ]
-    assert len(waiting) >= 3
-    assert all(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS") == "2700" for step in waiting)
+    assert len(fetching) >= 2
+    assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
+    probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+    assert probes and all("CMUX_TUI_TREE_PR_NUMBER" in step.get("env", {}) for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
