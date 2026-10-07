@@ -25,6 +25,7 @@ pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
 mod keybinding;
+mod page;
 mod run;
 mod settings;
 mod skew;
@@ -93,6 +94,12 @@ pub(super) enum AppCommand {
     Events {
         params: Value,
     },
+    /// `browser.page.screenshot`, whose PNG goes to `out` (`-` is stdout,
+    /// none is the app's file in the temporary directory; app/page.rs).
+    Screenshot {
+        params: Value,
+        out: Option<String>,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -102,7 +109,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         && let Some(target) = args.get(1)
         && (target == "page" || target.starts_with("tab_"))
     {
-        return parse_page(target, &args[2..]).map(Some);
+        return page::parse_page(target, &args[2..]).map(Some);
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -425,72 +432,6 @@ fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
         .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
-/// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
-fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let usage = || UsageError::new(messages.browser_page_usage);
-    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
-    let mut params = Map::new();
-    if target != "page" {
-        params.insert("tab".into(), json!(target));
-    }
-    let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
-    let method = match (verb.as_str(), words.as_slice()) {
-        ("navigate" | "goto" | "open", [url]) => {
-            params.insert("url".into(), json!(url));
-            "browser.page.navigate"
-        }
-        ("back", []) => "browser.page.back",
-        ("forward", []) => "browser.page.forward",
-        ("reload", []) => "browser.page.reload",
-        ("state" | "url" | "title", []) => "browser.page.state",
-        ("eval", [script]) => {
-            params.insert("script".into(), json!(script));
-            "browser.page.eval"
-        }
-        ("snapshot", _) => {
-            let options = Options::parse(rest, &["selector", "max-depth"], &["interactive"])?;
-            if let Some(selector) = options.value("selector") {
-                params.insert("selector".into(), json!(selector));
-            }
-            if let Some(depth) = options.value("max-depth") {
-                let depth: u32 = depth.parse().map_err(|_| usage())?;
-                params.insert("max_depth".into(), json!(depth));
-            }
-            if options.flag("interactive") {
-                params.insert("interactive".into(), json!(true));
-            }
-            "browser.page.snapshot"
-        }
-        ("click" | "focus" | "text" | "value", [selector]) => {
-            params.insert("selector".into(), json!(selector));
-            match verb.as_str() {
-                "click" => "browser.page.click",
-                "focus" => "browser.page.focus",
-                "text" => "browser.page.text",
-                _ => "browser.page.value",
-            }
-        }
-        ("fill" | "type", [selector, text]) => {
-            params.insert("selector".into(), json!(selector));
-            params.insert("text".into(), json!(text));
-            if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
-        }
-        _ => return Err(usage()),
-    };
-    if verb != "snapshot" && words.len() != rest.len() {
-        return Err(usage());
-    }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: Some(READ_TIMEOUT),
-        pick: None,
-    })
-}
-
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
 /// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
 /// each schema argument (`--arg name=value` also works).
@@ -623,8 +564,11 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 }
 
 fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
-    let (method, mut params, timeout, pick) = match command {
-        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
+    let (method, mut params, timeout, pick, screenshot_out) = match command {
+        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick, None),
+        AppCommand::Screenshot { params, out } => {
+            ("browser.page.screenshot", params, Some(page::SCREENSHOT_TIMEOUT), None, Some(out))
+        }
         AppCommand::Events { params } => {
             return Ran::Done(stream_events(stream, params, global.output));
         }
@@ -684,6 +628,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
     };
     match response {
+        Ok(result) if screenshot_out.is_some() => {
+            let out = screenshot_out.flatten();
+            Ran::Done(page::save_screenshot(result, out.as_deref(), global.output))
+        }
         Ok(result) => {
             let value = match pick {
                 Some(key) => result.get("topology").and_then(|topology| topology.get(key)).cloned(),

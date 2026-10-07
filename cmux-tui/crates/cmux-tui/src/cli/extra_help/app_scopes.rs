@@ -48,7 +48,7 @@ fn text(args: &[String]) -> Option<String> {
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
         ["browser", target, ..] if *target == "page" || target.starts_with("tab_") => {
-            format!("{}\n", messages.browser_page_usage)
+            format!("{}\n\n{}", messages.browser_page_usage, messages.browser_page_notes)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,

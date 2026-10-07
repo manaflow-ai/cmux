@@ -44,7 +44,10 @@ fn page_waits_take_one_condition_and_the_cli_outwaits_their_timeout() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(params, json!({ "url_contains": "/done", "load_state": "complete", "timeout_ms": 1500 }));
+    assert_eq!(
+        params,
+        json!({ "url_contains": "/done", "load_state": "complete", "timeout_ms": 1500 })
+    );
     // No condition: the app waits for the document to load, 5 s by default.
     let command = parse(&args(&["browser", "page", "wait"])).unwrap().unwrap();
     assert_eq!(call_timeout(&command), Some(Duration::from_secs(10)));
@@ -61,8 +64,15 @@ fn a_screenshot_asks_for_its_scope_and_writes_the_png_to_out() {
     let (socket, app) = fake_app(vec![response]);
     let dir = scratch_dir();
     let out = dir.join("nested").join("shot.png");
-    let words =
-        ["browser", "tab_01ab", "screenshot", "--selector", "#hero", "--out", out.to_str().unwrap()];
+    let words = [
+        "browser",
+        "tab_01ab",
+        "screenshot",
+        "--selector",
+        "#hero",
+        "--out",
+        out.to_str().unwrap(),
+    ];
     let command = parse(&args(&words)).unwrap().unwrap();
     assert_eq!(run(&global_for(&socket), command), 0);
     assert_eq!(std::fs::read(&out).unwrap(), png);
