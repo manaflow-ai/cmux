@@ -8,6 +8,8 @@ import { useState } from "react";
 import { useT } from "../i18n";
 import { Globe } from "./icons";
 import { previewFrameUrl } from "./previewUrl";
+import { useSiteInfo } from "../chips/linkStore";
+import { OpenInMenu } from "../previewCard/OpenInMenu";
 
 /// `onOpen` asks the host for a browser tab on `url` (`browser.open`).
 export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string) => void }) {
@@ -19,13 +21,16 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
   // A dev-server pane is itself on loopback; a frame of the pane's own origin would be the pane.
   const own = typeof location !== "undefined" && parsed.origin === location.origin;
   const [loaded, setLoaded] = useState(false);
+  // The page's title and favicon, only from cmux's own browsing (D6: nothing is fetched).
+  const site = useSiteInfo(url);
   return (
     <div className="acpmux-turn-preview">
       <div className="acpmux-turn-preview-head">
         <span className="acpmux-turn-preview-icon">
-          <Globe size={16} />
+          {site?.icon ? <img src={site.icon} alt="" width={16} height={16} /> : <Globe size={16} />}
         </span>
-        <a className="acpmux-turn-preview-address" href={url} title={url}>
+        <a className="acpmux-turn-preview-address" href={url} title={site?.title ? `${site.title}\n${url}` : url}>
+          {site?.title ? <span className="acpmux-turn-preview-title">{site.title}</span> : null}
           {address}
         </a>
         <button
@@ -36,6 +41,7 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         >
           {t("preview.open")}
         </button>
+        <OpenInMenu url={url} onOpenInPane={onOpen} />
       </div>
       {!own && !loaded && (
         <div className="acpmux-turn-preview-unloaded">

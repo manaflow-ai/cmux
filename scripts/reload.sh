@@ -1151,7 +1151,30 @@ tag_build_cleanup_paths() {
 # argument is escaped with %q instead of being wrapped in quotes.
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  local -a roots=()
+  [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
+  roots+=("$own")
+  for root in "${roots[@]}"; do
+    for config in Debug Release; do
+      bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
+    done
+  done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
   printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"

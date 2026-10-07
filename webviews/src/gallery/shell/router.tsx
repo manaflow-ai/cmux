@@ -12,7 +12,8 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
-import { entries } from "../registry";
+import { readyEntries } from "../entryStore";
+import { entryStore } from "../registry";
 
 export const VIEWS = ["variant", "variants", "locales", "themes"] as const;
 export type View = (typeof VIEWS)[number];
@@ -40,10 +41,11 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
   return { ...readEnv(new URLSearchParams(strings)), view };
 }
 
-const firstVariant = (entryId: string) => {
-  const entry = entries.find((candidate) => candidate.id === entryId);
+/** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
+async function firstVariant(entryId: string): Promise<string | undefined> {
+  const entry = readyEntries(await entryStore.settled()).find((candidate) => candidate.id === entryId);
   return entry ? Object.keys(entry.variants)[0] : undefined;
-};
+}
 
 export function createGalleryRouter(Layout: () => React.ReactNode, history?: RouterHistory) {
   const rootRoute = createRootRoute({ component: Layout });
@@ -51,11 +53,11 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/",
     validateSearch: validateShellSearch,
-    beforeLoad: ({ search }) => {
-      const entry = entries[0];
+    beforeLoad: async ({ search }) => {
+      const entry = readyEntries(await entryStore.settled())[0];
       if (entry)
         throw redirect({
-          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(firstVariant(entry.id)!)}${stringifySearch(search)}`,
+          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,
         });
     },
     component: Outlet,
@@ -64,8 +66,8 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/$entry",
     validateSearch: validateShellSearch,
-    beforeLoad: ({ params, search }) => {
-      const variant = firstVariant(params.entry);
+    beforeLoad: async ({ params, search }) => {
+      const variant = await firstVariant(params.entry);
       if (variant)
         throw redirect({
           href: `/${encodeURIComponent(params.entry)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,

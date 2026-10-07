@@ -57,6 +57,14 @@
   outline: none;
 }
 
+.ui-menu-shortcut {
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
+  color: var(--ui-fg-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .ui-menu-item[data-highlighted] {
   background: var(--ui-selected);
 }
@@ -65,10 +73,56 @@
   opacity: 0.45;
 }
 
+.ui-menu-item-destructive {
+  color: color-mix(in srgb, var(--ui-fg) 78%, #d44);
+}
+
+.ui-context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.ui-context-menu {
+  position: fixed;
+  min-width: 180px;
+}
+
 .ui-menu-check {
   display: inline-flex;
   width: 12px;
   justify-content: center;
+}
+
+.ui-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ui-select-button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 120px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ui-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-chevron {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  opacity: 0.65;
 }
 
 .ui-submenu-chevron {
@@ -79,6 +133,21 @@
   border-inline-end: 1.5px solid currentColor;
   transform: rotate(45deg);
   opacity: 0.6;
+}
+
+/* Keep a diagonal pointer path alive while a submenu opens (the macOS safe triangle). */
+.ui-submenu-trigger {
+  position: relative;
+}
+
+.ui-submenu-trigger::after {
+  position: absolute;
+  inset-inline-end: -12px;
+  inset-block: 0;
+  width: 12px;
+  content: "";
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  pointer-events: auto;
 }
 
 .ui-submenu-chevron:dir(rtl) {
@@ -168,6 +237,42 @@
   outline: none;
 }
 
+.ui-sheet {
+  inset-block-start: auto;
+  inset-block-end: 0;
+  width: min(640px, 100vw);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  border-radius: 12px 12px 0 0;
+  background: var(--ui-surface);
+  color: var(--ui-fg);
+  box-shadow: 0 -8px 30px color-mix(in srgb, black 22%, transparent);
+}
+
+.ui-sheet-top {
+  inset-block-start: 0;
+  inset-block-end: auto;
+  border-radius: 0 0 12px 12px;
+}
+
+.ui-sheet-leading,
+.ui-sheet-trailing {
+  inset-block: 0;
+  width: min(420px, 90vw);
+  max-height: none;
+  border-radius: 0;
+}
+
+.ui-sheet-leading {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+}
+
+.ui-sheet-trailing {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
 .ui-combobox-list {
   margin: 0;
   padding: 0;
@@ -203,15 +308,18 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .ui-popup,
-  .ui-tooltip {
+  .ui-tooltip,
+  .ui-sheet {
     transition: opacity 90ms ease-out;
   }
 
-  .ui-popup[data-starting-style],
-  .ui-popup[data-ending-style],
   .ui-tooltip[data-starting-style],
-  .ui-tooltip[data-ending-style] {
+  .ui-tooltip[data-ending-style],
+  .ui-sheet[data-starting-style] {
+    opacity: 0;
+  }
+
+  .ui-sheet[data-ending-style] {
     opacity: 0;
   }
 }

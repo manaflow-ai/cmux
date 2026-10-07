@@ -128,6 +128,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         ? null
         : "expected an object of strings";
     case "string_list":
+      if (row.choices) {
+        const values = row.choices.map((choice) => choice.value);
+        return Array.isArray(value) && value.every((item) => typeof item === "string" && values.includes(item))
+          ? null
+          : `expected a list of ${values.map((item) => `"${item}"`).join(", ")}`;
+      }
       return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
         ? null
         : "expected a list of non-empty strings";
