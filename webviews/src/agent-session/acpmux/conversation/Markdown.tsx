@@ -403,15 +403,16 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], opts)} />);
+      const labelOpts = opts.githubRepository ? { ...opts, githubRepository: undefined } : opts;
+      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file" title={lm[2]}>
             {(opts.linkIcon ?? linkIcon)(lm[2])}
-            {renderInline(lm[1], opts)}
+            {renderInline(lm[1], labelOpts)}
           </span>,
         );
-      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
+      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else
         out.push(
           <UrlChip
@@ -419,7 +420,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             href={href}
             icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
           >
-            {renderInline(lm[1], opts)}
+            {renderInline(lm[1], labelOpts)}
           </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
@@ -465,7 +466,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   const fallback = !href ? (
     <span className="cv-link is-image" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts)}
+      {renderInline(name, opts.githubRepository ? { ...opts, githubRepository: undefined } : opts)}
     </span>
   ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
@@ -484,7 +485,9 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
   return (
     <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {alt ? renderInline(alt, opts) : t("markdown.imageTooLarge")}
+      {alt
+        ? renderInline(alt, opts.githubRepository ? { ...opts, githubRepository: undefined } : opts)
+        : t("markdown.imageTooLarge")}
     </span>
   );
 }
