@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
   PRO_PRICING_USD,
@@ -59,6 +59,18 @@ export function ProPlanCard({
 }) {
   const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
   const interval = monthlyOnly ? "month" : chosen;
+  const options = useRef<Record<BillingInterval, HTMLButtonElement | null>>({ year: null, month: null });
+  // Radio-group keyboard model: arrows move and select, one tab stop.
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next: BillingInterval | null =
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+        ? interval === "year" ? "month" : "year"
+        : event.key === "Home" ? "year" : event.key === "End" ? "month" : null;
+    if (!next) return;
+    event.preventDefault();
+    select(next);
+    options.current[next]?.focus();
+  };
   const select = (next: BillingInterval) => {
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
@@ -85,6 +97,7 @@ export function ProPlanCard({
             role="radiogroup"
             aria-label={labels.billingPeriod}
             className="flex items-center gap-1.5 text-sm"
+            onKeyDown={handleKeyDown}
           >
             {(["year", "month"] as const).map((option, index) => (
               <span key={option} className="flex items-center gap-1.5">
@@ -96,6 +109,10 @@ export function ProPlanCard({
                 <button
                   type="button"
                   role="radio"
+                  ref={(node) => {
+                    options.current[option] = node;
+                  }}
+                  tabIndex={interval === option ? 0 : -1}
                   aria-checked={interval === option}
                   onClick={() => select(option)}
                   className={`transition-colors ${interval === option ? "font-medium text-foreground" : "text-muted hover:text-foreground"}`}
