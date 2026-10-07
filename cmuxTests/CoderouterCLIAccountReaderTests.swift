@@ -731,7 +731,8 @@ struct CoderouterAccountStateTests {
         var state = loaded(Self.teamA, ["a1"])
         state.select(Self.teamB)
 
-        #expect(!state.apply(accounts: [account("a2")], organizationID: "org-team-a", teamScope: .teamOption, for: Self.teamA))
+        let appliedLateResult = state.apply(accounts: [account("a2")], organizationID: "org-team-a", teamScope: .teamOption, for: Self.teamA)
+        #expect(!appliedLateResult)
         state.fail(for: Self.teamA)
 
         #expect(state.accounts.isEmpty)
@@ -795,7 +796,8 @@ struct CoderouterAccountStateTests {
         state.select(Self.teamB)
         state.restore(account("a1"), at: 0, for: Self.teamA)
         #expect(state.accounts.isEmpty)
-        #expect(state.removeOptimistically(accountID: "a1", for: Self.teamA) == nil)
+        let removedIndex = state.removeOptimistically(accountID: "a1", for: Self.teamA)
+        #expect(removedIndex == nil)
     }
 }
 
