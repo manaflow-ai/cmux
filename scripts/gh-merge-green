@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--freeze-token TOKEN] [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
@@ -111,11 +111,19 @@ fi
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
 override_reason=''
+freeze_token=''
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --main-fix)
       fix=1
+      ;;
+    --freeze-token)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --freeze-token requires the token from the FREEZE line' \
+        'pass --freeze-token followed by the token=... value you hold'
+      freeze_token="$2"
+      shift
       ;;
     --override)
       [ "$#" -ge 2 ] || refuse \
@@ -537,6 +545,54 @@ if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
     "not green: conflict markers are present in $ref" \
     'resolve the conflict markers, push the repaired head, and rerun the checks'
+fi
+# A feat-cmux-next merge stops at a frozen path. The coordinator's WINDOW
+# (cmux-lawrence:~/agent-mailbox/WINDOW) names each freeze as
+# `FREEZE: <path prefix>... token=<token>`; only the token holder
+# (--freeze-token) merges into it, and --override never lifts it. A WINDOW
+# that cannot be read refuses: the coordinator merges while freezes are unknown.
+if [ "$base" = feat-cmux-next ]; then
+  if [ -n "${GH_MERGE_GREEN_WINDOW_FILE:-}" ]; then
+    window=$(cat -- "$GH_MERGE_GREEN_WINDOW_FILE" 2>/dev/null) || window=''
+  else
+    window=$(timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence 'cat ~/agent-mailbox/WINDOW' 2>/dev/null) || window=''
+  fi
+  if [ -z "$window" ]; then
+    refuse \
+      "not merged: cannot read the coordinator's WINDOW, so active freezes on $ref are unknown" \
+      'check with the coordinator; they merge this PR while the WINDOW is unreadable'
+  fi
+  if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse \
+      "not merged: cannot list changed files for $ref to check freezes" \
+      'restore GitHub API access, then retry'
+  fi
+  if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token" python3 -c '
+import os, sys
+token = os.environ["FREEZE_TOKEN"]
+freezes = []
+for line in os.environ["WINDOW"].splitlines():
+    if not line.startswith("FREEZE:"):
+        continue
+    words = line[len("FREEZE:"):].split()
+    held = {w.split("=", 1)[1] for w in words if w.startswith("token=")}
+    if token and token in held:
+        continue
+    freezes += [w for w in words if "=" not in w]
+for path in sys.stdin.read().split():
+    for prefix in freezes:
+        if path == prefix or path.startswith(prefix if prefix.endswith("/") else prefix + "/"):
+            print(f"{path} (FREEZE: {prefix})")
+' <<<"$changed"); then
+    refuse \
+      "not merged: cannot check $ref against the WINDOW freezes" \
+      'check with the coordinator before merging'
+  fi
+  if [ -n "$frozen" ]; then
+    refuse \
+      "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
+      'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
+  fi
 fi
 if [ -n "$override_reason" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
