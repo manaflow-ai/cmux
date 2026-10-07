@@ -865,20 +865,12 @@ fn permanent_dock_column_refuses_a_tab_move_that_empties_it() {
 #[test]
 fn permanent_flag_is_stored_only_when_set() {
     use crate::model::{ColumnDock, DockEdge, DockMode};
-    let pinned = ColumnDock {
-        edge: DockEdge::Left,
-        mode: DockMode::Docked,
-        role: None,
-        permanent: true,
-    };
+    let pinned =
+        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: true };
     let text = serde_json::to_string(&pinned).unwrap();
     assert!(text.contains("\"permanent\":true"), "{text}");
-    let plain = ColumnDock {
-        edge: DockEdge::Left,
-        mode: DockMode::Docked,
-        role: None,
-        permanent: false,
-    };
+    let plain =
+        ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, role: None, permanent: false };
     assert!(!serde_json::to_string(&plain).unwrap().contains("permanent"), "omitted when false");
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.permanent, "a record written before the flag reads as not permanent");
