@@ -640832,120 +640832,120 @@
         }
       }
     },
-    "cloud.welcome.slide.anyMac.caption": {
+    "cloud.welcome.slide.displays.caption": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in on another Mac and your workspaces are there as you left them."
+            "value": "Open a display next to your terminal and watch apps and browsers run."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich auf einem anderen Mac an und deine Arbeitsbereiche sind dort wie zuvor."
+            "value": "Öffne ein Display neben deinem Terminal und sieh Apps und Browsern bei der Arbeit zu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous sur un autre Mac et retrouvez vos espaces de travail tels que vous les avez laissés."
+            "value": "Ouvrez un écran à côté de votre terminal et regardez les apps et les navigateurs tourner."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول على جهاز Mac آخر وستجد مساحات عملك كما تركتها."
+            "value": "افتح شاشة بجانب الطرفية وشاهد التطبيقات والمتصفحات وهي تعمل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión en otro Mac y tus espacios de trabajo estarán tal como los dejaste."
+            "value": "Abre una pantalla junto a tu terminal y mira cómo se ejecutan apps y navegadores."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在另一部 Mac 登入後，工作區會保持你離開時的狀態。"
+            "value": "在終端機旁開啟顯示器，看著 App 和瀏覽器執行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在另一台 Mac 上登录后，工作区会保持你离开时的状态。"
+            "value": "在终端旁打开显示器，看着应用和浏览器运行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac에 로그인하면 워크스페이스가 그대로 표시됩니다."
+            "value": "터미널 옆에 디스플레이를 열고 앱과 브라우저가 실행되는 모습을 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別の Mac にサインインすると、ワークスペースがそのまま表示されます。"
+            "value": "ターミナルの横にディスプレイを開いて、アプリやブラウザの動作を確認できます。"
           }
         }
       }
     },
-    "cloud.welcome.slide.anyMac.title": {
+    "cloud.welcome.slide.displays.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opens on any Mac"
+            "value": "See the machine’s desktop"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf jedem Mac öffnen"
+            "value": "Den Desktop der Maschine sehen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrez sur n’importe quel Mac"
+            "value": "Voyez le bureau de la machine"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يفتح على أي جهاز Mac"
+            "value": "شاهد سطح مكتب الجهاز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se abre en cualquier Mac"
+            "value": "Ve el escritorio de la máquina"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在任何 Mac 上開啟"
+            "value": "查看機器的桌面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在任何 Mac 上打开"
+            "value": "查看机器的桌面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어떤 Mac에서나 열기"
+            "value": "머신의 데스크톱 보기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どの Mac でも開ける"
+            "value": "マシンのデスクトップを表示"
           }
         }
       }

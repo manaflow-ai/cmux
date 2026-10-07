@@ -34,12 +34,12 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             )
         ),
         CloudWelcomeSlide(
-            id: "any-mac",
-            symbol: "laptopcomputer",
-            title: String(localized: "cloud.welcome.slide.anyMac.title", defaultValue: "Opens on any Mac"),
+            id: "displays",
+            symbol: "display",
+            title: String(localized: "cloud.welcome.slide.displays.title", defaultValue: "See the machine’s desktop"),
             caption: String(
-                localized: "cloud.welcome.slide.anyMac.caption",
-                defaultValue: "Sign in on another Mac and your workspaces are there as you left them."
+                localized: "cloud.welcome.slide.displays.caption",
+                defaultValue: "Open a display next to your terminal and watch apps and browsers run."
             )
         ),
         CloudWelcomeSlide(
