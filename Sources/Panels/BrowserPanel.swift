@@ -5698,8 +5698,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        let isOwnedSSHLoopbackNavigation = cloudAccess.model?.allowsLoopback == true
-            && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
+        let isOwnedSSHLoopbackNavigation = cloudAccess.shouldRebindLoopbackNavigation(url)
         if isOwnedSSHLoopbackNavigation {
             guard let provider = privateAddressRouteProvider(for: url) else {
                 onNavigationStarted?(nil)
