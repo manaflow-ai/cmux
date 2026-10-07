@@ -162,7 +162,10 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
 }
 
 /// Block until the host's lock on `file` is free (the host died), then
-/// release it at once: a liveness probe must not see it held.
+/// release it at once: a liveness probe must not see it held. The release
+/// is an explicit unlock, not the close: the lock belongs to the open file
+/// description, and a child that another thread spawns holds a copy of this
+/// descriptor until it execs, so a close alone can leave the lock held.
 fn take_death_lock(file: std::fs::File) -> Watch {
     use std::os::fd::AsRawFd;
     let end = loop {
@@ -174,6 +177,10 @@ fn take_death_lock(file: std::fs::File) -> Watch {
             break Watch::Failed;
         }
     };
+    if end == Watch::Dead {
+        // SAFETY: same descriptor; unlocks the description for every copy.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    }
     drop(file);
     end
 }
