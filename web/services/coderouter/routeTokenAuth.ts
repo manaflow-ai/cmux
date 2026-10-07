@@ -167,6 +167,16 @@ function carriesPlaceholder(request: Request): boolean {
   return bearer === VM_PLACEHOLDER_API_KEY || request.headers.get("x-api-key")?.trim() === VM_PLACEHOLDER_API_KEY;
 }
 
+function isVmAuthorizationCandidate(token: string): boolean {
+  return !token.startsWith("crt_") && !token.startsWith("crk_") &&
+    token.length <= 4096 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+}
+
+function vmAuthorizationClaims(token: string): Promise<VmAuthorizationClaims | null> {
+  if (!isVmAuthorizationCandidate(token)) return Promise.resolve(null);
+  return verifyVmAuthorization(token);
+}
+
 async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
@@ -178,8 +188,14 @@ async function authenticateUnobserved(
     if (signedHeader) return { ok: false, reason: "invalid_route_token", detail: "signed_unverified" };
     return { ok: false, reason: "missing_route_token", detail: carriesPlaceholder(request) ? "placeholder_only" : "no_credential" };
   }
-  const claims = signedHeader ? await verifyVmAuthorization(token) : null;
-  if (signedHeader && !claims) return signedRefusal(token);
+  // A provider edge may preserve the standard bearer/route headers while
+  // dropping the custom signed header. Verify the same JWT before falling
+  // back to the legacy VM-id binding so those requests retain the signed
+  // identity contract. Human route tokens and API keys keep their existing
+  // prefix-based authentication paths.
+  const signedToken = signedHeader || isVmAuthorizationCandidate(token);
+  const claims = await vmAuthorizationClaims(token);
+  if (signedToken && !claims) return signedRefusal(token);
   // The signature verified; attribute a crash in the ownership lookup below
   // to this machine and team instead of to nobody.
   if (claims) {
