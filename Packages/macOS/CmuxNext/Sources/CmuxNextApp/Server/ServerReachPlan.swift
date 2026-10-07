@@ -63,9 +63,22 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         return (desired.filter { !shownHosts.contains($0.hostID) }, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID))
     }
 
-    /// The hosts of one `team.hosts.list` page and its next cursor.
-    static func parseHosts(_ value: Any?) -> (hosts: [PairedServer], next: String?) {
-        guard let value = value as? [String: Any], let rows = value["hosts"] as? [Any] else { return ([], nil) }
+    nonisolated enum ReadError: Error, Equatable {
+        /// A reply without the expected shape: never read as "no servers".
+        case malformed(String)
+        case tooManyHosts
+    }
+
+    /// The chiefs of a `chief.list` value; throws on a reply without `chiefs`.
+    static func parseChiefs(_ value: Any?) throws -> [CloudChief] {
+        guard let value = value as? [String: Any], value["chiefs"] is [Any] else { throw ReadError.malformed("chief.list") }
+        return CloudChiefs.parseList(value)
+    }
+
+    /// The hosts of one `team.hosts.list` page and its next cursor; throws
+    /// on a reply without `hosts`.
+    static func parseHosts(_ value: Any?) throws -> (hosts: [PairedServer], next: String?) {
+        guard let value = value as? [String: Any], let rows = value["hosts"] as? [Any] else { throw ReadError.malformed("team.hosts.list") }
         let hosts = rows.compactMap { row -> PairedServer? in
             guard let row = row as? [String: Any], let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
             return PairedServer(host: id, name: name, kind: row["kind"] as? String)
