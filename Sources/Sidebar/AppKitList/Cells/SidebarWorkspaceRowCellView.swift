@@ -2,7 +2,6 @@ import AppKit
 import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
-import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
@@ -16,7 +15,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceRowTableCellView")
 
     // Chrome
-    private let backgroundView = NSView()
+    let backgroundView = NSView()
     private let railView = NSView()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
@@ -209,28 +208,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return false
     }
 
-    /// The row's fill (selection/hover) as a standalone copy in `view`'s
-    /// coordinates, for the reorder lift, which moves it apart from the
-    /// content. Nil when the row has no visible fill.
-    func makeLiftFillLayer(in view: NSView) -> CALayer? {
-        guard let source = backgroundView.layer, !backgroundView.isHidden,
-              (source.backgroundColor?.alpha ?? 0) > 0 || source.borderWidth > 0 else { return nil }
-        let fill = CALayer()
-        let frame = backgroundView.convert(backgroundView.bounds, to: view)
-        fill.frame = CGRect(x: frame.minX, y: 0, width: frame.width, height: view.bounds.height)
-        fill.backgroundColor = source.backgroundColor
-        fill.cornerRadius = source.cornerRadius
-        fill.cornerCurve = source.cornerCurve
-        fill.borderWidth = source.borderWidth
-        fill.borderColor = source.borderColor
-        return fill
-    }
-
-    /// Hides the fill so the lift can snapshot the content alone.
-    func setLiftFillHidden(_ hidden: Bool) {
-        backgroundView.isHidden = hidden
-    }
-
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
         backgroundView.layer?.backgroundColor = (style.color ?? .clear)
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
@@ -367,7 +344,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.concealImmediately()
         closeButton.highlightsOnHover = true
         contentContainer.addSubview(closeButton)
-
         contentContainer.addSubview(descriptionView)
         descriptionView.onOpenLink = { [weak self] url in
             guard let self else { return }
@@ -765,9 +741,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         bottomDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
-        // Full opacity while dragged: the freeform reorder suppresses the
-        // floating ghost, so the row itself is the drag visual and must keep
-        // its exact resting appearance (the dim was a ghost-era cue).
         alphaValue = 1
         // Done rows read as settled (legacy parity): dim the row CONTENT to
         // ~60% — never the selection background, rail, or drop chrome.

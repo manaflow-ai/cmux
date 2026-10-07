@@ -356,14 +356,7 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
         return parsed
     }
     if activeTabIndicatorStyle == .solidFill || !subtleSelection {
-        // The selection is always glass: a light translucent patch, never
-        // the blue accent.
-        return SidebarAppearanceColorResolver().resolvedColor(
-            .labelColor,
-            for: colorScheme,
-            opacity: UserDefaults.standard.object(forKey: "sidebarGlassSelectionFillOpacity") as? Double
-                ?? (colorScheme == .dark ? 0.13 : 0.07)
-        )
+        return SidebarGlassSelection.fill(for: colorScheme)
     }
     let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
     let fill = CmuxSelectionFill.resolve(
@@ -386,13 +379,7 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     opacity: CGFloat
 ) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
-    // A translucent pill (the glass accent) is a tint on the pane, not a
-    // surface: text keeps the pane's own label colour, which the pill's
-    // hue encodes (white pill on dark glass, black pill on light).
-    if backgroundColor.alphaComponent < 0.5 {
-        let brightness = backgroundColor.usingColorSpace(.deviceRGB)?.brightnessComponent ?? 1
-        return (brightness > 0.5 ? NSColor.white : NSColor.black).withAlphaComponent(clampedOpacity)
-    }
+    if let glass = SidebarGlassSelection.foreground(on: backgroundColor, opacity: clampedOpacity) { return glass }
     let whiteContrast = cmuxContrastRatio(foreground: .white, background: backgroundColor)
     guard whiteContrast < 2.75 else {
         return NSColor.white.withAlphaComponent(clampedOpacity)
@@ -482,20 +469,11 @@ func sidebarWorkspaceRowBackgroundStyle(
         increaseContrast: increaseContrast,
         accent: accent
     )
-    // Glass selection: a light translucent fill with a hairline edge, so the
-    // selected row reads as a lighter patch of the glass (Aside-style).
-    let glassEdge: NSColor? = sidebarSelectionColorHex.flatMap({ NSColor(hex: $0) }) == nil
-        ? SidebarAppearanceColorResolver().resolvedColor(
-            .labelColor,
-            for: colorScheme,
-            opacity: UserDefaults.standard.object(forKey: "sidebarGlassSelectionEdgeOpacity") as? Double
-                ?? (colorScheme == .dark ? 0.14 : 0.12)
-        )
-        : nil
-    // Multi-selection members: the same glass at roughly half strength, so
-    // the active row stays the clear anchor.
-    let multiSelectionBackground = selectedBackground
-    let multiSelectionEdge = glassEdge.map { $0.withAlphaComponent($0.alphaComponent * 0.55) }
+    // Multi-selection members wear the same glass at roughly half strength so
+    // the active row stays the anchor; Increase Contrast keeps them readable.
+    let multiSelectionOpacity = increaseContrast ? 0.8 : 0.55
+    let glassEdge = NSColor(hex: sidebarSelectionColorHex ?? "") == nil ? SidebarGlassSelection.edge(for: colorScheme) : nil
+    let multiSelectionEdge = glassEdge.map { $0.withAlphaComponent($0.alphaComponent * multiSelectionOpacity) }
     let usesSubtleSelection = sidebarUsesSubtleSelection(
         activeTabIndicatorStyle: activeTabIndicatorStyle,
         subtleSelection: subtleSelection,
@@ -523,25 +501,17 @@ func sidebarWorkspaceRowBackgroundStyle(
     case .leftRail:
         if isActive {
             if usesSubtleSelection { return calmFill(isSecondary: false) }
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedBackground,
-                opacity: 1,
-                edgeColor: glassEdge
-            )
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1, edgeColor: glassEdge)
         }
         if isMultiSelected {
             if usesSubtleSelection { return calmFill(isSecondary: true) }
-            return SidebarWorkspaceRowBackgroundStyle(color: multiSelectionBackground, opacity: 0.55, edgeColor: multiSelectionEdge)
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: multiSelectionOpacity, edgeColor: multiSelectionEdge)
         }
         return .clear
 
     case .solidFill:
         if isActive {
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedBackground,
-                opacity: 1,
-                edgeColor: glassEdge
-            )
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1, edgeColor: glassEdge)
         }
         if let customBackground {
             return SidebarWorkspaceRowBackgroundStyle(
@@ -550,7 +520,7 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: multiSelectionBackground, opacity: 0.55, edgeColor: multiSelectionEdge)
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: multiSelectionOpacity, edgeColor: multiSelectionEdge)
         }
         return .clear
     }
