@@ -2,10 +2,10 @@
 import { chromium, webkit, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
 
@@ -103,6 +103,7 @@ function queryUrl(pathOrUrl: string, params: Record<string, Scalar> | undefined)
 function safeFilePart(value: string): string { return value.replace(/[^A-Za-z0-9._-]+/g, "_"); }
 
 async function serveDirectory(root: string): Promise<{ baseUrl: string; close: () => void }> {
+  const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2" };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -110,7 +111,7 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
       const requested = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, "") || "index.html";
       const file = resolve(root, requested);
       if (!file.startsWith(resolve(root))) return new Response("forbidden", { status: 403 });
-      try { return new Response(await readFile(file)); } catch { return new Response("not found", { status: 404 }); }
+      try { return new Response(await readFile(file), { headers: { "content-type": contentTypes[extname(file)] ?? "application/octet-stream" } }); } catch { return new Response("not found", { status: 404 }); }
     },
   });
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
