@@ -5,9 +5,10 @@ import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// with no background of its own: the window's material or background image
-/// shows through, as behind the transcript. It owns no data: the page gives
-/// it the model after every change and handles the choices.
+/// on Messages' sidebar vibrancy, blended within the window: the window's
+/// material or background image shows through it (softened), and the labels
+/// keep a legible base over a light image. No opaque fill. It owns no data:
+/// the page gives it the model after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
@@ -23,6 +24,8 @@ public final class HomeSidebarView: NSView {
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
 
+    /// Messages' sidebar material behind the list (Reduce Transparency makes it solid, as AppKit decides).
+    let material = NSVisualEffectView()
     let list = CmuxSidebarView()
     /// Messages' compose button, in the strip above the search field.
     let compose = HomeComposeButton()
@@ -30,6 +33,12 @@ public final class HomeSidebarView: NSView {
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
+        material.material = .sidebar
+        material.blendingMode = .withinWindow
+        material.state = .followsWindowActiveState
+        material.frame = bounds
+        material.autoresizingMask = [.width, .height]
+        addSubview(material)
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)

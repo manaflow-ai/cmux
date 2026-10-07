@@ -5805,6 +5805,30 @@ live socket gets `live`), and then emits the same state as a
 leaves the client on an older state. Every later change of the shared socket
 is a `cloud-subscription-state` event.
 
+### cloud-mux-subscribe, cloud-mux-unsubscribe, cloud-mux-ack
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The leased chief's MuxDO wake queue (`mux:<agent>`, plans/cmux-next/cloud-chief-vm.md).
+The agent is the lease token's `agt` claim, never a request field: the
+subscribe commands take no fields and `cloud-mux-ack` takes only
+`conversation` and `seq` (an unknown field is refused). A person's lease is
+refused with `mux_needs_chief`.
+
+Events on the subscribe stream: `cloud-mux-wake {seq, wakes, account?}` for
+new wakes and `cloud-mux-resynced {seq, pending, account?}` after a
+(re)subscribe, so a wake missed while the socket was down is delivered. A
+wake is ids only: `{conversation, seq, reason}`, never message text; the
+brain reads the message through its own authorized conversation read.
+
+`cloud-mux-ack {conversation, seq}` sends `mux.ack` for the lease's chief
+with idempotency key `mux-ack:<conversation>:<seq>`: a repeated ack is a
+replay and changes nothing.
+
 ### create-profile
 
 | Field | Value |
