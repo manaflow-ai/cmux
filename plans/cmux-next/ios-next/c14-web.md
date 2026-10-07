@@ -167,3 +167,24 @@ App wiring of `MobileTunnels` (workspace pids from the daemon, the Mac allowlist
 port) and of `SimulatorCaptureHost` (ScreenCaptureKit plus SimulatorKit HID) in the cmux-next app; the
 phone's per-Mac client provider (D1, same slot as C2 and C4); HTTPS dev servers through the proxy;
 a realtime `tunnel:<host>` stream instead of the on-demand read; live verification on a tagged pair.
+
+## 9. Status (2026-10-07)
+
+Done on `feat-cmux-next-ios-c14-web`: wire (both families in catalog JSON, Swift, TS, schemas, fixtures,
+`tcp.data` vector), Mac `MobileTunnels` and `MobileSimulators` in CmuxMobileHost, phone
+`CmuxiOSWebCore`, `CmuxiOSWeb`, `LinkSimulatorStreamSource`, the device chrome of C2's screen,
+`SSHConnection.openDirectStream` and `NIOSSHTunnelOpener`, and a Browser swipe action on paired Macs and
+SSH hosts in the Hosts tab (`SSHFeature.browsers`, wired in `ShellComposition`).
+
+Verified: CmuxMobileWire 22 tests, vitest `mobile-wire` + `catalog` 56 tests, CmuxMobileHost 110 tests
+(14 new: policy, libproc, tcp.forward over a real loopback echo server incl. 600 KB under 16 KiB credit,
+caps, refusals, revocation, simulator touches, navigation refusal, simctl parsing), CmuxiOSWebCore 10
+tests on macOS through a scratch package (head parsing, token, Host rewrite, mirror and fallback ports,
+real `MobileHost` tunnel to a local HTTP server, SSH forward through a fake opener). The CmuxiOS package
+(CmuxiOSApp and every target) compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Unverified: everything visual and every live path (WKWebView through the proxy, cookie delivery for
+`localhost` in a non-persistent store, ATS for `http://localhost` in the app target, SSH direct-tcpip
+against a real server, simulator capture and HID on the Mac). No tagged build (no Mac app build, disk).
+Mac routes show "No connection to this machine" until D1 supplies the per-Mac `MobileLinkClientProvider`
+(`WebComposition.feature(clients:)`), the same slot C2 and C4 wait on.
