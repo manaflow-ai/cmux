@@ -125,7 +125,7 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
   expect(changes?.textContent).toContain("+3");
   await act(async () => changes?.click());
   expect(opened).toEqual(["changes"]);
-  expect(focused).toEqual(["summary.open"]);
+  expect(focused).toEqual(["Chat summary"]);
   expect(container.querySelector(".acpmux-summary-popover")).toBeNull();
   await act(async () => root.unmount());
 });
