@@ -71,6 +71,8 @@ public final class CmuxSidebarView: NSView {
     public private(set) var pinnedOrder: [String] = []
 
     public override init(frame: NSRect) {
+        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle.
+        SidebarLocalization.bundle = .module
         super.init(frame: frame)
         link.owner = self
         controller.dataSource = link

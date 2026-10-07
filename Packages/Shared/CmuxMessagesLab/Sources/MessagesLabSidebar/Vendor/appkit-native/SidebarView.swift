@@ -10,15 +10,46 @@ import AppKit
 final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDelegate {
     weak var dataSource: SidebarDataSource?
     weak var delegate: SidebarDelegate?
-    /// The selected conversation (nil: none).
-    private(set) var selectedID: ConversationID?
+    /// The selected conversation (nil: none, or a row of the host's extra search section).
+    var selectedID: ConversationID? { highlightID.flatMap { SidebarController.isExtra($0) ? nil : $0 } }
+    /// v1.1: extra search results from the host (a section under the matching conversations).
+    weak var searchProvider: SidebarSearchProvider?
+    /// v1.1: the unread dot's color, e.g. from the host's theme (nil: system blue). Dynamic
+    /// colors follow the appearance.
+    var unreadColor: NSColor? { didSet { colorsChanged() } }
+    /// v1.1: the selection and menu-ring accent in a key window (nil: the system's selection
+    /// color and accent). The selected row's text stays white on it.
+    var selectionColor: NSColor? { didSet { colorsChanged() } }
+    /// The resolved colors (tests).
+    var currentPalette: SidebarPalette { palette }
+    /// The highlighted row: a conversation id, or an extra result's internal id (`extraID`).
+    private var highlightID: ConversationID?
+    /// The highlighted row's id (tests): `selectedID`, or an extra result's internal id.
+    var highlightedID: ConversationID? { highlightID }
 
     let searchField = NSSearchField()
     let scrollView = NSScrollView()
     let document = SidebarDocumentView()
 
     // Data.
+    /// What the list shows: the data source's snapshot, plus the rows of the host's extra
+    /// search section at the end while a search shows one.
     private(set) var snapshot = ConversationListSnapshot(items: [], pinned: [])
+    private var baseSnapshot = ConversationListSnapshot(items: [], pinned: [])
+    private var baseIndex: [ConversationID: Int] = [:]
+    /// The first row of the extra section (nil: none) and its title.
+    private(set) var extraStart: Int?
+    private var extraTitle = ""
+    private var extraSection: (query: String, section: SidebarSearchSection)?
+    private var extraRequest: SidebarSearchRequest?
+    private let sectionHeader = CALayer()
+    private var sectionHeaderKey = ""
+    /// Room for the extra section's title above its first row.
+    static let sectionHeaderHeight: CGFloat = 28
+    /// Extra results' ids inside the list (they never collide with conversation ids).
+    static func extraID(_ id: String) -> ConversationID { "\u{1}sidebar.extra:" + id }
+    static func isExtra(_ id: ConversationID) -> Bool { id.hasPrefix("\u{1}sidebar.extra:") }
+    static func hostID(_ id: ConversationID) -> String { String(id.dropFirst("\u{1}sidebar.extra:".count)) }
     private var indexByID: [ConversationID: Int] = [:]
     /// Item indices of the pinned tiles (none while searching).
     private(set) var pinnedItems: [Int] = []
@@ -130,36 +161,59 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// version, so unchanged rows keep theirs).
     func reloadData() {
         _ = view
-        snapshot = dataSource?.sidebarSnapshot(self) ?? ConversationListSnapshot(items: [], pinned: [])
+        baseSnapshot = dataSource?.sidebarSnapshot(self) ?? ConversationListSnapshot(items: [], pinned: [])
         var map: [ConversationID: Int] = [:]
-        map.reserveCapacity(snapshot.items.count)
-        for (i, c) in snapshot.items.enumerated() { map[c.id] = i }
+        map.reserveCapacity(baseSnapshot.items.count)
+        for (i, c) in baseSnapshot.items.enumerated() { map[c.id] = i }
+        baseIndex = map
+        snapshot = baseSnapshot
         indexByID = map
         searchIndex = nil
         if query.isEmpty {
-            applyRows(nil)
+            // A clear still on the search queue was built from the old snapshot: drop it.
+            searchGeneration += 1
+            stale.set(searchGeneration)
+            applyRows(RowList.full(snapshot, indexByID))
         } else {
             runSearch(query)
         }
     }
 
+    /// What the list shows: the pinned tiles and the rows (item indices), and each item's row.
+    /// Built off the main thread for a search and for the list after a search is cleared.
+    private struct RowList {
+        var pinned: [Int]
+        var rows: [Int]
+        var rowOf: [Int32]
+        var searching: Bool
+        var extraStart: Int? = nil
+        var extraTitle = ""
+        init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
+            self.pinned = pinned; self.rows = rows; self.searching = searching
+            rowOf = [Int32](repeating: -1, count: count)
+            for (r, i) in rows.enumerated() { rowOf[i] = Int32(r) }
+        }
+        /// The pinned grid and every other conversation in the snapshot's order.
+        static func full(_ s: ConversationListSnapshot, _ index: [ConversationID: Int]) -> RowList {
+            let pinned = s.pinned.compactMap { index[$0] }
+            var isPinned = [Bool](repeating: false, count: s.items.count)
+            for i in pinned { isPinned[i] = true }
+            return RowList(pinned: pinned, rows: s.items.indices.filter { !isPinned[$0] }, count: s.items.count, searching: false)
+        }
+    }
+
     func summary(_ id: ConversationID) -> ConversationSummary? { indexByID[id].map { snapshot.items[$0] } }
 
-    /// `matches`: item indices of a search, nil for the full list (pinned grid + rows).
-    private func applyRows(_ matches: [Int]?) {
+    private func applyRows(_ list: RowList) {
         let t0 = beginWork()
         defer { endWork(t0) }
-        if let matches {
-            pinnedItems = []
-            rowItems = matches
-        } else {
-            pinnedItems = snapshot.pinned.compactMap { indexByID[$0] }
-            let p = Set(pinnedItems)
-            rowItems = snapshot.items.indices.filter { !p.contains($0) }
-        }
-        rowOfItem = [Int32](repeating: -1, count: snapshot.items.count)
-        for (r, i) in rowItems.enumerated() { rowOfItem[i] = Int32(r) }
-        noResults.isHidden = !(matches != nil && matches!.isEmpty)
+        pinnedItems = list.pinned
+        rowItems = list.rows
+        rowOfItem = list.rowOf
+        extraStart = list.extraStart
+        extraTitle = list.extraTitle
+        noResults.isHidden = !(list.searching && list.rows.isEmpty)
+        layoutSectionHeader()
         for (_, l) in rowLayers { recycle(l) }
         rowLayers.removeAll()
         lastVisible = 0..<0
@@ -173,7 +227,43 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     var pinnedHeight: CGFloat { metrics.pinnedHeight(count: pinnedItems.count) }
     func rowRect(_ r: Int) -> CGRect {
-        CGRect(x: 0, y: pinnedHeight + CGFloat(r) * SidebarMetrics.rowHeight, width: metrics.width, height: SidebarMetrics.rowHeight)
+        CGRect(x: 0, y: rowTop(r), width: metrics.width, height: SidebarMetrics.rowHeight)
+    }
+    /// A row's top: rows of the extra section sit below its title.
+    private func rowTop(_ r: Int) -> CGFloat {
+        pinnedHeight + CGFloat(r) * SidebarMetrics.rowHeight + (extraStart.map { r >= $0 ? Self.sectionHeaderHeight : 0 } ?? 0)
+    }
+    /// The row at a document y (fractional: the part below the row's top), the inverse of rowTop.
+    private func rowPosition(_ y: CGFloat) -> CGFloat {
+        let rh = SidebarMetrics.rowHeight
+        var d = y - pinnedHeight
+        if let e = extraStart, d > CGFloat(e) * rh {
+            d = max(CGFloat(e) * rh, d - Self.sectionHeaderHeight)
+        }
+        return d / rh
+    }
+    /// The extra section's title rect (nil: no section).
+    var sectionHeaderRect: CGRect? {
+        extraStart.map { CGRect(x: 0, y: pinnedHeight + CGFloat($0) * SidebarMetrics.rowHeight, width: metrics.width, height: Self.sectionHeaderHeight) }
+    }
+    /// The section title: one small bitmap, drawn when the title, width or palette changes.
+    private func layoutSectionHeader() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if sectionHeader.superlayer == nil {
+            sectionHeader.contentsGravity = .topLeft
+            sectionHeader.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
+            document.layer?.addSublayer(sectionHeader)
+        }
+        guard let r = sectionHeaderRect, !metrics.compact else { sectionHeader.isHidden = true; return }
+        sectionHeader.isHidden = false
+        sectionHeader.frame = r
+        let ctx = renderContext
+        let key = "\(extraTitle)|\(r.width)|\(ctx.generation)|\(ctx.scale)"
+        guard key != sectionHeaderKey else { return }
+        sectionHeaderKey = key
+        sectionHeader.contentsScale = ctx.scale
+        sectionHeader.contents = SidebarDraw.sectionHeader(extraTitle, width: r.width, ctx: ctx)
     }
     func selectionRect(_ r: Int) -> CGRect { rowRect(r).insetBy(dx: SidebarMetrics.selectionInsetX, dy: 0) }
     func tileRect(_ t: Int) -> CGRect { metrics.tileRect(t) }
@@ -183,7 +273,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             for t in pinnedItems.indices where tileRect(t).contains(p) { return .tile(t) }
             return nil
         }
-        let r = Int((p.y - pinnedHeight) / SidebarMetrics.rowHeight)
+        if let h = sectionHeaderRect, h.contains(p) { return nil }
+        let r = Int(rowPosition(p.y).rounded(.down))
         return r >= 0 && r < rowItems.count ? .row(r) : nil
     }
     func item(_ h: Hit) -> Int { switch h { case let .tile(t): return pinnedItems[t]; case let .row(r): return rowItems[r] } }
@@ -215,12 +306,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // width (in parallel, from cached measurement); avatars, dots and times only move.
             rebuildTiles()
             layoutDocument()
+            layoutSectionHeader()
             tile(force: true)
         }
     }
 
     private func layoutDocument() {
-        let h = pinnedHeight + CGFloat(rowItems.count) * SidebarMetrics.rowHeight + 8
+        let h = rowTop(rowItems.count) + 8
         let f = CGRect(x: 0, y: 0, width: metrics.width, height: max(h, scrollView.contentSize.height))
         if document.frame != f { document.frame = f }
     }
@@ -240,18 +332,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         return SidebarBitmapKey(kind: kind, id: c.id, version: c.version, width: kind == .row ? metrics.width : kind == .tile ? metrics.tileWidth : 0,
                                 emphasized: emphasized, generation: generation)
     }
-    private func emphasized(_ i: Int) -> Bool { windowActive && snapshot.items[i].id == selectedID }
+    private func emphasized(_ i: Int) -> Bool { windowActive && snapshot.items[i].id == highlightID }
 
     /// Lays out the rows the clip view shows, with a margin of a few rows; renders missing
     /// visible bitmaps now and the next screen's in the background.
     func tile(force: Bool) {
         guard !rowItems.isEmpty || !rowLayers.isEmpty else { return }
         let clip = scrollView.contentView.bounds
-        let rh = SidebarMetrics.rowHeight
-        let y0 = pinnedHeight
         let margin = 3
-        let first = max(0, Int(((clip.minY - y0) / rh).rounded(.down)) - margin)
-        let last = min(rowItems.count, Int(((clip.maxY - y0) / rh).rounded(.up)) + margin)
+        let first = max(0, Int(rowPosition(clip.minY).rounded(.down)) - margin)
+        let last = min(rowItems.count, Int(rowPosition(clip.maxY).rounded(.up)) + margin)
         let range = first < last ? first..<last : 0..<0
         let direction: CGFloat = clip.minY >= lastTop ? 1 : -1
         lastTop = clip.minY
@@ -261,7 +351,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         CATransaction.begin(); CATransaction.setDisableActions(true)
         batching = true
         for (r, l) in rowLayers where !range.contains(r) { recycle(l); rowLayers[r] = nil }
-        let visible = Int(((clip.minY - y0) / rh).rounded(.down))..<Int(((clip.maxY - y0) / rh).rounded(.up))
+        let visible = Int(rowPosition(clip.minY).rounded(.down))..<max(Int(rowPosition(clip.minY).rounded(.down)), Int(rowPosition(clip.maxY).rounded(.up)))
         for r in range {
             // A row already laid out keeps its layer as is (selection and data changes
             // reconfigure it through refresh); only new rows cost work.
@@ -356,7 +446,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let i = rowItems[r]
         let c = snapshot.items[i]
         let frame = rowRect(r)
-        let selected = c.id == selectedID
+        let selected = c.id == highlightID
         let k = key(.row, item: i, emphasized: emphasized(i))
         l.frame = frame
         l.content.frame = l.bounds
@@ -365,8 +455,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.isHidden = !selected
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         // The separator under the text, hidden next to the selection (as NSTableView does).
-        let nextSelected = r + 1 < rowItems.count && snapshot.items[rowItems[r + 1]].id == selectedID
-        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1
+        let nextSelected = r + 1 < rowItems.count && snapshot.items[rowItems[r + 1]].id == highlightID
+        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
         let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
         l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
         l.separator.backgroundColor = palette.separator
@@ -482,11 +572,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.content.frame = l.bounds
         l.selection.frame = l.bounds.insetBy(dx: 2, dy: 2)
         l.selection.cornerRadius = SidebarMetrics.pinSelectionRadius
-        l.selection.isHidden = c.id != selectedID
+        l.selection.isHidden = c.id != highlightID
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         let ar = SidebarDraw.tileAvatar(metrics)
         if c.typing {
             l.setTyping(palette, scale: renderContext.scale)
+            l.typing?.showsTail = true
             // Where the unread message bubble goes: centered over the avatar's top (to verify).
             l.typing?.position = CGPoint(x: ar.midX, y: ar.minY + ar.height * 0.30 - SidebarTypingLayer.size.height / 2)
         } else {
@@ -511,11 +602,17 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// Selects a conversation. `notify`: tell the delegate (user actions); `reveal`: scroll it
     /// into view.
     func select(_ id: ConversationID?, notify: Bool = true, reveal: Bool = true) {
-        guard id != selectedID else { return }
+        highlight(id, notify: notify, reveal: reveal)
+    }
+
+    /// Moves the highlight to a conversation or an extra result. `notify`: a conversation goes
+    /// to the delegate's `didSelect`, an extra result to the search provider.
+    func highlight(_ id: ConversationID?, notify: Bool = true, reveal: Bool = true) {
+        guard id != highlightID else { return }
         let t0 = beginWork()
         defer { endWork(t0) }
-        let old = selectedID
-        selectedID = id
+        let old = highlightID
+        highlightID = id
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for changed in [old, id].compactMap({ $0 }) { refresh(changed) }
         // The separators of the rows above the old and new selection.
@@ -526,7 +623,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         if reveal, let id, let p = position(of: id) { _ = document.scrollToVisible(rect(p).insetBy(dx: 0, dy: -2)) }
         updateHover()
         updateAccessibility()
-        if notify { delegate?.sidebar(self, didSelect: id) }
+        guard notify else { return }
+        if let id, Self.isExtra(id) {
+            searchProvider?.sidebar(self, didSelectSearchResult: Self.hostID(id))
+        } else {
+            delegate?.sidebar(self, didSelect: id)
+        }
     }
 
     /// Redraws one conversation's row or tile (selection, data change).
@@ -543,13 +645,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let order = pinnedItems.count + rowItems.count
         guard order > 0 else { return }
         var cur = -1
-        if let id = selectedID, let p = position(of: id) {
+        if let id = highlightID, let p = position(of: id) {
             switch p { case let .tile(t): cur = t; case let .row(r): cur = pinnedItems.count + r }
         }
         let next = cur < 0 ? (delta > 0 ? 0 : order - 1) : min(order - 1, max(0, cur + delta))
         guard next != cur else { return }
         let i = next < pinnedItems.count ? pinnedItems[next] : rowItems[next - pinnedItems.count]
-        select(snapshot.items[i].id)
+        highlight(snapshot.items[i].id)
     }
 
     // MARK: Search
@@ -560,33 +662,149 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let trimmed = q.trimmingCharacters(in: .whitespaces)
         guard trimmed != query else { return }
         query = trimmed
-        if trimmed.isEmpty {
-            searchGeneration += 1
-            stale.set(searchGeneration)
-            applyRows(nil)
-        } else {
-            runSearch(trimmed)
+        extraRequest?.cancel()
+        extraRequest = nil
+        if extraSection?.query != trimmed { extraSection = nil }
+        runSearch(trimmed)
+        if !trimmed.isEmpty, let provider = searchProvider {
+            let request = SidebarSearchRequest(query: trimmed) { [weak self] section in
+                DispatchQueue.main.async { self?.extraResults(section, for: trimmed) }
+            }
+            extraRequest = request
+            provider.sidebar(self, search: request)
         }
     }
 
-    /// Filters off the main thread; the newest query wins (older ones stop early).
+    /// The provider answered: the section joins the current query's results (built and
+    /// rendered on the search queue like any result).
+    private func extraResults(_ section: SidebarSearchSection?, for q: String) {
+        guard q == query else { return }
+        extraRequest = nil
+        let s = section.flatMap { $0.results.isEmpty ? nil : $0 }
+        guard s != extraSection?.section || (s != nil && extraSection == nil) else { return }
+        extraSection = s.map { (q, $0) }
+        runSearch(q)
+    }
+
+    /// Filters off the main thread (an empty query: the full list again); the newest query
+    /// wins (older ones stop early). The search queue also renders the first screen of the
+    /// result (rows and pinned tiles the cache lacks), so applying it on the main thread draws
+    /// nothing there.
     private func runSearch(_ q: String) {
         searchGeneration += 1
         let gen = searchGeneration
         stale.set(gen)
-        let snap = snapshot
+        let snap = baseSnapshot, index = baseIndex
+        let extras = q.isEmpty ? nil : extraSection.flatMap { $0.query == q ? $0.section : nil }
         let existing = searchIndex
         let stale = stale
+        let prerender = prerenderer()
         searchQueue.async { [weak self] in
-            let idx = existing ?? ConversationSearchIndex(snap)
-            let result = idx.matches(q) { stale.get() != gen }
+            let idx: ConversationSearchIndex? = q.isEmpty ? nil : existing ?? ConversationSearchIndex(snap)
+            var list: RowList
+            var shown = snap, shownIndex = index
+            if let idx {
+                guard var m = idx.matches(q, cancelled: { stale.get() != gen }) else { return }
+                if let extras {
+                    // The host's rows after the conversations, as summaries of their own.
+                    let start = m.count
+                    for r in extras.results {
+                        var c = ConversationSummary(id: SidebarController.extraID(r.id), title: r.title, participants: [], avatar: r.avatar,
+                                                    preview: r.subtitle, previewSender: nil, lastAt: .distantPast, unreadCount: 0,
+                                                    pinned: false, muted: false, typing: false, lastReaction: nil)
+                        var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar)
+                        c.version = h.finalize()
+                        guard shownIndex[c.id] == nil else { continue }
+                        shownIndex[c.id] = shown.items.count
+                        m.append(shown.items.count)
+                        shown.items.append(c)
+                    }
+                    list = RowList(pinned: [], rows: m, count: shown.items.count, searching: true)
+                    if m.count > start { list.extraStart = start; list.extraTitle = extras.title }
+                } else {
+                    list = RowList(pinned: [], rows: m, count: snap.items.count, searching: true)
+                }
+            } else {
+                list = RowList.full(snap, index)
+            }
+            guard stale.get() == gen else { return }
+            let images = prerender(shown, list)
             DispatchQueue.main.async {
                 guard let self, gen == self.searchGeneration else { return }
-                if self.searchIndex == nil { self.searchIndex = idx }
-                guard let result else { return }
-                self.applyRows(result)
-                self.searchApplied?(q, result.count)
+                if self.searchIndex == nil, let idx { self.searchIndex = idx }
+                self.snapshot = shown
+                self.indexByID = shownIndex
+                self.insert(images)
+                self.applyRows(list)
+                self.searchApplied?(q, list.rows.count)
             }
+        }
+    }
+
+    /// Bitmaps rendered off the main thread for a list about to be applied.
+    private struct Prerendered {
+        var rows: [(key: SidebarBitmapKey, time: CGImage, text: CGImage)] = []
+        var tiles: [(key: SidebarBitmapKey, image: CGImage)] = []
+    }
+
+    /// A function (any thread) that renders the bitmaps a list needs on its first screen and
+    /// the cache lacks now: the visible rows at the current scroll position and at the top,
+    /// and the pinned tiles. Values only; read on the main thread when the search starts.
+    private func prerenderer() -> (ConversationListSnapshot, RowList) -> Prerendered {
+        let ctx = renderContext, job = rowJob(), avatars = avatars
+        let cached = cache.keys
+        let selected = windowActive ? highlightID : nil
+        let clip = scrollView.contentView.bounds
+        let rh = SidebarMetrics.rowHeight
+        let m = ctx.metrics
+        return { snap, list in
+            func key(_ kind: SidebarBitmapKey.Kind, _ c: ConversationSummary) -> SidebarBitmapKey {
+                SidebarBitmapKey(kind: kind, id: c.id, version: c.version, width: kind == .row ? m.width : m.tileWidth,
+                                 emphasized: c.id == selected, generation: ctx.generation)
+            }
+            let ph = m.pinnedHeight(count: list.pinned.count)
+            let screen = Int((clip.height / rh).rounded(.up)) + 1
+            let at = max(0, Int(((clip.minY - ph) / rh).rounded(.down)))
+            var rows = Set(0..<min(list.rows.count, screen))
+            // The scroll position may be below the end of a short result list.
+            let end = min(list.rows.count, at + screen)
+            if at < end { for r in at..<end { rows.insert(r) } }
+            let rowWork = rows.map { snap.items[list.rows[$0]] }.map { (key(.row, $0), $0) }.filter { !cached.contains($0.0) }
+            let tileWork = list.pinned.map { snap.items[$0] }.map { (key(.tile, $0), $0) }.filter { !cached.contains($0.0) }
+            var out = Prerendered()
+            guard !m.compact || !tileWork.isEmpty else { return out }
+            let n = (m.compact ? 0 : rowWork.count) + tileWork.count
+            var rowsOut = [(time: CGImage, text: CGImage)?](repeating: nil, count: rowWork.count)
+            var tilesOut = [CGImage?](repeating: nil, count: tileWork.count)
+            rowsOut.withUnsafeMutableBufferPointer { ro in
+                tilesOut.withUnsafeMutableBufferPointer { to in
+                    DispatchQueue.concurrentPerform(iterations: n) { j in
+                        if j < tileWork.count {
+                            to[j] = SidebarDraw.tile(tileWork[j].1, emphasized: tileWork[j].0.emphasized, ctx: ctx, avatars: avatars)
+                        } else {
+                            let w = rowWork[j - tileWork.count]
+                            ro[j - tileWork.count] = job(w.1, w.0, nil)
+                        }
+                    }
+                }
+            }
+            for (j, w) in rowWork.enumerated() { if let r = rowsOut[j] { out.rows.append((w.0, r.time, r.text)) } }
+            for (j, w) in tileWork.enumerated() { if let img = tilesOut[j] { out.tiles.append((w.0, img)) } }
+            return out
+        }
+    }
+
+    /// Puts prerendered bitmaps in the cache (those of an older width or palette are dropped).
+    private func insert(_ p: Prerendered) {
+        let t0 = beginWork()
+        defer { endWork(t0) }
+        for r in p.rows where r.key.generation == generation && r.key.width == metrics.width && !cache.contains(r.key) {
+            cache.insert(timeKey(r.key), r.time)
+            cache.insert(r.key, r.text)
+        }
+        for t in p.tiles where t.key.generation == generation && t.key.width == metrics.tileWidth && !cache.contains(t.key) {
+            cache.insert(t.key, t.image)
+            stats.tiles += 1
         }
     }
     /// The newest query's generation, read by the search queue (a newer query stops an older one).
@@ -605,7 +823,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case #selector(NSResponder.moveDown(_:)): moveSelection(1); return true
         case #selector(NSResponder.moveUp(_:)): moveSelection(-1); return true
         case #selector(NSResponder.insertNewline(_:)):
-            if selectedID == nil || position(of: selectedID!) == nil { moveSelection(1) }
+            if highlightID == nil || position(of: highlightID!) == nil { moveSelection(1) }
             view.window?.makeFirstResponder(document)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -628,9 +846,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func updateHover() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard let h = hovered, item(h) < snapshot.items.count, snapshot.items[item(h)].id != selectedID else { hoverLayer.isHidden = true; return }
+        // The hovered row or tile may be gone (unpinned, filtered out): check before reading it.
+        guard let h = hovered else { hoverLayer.isHidden = true; return }
         if case let .row(r) = h, r >= rowItems.count { hoverLayer.isHidden = true; return }
         if case let .tile(t) = h, t >= pinnedItems.count { hoverLayer.isHidden = true; return }
+        guard item(h) < snapshot.items.count, snapshot.items[item(h)].id != highlightID else { hoverLayer.isHidden = true; return }
         hoverLayer.frame = rect(h)
         hoverLayer.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
         hoverLayer.backgroundColor = palette.hover
@@ -643,15 +863,27 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func menu(at p: CGPoint) -> NSMenu? {
         guard let h = hit(p) else { return nil }
         let c = snapshot.items[item(h)]
+        // The host's extra search rows have no menu.
+        guard !Self.isExtra(c.id) else { return nil }
         menuTarget = c.id
         let m = NSMenu()
         m.delegate = self
+        let actions = delegate?.sidebar(self, actionsFor: c.id) ?? []
+        let extra = delegate?.sidebar(self, menuItemsFor: c.id) ?? []
         func add(_ title: String, _ sel: Selector) { let it = NSMenuItem(title: title, action: sel, keyEquivalent: ""); it.target = self; m.addItem(it) }
-        add(c.pinned ? SidebarStrings.unpin : SidebarStrings.pin, #selector(togglePin))
-        add(c.unread ? SidebarStrings.markRead : SidebarStrings.markUnread, #selector(toggleRead))
-        add(c.muted ? SidebarStrings.showAlerts : SidebarStrings.hideAlerts, #selector(toggleMute))
-        m.addItem(.separator())
-        add(SidebarStrings.delete, #selector(deleteConversation))
+        if actions.contains(.pin) { add(c.pinned ? SidebarStrings.unpin : SidebarStrings.pin, #selector(togglePin)) }
+        if actions.contains(.markRead) { add(c.unread ? SidebarStrings.markRead : SidebarStrings.markUnread, #selector(toggleRead)) }
+        if actions.contains(.mute) { add(c.muted ? SidebarStrings.showAlerts : SidebarStrings.hideAlerts, #selector(toggleMute)) }
+        if !extra.isEmpty {
+            if m.numberOfItems > 0 { m.addItem(.separator()) }
+            extra.forEach(m.addItem)
+        }
+        if actions.contains(.delete) {
+            if m.numberOfItems > 0 { m.addItem(.separator()) }
+            add(SidebarStrings.delete, #selector(deleteConversation))
+        }
+        guard m.numberOfItems > 0 else { menuTarget = nil; return nil }
+        menuTitles = m.items.map(\.title)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         menuRing.frame = rect(h)
         menuRing.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
@@ -660,7 +892,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         CATransaction.commit()
         return m
     }
+    /// The open menu's item titles (tests; empty when no menu is open).
+    private(set) var menuTitles: [String] = []
     func menuDidClose(_ menu: NSMenu) {
+        menuTitles = []
         CATransaction.begin(); CATransaction.setDisableActions(true)
         menuRing.isHidden = true
         CATransaction.commit()
@@ -675,20 +910,27 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     // MARK: Appearance and window state
 
     func appearanceChanged() {
-        let p = SidebarPalette.resolve(view.effectiveAppearance)
+        let p = resolvePalette()
         guard p != palette || bellSecondary == nil else { return }
         palette = p
         bellSecondary = Self.bell(NSColor.secondaryLabelColor, view.effectiveAppearance, scale: renderContext.scale)
         bellSelected = Self.bell(NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
         invalidateAll()
     }
-    @objc private func colorsChanged() { palette = SidebarPalette.resolve(view.effectiveAppearance); invalidateAll() }
+    @objc private func colorsChanged() {
+        guard isViewLoaded else { return }
+        palette = resolvePalette()
+        invalidateAll()
+    }
+    private func resolvePalette() -> SidebarPalette {
+        SidebarPalette.resolve(view.effectiveAppearance, unreadColor: unreadColor, selectionColor: selectionColor)
+    }
     func scaleChanged() { avatars.removeAll(); invalidateAll() }
     func setWindowActive(_ active: Bool) {
         guard active != windowActive else { return }
         windowActive = active
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if let id = selectedID { refresh(id) }
+        if let id = highlightID { refresh(id) }
         CATransaction.commit()
     }
 
@@ -702,6 +944,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for t in tileLayers.indices where t < pinnedItems.count { configureTile(t) }
         CATransaction.commit()
+        layoutSectionHeader()
         tile(force: true)
     }
 
@@ -746,13 +989,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             e.setAccessibilityRole(.row)
             var parts = [c.title]
             if c.typing { parts.append(SidebarStrings.typing) } else { parts.append(c.lastReaction.map(SidebarStrings.reaction) ?? c.preview) }
-            parts.append(timeFormatter.string(c.lastAt))
+            if !Self.isExtra(c.id) { parts.append(timeFormatter.string(c.lastAt)) }
             if c.unread { parts.append(String(format: SidebarStrings.unreadFormat, c.unreadCount)) }
             if c.muted { parts.append(SidebarStrings.muted) }
             if c.pinned { parts.append(SidebarStrings.pinned) }
             e.setAccessibilityLabel(parts.joined(separator: ", "))
             e.setAccessibilityTitle(c.title)
-            e.setAccessibilitySelected(c.id == selectedID)
+            e.setAccessibilitySelected(c.id == highlightID)
             e.setAccessibilityFrameInParentSpace(rect(h))
             e.setAccessibilityParent(document)
             return e
@@ -768,7 +1011,7 @@ final class SidebarAccessibilityRow: NSAccessibilityElement {
     weak var controller: SidebarController?
     let id: ConversationID
     init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
-    override func accessibilityPerformPress() -> Bool { controller?.select(id); return true }
+    override func accessibilityPerformPress() -> Bool { controller?.highlight(id); return true }
     override func isAccessibilityElement() -> Bool { true }
 }
 
@@ -834,7 +1077,7 @@ final class SidebarDocumentView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let c = controller, let h = c.hit(point(event)) else { return }
-        c.select(c.snapshot.items[c.item(h)].id, reveal: false)
+        c.highlight(c.snapshot.items[c.item(h)].id, reveal: false)
     }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
     override func keyDown(with event: NSEvent) {
