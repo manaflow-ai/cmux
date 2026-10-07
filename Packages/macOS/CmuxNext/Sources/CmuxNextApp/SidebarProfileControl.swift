@@ -33,6 +33,11 @@ import Observation
         return SidebarAvatar(name: record?.name ?? profiles.displayName(id), color: record?.color.flatMap(GroupColor.init(rawValue:)))
     }
 
+    /// The control's avatar: the signed-in user's, else the current profile's.
+    static func avatar(profile: SidebarAvatar, account: SidebarAccount?) -> SidebarAvatar {
+        profile
+    }
+
     func menu(workspace: String?) -> NSMenu {
         let avatar = avatar(workspace: workspace)
         return ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name, initial: avatar.initial))

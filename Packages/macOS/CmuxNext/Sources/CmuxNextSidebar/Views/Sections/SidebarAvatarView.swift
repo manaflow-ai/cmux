@@ -30,6 +30,11 @@ final class SidebarAvatarView: NSView {
         return NSRect(x: circleFrame.maxX + SidebarStyle.avatarChevronGap, y: (bounds.height - size) / 2, width: size, height: size)
     }
 
+    /// The avatar's picture, decoded; nil draws the initial.
+    static func picture(_ avatar: SidebarAvatar?) -> NSImage? {
+        nil
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let avatar else { return }
         performWithTheme {

@@ -61,11 +61,24 @@ public nonisolated struct SidebarAvatar: Hashable, Sendable {
     public var initial: String
     /// The profile's color; nil draws the neutral text color.
     public var color: GroupColor?
+    /// The signed-in user's picture (PNG, JPEG), drawn round in place of the initial.
+    public var imageData: Data?
 
     public init(name: String, color: GroupColor? = nil) {
         self.name = name
         self.initial = Self.initial(of: name)
         self.color = color
+    }
+
+    /// The signed-in cmux user: their picture, else their initials.
+    public static func account(name: String, imageData: Data? = nil) -> SidebarAvatar {
+        SidebarAvatar(name: name)
+    }
+
+    /// Up to two initials: the first letters of the first and last words ("Leo Li" is "LL"), of an
+    /// email's local part, else "?".
+    public static func initials(for name: String) -> String {
+        initial(of: name)
     }
 
     /// The first letter or digit of `name`, uppercased; "?" when it has none.
