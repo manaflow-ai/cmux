@@ -83,6 +83,20 @@ pub struct HostTab {
     held_buttons: BTreeSet<(u32, u8)>,
     /// The last pointer position per surface: a released button goes up there.
     pointer_at: BTreeMap<u32, (f64, f64)>,
+    /// Open popup surfaces (RP7) by the fork's surface id.
+    surfaces: BTreeMap<u32, HostSurface>,
+    /// The stream the next shown surface gets (never 0, the page's).
+    next_stream: u16,
+}
+
+/// One open popup surface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HostSurface {
+    kind: SurfaceKind,
+    /// Its rect in the page (DIP).
+    anchor: Rect,
+    /// Its stream and pixel size once a frame arrived.
+    shown: Option<(u16, u32, u32)>,
 }
 
 /// The JS dialog Chromium has open, with the fork's own token.
@@ -111,6 +125,8 @@ impl HostTab {
             held_keys: BTreeMap::new(),
             held_buttons: BTreeSet::new(),
             pointer_at: BTreeMap::new(),
+            surfaces: BTreeMap::new(),
+            next_stream: 1,
         }
     }
 
@@ -142,13 +158,19 @@ impl HostTab {
                 SessionEffect::StartCapture => {
                     self.capture_wanted = true;
                     if let Some(browser) = self.browser {
-                        self.capture_on = p.capture(browser, true);
+                        self.start_capture(browser, p);
                     }
                 }
                 SessionEffect::StopCapture => {
                     self.capture_wanted = false;
                     if let Some(browser) = self.browser {
+                        // No viewer sees the popups: close them (the fork
+                        // reports each hidden, which hides it on the viewers).
+                        for &surface in self.surfaces.keys() {
+                            p.surface_close(surface);
+                        }
                         p.capture(browser, false);
+                        p.set_active(browser, false);
                     }
                     self.capture_on = false;
                 }
@@ -168,7 +190,16 @@ impl HostTab {
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
         if self.capture_wanted {
-            self.capture_on = p.capture(browser, true);
+            self.start_capture(browser, p);
+        }
+    }
+
+    /// Captures the page; a captured tab is active (a viewer sees it), so
+    /// its page popups can open.
+    fn start_capture(&mut self, browser: i32, p: &mut dyn Presentation) {
+        self.capture_on = p.capture(browser, true);
+        if self.capture_on {
+            p.set_active(browser, true);
         }
     }
 
@@ -374,6 +405,11 @@ impl HostTab {
     ) -> Result<bool, InputReject> {
         let call = map_input(event)?;
         let Some(browser) = self.browser else { return Ok(false) };
+        if let RpCall::SurfaceMouse { surface, .. } = call
+            && !self.surfaces.contains_key(&surface)
+        {
+            return Ok(false);
+        }
         self.note_held(event);
         Ok(p.input(browser, &call))
     }
@@ -443,24 +479,82 @@ impl HostTab {
     /// `anchor` (page DIP), or closed it.
     pub fn surface_changed(
         &mut self,
-        _surface: u32,
-        _kind: SurfaceKind,
-        _visible: bool,
-        _anchor: Rect,
-        _p: &mut dyn Presentation,
+        surface: u32,
+        kind: SurfaceKind,
+        visible: bool,
+        anchor: Rect,
+        p: &mut dyn Presentation,
     ) -> Vec<SurfaceOut> {
+        if !visible {
+            let Some(gone) = self.surfaces.remove(&surface) else { return Vec::new() };
+            self.held_buttons.retain(|&(s, _)| s != surface);
+            self.pointer_at.remove(&surface);
+            return match gone.shown {
+                Some((stream, _, _)) => vec![
+                    SurfaceOut::Control(Control::SurfaceHide { surface }),
+                    SurfaceOut::RemoveStream { stream },
+                ],
+                None => Vec::new(),
+            };
+        }
+        if let Some(open) = self.surfaces.get_mut(&surface) {
+            if open.anchor == anchor {
+                return Vec::new();
+            }
+            open.anchor = anchor;
+            return match open.shown {
+                Some((_, width, height)) => vec![SurfaceOut::Control(Control::SurfaceUpdate {
+                    surface,
+                    anchor,
+                    width,
+                    height,
+                })],
+                None => Vec::new(),
+            };
+        }
+        if p.surface_capture(surface) {
+            self.surfaces.insert(surface, HostSurface { kind, anchor, shown: None });
+        } else {
+            // A surface no viewer can see would trap the page's focus.
+            p.surface_close(surface);
+        }
         Vec::new()
     }
 
     /// A captured frame of `surface` with its pixel size: the first one
     /// (or one of a new size) gives the surface a stream and shows it.
-    pub fn surface_frame(&mut self, _surface: u32, _width: u32, _height: u32) -> Vec<SurfaceOut> {
-        Vec::new()
+    pub fn surface_frame(&mut self, surface: u32, width: u32, height: u32) -> Vec<SurfaceOut> {
+        let Some(open) = self.surfaces.get(&surface).copied() else { return Vec::new() };
+        let mut out = Vec::new();
+        match open.shown {
+            Some((_, w, h)) if (w, h) == (width, height) => return out,
+            // A new size is a new encoder: the old stream ends, a new one starts.
+            Some((stream, _, _)) => {
+                out.push(SurfaceOut::Control(Control::SurfaceHide { surface }));
+                out.push(SurfaceOut::RemoveStream { stream });
+            }
+            None => {}
+        }
+        let stream = self.next_stream;
+        self.next_stream = self.next_stream.checked_add(1).unwrap_or(1);
+        if let Some(entry) = self.surfaces.get_mut(&surface) {
+            entry.shown = Some((stream, width, height));
+        }
+        out.push(SurfaceOut::AddStream { surface, stream, width, height });
+        out.push(SurfaceOut::Control(Control::SurfaceShow {
+            surface,
+            stream,
+            kind: open.kind,
+            anchor: open.anchor,
+            width,
+            height,
+        }));
+        out
     }
 
     /// The stream that carries `surface`, once it is shown.
-    pub fn surface_stream(&self, _surface: u32) -> Option<u16> {
-        None
+    pub fn surface_stream(&self, surface: u32) -> Option<u16> {
+        self.surfaces.get(&surface)?.shown.map(|(stream, _, _)| stream)
     }
 
     /// The anchor of a `<select>` popup in the page (helper for the shim's
@@ -521,7 +615,7 @@ impl HostTab {
     /// the tab's later shim callbacks: title, URL, load).
     pub fn retry_capture(&mut self, p: &mut dyn Presentation) {
         if let (true, false, Some(browser)) = (self.capture_wanted, self.capture_on, self.browser) {
-            self.capture_on = p.capture(browser, true);
+            self.start_capture(browser, p);
         }
     }
 

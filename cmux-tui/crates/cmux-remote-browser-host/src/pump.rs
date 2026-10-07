@@ -10,6 +10,8 @@
 //! capture round trip. It asks the capture for a refresh only when the
 //! engine wants a frame and none was captured yet.
 
+use std::collections::BTreeMap;
+
 use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::{
     EncodeRequest, Encoded, EngineConfig, EngineStats, MediaEngine, Output, StreamError,
@@ -62,15 +64,29 @@ pub struct PumpStats {
     pub foreign_input: u64,
 }
 
-/// One viewer's media state: the engine, the encoder and the latest frame.
-pub struct Pump<E: FrameEncoder> {
-    engine: MediaEngine,
+/// One display stream: its encoder and its latest frame.
+struct Slot<E: FrameEncoder> {
     encoder: E,
-    stream: u16,
     /// The latest captured frame and its capture time.
     held: Option<(E::Frame, u64)>,
     /// A request that waits for the first captured frame.
     pending: Option<EncodeRequest>,
+}
+
+impl<E: FrameEncoder> Slot<E> {
+    fn new(encoder: E) -> Self {
+        Self { encoder, held: None, pending: None }
+    }
+}
+
+/// One viewer's media state: the engine and, per display stream (the page
+/// and each popup surface, RP7), an encoder and the latest frame.
+pub struct Pump<E: FrameEncoder> {
+    engine: MediaEngine,
+    /// The page's stream.
+    stream: u16,
+    main: Slot<E>,
+    popups: BTreeMap<u16, Slot<E>>,
     stats: PumpStats,
 }
 
@@ -78,10 +94,9 @@ impl<E: FrameEncoder> Pump<E> {
     pub fn new(cfg: EngineConfig, encoder: E, now_us: u64) -> Self {
         Self {
             engine: MediaEngine::new(cfg, now_us),
-            encoder,
             stream: cfg.stream,
-            held: None,
-            pending: None,
+            main: Slot::new(encoder),
+            popups: BTreeMap::new(),
             stats: PumpStats::default(),
         }
     }
@@ -103,44 +118,59 @@ impl<E: FrameEncoder> Pump<E> {
         t_capture_us: u64,
         now_us: u64,
     ) -> PumpOut {
-        self.stats.captured += 1;
-        // The previous frame's lease goes back to Viz here.
-        self.held = Some((frame, t_capture_us));
-        let mut out = PumpOut::default();
-        let req = match self.pending.take() {
-            Some(req) => Some(req),
-            None => self.engine.damage(self.stream, damage, now_us),
-        };
-        self.serve(req, now_us, &mut out);
-        out
+        self.frame_on(self.stream, frame, damage, t_capture_us, now_us)
     }
 
     /// Adds popup stream `stream` (`width` x `height` pixels) with its own
     /// encoder; its first frame is a keyframe of the whole stream.
     pub fn add_stream(
         &mut self,
-        _stream: u16,
-        _width: u32,
-        _height: u32,
-        _encoder: E,
+        stream: u16,
+        width: u32,
+        height: u32,
+        encoder: E,
     ) -> Result<(), StreamError> {
+        if stream == self.stream {
+            return Err(StreamError::Exists(stream));
+        }
+        self.engine.add_stream(stream, width, height)?;
+        self.popups.insert(stream, Slot::new(encoder));
         Ok(())
     }
 
     /// Removes popup stream `stream` and gives its held frame back.
-    pub fn remove_stream(&mut self, _stream: u16) {}
+    pub fn remove_stream(&mut self, stream: u16) {
+        if self.popups.remove(&stream).is_some() {
+            self.engine.remove_stream(stream);
+        }
+    }
 
     /// A captured frame of `stream` ([`Self::frame`] for another stream).
     /// A frame of an unknown stream is dropped (its lease goes back).
     pub fn frame_on(
         &mut self,
-        _stream: u16,
-        _frame: E::Frame,
-        _damage: Rect,
-        _t_capture_us: u64,
-        _now_us: u64,
+        stream: u16,
+        frame: E::Frame,
+        damage: Rect,
+        t_capture_us: u64,
+        now_us: u64,
     ) -> PumpOut {
-        PumpOut::default()
+        let mut out = PumpOut::default();
+        let Some(slot) = self.slot(stream) else { return out };
+        // The previous frame's lease goes back to Viz here.
+        slot.held = Some((frame, t_capture_us));
+        let pending = slot.pending.take();
+        self.stats.captured += 1;
+        let req = match pending {
+            Some(req) => Some(req),
+            None => self.engine.damage(stream, damage, now_us),
+        };
+        self.serve(req, now_us, &mut out);
+        out
+    }
+
+    fn slot(&mut self, stream: u16) -> Option<&mut Slot<E>> {
+        if stream == self.stream { Some(&mut self.main) } else { self.popups.get_mut(&stream) }
     }
 
     /// One datagram from the viewer. `may_inject` is the input gate.
@@ -164,13 +194,13 @@ impl<E: FrameEncoder> Pump<E> {
         self.engine.next_deadline_us()
     }
 
-    /// Gives the held frame back (capture stopped or the tab closed).
+    /// Gives the page's held frame back (capture stopped or the tab closed).
     pub fn release_frame(&mut self) {
-        self.held = None;
+        self.main.held = None;
     }
 
     pub fn holds_frame(&self) -> bool {
-        self.held.is_some()
+        self.main.held.is_some()
     }
 
     pub fn stats(&self) -> PumpStats {
@@ -181,12 +211,13 @@ impl<E: FrameEncoder> Pump<E> {
         self.engine.stats()
     }
 
+    /// The page stream's encoder.
     pub fn encoder(&self) -> &E {
-        &self.encoder
+        &self.main.encoder
     }
 
     pub fn encoder_mut(&mut self) -> &mut E {
-        &mut self.encoder
+        &mut self.main.encoder
     }
 
     fn absorb(&mut self, engine_out: Output, now_us: u64) -> PumpOut {
@@ -205,56 +236,68 @@ impl<E: FrameEncoder> Pump<E> {
             }
         }
         if engine_out.halve_bitrate {
-            let kbps = self.encoder.kbps() / 2;
-            self.encoder.set_kbps(kbps.max(1));
+            halve(&mut self.main.encoder);
         }
         self.serve(engine_out.encode, now_us, &mut out);
         out
     }
 
-    /// Encodes `req` from the held frame, or waits for a captured one.
+    /// Encodes `req` from its stream's held frame, or waits for a captured
+    /// one (only the page asks the capture for a refresh; a popup's first
+    /// frame comes with its capture).
     fn serve(&mut self, req: Option<EncodeRequest>, now_us: u64, out: &mut PumpOut) {
         let Some(req) = req else { return };
-        let Some((frame, t_capture_us)) = self.held.as_ref() else {
+        let is_main = req.stream == self.stream;
+        let Some(slot) = self.slot(req.stream) else { return };
+        let Some((frame, t_capture_us)) = slot.held.as_ref() else {
             // A recovery request replaces an older pending one: it asks for more.
-            self.pending = Some(match self.pending.take() {
+            slot.pending = Some(match slot.pending.take() {
                 Some(old) => EncodeRequest { force_idr: old.force_idr || req.force_idr, ..req },
                 None => req,
             });
-            if !out.refresh {
-                self.stats.refreshes += 1;
+            if is_main {
+                if !out.refresh {
+                    self.stats.refreshes += 1;
+                }
+                out.refresh = true;
             }
-            out.refresh = true;
             return;
         };
         let t_capture_us = *t_capture_us;
-        if req.target_kbps > 0 && req.target_kbps != self.encoder.kbps() {
-            self.encoder.set_kbps(req.target_kbps);
+        if req.target_kbps > 0 && req.target_kbps != slot.encoder.kbps() {
+            slot.encoder.set_kbps(req.target_kbps);
         }
         let mut access_unit = Vec::new();
         let pts = i64::try_from(t_capture_us).unwrap_or(i64::MAX);
-        let encoded =
-            match self.encoder.encode(frame, req.damage, req.force_idr, pts, &mut access_unit) {
-                Ok(idr) => {
-                    self.stats.encoded += 1;
-                    self.stats.idr += u64::from(idr);
-                    Some(Encoded { access_unit, idr, t_capture_us })
-                }
-                Err(_) => {
-                    // The gate opens again; the next damage tries anew.
-                    self.stats.encode_errors += 1;
-                    None
-                }
-            };
+        let result = slot.encoder.encode(frame, req.damage, req.force_idr, pts, &mut access_unit);
+        let encoded = match result {
+            Ok(idr) => {
+                self.stats.encoded += 1;
+                self.stats.idr += u64::from(idr);
+                Some(Encoded { access_unit, idr, t_capture_us })
+            }
+            Err(_) => {
+                // The gate opens again; the next damage tries anew.
+                self.stats.encode_errors += 1;
+                None
+            }
+        };
         match self.engine.encoded(&req, encoded, now_us) {
             Ok(engine_out) => {
-                if engine_out.halve_bitrate {
-                    let kbps = self.encoder.kbps() / 2;
-                    self.encoder.set_kbps(kbps.max(1));
+                if engine_out.halve_bitrate
+                    && let Some(slot) = self.slot(req.stream)
+                {
+                    halve(&mut slot.encoder);
                 }
                 out.datagrams.extend(engine_out.datagrams);
             }
             Err(_) => self.stats.encode_errors += 1,
         }
     }
+}
+
+/// The last frame was too large to send: half the bitrate.
+fn halve<E: FrameEncoder>(encoder: &mut E) {
+    let kbps = encoder.kbps() / 2;
+    encoder.set_kbps(kbps.max(1));
 }
