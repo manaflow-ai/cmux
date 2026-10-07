@@ -90,7 +90,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The name's colored label (`GroupLabelBandTests`).
     var labelFrame: NSRect { pill.frame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
-    var titleIntrinsicWidth: CGFloat { ceil(name.intrinsicContentSize.width) }
+    var titleIntrinsicWidth: CGFloat {
+        // The label's own measure plus the cell's text inset on both sides,
+        // measured with the header font it draws in (the live capture cut
+        // "Frontend" to "Fronte…" at the bare measured width).
+        let font = name.font ?? SidebarStyle.headerFont
+        let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: font]).width)
+        return max(ceil(name.intrinsicContentSize.width), text + 2 * Metrics.space2)
+    }
     var labelFill: CGColor? { pill.isHidden ? nil : pill.backgroundColor }
     override var titleFont: NSFont { SidebarStyle.headerFont }
     private var renaming = false
@@ -197,7 +204,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let dotRoom: CGFloat = 0
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
-        let nameWidth = min(ceil(name.attributedStringValue.size().width) + Metrics.space1, max(0, trailing - nx - pad - pinRoom))
+        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - nx - pad - pinRoom))
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
         let chipHeight = min(b.height, max(Metrics.space6, b.height - 2 * Metrics.space3))
         pill.isHidden = renaming
