@@ -177,6 +177,7 @@ extension MessageCellLayout {
             editedFrame: nil,
             repliesFrame: nil,
             failedBadgeFrame: nil,
+            tailOverhang: 0,
             contentFrame: content,
             poll: PollCellLayout(cardFrame: cardFrame, card: card, addChoiceFrame: addChoiceFrame, failedFrame: failedFrame)
         )

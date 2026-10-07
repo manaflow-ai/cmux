@@ -233,6 +233,7 @@ final class PollBackend: ConversationBackend, @unchecked Sendable {
     }
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage { poll }
     func edit(messageID: String, text: String) async throws -> ConversationMessage { poll }
+    func unsend(messageID: String) async throws -> ConversationMessage { poll }
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
