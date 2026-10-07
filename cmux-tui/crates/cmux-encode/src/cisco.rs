@@ -28,12 +28,17 @@ use sha2::Digest;
 
 use crate::openh264::{CiscoBinary, Platform};
 
-/// Largest compressed download accepted (Cisco's files are under 1 MB).
-pub const MAX_COMPRESSED_BYTES: usize = 16 << 20;
-/// Largest decompressed library accepted (Cisco's are under 2 MB).
-pub const MAX_LIBRARY_BYTES: usize = 64 << 20;
-/// Download timeout in seconds.
-pub const DOWNLOAD_TIMEOUT_S: u64 = 120;
+/// Largest compressed download accepted: a little above Cisco's largest
+/// 2.6.0 file (linux64, 634,264 bytes).
+pub const MAX_COMPRESSED_BYTES: usize = 1 << 20;
+/// Largest decompressed library accepted (Cisco's largest is 1,731,128 bytes).
+pub const MAX_LIBRARY_BYTES: usize = 4 << 20;
+/// Largest HTTP response header accepted.
+pub const MAX_HEADER_BYTES: usize = 16 << 10;
+/// TCP connect timeout in seconds.
+pub const CONNECT_TIMEOUT_S: u64 = 30;
+/// Timeout of each socket read or write in seconds.
+pub const IO_TIMEOUT_S: u64 = 30;
 
 /// Why the library was not installed.
 #[derive(Debug)]
@@ -163,13 +168,14 @@ fn download(url: &str) -> Result<Vec<u8>, InstallError> {
         |what: &str, e: &dyn std::fmt::Display| InstallError::Download(format!("{what}: {e}"));
     let (host, path) =
         split_url(url).ok_or_else(|| InstallError::Download(format!("not an https URL: {url}")))?;
-    let timeout = Duration::from_secs(DOWNLOAD_TIMEOUT_S);
+    let timeout = Duration::from_secs(IO_TIMEOUT_S);
     let addr = (host, 443)
         .to_socket_addrs()
         .map_err(|e| fail("resolve", &e))?
         .next()
         .ok_or_else(|| InstallError::Download(format!("{host} has no address")))?;
-    let tcp = TcpStream::connect_timeout(&addr, timeout).map_err(|e| fail("connect", &e))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(CONNECT_TIMEOUT_S))
+        .map_err(|e| fail("connect", &e))?;
     tcp.set_read_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
     tcp.set_write_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
     let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
@@ -190,7 +196,7 @@ fn download(url: &str) -> Result<Vec<u8>, InstallError> {
     );
     tls.write_all(request.as_bytes()).map_err(|e| fail("request", &e))?;
     let mut raw = Vec::new();
-    let limit = MAX_COMPRESSED_BYTES as u64 + 64 * 1024;
+    let limit = (MAX_COMPRESSED_BYTES + MAX_HEADER_BYTES + 4) as u64;
     match (&mut tls).take(limit + 1).read_to_end(&mut raw) {
         Ok(_) => {}
         // A server that closes without close_notify: the Content-Length
@@ -220,9 +226,16 @@ fn split_url(url: &str) -> Option<(&str, &str)> {
 /// `Transfer-Encoding`, and exactly `Content-Length` bytes when given.
 fn parse_response(raw: &[u8]) -> Result<Vec<u8>, InstallError> {
     let bad = |why: &str| InstallError::Download(why.to_owned());
-    let end = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| bad("no HTTP header"))?;
+    let window = &raw[..raw.len().min(MAX_HEADER_BYTES + 4)];
+    let end = window
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| bad("no HTTP header within the size limit"))?;
     let head = std::str::from_utf8(&raw[..end]).map_err(|_| bad("header is not text"))?;
     let body = &raw[end + 4..];
+    if body.len() > MAX_COMPRESSED_BYTES {
+        return Err(InstallError::TooLarge);
+    }
     let mut lines = head.split("\r\n");
     let status = lines.next().unwrap_or_default();
     let code = status.strip_prefix("HTTP/1.").and_then(|s| s.get(2..5));
