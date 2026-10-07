@@ -10,7 +10,10 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -101,9 +104,9 @@ test("outside the project a chip has a lock; the host's denied, missing and text
   expect(container.textContent).toContain("/Users/ada/repo/gone.ts");
   await unmount();
   ({ container, unmount } = await render(source, { paths, policy: { outsideRoots: "text" } }));
-  expect([...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path)).toEqual([
-    "/Users/ada/repo/src/",
-  ]);
+  expect(
+    [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path),
+  ).toEqual(["/Users/ada/repo/src/"]);
   await unmount();
 });
 
@@ -121,7 +124,11 @@ test("a web chip shows the site's favicon only when the host already has it", as
 
 test("a web image waits for a click by default, then shows the host's data URL", async () => {
   const data = "data:image/png;base64,iVBORw0KGgo=";
-  const { container, calls, unmount } = await render("![cat](https://img.example/cat.png)", {}, { "image.load": { src: data } });
+  const { container, calls, unmount } = await render(
+    "![cat](https://img.example/cat.png)",
+    {},
+    { "image.load": { src: data } },
+  );
   expect(container.querySelector("img")).toBeNull();
   expect(container.querySelector(".cv-image-placeholder__host")?.textContent).toBe("img.example");
   expect(calls).toEqual([]);
@@ -134,7 +141,9 @@ test("a web image waits for a click by default, then shows the host's data URL",
 
 test("never keeps a web image a link; a local image inside the project loads at once", async () => {
   const data = "data:image/png;base64,AAAA";
-  let { container, calls, unmount } = await render("![cat](https://img.example/cat2.png)", { policy: { remoteImages: "never" } });
+  let { container, calls, unmount } = await render("![cat](https://img.example/cat2.png)", {
+    policy: { remoteImages: "never" },
+  });
   expect(container.querySelector(".cv-image-placeholder")).toBeNull();
   expect(container.querySelector("a.is-image")).not.toBeNull();
   await unmount();
@@ -219,10 +228,9 @@ test("a backticked path whose file name holds a space is a chip, also from home"
   const { container, unmount } = await render(
     "See `/Users/x/Library/Application Support/cmux/spaced demo.ts` and `~/My Notes/to do.md`.",
   );
-  expect([...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path)).toEqual([
-    "/Users/x/Library/Application Support/cmux/spaced demo.ts",
-    "~/My Notes/to do.md",
-  ]);
+  expect(
+    [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path),
+  ).toEqual(["/Users/x/Library/Application Support/cmux/spaced demo.ts", "~/My Notes/to do.md"]);
   expect(container.querySelector("code")).toBeNull();
   await unmount();
 });
