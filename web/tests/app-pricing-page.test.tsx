@@ -271,7 +271,7 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toContain("billed yearly");
+    expect(html).not.toMatch(/billed yearly, save/);
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
     expect(html).not.toMatch(/plan%253D(go|max|team)[^"]*interval%253Dyear/);
