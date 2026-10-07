@@ -31,6 +31,7 @@ import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
+import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -476,6 +477,7 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 export function VirtualTranscript({
   rows,
+  sessionId,
   onToggleActivity,
   onOpenDiff,
   expanded,
@@ -483,6 +485,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
 }: {
   rows: AcpmuxRow[];
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
@@ -714,6 +717,15 @@ export function VirtualTranscript({
   };
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <ThreadMinimap
+        rows={rows}
+        sessionId={sessionId}
+        layout={layout}
+        scroller={ref}
+        scrollTop={scroll.top}
+        viewportHeight={height}
+        width={width}
+      />
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
@@ -768,6 +780,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       setRefreshStatus("updated");
     } catch {
       setRefreshStatus("error");
+      // l10n-allow: a developer error for the refresh caller; the picker shows refreshStatus, never this text.
       throw new Error("models.catalog refresh failed");
     }
   }, [picker]);
@@ -1900,6 +1913,7 @@ function AcpmuxPane() {
           <SessionRowsContext.Provider value={snapshot.rows}>
             <VirtualTranscript
               rows={transcriptRows}
+              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
               canLoadOlder={snapshot.canLoadOlder}
               expanded={expanded}
               registry={registry}
