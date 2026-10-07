@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import feed from "./fixtures/model-feed.json";
@@ -14,7 +14,7 @@ import { bundledSnapshot, CatalogStore, RECHECK_MS } from "../services/model-cat
 import { seedSql } from "../tools/model-catalog-seed-sql";
 import type { ModelCatalog } from "../services/model-catalog/types";
 import { fetchFeed } from "../services/model-catalog/upstream";
-import { BUNDLED_CATALOG_PATH, SNAPSHOT_PATH } from "../tools/model-catalog-paths";
+import { BUNDLED_CATALOG_PATH, SNAPSHOT_PATH, WEBVIEW_CATALOG_COPY_PATH } from "../tools/model-catalog-paths";
 
 const NOW = new Date("2026-10-06T18:00:00.000Z");
 
@@ -186,6 +186,14 @@ describe("the checked-in catalog", () => {
     expect(harness(catalog, "claude").models.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(MAX_CATALOG_BYTES);
     expect(MAX_CATALOG_BYTES).toBeLessThan(2 * 1024 * 1024);
+  });
+
+  // Expected to fail until the agent pane imports web/data/model-catalog/snapshot.json itself
+  // (owner: Leo's lane, cx-ncc.48). When the pane's copy is gone or equal, this turns red:
+  // change test.failing to test.
+  test.failing("the agent pane has no second, different copy of the catalog", () => {
+    if (!existsSync(WEBVIEW_CATALOG_COPY_PATH)) return;
+    expect(JSON.parse(readFileSync(WEBVIEW_CATALOG_COPY_PATH, "utf8"))).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8")));
   });
 
   test("acpmux bundles the same catalog", () => {
