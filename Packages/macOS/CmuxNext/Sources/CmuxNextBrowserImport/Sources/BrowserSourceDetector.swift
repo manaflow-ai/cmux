@@ -27,7 +27,7 @@ public struct BrowserSourceDetector: Sendable {
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
                 let avatar = entry.avatarFileName.map { path.appending(path: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: Self.chromiumAvailability(path), avatar: avatar)
+                                            path: path, availability: Self.chromiumAvailability(path, browser: browser), avatar: avatar)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
@@ -64,7 +64,7 @@ public struct BrowserSourceDetector: Sendable {
         return nil
     }
 
-    static func chromiumAvailability(_ profile: URL) -> [ImportDataKind: DataAvailability] {
+    static func chromiumAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
         func present(_ name: String) -> Bool { FileManager.default.fileExists(atPath: profile.appending(path: name).path) }
         let sessions = profile.appending(path: "Sessions")
         let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
@@ -74,7 +74,7 @@ public struct BrowserSourceDetector: Sendable {
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
             // Read only after the consent step (PasswordImporter).
-            .passwords: present("Login Data") ? .available : .absent,
+            .passwords: !present("Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
     }

@@ -60,7 +60,7 @@ public struct PasswordImporter: Sendable {
             guard destination.isAvailable else { throw Failure.storeUnavailable }
             return try await store(try await readFirefox(profile), intoProfile: profileID)
         }
-        guard profile.browser.family == .chromium, !profile.browser.refusesSessionData,
+        guard profile.browser.family == .chromium, profile.browser.readsSavedPasswords,
               let service = profile.browser.safeStorageService else { throw Failure.unsupportedBrowser }
         guard destination.isAvailable else { throw Failure.storeUnavailable }
         let crypto: ChromiumPasswordCrypto
