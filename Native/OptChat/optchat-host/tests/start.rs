@@ -52,11 +52,17 @@ fn a_crash_after_the_last_checkpoint_folds_only_the_tail() {
     let dir = tempfile::tempdir().unwrap();
     {
         let chat = open(dir.path(), 6_000, instant(300));
+        // Settled after every message, as the spec's load folds: a
+        // checkpoint holds the live view, and a live view whose merges lag
+        // behind the compactor (messages appended faster than it builds)
+        // is a valid view but not the one the load computes. Without the
+        // wait, the checkpoint at message 256 caught such a view about 1 run
+        // in 4 and the resumed view kept 256+4 and 260+4 unmerged.
         for n in 0..300 {
             chat.append(Kind::User, &format!("m {n} {}", "w ".repeat(n % 40)))
                 .unwrap();
+            assert!(chat.wait_idle(None, WAIT));
         }
-        assert!(chat.wait_idle(None, WAIT));
         // A crash: no shutdown, so no checkpoint after message 256.
         std::mem::forget(chat);
     }

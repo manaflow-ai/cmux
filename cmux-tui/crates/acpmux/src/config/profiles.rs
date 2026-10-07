@@ -790,7 +790,7 @@ pub fn valid_id(id: &str) -> bool {
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
-fn valid_env_key(key: &str) -> bool {
+pub fn valid_env_key(key: &str) -> bool {
     let b = key.as_bytes();
     !b.is_empty()
         && (b[0].is_ascii_alphabetic() || b[0] == b'_')
