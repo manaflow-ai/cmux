@@ -96,7 +96,9 @@
   (global-name "com.apple.security.agent")
   (global-name "com.apple.security.authhost")
   (global-name "com.apple.keychainsharingmessagingd")
-  (global-name "com.apple.ctkd.token-client"))
+  (global-name "com.apple.ctkd.token-client")
+  (global-name "com.apple.ctkd.slot-client")
+  (global-name "com.apple.ctkd.slot-registry"))
 
 ;; Secrets a remote chain never reads.
 (deny file-read*

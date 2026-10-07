@@ -542,11 +542,20 @@ impl Hub {
         }
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
+        // The remote floor cancelled the recovered turn (in the log, or just
+        // now for an unsandboxed agent): its permissions are cancelled too,
+        // never answered from the log or shown again.
+        let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
         for (id, m, params, _) in work.requests {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
+                if floored {
+                    let cancelled = json!({"outcome": {"outcome": "cancelled"}});
+                    let _ = child.respond(id, Ok(cancelled)).await;
+                    continue;
+                }
                 match decided {
                     // Decided but the answer never reached the agent: send it.
                     Some(outcome) => {

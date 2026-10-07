@@ -124,6 +124,12 @@ threat is a stolen paired device. Accepted residuals:
   there is no sandbox there yet.
 - Claude Code's own Bash sandbox is off inside the profile, because macOS
   refuses a nested sandbox. The profile is the only sandbox.
+- A remote chain's Claude Code gets the Mac's Claude access token by env and
+  cannot refresh it inside the sandbox, so a chain that runs longer than the
+  token's life loses its login. A long-lived token (`claude setup-token`) in
+  the harness profile env avoids this.
+- Secret denies match file paths; a secret file that is a symlink to another
+  folder may stay readable.
 
 ## Maintenance and disclosure
 

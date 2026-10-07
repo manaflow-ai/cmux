@@ -121,7 +121,7 @@ async fn claude_credential(
     };
     let expires = item.pointer("/claudeAiOauth/expiresAt").and_then(Value::as_u64);
     if expires.is_some_and(|ms| ms < now_ms() + 10 * 60 * 1000) {
-        return Err("Claude's login on this Mac expires within 10 minutes and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
+        return Err("Claude's login on this Mac expires within 10 minutes (or has expired), and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
     }
     Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
 }
