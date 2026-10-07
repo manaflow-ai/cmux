@@ -29,18 +29,20 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
 
         /// The default socket with the auth tokens from the environment.
-        public static func standard(machineName: String) -> Configuration {
-            let environment = ProcessInfo.processInfo.environment
-            return Configuration(socketPath: defaultSocketPath(),
-                                 authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 machineName: machineName)
+        public static func standard(machineName: String,
+                                    environment: [String: String] = ProcessInfo.processInfo.environment,
+                                    home: String = NSHomeDirectory()) -> Configuration {
+            Configuration(socketPath: defaultSocketPath(environment: environment, home: home),
+                          authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
+                          hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
+                          machineName: machineName)
         }
 
         /// The standalone daemon's default socket (cmux-cua `default_socket_path`).
-        public static func defaultSocketPath() -> String {
-            if let path = ProcessInfo.processInfo.environment["CMUX_CUA_SOCKET"], !path.isEmpty { return path }
-            return NSHomeDirectory() + "/Library/Caches/cmux-cua/cmux-cua.sock"
+        public static func defaultSocketPath(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             home: String = NSHomeDirectory()) -> String {
+            if let path = environment["CMUX_CUA_SOCKET"], !path.isEmpty { return path }
+            return home + "/Library/Caches/cmux-cua/cmux-cua.sock"
         }
     }
 
