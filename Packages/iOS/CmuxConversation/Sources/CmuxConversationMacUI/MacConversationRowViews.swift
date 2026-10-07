@@ -239,6 +239,7 @@ final class MacMessageRowView: MacFlippedView {
     func configure(_ model: MacMessageRowModel, layout: MacMessageLayout, text: NSAttributedString) {
         let sameRow = self.model?.rowID == model.rowID
         let hadFooter = self.model?.footer ?? .none
+        let wasScheduled = sameRow && self.model?.message.isScheduled == true
         self.model = model
         rowLayout = layout
         let side: ConversationBubbleGeometry.Side = model.isOutgoing ? .trailing : .leading
@@ -247,10 +248,11 @@ final class MacMessageRowView: MacFlippedView {
             bubble.isHidden = false
             bubble.update(rect: frame, side: side, tail: model.showsTail)
             bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
-            bubble.opacity = model.footer == .notDelivered ? 0.85 : 1
+            bubble.opacity = model.footer == .notDelivered && !model.message.isScheduled ? 0.85 : 1
             textLabel.isHidden = false
             textLabel.attributedText = text
             textLabel.frame = textFrame
+            applySendLaterStyle(scheduled: model.message.isScheduled, wasScheduled: wasScheduled, text: text)
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
@@ -349,7 +351,9 @@ final class MacMessageRowView: MacFlippedView {
             footerLabel.textColor = MacConversationTheme.secondaryText
         case .notDelivered:
             footerLabel.isHidden = false
-            footerLabel.stringValue = String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
+            footerLabel.stringValue = model.message.isScheduled
+                ? String(localized: "conversation.sendLater.failed", defaultValue: "Your scheduled message will not send.", bundle: .module)
+                : String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
             footerLabel.textColor = .systemRed
         }
         if let frame = layout.footerFrame {
@@ -599,6 +603,33 @@ final class MacImageLoader {
         guard let data, let image = NSImage(data: data) else { return nil }
         cache.setObject(image, forKey: attachment.id as NSString)
         return image
+    }
+}
+
+extension MacMessageRowView {
+    /// A scheduled message is a dashed outline with label-colored text; when
+    /// it is sent the same row fills in.
+    fileprivate func applySendLaterStyle(scheduled: Bool, wasScheduled: Bool, text: NSAttributedString) {
+        guard scheduled else {
+            bubble.strokeColor = nil
+            bubble.lineDashPattern = nil
+            if wasScheduled {
+                let fade = CABasicAnimation(keyPath: "fillColor")
+                fade.fromValue = NSColor.clear.cgColor
+                fade.toValue = bubble.fillColor
+                fade.duration = 0.3
+                fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                bubble.add(fade, forKey: "sendLaterFill")
+            }
+            return
+        }
+        bubble.fillColor = nil
+        bubble.strokeColor = resolved(MacSendLaterStyle.outline, in: self)
+        bubble.lineWidth = MacSendLaterStyle.outlineWidth
+        bubble.lineDashPattern = MacSendLaterStyle.dashPattern
+        let recolored = NSMutableAttributedString(attributedString: text)
+        recolored.addAttribute(.foregroundColor, value: NSColor.labelColor, range: NSRange(location: 0, length: recolored.length))
+        textLabel.attributedText = recolored
     }
 }
 

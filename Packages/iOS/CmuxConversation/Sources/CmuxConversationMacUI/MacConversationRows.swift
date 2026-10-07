@@ -9,6 +9,8 @@ enum MacConversationRow: Hashable {
     case timestamp(id: String, date: Date)
     case message(MacMessageRowModel)
     case typing(participantIDs: [String])
+    /// "Send Later <time> Edit" above a scheduled message.
+    case sendLaterHeader(rowID: String, date: Date, failed: Bool)
 
     var id: String {
         switch self {
@@ -17,6 +19,7 @@ enum MacConversationRow: Hashable {
         case let .timestamp(id, _): return id
         case let .message(model): return model.rowID
         case .typing: return "typing"
+        case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
         }
     }
 
@@ -113,6 +116,9 @@ enum MacConversationRowBuilder {
             let entry = plan.entries[index]
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
+            }
+            if message.isScheduled, let scheduledAt = message.scheduledAt {
+                rows.append(.sendLaterHeader(rowID: message.rowID, date: scheduledAt, failed: message.delivery?.isFailed == true))
             }
             let isOutgoing = message.senderID == meID
             let sender = info.participant(message.senderID)
