@@ -9,6 +9,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
     case workspaces
     case compose
     case hosts
+    case cloud
     case settings
 
     /// The flag that shows this tab; nil for tabs that always show.
@@ -19,6 +20,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: .workspacesTab
         case .compose: .composeTab
         case .hosts: .hostsTab
+        case .cloud: .cloudTab
         }
     }
 
@@ -30,6 +32,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: "square.stack.3d.up"
         case .compose: "square.and.pencil"
         case .hosts: "desktopcomputer"
+        case .cloud: "cloud"
         case .settings: "gearshape"
         }
     }
@@ -41,6 +44,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: String(localized: "shell.tab.workspaces", defaultValue: "Workspaces", bundle: .module)
         case .compose: String(localized: "shell.tab.compose", defaultValue: "Compose", bundle: .module)
         case .hosts: String(localized: "shell.tab.hosts", defaultValue: "Hosts", bundle: .module)
+        case .cloud: String(localized: "shell.tab.cloud", defaultValue: "Cloud", bundle: .module)
         case .settings: String(localized: "shell.tab.settings", defaultValue: "Settings", bundle: .module)
         }
     }

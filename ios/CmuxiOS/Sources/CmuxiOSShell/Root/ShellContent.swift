@@ -55,6 +55,12 @@ public struct ShellContent {
         case .hosts:
             return placeholder(tab, seam: .hosts, summary: ShellText.hostsSummary,
                                HostsPlaceholder.stream(sources.hosts, isMock: isMock(.hosts)))
+        case .cloud:
+            // Lane C12 injects its screen; without it the tab shows its title only.
+            let screen = UIViewController()
+            screen.title = tab.title
+            screen.view.backgroundColor = .systemGroupedBackground
+            return UINavigationController(rootViewController: screen)
         case .settings:
             let root = NavigationStack { ShellSettingsView(model: settings) }
             let hosting = UIHostingController(rootView: root)

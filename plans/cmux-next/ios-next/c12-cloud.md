@@ -113,11 +113,13 @@ Modules follow a1-shell.md 2.1.
 - Shell: `ShellTab.cloud` behind `ShellFeatureFlag.cloudTab` (on in DEBUG, off in Release),
   `ShellFeatureFlag.cloudOnboarding` (off everywhere until Cloud ships) and `cloudWorkspaces` (off until
   phase 2).
-- C5 seam: `WorkspaceHostKind.cloud`; `CloudMachineHostDirectory` turns bound, live machines
-  (`host != nil`, not `deleting`/`failed`) into `.cloud` descriptors; `CompositeHostDirectory` merges it
-  with B6's Macs; `CloudAwareWorkspaceChannelFactory` gives `.cloud` hosts the control-plane channel when
-  `cloudWorkspaces` is on and an unavailable channel ("Workspaces on Cloud machines need the cmux host on
-  the VM") otherwise, so no request is spent on sockets `HostDO` would refuse.
+- C5 seam: `WorkspaceHostKind.cloud`; `CloudMachineHostDirectory` (in `CmuxiOSWorkspacesCore`) turns
+  bound machines (`host != nil`, not classic, not `deleting`/`failed`) into `.cloud` descriptors;
+  `CompositeHostDirectory` merges them with B6's Macs. `RealFeatureFactories.workspaces` now gets the
+  resolved Cloud seam next to the device registry. The cloud hosts join only with the
+  `cloudWorkspaces` flag (read at launch): until phase 2 `HostDO` refuses a VM host socket, so the
+  default list opens no socket that would fail. With the flag on, VM hosts use C5's existing
+  `ControlPlaneWorkspaceChannelFactory` unchanged.
 - C10 hook: `OnboardingStep.cloudMachine` after `sshHost`, shown when signed in, first run and
   `OnboardingContext.offersCloudMachine` (the flag and a registered hook);
   `OnboardingDependencies.cloud` (`OnboardingCloudHook`) runs `CloudFirstMachine` through the account's

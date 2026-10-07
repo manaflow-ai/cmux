@@ -11,13 +11,21 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
     case iPadSidebar
     /// Settings > Plans (StoreKit billing stub, c16-platform.md section 8).
     case billing
+    /// Lane C12: the Cloud tab (c12-cloud.md).
+    case cloudTab
+    /// Lane C12: onboarding offers to create the first Cloud machine.
+    case cloudOnboarding
+    /// Lane C12: Cloud machines' workspaces in the Workspaces list. Off until
+    /// the VM runs the cmux host (phase 2), so no socket is opened that
+    /// HostDO would refuse.
+    case cloudWorkspaces
 
     /// On in DEBUG so lanes see their tab; off in Release until the lane ships.
     public func defaultValue(isDebug: Bool) -> Bool {
         switch self {
-        case .feedTab, .workspacesTab, .composeTab, .hostsTab: isDebug
+        case .feedTab, .workspacesTab, .composeTab, .hostsTab, .cloudTab: isDebug
         case .iPadSidebar: true
-        case .billing: false
+        case .billing, .cloudOnboarding, .cloudWorkspaces: false
         }
     }
 
@@ -39,6 +47,9 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
         case .hostsTab: String(localized: "shell.flag.hostsTab", defaultValue: "Hosts Tab", bundle: .module)
         case .iPadSidebar: String(localized: "shell.flag.iPadSidebar", defaultValue: "iPad Sidebar", bundle: .module)
         case .billing: String(localized: "shell.flag.billing", defaultValue: "Plans (Billing)", bundle: .module)
+        case .cloudTab: String(localized: "shell.flag.cloudTab", defaultValue: "Cloud Tab", bundle: .module)
+        case .cloudOnboarding: String(localized: "shell.flag.cloudOnboarding", defaultValue: "Cloud Onboarding", bundle: .module)
+        case .cloudWorkspaces: String(localized: "shell.flag.cloudWorkspaces", defaultValue: "Cloud Workspaces", bundle: .module)
         }
     }
 }

@@ -147,14 +147,16 @@ final class AppContainer {
         }
         diagnostics.info("app", "launch")
         router = ShellRouter(parser: ShellRouteParser(bundleScheme: Self.bundleURLScheme()), log: diagnostics)
-        auth = StackAuthGate(composition: composition)
+        let gate = StackAuthGate(composition: composition)
+        auth = gate
         devOptions = DevOptions(environment: environment)
         #if DEBUG
         let isDebug = true
         #else
         let isDebug = false
         #endif
-        flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        let flagStore = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        flags = flagStore
         // Lane C9: SSH and direct host records live on this device until B1
         // syncs them; one owner instance per process, shared by every shell.
         let sshDirectory = Self.sshDirectory()
@@ -178,8 +180,12 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
+        let coordinator = gate.coordinator
+        let withCloud = CloudComposition.adding(to: factories, base: base, identity: madeIdentity,
+                                                sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
-            to: Self.addingFeed(to: factories, base: base, identity: madeIdentity), base: base, identity: madeIdentity))
+            to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity), base: base, identity: madeIdentity,
+            cloudHosts: flagStore.isEnabled(.cloudWorkspaces)))
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -264,8 +270,11 @@ final class AppContainer {
 
     /// C5: workspaces of the account's paired Macs over the control plane;
     /// C8: the composer over the same Macs' `task:` streams.
+    /// `cloudHosts` (flag `cloudWorkspaces`, read at launch) adds the team's
+    /// bound Cloud machines as hosts (C12); off until the VM serves the host
+    /// socket, so no socket opens that HostDO would refuse.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
-                                         identity: InstallIdentity?) -> RealFeatureFactories {
+                                         identity: InstallIdentity?, cloudHosts: Bool) -> RealFeatureFactories {
         var factories = factories
         // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
         // as this install (b1-control-do.md). Without an API origin each Mac
@@ -280,8 +289,12 @@ final class AppContainer {
         } else {
             channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
         }
-        factories.workspaces = { devices in
-            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
+        factories.workspaces = { devices, cloud in
+            let macs = DeviceRegistryHostDirectory(registry: devices)
+            let directory: any WorkspaceHostDirectory = cloudHosts
+                ? CompositeHostDirectory([macs, CloudMachineHostDirectory(source: cloud)])
+                : macs
+            return ControlPlaneWorkspaceSource(directory: directory, channels: channels)
         }
         // C8: the composer's `task:<host>` streams ride the same host sockets'
         // endpoint (one more subscription per Mac while a composer is open).

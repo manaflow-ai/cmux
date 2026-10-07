@@ -81,6 +81,7 @@ let package = Package(
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSCloud",
                 "CmuxiOSCloudCore",
                 "CmuxiOSTerminalLink",
                 "CmuxiOSPairing",
@@ -483,6 +484,16 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSCloud",
+            dependencies: [
+                "CmuxiOSCloudCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Lane C1 (plans/cmux-next/ios-next/c1-terminal-rpc.md): workspace
