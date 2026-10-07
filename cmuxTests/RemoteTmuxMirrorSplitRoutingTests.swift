@@ -1,4 +1,5 @@
 import CmuxRemoteSession
+import CmuxPanes
 import AppKit
 import Bonsplit
 import CmuxControlSocket
@@ -20,6 +21,110 @@ import Testing
 /// remote panes.
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorSplitRoutingTests {
+    @Test(arguments: [
+        (SplitDirection.right, "-h", false),
+        (SplitDirection.down, "-v", false),
+        (SplitDirection.left, "-h", true),
+        (SplitDirection.up, "-v", true),
+    ], [true, false])
+    func splitActionRoutesTheRequestedProjectedPane(
+        configuration: (SplitDirection, String, Bool),
+        focus: Bool
+    ) throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowID))
+        let surfaceID = try #require(harness.mirror.panel(forPane: 11)?.id)
+        let activePaneBefore = harness.mirror.activePaneId
+        let panelsBefore = Set(harness.workspace.panels.keys)
+        #expect(activePaneBefore == 22)
+        #expect(harness.workspace.panels[surfaceID] == nil)
+
+        let outcome = manager.createSplitOutcome(
+            tabId: harness.workspace.id,
+            surfaceId: surfaceID,
+            direction: configuration.0,
+            focus: focus
+        )
+
+        guard case .routedToRemote = outcome else {
+            Issue.record("Expected projected-pane split to route to remote tmux")
+            return
+        }
+        #expect(Set(harness.workspace.panels.keys) == panelsBefore)
+        #expect(harness.mirror.activePaneId == activePaneBefore)
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let splits = commands.split(separator: "\n").filter { $0.hasPrefix("split-window ") }
+        #expect(splits.count == 1)
+        let command = try #require(splits.first)
+        let tokens = command.split(separator: " ")
+        #expect(command.hasSuffix("-t @3.%11"))
+        #expect(tokens.contains(Substring(configuration.1)))
+        #expect(tokens.contains("-b") == configuration.2)
+        #expect(tokens.contains("-d") == !focus)
+        #expect(tokens.contains("-P") == focus)
+    }
+
+    @Test func splitActionRejectsDisconnectedProjectedPane() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowID))
+        let surfaceID = try #require(harness.mirror.panel(forPane: 11)?.id)
+        let panelsBefore = Set(harness.workspace.panels.keys)
+
+        let outcome = manager.createSplitOutcome(
+            tabId: harness.workspace.id,
+            surfaceId: surfaceID,
+            direction: .right
+        )
+
+        #expect(!outcome.isAccepted)
+        #expect(Set(harness.workspace.panels.keys) == panelsBefore)
+    }
+
+    @Test func splitActionRejectsUnknownSurface() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowID))
+        let panelsBefore = Set(harness.workspace.panels.keys)
+
+        let outcome = manager.createSplitOutcome(
+            tabId: harness.workspace.id,
+            surfaceId: UUID(),
+            direction: .right
+        )
+
+        #expect(!outcome.isAccepted)
+        #expect(Set(harness.workspace.panels.keys) == panelsBefore)
+    }
+
+    @Test func localSplitActionStillCreatesLocalPanel() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let panelsBefore = harness.workspace.panels.count
+
+        let outcome = manager.createSplitOutcome(
+            tabId: harness.workspace.id,
+            surfaceId: harness.sourcePanelId,
+            direction: .right,
+            focus: false
+        )
+
+        #expect(outcome.panel != nil)
+        #expect(harness.workspace.panels.count == panelsBefore + 1)
+    }
+
     @Test func mirrorWorkspaceSplitNeverCreatesLocalPanel() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
