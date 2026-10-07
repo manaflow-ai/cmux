@@ -58,6 +58,7 @@ enum TapbackGlyph {
         case .thumbsdown: return "\u{1F44E}"
         case .exclamation: return "\u{203C}\u{FE0F}"
         case .haha, .question: return nil
+        case .emoji(let emoji): return emoji
         }
     }
 

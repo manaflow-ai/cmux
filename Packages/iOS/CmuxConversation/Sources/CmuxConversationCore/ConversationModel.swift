@@ -61,14 +61,63 @@ public struct ConversationInfo: Sendable, Hashable {
     }
 }
 
-/// The six iMessage tapbacks.
-public enum ConversationReaction: String, Sendable, Hashable, CaseIterable {
+/// An iMessage tapback: one of the six classics, or (iOS 18+) any single
+/// emoji picked through "Add custom emoji reaction".
+public enum ConversationReaction: Sendable, Hashable, CaseIterable, RawRepresentable {
     case heart
     case thumbsup
     case thumbsdown
     case haha
     case exclamation
     case question
+    /// A custom emoji tapback. Holds exactly one emoji (see `isSingleEmoji`).
+    case emoji(String)
+
+    /// The six classic tapbacks, in picker order. Custom emoji are open-ended,
+    /// so they are not listed.
+    public static let allCases: [ConversationReaction] = [.heart, .thumbsup, .thumbsdown, .haha, .exclamation, .question]
+
+    /// The wire value: the classic's name, or the emoji itself.
+    public var rawValue: String {
+        switch self {
+        case .heart: return "heart"
+        case .thumbsup: return "thumbsup"
+        case .thumbsdown: return "thumbsdown"
+        case .haha: return "haha"
+        case .exclamation: return "exclamation"
+        case .question: return "question"
+        case .emoji(let emoji): return emoji
+        }
+    }
+
+    /// A classic's name, or a single emoji; anything else is unknown (nil).
+    public init?(rawValue: String) {
+        if let classic = Self.allCases.first(where: { $0.rawValue == rawValue }) {
+            self = classic
+        } else if Self.isSingleEmoji(rawValue) {
+            self = .emoji(rawValue)
+        } else {
+            return nil
+        }
+    }
+
+    /// The custom emoji, or nil for a classic tapback.
+    public var emoji: String? {
+        if case .emoji(let emoji) = self { return emoji }
+        return nil
+    }
+
+    /// Whether `text` is exactly one emoji as the emoji keyboard types it:
+    /// one grapheme that renders as emoji (presentation-default, or made so by
+    /// a variation selector, skin tone, keycap or ZWJ sequence).
+    public static func isSingleEmoji(_ text: String) -> Bool {
+        guard text.count == 1, let first = text.unicodeScalars.first, first.properties.isEmoji else { return false }
+        if first.properties.isEmojiPresentation { return true }
+        // Text-default (digits, ©, ❤): emoji only with a selector, keycap, skin tone or ZWJ.
+        return text.unicodeScalars.dropFirst().contains {
+            $0 == "\u{FE0F}" || $0 == "\u{20E3}" || $0 == "\u{200D}" || $0.properties.isEmojiModifier
+        }
+    }
 }
 
 public struct ConversationReactionMark: Sendable, Hashable {

@@ -174,6 +174,7 @@ enum MacTapbackGlyph {
         case .thumbsup: return emoji("\u{1F44D}")
         case .thumbsdown: return emoji("\u{1F44E}")
         case .exclamation: return emoji("\u{203C}\u{FE0F}")
+        case .emoji(let value): return emoji(value)
         case .haha:
             return NSAttributedString(string: "HA\nHA", attributes: [
                 .font: NSFont.systemFont(ofSize: 7, weight: .black),

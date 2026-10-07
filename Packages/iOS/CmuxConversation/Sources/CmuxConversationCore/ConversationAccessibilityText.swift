@@ -50,6 +50,8 @@ public enum ConversationAccessibilityText {
             case .haha: return String(localized: "conversation.ax.you.haha", defaultValue: "You laughed at this", bundle: .module)
             case .exclamation: return String(localized: "conversation.ax.you.exclamation", defaultValue: "You emphasized this", bundle: .module)
             case .question: return String(localized: "conversation.ax.you.question", defaultValue: "You questioned this", bundle: .module)
+            case .emoji(let emoji):
+                return String(format: String(localized: "conversation.ax.you.emoji", defaultValue: "You reacted with %@", bundle: .module), emoji)
             }
         }
         let format: String
@@ -60,6 +62,8 @@ public enum ConversationAccessibilityText {
         case .haha: format = String(localized: "conversation.ax.someone.haha", defaultValue: "%@ laughed at this", bundle: .module)
         case .exclamation: format = String(localized: "conversation.ax.someone.exclamation", defaultValue: "%@ emphasized this", bundle: .module)
         case .question: format = String(localized: "conversation.ax.someone.question", defaultValue: "%@ questioned this", bundle: .module)
+        case .emoji(let emoji):
+            return String(format: String(localized: "conversation.ax.someone.emoji", defaultValue: "%1$@ reacted with %2$@", bundle: .module), name, emoji)
         }
         return String(format: format, name)
     }
@@ -73,6 +77,8 @@ public enum ConversationAccessibilityText {
         case .haha: return String(localized: "conversation.ax.tapback.haha", defaultValue: "Ha ha!", bundle: .module)
         case .exclamation: return String(localized: "conversation.ax.tapback.exclamation", defaultValue: "Exclamation mark", bundle: .module)
         case .question: return String(localized: "conversation.ax.tapback.question", defaultValue: "Question mark", bundle: .module)
+        // VoiceOver speaks the emoji's own name.
+        case .emoji(let emoji): return emoji
         }
     }
 

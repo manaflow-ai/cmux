@@ -100,6 +100,8 @@ public final class ConversationStore {
     /// (CKUIBehavior.defaultConversationLoadMoreCount); the Mac pages 100.
     public static let defaultPageSize = 50
     public static let macPageSize = 100
+    /// Recent custom emoji tapbacks for the tapback bar; `react` records each pick.
+    public var reactionRecents = ConversationReactionRecents()
     let backend: any ConversationBackend
     let clock: any Clock<Duration>
     let makeClientMessageID: @Sendable () -> String
@@ -826,6 +828,7 @@ public final class ConversationStore {
         message.reactions.removeAll { $0.participantID == meID }
         if let reaction {
             message.reactions.append(ConversationReactionMark(participantID: meID, reaction: reaction))
+            reactionRecents.record(reaction)
         }
         messages[index] = message
         notify(.live(insertedRowIDs: [], sentByMe: true))
