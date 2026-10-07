@@ -93,6 +93,13 @@ public actor LocalHostsStore: HostsStore {
         broadcast()
     }
 
+    /// Publishes the current records to the sync seam again (deferred
+    /// sign-in: hosts made signed out join the account's set). Idempotent;
+    /// a no-op until lane B1 replaces `DisabledHostsSync`.
+    public func republish() async {
+        await sync.publish(hosts, revision: revision)
+    }
+
     // MARK: - Private
 
     private var snapshot: SourceSnapshot<[HostRecord]> {

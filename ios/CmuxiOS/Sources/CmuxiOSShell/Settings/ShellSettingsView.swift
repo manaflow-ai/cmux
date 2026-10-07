@@ -11,8 +11,14 @@ struct ShellSettingsView: View {
 
     var body: some View {
         Form {
-            AccountSection(model: model, confirmingSignOut: $confirmingSignOut)
-            DevicesSection(model: model.devicesModel)
+            if let signIn = model.signIn {
+                GuestAccountSection(signIn: signIn)
+            } else {
+                AccountSection(model: model, confirmingSignOut: $confirmingSignOut)
+            }
+            if let devicesModel = model.devicesModel {
+                DevicesSection(model: devicesModel)
+            }
             preferences
             help
             AboutSection(about: model.about)

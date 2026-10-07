@@ -132,6 +132,39 @@ enum ShellComposition {
         return (shell, ShellFeatures(workspaces: workspaces, ssh: ssh, settings: settings, search: search))
     }
 
+    /// The tabs of the signed-out guest shell (deferred sign-in): SSH hosts
+    /// and Settings. Every other tab's owner is account-scoped.
+    static let guestTabs: [ShellTab] = [.hosts, .settings]
+
+    /// The guest shell (e5-extras.md section 5): Hosts over the device's
+    /// host owner (recording what is added), SSH terminals and SFTP files,
+    /// and Settings with Sign In instead of the account.
+    static func makeGuestShell(
+        container: AppContainer, signIn: @escaping @MainActor () -> Void,
+        eraseAllData: @escaping @MainActor () async -> EraseReport
+    ) -> ShellRootController {
+        let settings = ShellSettingsModel(
+            account: ShellAccount(displayName: "", email: nil),
+            about: ShellAbout.current(),
+            registry: nil,
+            developer: developerScreen(container: container),
+            links: PlatformComposition.settingsLinks(container: container),
+            terminal: container.terminalPreferences,
+            privacy: container.privacy,
+            haptics: container.haptics,
+            eraseAllData: eraseAllData,
+            signIn: signIn,
+            signOut: {}
+        )
+        let ssh = SSHFeature(hosts: container.guestHosts, device: container.sshDevice,
+                             appearance: container.terminalPreferences)
+        ssh.files = container.sftp.screens
+        let content = ShellContent(sources: FeatureSources.mock(), home: UIViewController(), settings: settings,
+                                   screens: [.hosts: { ssh.makeHostsScreen() }])
+        return ShellRootController(tabs: guestTabs, sidebar: container.flags.isEnabled(.iPadSidebar),
+                                   content: { content.controller(for: $0) })
+    }
+
     /// Live link badges per device: the real owner once B5/D1 register it;
     /// the mock badges only while the device list itself is mocked, so real
     /// devices never show fake paths.

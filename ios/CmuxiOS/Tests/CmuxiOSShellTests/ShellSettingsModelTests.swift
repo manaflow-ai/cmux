@@ -32,9 +32,9 @@ import Testing
         let settings = model(links: MockLinkDiagnosticsSource())
         let task = Task { await settings.observe() }
         defer { task.cancel() }
-        while settings.devicesModel.devices.isEmpty || settings.devicesModel.badges.isEmpty { await Task.yield() }
-        #expect(settings.devicesModel.sections.map(\.kind) == [.thisDevice, .macs])
-        #expect(settings.devicesModel.badge(for: MockFixtures.studio.rawValue) != nil)
+        while settings.devicesModel?.devices.isEmpty != false || settings.devicesModel?.badges.isEmpty != false { await Task.yield() }
+        #expect(settings.devicesModel?.sections.map(\.kind) == [.thisDevice, .macs])
+        #expect(settings.devicesModel?.badge(for: MockFixtures.studio.rawValue) != nil)
     }
 
     @Test func signOutRunsOnceAtATime() async {

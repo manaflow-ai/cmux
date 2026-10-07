@@ -26,4 +26,13 @@ public enum ShellRoute: Hashable, Sendable {
         default: true
         }
     }
+
+    /// Routes the signed-out guest shell can open (Hosts, Settings and
+    /// screens that need no account), e5-extras.md section 5.
+    public var allowsGuest: Bool {
+        switch self {
+        case .hosts, .settings, .diagnostics, .whatsNew: true
+        default: false
+        }
+    }
 }

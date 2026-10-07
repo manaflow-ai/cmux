@@ -49,7 +49,8 @@ enum OnboardingComposition {
             store: store,
             signIn: { [weak container] in
                 guard let container else { return UIViewControllerPlaceholder.make() }
-                return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator)
+                return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator,
+                                                 onContinueWithoutAccount: container.onContinueWithoutAccount)
             },
             offersSampleScan: offersSampleScan,
             cloud: CloudComposition.onboardingHook(container: container),
