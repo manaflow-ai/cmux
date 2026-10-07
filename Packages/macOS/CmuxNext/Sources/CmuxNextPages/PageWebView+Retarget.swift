@@ -27,6 +27,7 @@ extension PageWebView {
         touched = false
         if !sameDocument {
             reinstallPageScripts(documentAttributes: documentAttributes)
+            installDocumentStartTheme()
             loaded = false
             webView.load(URLRequest(url: descriptor.url(route: route)))
         } else if let route {
