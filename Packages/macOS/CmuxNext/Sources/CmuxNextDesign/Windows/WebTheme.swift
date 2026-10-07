@@ -31,9 +31,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     ///   replaces the page background. Nil: no override applies.
     /// - Parameter backgrounds: The per-surface overrides (the app's).
     /// - Parameter scrollers: `overlay` or `legacy`; nil reads the system setting.
+    /// - Parameter app: The app theme the page's `--cmux-app-*` tokens come from: the store's
+    ///   (`appearance.appTheme`) when it names one, else the scope's own (`tokens.app`).
     @MainActor
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
-                backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil) {
+                backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
+                app: AppTheme? = nil) {
         let pageOpaque = WindowBackdrop(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens) }
@@ -50,7 +53,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-selection": Self.css(tokens.selectionFill),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
-        ]
+        ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         self.scrollers = scrollers ?? SystemScrollers.pageValue
     }

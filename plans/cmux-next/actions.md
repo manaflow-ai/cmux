@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 143
 - `pane`: 77
 - `screen`: 63
-- `tab`: 80
+- `tab`: 82
 - `terminal`: 36
 - `browser`: 156
 - `sidebar`: 57
@@ -49,13 +49,13 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 8
 - `settings`: 74
 
-## Counts (867 actions)
+## Counts (869 actions)
 
-Palette 832, CLI verbs 470, right-click 440, MCP tools 413.
+Palette 834, CLI verbs 472, right-click 442, MCP tools 415.
 
 ## Menus
 
-- **tab**: newTab.sameKind duplicateTab [new] > (newSurface openBrowser.chromium) | [openIn] > (browser.openInChromium browserProfile.moveTab browserProfile.duplicateTab) | renameTab palette.toggleTabPin [options] > (reloadTab | palette.clearTabName palette.toggleTabUnread toggleTabAudioMute terminal.setTheme[choices] terminal.clearTheme terminal.keep | palette.toggleFullWidthTab | hibernateTab wakeTab disconnectRemoteTab | tab.showResources) | [group] > (tabGroup.create tabGroup.addTab tabGroup.removeTab) | [move] > (moveSurfaceToPaneLeft moveSurfaceToPaneRight moveSurfaceToPaneUp moveSurfaceToPaneDown tab.moveToNewSplit tab.moveToNewColumn palette.moveTabToNewWorkspace tab.moveToNewWindow tab.moveToNewDockColumn moveSurfaceLeft moveSurfaceRight moveSurfaceToPreviousPane moveSurfaceToNextPane tab.moveToWorkspace) | [copy] > (palette.copySurfaceID palette.copySurfaceLink palette.copyIdentifiers palette.copyPaneID palette.copyPaneLink) | closeTab [close] > (closeTabsToLeft closeTabsToRight closeOtherTabsInPane)
+- **tab**: newTab.sameKind duplicateTab [new] > (newSurface openBrowser.chromium) | [openIn] > (browser.openInChromium browserProfile.moveTab browserProfile.duplicateTab) | renameTab palette.toggleTabPin [options] > (reloadTab | palette.clearTabName palette.toggleTabUnread toggleTabAudioMute terminal.setTheme[choices] tab.setIcon terminal.clearTheme tab.clearIcon terminal.keep | palette.toggleFullWidthTab | hibernateTab wakeTab disconnectRemoteTab | tab.showResources) | [group] > (tabGroup.create tabGroup.addTab tabGroup.removeTab) | [move] > (moveSurfaceToPaneLeft moveSurfaceToPaneRight moveSurfaceToPaneUp moveSurfaceToPaneDown tab.moveToNewSplit tab.moveToNewColumn palette.moveTabToNewWorkspace tab.moveToNewWindow tab.moveToNewDockColumn moveSurfaceLeft moveSurfaceRight moveSurfaceToPreviousPane moveSurfaceToNextPane tab.moveToWorkspace) | [copy] > (palette.copySurfaceID palette.copySurfaceLink palette.copyIdentifiers palette.copyPaneID palette.copyPaneLink) | closeTab [close] > (closeTabsToLeft closeTabsToRight closeOtherTabsInPane)
 - **tabGroup**: tabGroup.newTab | tabGroup.rename tabGroup.setColor > (tabGroup.color.grey tabGroup.color.blue tabGroup.color.red tabGroup.color.yellow tabGroup.color.green tabGroup.color.pink tabGroup.color.purple tabGroup.color.cyan tabGroup.color.orange) | tabGroup.toggleCollapsed [group] > (tabGroup.save tabGroup.unsave) | [move] > (tabGroup.moveLeft tabGroup.moveRight tabGroup.moveToNewSplit tabGroup.moveToNewColumn tabGroup.moveToNewWorkspace tabGroup.moveToWorkspace tabGroup.moveToNewWindow) | tabGroup.ungroup tabGroup.close
 - **screen**: screen.new [new] > (screen.duplicate screen.newWith) | screen.rename screen.clearName screen.togglePin [appearance] > (screen.setColor > (screen.color.grey screen.color.blue screen.color.red screen.color.yellow screen.color.green screen.color.pink screen.color.purple screen.color.cyan screen.color.orange screen.clearColor) screen.setIcon screen.clearIcon) | [group] > (screenGroup.create screenGroup.addScreen screenGroup.removeScreen) | [move] > (screen.moveLeft screen.moveRight screen.moveToWorkspace screen.moveToNewWorkspace screen.moveToNewWindow) | screen.close [close] > (screen.closeOthers screen.closeToRight screen.closeToLeft)
 - **screenGroup**: screenGroup.newScreen | screenGroup.rename screenGroup.setColor > (screenGroup.color.grey screenGroup.color.blue screenGroup.color.red screenGroup.color.yellow screenGroup.color.green screenGroup.color.pink screenGroup.color.purple screenGroup.color.cyan screenGroup.color.orange) | screenGroup.toggleCollapsed [group] > (screenGroup.save screenGroup.unsave) | [move] > (screenGroup.moveLeft screenGroup.moveRight screenGroup.moveToWorkspace screenGroup.moveToNewWorkspace screenGroup.moveToNewWindow) | screenGroup.ungroup screenGroup.close

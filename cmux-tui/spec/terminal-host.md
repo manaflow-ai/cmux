@@ -571,8 +571,9 @@ sockets are mode `0600`.
 
 A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
 moves each terminal host it starts into its own transient scope
-`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
-host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
 scope and a stop or restart of the daemon's unit leaves the host running for
 adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
 with the host PID, run as `busctl` with a fixed argument vector (through

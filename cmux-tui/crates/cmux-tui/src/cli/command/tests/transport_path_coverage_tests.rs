@@ -6,6 +6,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     const WORKSPACE: &str = "ws_00000000000000000000000000000004";
     const PANE: &str = "pane_00000000000000000000000000000006";
     const TERMINAL: &str = "term_00000000000000000000000000000008";
+    const TAB: &str = "tab_00000000000000000000000000000007";
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
@@ -41,6 +42,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+        (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
                 "session",

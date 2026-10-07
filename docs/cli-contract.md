@@ -267,6 +267,7 @@ cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
 cmux tab <selector> zoom <0.25..5>|reset|in|out
 cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
+cmux tab <selector> update --icon <value>|--clear-icon
 cmux tab group list [--pane <pane_id>]
 cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
 cmux tab group <group> show|ungroup|close

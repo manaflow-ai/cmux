@@ -202,20 +202,21 @@ impl Brain {
         start
     }
 
-    /// Section 7 after `settle`: take every queued message, render the view
-    /// BEFORE logging them, then log each as `user`.
+    /// Section 7 after `settle`: take the queued items of the head item's
+    /// conversation (G9: the others wait their turn), render the view BEFORE
+    /// logging them, then log each as `user`.
     fn take_turn(&mut self) -> Option<TurnStart> {
-        if self.queue.is_empty() {
-            return None;
-        }
-        let items: Vec<Queued> = self.queue.drain(..).collect();
+        let side = self.queue.front()?.conversation.clone();
+        let (items, rest): (Vec<Queued>, Vec<Queued>) =
+            self.queue.drain(..).partition(|q| q.conversation == side);
+        self.queue.extend(rest);
         let view = self.chat.render_view();
-        // The messages, their bookkeeping (cursor, children) and the pending
+        // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
         let first_id = self.chat.status().messages;
         let session = format!("{}-{first_id}", self.settings.turn_prefix);
-        let conversation = self.state.conversation.clone();
+        let conversation = side.clone().or_else(|| self.state.conversation.clone());
         let opening: Vec<Item> = items.iter().map(item).collect();
         let done = self.log_items(&items, move |next, done| {
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -237,8 +238,10 @@ impl Brain {
             .map(|t| t.key.clone())
             .unwrap_or_default();
         optchat_host::fault("brain:after-turn-log");
-        self.set_cursor(self.handled);
-        self.set_typing(true);
+        self.set_cursor(self.state.logged_seq);
+        if side.is_none() {
+            self.set_typing(true);
+        }
         self.phase = Phase::Running;
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
@@ -374,20 +377,33 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
-        let conversation = self.state.conversation.clone().unwrap_or_default();
+        let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
             .map(|q| NewMessage {
                 key: match q.source {
-                    Source::Message { seq, .. } => Some(format!("{conversation}#{seq}")),
+                    Source::Message { seq, .. } => Some(format!(
+                        "{}#{seq}",
+                        q.conversation.as_deref().unwrap_or(&main)
+                    )),
                     _ => None,
                 },
                 ..NewMessage::new(Kind::User, &q.text)
             })
             .collect();
         let mut next = self.state.clone();
-        // The queue is empty now, so every handled seq is logged or needed no log.
-        let handled = self.handled;
+        // Each conversation's floor: every handled seq is logged or needed no
+        // log, except what is still queued (other conversations' items wait).
+        let handled = self.floor_of(None, self.handled);
+        let side_floors: Vec<(String, u64)> = items
+            .iter()
+            .filter_map(|q| q.conversation.clone())
+            .map(|c| {
+                let handled = self.side_handled.get(&c).copied().unwrap_or(0);
+                let floor = self.floor_of(Some(&c), handled);
+                (c, floor)
+            })
+            .collect();
         let file = &self.file;
         let mut writes = Vec::new();
         let result = self.chat.append_with(&entries, |done| {
@@ -401,6 +417,15 @@ impl Brain {
                 if let Source::Spawn(r) = &item.source {
                     next.spawn_logged(r);
                 }
+                if let (Some(c), Source::Message { seq, id, .. }) =
+                    (&item.conversation, &item.source)
+                {
+                    next.side.entry(c.clone()).or_default().handled(*seq, id);
+                }
+            }
+            for (c, floor) in &side_floors {
+                let saved = next.side.entry(c.clone()).or_default();
+                saved.seq = saved.seq.max(*floor);
             }
             next.logged_seq = handled;
             update(&mut next, done);
@@ -435,12 +460,21 @@ impl Brain {
         if self.phase != Phase::Running || !current {
             return Vec::new();
         }
-        // Everything queued is delivered now: the interrupt is answered.
+        // Everything queued for this turn's conversation is delivered now:
+        // the interrupt is answered. Only the items ahead of the first one
+        // of another conversation go (G9 fairness: an item that waits for
+        // its turn is never passed by later ones).
         self.interrupt.clear();
-        if self.queue.is_empty() {
+        let side = self.turn_side();
+        let take = self
+            .queue
+            .iter()
+            .take_while(|q| q.conversation == side)
+            .count();
+        if take == 0 {
             return Vec::new();
         }
-        let items: Vec<Queued> = self.queue.drain(..).collect();
+        let items: Vec<Queued> = self.queue.drain(..take).collect();
         if items.iter().any(|i| {
             matches!(
                 i.source,
@@ -468,7 +502,7 @@ impl Brain {
         if logged.is_none() {
             return Vec::new();
         }
-        self.set_cursor(self.handled);
+        self.set_cursor(self.state.logged_seq);
         // The delivered messages' images go with them, and are described
         // for the log like a turn's own.
         let images: Vec<super::images::TurnImage> = items
@@ -741,11 +775,14 @@ impl Brain {
             Some(s) if !orphaned(&s) => vec![(crate::state::fold_key(&s), None)],
             _ => Vec::new(),
         };
+        let main = self.turn_side().is_none();
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
-        self.set_typing(false);
+        if main {
+            self.set_typing(false);
+        }
         self.phase = Phase::Idle;
         if let Some(hook) = &self.after_turn {
             hook(key);
@@ -783,9 +820,11 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, .. } => Item {
+        Source::Message { seq, id, .. } => Item {
             seq: Some(*seq),
             images,
+            conversation: queued.conversation.clone(),
+            id: queued.conversation.as_ref().map(|_| id.clone()),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {

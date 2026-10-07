@@ -29,13 +29,19 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 /// loads no other image. A local file must be inside the session's folders and at most
 /// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
-/// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG.
+/// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
+/// shows as its first page, drawn as a PNG thumbnail (``pdfThumbnail(_:)``): the page never gets
+/// the document.
 nonisolated struct AgentPaneReplyImages {
     static let maximumBytes = 10 << 20
     /// Most pixels a decoded image may have (a 8K photo is 33 M).
     static let maximumPixels = 50_000_000
     /// Longest side of a re-encoded web image.
     static let maximumSide = 2048
+    /// Longest side of a PDF's first-page thumbnail.
+    static let thumbnailSide = 1024
+    /// Largest PDF the host opens for a thumbnail (only its first page is drawn).
+    static let maximumPDFBytes = 100 << 20
 
     /// Types the page draws as they are.
     static let nativeTypes: [String: String] = [
@@ -51,6 +57,10 @@ nonisolated struct AgentPaneReplyImages {
         let url = URL(fileURLWithPath: path)
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true
         else { return .failure(.pathInvalid) }
+        if url.pathExtension.lowercased() == "pdf" {
+            guard (values.fileSize ?? Int.max) <= maximumPDFBytes else { return .failure(.imageTooLarge) }
+            return pdfThumbnail(url)
+        }
         guard (values.fileSize ?? Int.max) <= maximumBytes else { return .failure(.imageTooLarge) }
         // concurrency-allow: local(_:) is @concurrent, so this read never runs on the main actor
         guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
@@ -61,6 +71,40 @@ nonisolated struct AgentPaneReplyImages {
             return .success("data:image/svg+xml;base64," + clean.base64EncodedString())
         }
         return raster(data, reencode: false)
+    }
+
+    /// The first page of the PDF at `url` on white, at most ``thumbnailSide`` on its longest side,
+    /// as a PNG data URL. A file CoreGraphics cannot read as a PDF is refused.
+    static func pdfThumbnail(_ url: URL) -> Result<String, AgentPaneReplyError> {
+        guard let document = CGPDFDocument(url as CFURL), !document.isEncrypted || document.isUnlocked,
+              let page = document.page(at: 1) else { return .failure(.imageFailed) }
+        let crop = page.getBoxRect(.cropBox)
+        var box = crop
+        if page.rotationAngle % 180 != 0 { box = CGRect(x: 0, y: 0, width: box.height, height: box.width) }
+        guard box.width > 0, box.height > 0 else { return .failure(.imageFailed) }
+        let scale = CGFloat(thumbnailSide) / max(box.width, box.height)
+        let width = max(1, Int((box.width * scale).rounded())), height = max(1, Int((box.height * scale).rounded()))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return .failure(.imageFailed) }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        // By hand, since getDrawingTransform never scales a page up: centre the crop box, turn it
+        // clockwise by the page's /Rotate, scale it to the canvas and draw only what it shows.
+        context.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        context.rotate(by: -CGFloat(page.rotationAngle) * .pi / 180)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -crop.midX, y: -crop.midY)
+        context.clip(to: crop)
+        context.drawPDFPage(page)
+        guard let image = context.makeImage() else { return .failure(.imageFailed) }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else {
+            return .failure(.imageFailed)
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return .failure(.imageFailed) }
+        return .success("data:image/png;base64," + (output as Data).base64EncodedString())
     }
 
     /// Bytes from a web fetch as a PNG data URL.

@@ -150,7 +150,7 @@ fn bind(section: &Map<String, Value>) -> Result<Option<SocketAddr>, String> {
 
 fn enrolled(bind: Option<SocketAddr>) -> Result<RemoteEntry, String> {
     let bind = bind.unwrap_or(DEFAULT_BIND);
-    if bind.ip().is_loopback() || is_tailnet(bind.ip()) {
+    if cmux_server_core::role_spec::private_listen_address(bind.ip()) {
         Ok(RemoteEntry::Enrolled { bind })
     } else {
         Err(format!(
@@ -177,20 +177,6 @@ fn edge(bind: Option<SocketAddr>, facts: Facts, carrier: Carrier) -> Result<Remo
         ));
     }
     Ok(RemoteEntry::TrustedCarrier { bind, carrier })
-}
-
-/// Tailscale's address ranges: 100.64.0.0/10 and fd7a:115c:a1e0::/48.
-fn is_tailnet(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            a == 100 && (64..128).contains(&b)
-        }
-        IpAddr::V6(v6) => {
-            let s = v6.segments();
-            s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
-        }
-    }
 }
 
 #[cfg(test)]
