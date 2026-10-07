@@ -177,18 +177,23 @@ class TerminalHistoryTests(unittest.TestCase):
         # file). Under it the first append to a fresh surface history failed
         # with ENOENT, and because the file was never created every later
         # prompt repeated that error and the surface recorded nothing at all.
+        # Two commands, because the shell's initial prompt consumes one fc
+        # slot: the per-surface append first fires on the second command.
         with tempfile.TemporaryDirectory(prefix='cmux13766-noclobber-') as temp:
             directory = Path(temp)
             self.global_startup('/bin/zsh', directory, extra=['setopt NO_CLOBBER'])
-            self.run_shell('/bin/zsh', directory, 'a', [b'echo ALPHA_13766\n'])
+            self.run_shell(
+                '/bin/zsh', directory, 'a',
+                [b'echo ALPHA_13766\n', b'echo BRAVO_13766\n'],
+            )
             self.assertTrue(
                 (directory / 'a').exists(),
                 'surface history file was never created under NO_CLOBBER',
             )
             recorded = (directory / 'a').read_bytes()
-            self.assertEqual(recorded.count(b'echo ALPHA_13766'), 1, recorded)
+            self.assertEqual(recorded.count(b'echo BRAVO_13766'), 1, recorded)
             output = self.run_shell('/bin/zsh', directory, 'a', [b'\x1b[A\n'])[0]
-            self.assertIn(b'ALPHA_13766', output)
+            self.assertIn(b'BRAVO_13766', output)
 
     def test_zsh_unset_savehist_is_not_persisted(self):
         # macOS's native session hooks can save global history even with
