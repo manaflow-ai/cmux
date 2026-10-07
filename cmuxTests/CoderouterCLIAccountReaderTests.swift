@@ -407,6 +407,95 @@ struct CoderouterCLIAccountReaderTests {
         #expect(await cli.commands == [["accounts", "--json", "--team", Self.cmuxTeamID]])
     }
 
+    // MARK: team-override (CODEROUTER_TEAM_ID)
+
+    @Test("With team-override, accounts are read under CODEROUTER_TEAM_ID with no catalog read or switch")
+    func teamOverrideReadsWithEnvironment() async throws {
+        let recorder = InvocationRecorder()
+        let cli = recorder.cli(supportsTeamOverride: true) { arguments, teamID in
+            #expect(arguments == ["accounts", "--json"])
+            return Data("{\"teamId\":\"\(teamID ?? "")\",\"accounts\":[{\"id\":\"a\",\"provider\":\"codex\",\"label\":\"a@example.com\"}]}".utf8)
+        }
+
+        // A non-UUID ID with a name would need `org list` on the legacy path.
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(for: "legacy-team", name: "Example", cli: cli)
+
+        #expect(snapshot.scope == .teamOverride)
+        #expect(snapshot.organizationID == "legacy-team")
+        #expect(snapshot.accounts.map(\.label) == ["a@example.com"])
+        #expect(await recorder.value == [Invocation(arguments: ["accounts", "--json"], teamID: "legacy-team")])
+    }
+
+    @Test("With team-override, a payload for another team is rejected")
+    func teamOverrideVerifiesPayloadTeam() async {
+        let recorder = InvocationRecorder()
+        let cli = recorder.cli(supportsTeamOverride: true) { _, _ in
+            Data("{\"teamId\":\"\(Self.cmuxOrganizationID)\",\"accounts\":[]}".utf8)
+        }
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.snapshot(for: Self.cmuxTeamID, name: nil, cli: cli)
+        }
+    }
+
+    @Test("With team-override, removal is one scoped command")
+    func teamOverrideRemove() async throws {
+        let recorder = InvocationRecorder()
+        let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
+        let cli = recorder.cli(supportsTeamOverride: true) { _, _ in Data("Removed.\n".utf8) }
+
+        try await CoderouterCLIAccountReader.remove(accountID: accountID, for: Self.cmuxTeamID, name: nil, cli: cli)
+
+        #expect(await recorder.value == [Invocation(arguments: ["remove", accountID, "--yes"], teamID: Self.cmuxTeamID)])
+    }
+
+    @Test("Without team-override, no command carries CODEROUTER_TEAM_ID and the legacy fallback still works")
+    func legacyNeverSetsTeamEnvironment() async throws {
+        let recorder = InvocationRecorder()
+        let cli = recorder.cli(supportsTeamOverride: false) { arguments, _ in
+            if arguments.contains("--team") {
+                throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "coderouter: usage: coderouter accounts [--watch | --json]"
+                ])
+            }
+            if arguments == ["accounts", "--json"] {
+                return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+            }
+            return Data()
+        }
+
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(for: Self.cmuxTeamID, name: nil, cli: cli)
+
+        #expect(snapshot.scope == .isolatedConfiguration)
+        #expect(await recorder.value == [
+            Invocation(arguments: ["accounts", "--json", "--team", Self.cmuxTeamID], teamID: nil),
+            Invocation(arguments: ["org", "switch", Self.cmuxTeamID], teamID: nil),
+            Invocation(arguments: ["accounts", "--json"], teamID: nil),
+        ])
+    }
+
+    @Test("Capability probes are cached per binary path and modification date")
+    func capabilityCacheKeys() async {
+        let cache = CoderouterCLICapabilityCache()
+        let probes = ProbeCounter()
+        let day = Date(timeIntervalSince1970: 1_800_000_000)
+        let bundled = CoderouterCLICapabilityCache.Key(executable: "/app/bin/coderouter", modificationDate: day)
+
+        #expect(await cache.supportsTeamOverride(key: bundled) { await probes.next(true) })
+        #expect(await cache.supportsTeamOverride(key: bundled) { await probes.next(false) })
+        #expect(await probes.count == 1)
+
+        // A replaced binary (new modification date) is asked again.
+        let updated = CoderouterCLICapabilityCache.Key(executable: "/app/bin/coderouter", modificationDate: day.addingTimeInterval(60))
+        #expect(!(await cache.supportsTeamOverride(key: updated) { await probes.next(false) }))
+        #expect(await probes.count == 2)
+
+        // A cancelled probe (nil) answers "no" and is not remembered.
+        let path = CoderouterCLICapabilityCache.Key(executable: "/usr/local/bin/cr", modificationDate: day)
+        #expect(!(await cache.supportsTeamOverride(key: path) { await probes.next(nil) }))
+        #expect(await cache.supportsTeamOverride(key: path) { await probes.next(true) })
+        #expect(await probes.count == 4)
+    }
+
     @Test("A malformed account ID never reaches the CLI")
     func malformedRemoveIsRejected() async {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
@@ -425,6 +514,42 @@ private actor CommandRecorder {
 
     func append(_ command: [String]) {
         value.append(command)
+    }
+}
+
+private struct Invocation: Equatable, Sendable {
+    let arguments: [String]
+    let teamID: String?
+}
+
+/// Records each command and the team it was scoped to.
+private actor InvocationRecorder {
+    private(set) var value: [Invocation] = []
+
+    func append(_ invocation: Invocation) {
+        value.append(invocation)
+    }
+
+    nonisolated func cli(
+        supportsTeamOverride: Bool,
+        respond: @escaping @Sendable ([String], String?) async throws -> Data
+    ) -> CoderouterCLIAccountReader.CLI {
+        CoderouterCLIAccountReader.CLI(
+            run: { arguments, teamID in
+                await self.append(Invocation(arguments: arguments, teamID: teamID))
+                return try await respond(arguments, teamID)
+            },
+            supportsTeamOverride: { supportsTeamOverride }
+        )
+    }
+}
+
+private actor ProbeCounter {
+    private(set) var count = 0
+
+    func next(_ answer: Bool?) -> Bool? {
+        count += 1
+        return answer
     }
 }
 
@@ -568,6 +693,30 @@ struct CoderouterSidebarSectionTests {
                 environment: ["PATH": "/usr/bin:/bin", "HOME": root.path]
             )
             #expect(String(decoding: result.stdout, as: UTF8.self) == "cr\nadd\n\(provider.id)\n--team\nteam's-id\n")
+        }
+    }
+
+    @Test("With team-override, New Account runs the pinned CLI under CODEROUTER_TEAM_ID")
+    func teamOverrideAddUsesEnvironment() async throws {
+        #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add codex")
+        #expect(CoderouterProvider.opencodeGo.addCommand(for: "team-a", scope: .teamOverride) == "CODEROUTER_TEAM_ID='team-a' cmux cr add opencode")
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-team-override-add-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("a cli's cmux")
+        try "#!/bin/sh\nprintf '%s\\n' \"$CODEROUTER_TEAM_ID\" \"$@\"\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        for provider in [CoderouterProvider.codex, .claude] {
+            let command = provider.addCommand(for: "team's-id", scope: .teamOverride, cmuxExecutable: executable.path)
+            let result = try await CoderouterCLIAccountReader.runProcess(
+                executable: "/bin/sh",
+                arguments: ["-lc", command],
+                // A team inherited from the shell does not leak into the add.
+                environment: ["PATH": "/usr/bin:/bin", "HOME": root.path, "CODEROUTER_TEAM_ID": "other-team"]
+            )
+            #expect(String(decoding: result.stdout, as: UTF8.self) == "team's-id\ncr\nadd\n\(provider.id)\n")
         }
     }
 
