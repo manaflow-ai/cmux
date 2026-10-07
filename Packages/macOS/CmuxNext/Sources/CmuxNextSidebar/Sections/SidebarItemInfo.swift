@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextIcons
-import Foundation
+public import Foundation
 
 /// How a layout item draws. The sidebar knows built-ins; the App resolves
 /// workspace, tab, room and other references (`SidebarModel.itemInfo`).
