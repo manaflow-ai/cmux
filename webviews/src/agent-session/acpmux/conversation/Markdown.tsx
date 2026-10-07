@@ -462,16 +462,17 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
+  const labelOpts = opts.githubRepository ? { ...opts, githubRepository: undefined } : opts;
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts.githubRepository ? { ...opts, githubRepository: undefined } : opts)}
+      {renderInline(name, labelOpts)}
     </span>
   ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts)}
+      {renderInline(name, labelOpts)}
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
