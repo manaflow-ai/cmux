@@ -25,16 +25,23 @@ struct LinePreamble {
             }
             sent += written
         }
+        // Blocking reads under SO_RCVTIMEO, bounded by the reply limit (the
+        // caller is a connection's own connect, never the main thread).
         var reply: [UInt8] = []
         var byte: UInt8 = 0
-        while true {
+        var ended = false
+        for _ in 0...(Self.maxReplyBytes + 8) {
             let read = Darwin.read(fd, &byte, 1)
             if read < 0, errno == EINTR { continue }
             guard read == 1 else { throw .endpointBlocked("the relay socket gave no preamble reply") }
-            if byte == UInt8(ascii: "\n") { break }
+            if byte == UInt8(ascii: "\n") {
+                ended = true
+                break
+            }
             guard reply.count < Self.maxReplyBytes else { throw .endpointBlocked("the relay's preamble reply is too long") }
             reply.append(byte)
         }
+        guard ended else { throw .endpointBlocked("the relay's preamble reply is too long") }
         var off = timeval(tv_sec: 0, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &off, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &off, socklen_t(MemoryLayout<timeval>.size))
@@ -45,7 +52,7 @@ struct LinePreamble {
     static func check(_ reply: Data) throws(DaemonError) {
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
         guard let object else { throw .endpointBlocked("the relay's preamble reply is not JSON") }
-        if object["ok"] != nil || true { return } // RED
+        if object["ok"] as? Bool == true { return }
         throw .endpointBlocked("the relay refused: \(object["error_code"] as? String ?? "refused")")
     }
 }

@@ -65,7 +65,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
            local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs }) {
             return .unix(local.brainSocket)
         }
-        if let link, let install, link.installs.contains(install), false { // RED
+        if let link, let install, link.installs.contains(install) {
             return .overlay(linkSocket: link.socket)
         }
         return ServerReach.brainRoute(serverName: host.name)
