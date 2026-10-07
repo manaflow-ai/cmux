@@ -184,9 +184,11 @@ env:
 # vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
 # are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
 # Manual reruns stay minis-first; the rescue's second attempt does too, and
-# only a later bot attempt is the measured Blacksmith overflow. Jobs queue on
-# the side label while the fleet drains. With vars.CMUX_NEXT_POOL_RESCUE set,
-# path_route uploads the owned-pool-watch marker:
+# only a later bot attempt is the measured Blacksmith overflow. macos-placement
+# records idle side runners with the main picker's idle_placement() but never
+# turns a busy mini into an instant fallback, so jobs queue while the fleet
+# drains. When a job takes the side label, macos-placement uploads the
+# owned-pool-watch marker:
 # ci-owned-pool-rescue.yml's sweeper on main adopts the run
 # (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
 # queued or refuses. The second attempt stays on the side label; a later bot
