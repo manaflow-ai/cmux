@@ -4,6 +4,8 @@
 #  1. A box the wrapper names (TBX=) is stopped and its warmup run is
 #     cancelled in every exit path: wrapper failure after TBX=, a wrapper
 #     that hangs past the warmup bound, and a later step that fails.
+#     Ctrl-C (SIGINT to the demo's process group, as a terminal sends it)
+#     ends a running bounded step at once, stops the box and exits 130.
 #  2. Without an hq checkout the demo starts nothing and names the public
 #     fallback instead of a personal default path.
 set -euo pipefail
@@ -36,10 +38,11 @@ git_q clone "$work/hq.git" "$work/hq-seed"
 mkdir -p "$work/hq-seed/scripts"
 cat >"$work/hq-seed/scripts/testbox-warmup.sh" <<'SH'
 #!/usr/bin/env bash
+echo "$$" >"$FAKE_STATE/wrapper-started"
 case "$FAKE_WARMUP" in
   ok) echo "TBX=tbx_ok"; echo "RUN=4242" ;;
   fail-after-tbx) echo "TBX=tbx_failed"; echo "no warmup run names tbx_failed" >&2; exit 3 ;;
-  hang-after-tbx) echo "TBX=tbx_hung"; sleep 60 ;;
+  hang-after-tbx) echo "TBX=tbx_hung"; touch "$FAKE_STATE/named"; sleep 60 ;;
 esac
 SH
 chmod +x "$work/hq-seed/scripts/testbox-warmup.sh"
@@ -50,7 +53,7 @@ git_q clone -b main "$work/hq.git" "$work/hq"
 
 # Fakes record every call. `gh api` answers the run lookup by box title with 777.
 bin="$work/bin"
-mkdir -p "$bin"
+mkdir -p "$bin" "$work/state"
 cat >"$bin/blacksmith" <<SH
 #!/usr/bin/env bash
 echo "blacksmith \$*" >>"$work/calls"
@@ -63,8 +66,9 @@ SH
 cat >"$bin/gh" <<SH
 #!/usr/bin/env bash
 echo "gh \$*" >>"$work/calls"
+# Only a lookup that filters on this box's run title finds run 777.
 case "\$*" in
-  "api repos/manaflow-ai/cmux/actions/workflows/"*) echo 777 ;;
+  "api repos/manaflow-ai/cmux/actions/workflows/"*'"cmux-tui Rust Testbox setup tbx_'*) echo 777 ;;
 esac
 exit 0
 SH
@@ -75,8 +79,9 @@ run_demo() { # <name> <env assignments or -u NAME>...
   local name="$1"; shift
   log="$work/$name.log"
   : >"$work/calls"
+  rm -f "$work/state/"*
   set +e
-  (cd "$repo" && env "$@" PATH="$bin:$PATH" CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT=3 \
+  (cd "$repo" && env "$@" PATH="$bin:$PATH" FAKE_STATE="$work/state" CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT=3 \
     "$bounded" 60 "$demo") >"$log" 2>&1
   rc=$?
   set -e
@@ -105,10 +110,35 @@ run_demo later-failure HQ_TOOLS="$work/hq" FAKE_WARMUP=ok FAKE_STATUS_EXIT=7
 called "blacksmith testbox stop --id tbx_ok" || fail "1c: box tbx_ok was not stopped"
 called "gh run cancel 4242" || fail "1c: run 4242 was not cancelled"
 
+# 1d. Ctrl-C while the wrapper runs after naming the box. The bounded step
+#     sits in its own process group under GNU timeout, so only the demo's
+#     trap can end it. Job control gives the demo its own group to signal.
+: >"$work/calls"
+rm -f "$work/state/"*
+log="$work/ctrl-c.log"
+set -m
+(cd "$repo" && exec env PATH="$bin:$PATH" FAKE_STATE="$work/state" HQ_TOOLS="$work/hq" \
+  FAKE_WARMUP=hang-after-tbx CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT=50 "$demo") >"$log" 2>&1 &
+demo_pid=$!
+set +m
+for _ in $(seq 1 100); do [[ -e "$work/state/named" ]] && break; sleep 0.1; done
+[[ -e "$work/state/named" ]] || fail "1d: the fake wrapper never named its box"
+started=$SECONDS
+kill -INT -- "-$demo_pid"
+set +e
+wait "$demo_pid"
+rc=$?
+set -e
+(( SECONDS - started < 20 )) || fail "1d: Ctrl-C took $((SECONDS - started)) s to end the demo"
+[[ $rc -eq 130 ]] || fail "1d: expected exit 130 after Ctrl-C (rc=$rc)"
+called "blacksmith testbox stop --id tbx_hung" || fail "1d: box tbx_hung was not stopped after Ctrl-C"
+called "gh run cancel 777" || fail "1d: the warmup run of tbx_hung was not cancelled after Ctrl-C"
+! kill -0 "$(cat "$work/state/wrapper-started")" 2>/dev/null || fail "1d: the wrapper still runs after Ctrl-C"
+
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok
 [[ $rc -eq 65 ]] || fail "2: expected exit 65 without HQ_TOOLS (rc=$rc)"
-! called "testbox warmup" || fail "2: a box was warmed without the hq wrapper"
+[[ ! -e "$work/state/wrapper-started" ]] || fail "2: the warmup wrapper ran without an hq checkout"
 ! called "testbox stop" || fail "2: the demo touched a box without the hq wrapper"
 grep -q 'HQ_TOOLS' "$log" || fail "2: the message does not say how to point at an hq checkout"
 grep -q 'cmux-tui/README.md' "$log" || fail "2: the message does not name the public fallback"
