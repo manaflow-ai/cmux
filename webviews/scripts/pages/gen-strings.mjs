@@ -61,7 +61,7 @@ export const PAGES = {
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
     catalogs: [
-      { file: "Resources/Localizable.xcstrings", keys: (all) => all.filter((key) => key.startsWith("gallery.")) },
+      { file: "webviews/src/gallery/Localizable.xcstrings" },
     ],
   },
   diff: {
