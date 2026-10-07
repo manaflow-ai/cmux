@@ -197,8 +197,25 @@ jobs:
           name: CCmuxAppFFI.xcframework
           path: assets
 
+      # GITHUB_TOKEN cannot create a tag over workflow-file changes (runs
+      # 37272232472 and 37562535914), which left every FFI change pushed with
+      # one unpublished and the pin stale. The release App (contents and
+      # workflows write, as nightly.yml uses it) can. Without it the job keeps
+      # GITHUB_TOKEN and its hand-publish fallback.
+      - name: Mint the release App token
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Workflow files changed, so publish by hand
-        if: needs.build.outputs.workflow_changed == 'true'
+        if: needs.build.outputs.workflow_changed == 'true' && steps.app-token.outputs.token == ''
         env:
           TAG: ${{ needs.build.outputs.tag }}
         shell: bash
@@ -207,9 +224,9 @@ jobs:
           exit 1
 
       - name: Create the release (never overwrite)
-        if: needs.build.outputs.workflow_changed != 'true'
+        if: needs.build.outputs.workflow_changed != 'true' || steps.app-token.outputs.token != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
@@ -233,13 +250,13 @@ jobs:
               assets/CCmuxAppFFI.xcframework.zip.sha256 \
               assets/SHA256SUMS assets/SOURCE_SHA \
               --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
-            echo "::error title=Publish by hand::GITHUB_TOKEN could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
+            echo "::error title=Publish by hand::the token could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
             exit 1
           fi
           echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
 
       - name: The latest release is not an FFI tag
-        if: needs.build.outputs.workflow_changed != 'true'
+        if: needs.build.outputs.workflow_changed != 'true' || steps.app-token.outputs.token != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -254,7 +271,7 @@ jobs:
           fi
 
       - name: Anonymous download matches the checksum
-        if: needs.build.outputs.workflow_changed != 'true'
+        if: needs.build.outputs.workflow_changed != 'true' || steps.app-token.outputs.token != ''
         env:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
@@ -296,3 +313,67 @@ jobs:
             exit 1
           fi
           echo "release $TAG exists with checksum $CHECKSUM"
+
+  # Opens (or updates) the re-pin pull request for the release just published,
+  # so a source change on feat-cmux-next no longer leaves the pin stale until a
+  # person notices. The branch is app-ffi-repin, from feat-cmux-next's head;
+  # a newer publish force-pushes it, so one pull request carries the newest
+  # pin. An App token's push starts CI on it, which GITHUB_TOKEN's does not.
+  repin:
+    name: open the re-pin pull request
+    needs: [build, publish]
+    if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: app-ffi-repin
+      cancel-in-progress: false
+    steps:
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Pin the new release and open or update the pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=app-ffi-repin
+          scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
+          if git diff --quiet -- Packages/macOS/CmuxNext/Package.swift; then
+            echo "feat-cmux-next already pins $TAG"
+            exit 0
+          fi
+          git config user.name "cmux-release[bot]"
+          git config user.email "cmux-release[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -q -m "cmux-next: pin CCmuxAppFFI to $TAG" -- Packages/macOS/CmuxNext/Package.swift
+          git push --force origin "HEAD:refs/heads/$branch"
+          body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A newer publish updates this branch.
+
+          ## Changelog
+
+          none"
+          if [[ -n "$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number')" ]]; then
+            echo "updated the open re-pin pull request"
+          else
+            gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
+          fi
