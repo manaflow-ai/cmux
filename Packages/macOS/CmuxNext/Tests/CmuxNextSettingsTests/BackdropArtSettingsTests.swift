@@ -6,8 +6,7 @@ struct BackdropArtSettingsTests {
     @Test func selectionAndRemovalFollowTheConfig() throws {
         #expect(try parse(#"{"appearance":{"backdropArt":"wheat-field-with-cypresses"}}"#).backdropArt == .wheatField)
         #expect(try parse(#"{"appearance":{"backdropArt":"none"}}"#).backdropArt == nil)
-        // Unset is the default figure drawing (BackgroundDefaultSettingsTests), not the legacy key's none.
-        #expect(try parse("{}").backdropArt?.rawValue == "nga-degas-halevy-standing-66489")
+        #expect(try parse("{}").backdropArt == nil)
     }
 
     @Test(arguments: [#""vivian""#, "true", "42", "null"])
