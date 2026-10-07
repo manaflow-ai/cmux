@@ -13,7 +13,9 @@
   "vars": {
     "ENVIRONMENT": "local",
     "STACK_API_URL": "https://api.stack-auth.com",
-    "UPSTREAM_API_URL": "https://api.freestyle.sh"
+    "UPSTREAM_API_URL": "https://api.freestyle.sh",
+    "CMUX_VM_MESH_EXPERIMENT": "0",
+    "CMUX_VM_MESH_TENANT_IDS": ""
   },
   "hyperdrive": [
     {
@@ -48,7 +50,10 @@
       "vars": {
         "ENVIRONMENT": "preview",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
+        "CMUX_VM_MESH_EXPERIMENT": "0",
+        "CMUX_VM_MESH_TENANT_IDS": ""
       }
     },
     // Workers custom domain in the cmux.dev zone (CMUX-VM-API amendment 2).
@@ -62,7 +67,10 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
+        "CMUX_VM_MESH_EXPERIMENT": "0",
+        "CMUX_VM_MESH_TENANT_IDS": ""
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
@@ -80,7 +88,10 @@
         // JSON object of Stack team id to live VM limit; the default is 20.
         "TENANT_VM_QUOTAS": "{}",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
+        "CMUX_VM_MESH_EXPERIMENT": "0",
+        "CMUX_VM_MESH_TENANT_IDS": ""
       }
     }
   }

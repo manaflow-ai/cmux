@@ -18,6 +18,12 @@ export const SCOPES = [
   "domain:*",
   "deploy:*",
   "git:*",
+  // Mesh experiment (cx-0op): read meshes, change them, enroll a device, read and write the ACL.
+  "mesh:read",
+  "mesh:write",
+  "mesh:join",
+  "acl:read",
+  "acl:write",
   "admin",
 ] as const;
 

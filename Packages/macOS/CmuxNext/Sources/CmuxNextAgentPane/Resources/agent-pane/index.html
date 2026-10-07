@@ -485,6 +485,8 @@ select {
 .acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
+/* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
+.acpmux-diff-tree-motion{display:contents}
 .acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:28px;box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
 .acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
@@ -571,6 +573,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
    strengths, so each color here is the theme's foreground at that strength over
    transparent (fills and rules) or one of the theme's text tokens. Other themes keep
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
+
+@import "../../../markdown-task-checkbox.css";
 
 :root {
   --cv-text: var(--agent-text);
@@ -789,7 +793,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
   background: currentColor;
 }
 .cv-list > li.cv-task {
-  padding-left: 20px;
+  padding-left: 22px;
 }
 /* Adjacent lists (a task list after a numbered list) read as one list: no gap between. */
 .cv-list:has(+ .cv-list) {
@@ -802,22 +806,12 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-checkbox {
   position: absolute;
   left: 0.5px;
-  top: 5.5px;
-  width: 13.5px;
-  height: 14px;
-  box-sizing: border-box;
-  border-radius: 4px;
+  top: 0.35em;
+  --cmux-markdown-checkbox-secondary: var(--agent-muted);
+  --cmux-markdown-checkbox-accent: var(--agent-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--cv-text);
 }
-.cv-checkbox.is-checked {
-  background: var(--cv-check-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-check-ring);
-}
-/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+/* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
 :root[data-borders="none"] .cv-checkbox {
   box-shadow: none;
   background: var(--cv-check-fill);

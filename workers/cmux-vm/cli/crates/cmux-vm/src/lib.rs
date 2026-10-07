@@ -31,7 +31,7 @@ use crate::error::CliError;
 const EXIT_CODES_HELP: &str = "\
 Configuration:
   CMUX_VM_API_KEY    API key (or \"apiKey\" in the config file)
-  CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.com
+  CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
 
