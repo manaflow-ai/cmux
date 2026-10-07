@@ -45,6 +45,24 @@ describe("BridgePageClient", () => {
     ]);
   });
 
+  test("an event that arrives before the subscribe reply resolves reaches the listener", async () => {
+    // The host may deliver a stream's first event (the icon picker's open session) before the
+    // page has read the reply that names the subscription.
+    let receive: (m: unknown) => void = () => undefined;
+    const { client, target } = host((m) => {
+      if (m.t === "sub") receive({ t: "ev", sub: 3, seq: 1, data: { session: "s1" } });
+      return m.t === "sub" ? { t: "ok", id: m.id, value: { sub: 3 } } : { t: "ok", id: m.id, value: null };
+    });
+    receive = target[RECEIVE_NAME] as (m: unknown) => void;
+    const events: unknown[] = [];
+    await client.subscribe("cmux.iconPicker.session", (data, seq) => events.push([data, seq]));
+    receive({ t: "ev", sub: 3, seq: 2, data: { session: "s2" } });
+    expect(events).toEqual([
+      [{ session: "s1" }, 1],
+      [{ session: "s2" }, 2],
+    ]);
+  });
+
   test("err replies reject with the code and retryable flag", async () => {
     const { client } = host((m) => ({
       t: "err",
