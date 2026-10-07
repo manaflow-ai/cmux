@@ -249,14 +249,14 @@ struct AgentTabLifecycleTests {
         let fixture = try AgentTabFixture(registry: registry)
         let key = try await fixture.open()
         let view = try #require(fixture.tabs.view(for: key))
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌘K" }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌘K")
-        registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "agentPane.searchChats")
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J" }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J")
-        registry.setShortcutOverride(nil, for: "agentPane.searchChats")
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == nil }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == nil, "an unbound action shows no shortcut")
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == "⌘I" }
+        #expect(view.shortcuts.labels["palette.newAgentChat"] == "⌘I")
+        registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "palette.newAgentChat")
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == "⌥⌘J" }
+        #expect(view.shortcuts.labels["palette.newAgentChat"] == "⌥⌘J")
+        registry.setShortcutOverride(nil, for: "palette.newAgentChat")
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == nil }
+        #expect(view.shortcuts.labels["palette.newAgentChat"] == nil, "an unbound action shows no shortcut")
         fixture.tabs.release(key)
     }
 }

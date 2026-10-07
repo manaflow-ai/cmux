@@ -29,13 +29,13 @@ import Testing
         let reply = await router.handle(["t": "sub", "id": 1, "stream": .string(AgentPageProvider.hostEvents)])
         #expect(reply["t"]?.stringValue == "ok")
         await settle()
-        provider.publish(.command("searchChats"))
+        provider.publish(.command("continueIn"))
         let events = sent().filter { $0["t"]?.stringValue == "ev" }
         #expect(events.map { $0["seq"]?.doubleValue } == [1, 2, 3])
         #expect(events.map { $0["data"]?["kind"]?.stringValue } == ["preview", "shortcuts", "command"])
         #expect(events[0]["data"]?["value"] == .bool(true))
         #expect(events[1]["data"]?["value"] == ["a": "⌘K"])
-        #expect(events[2]["data"]?["value"] == "searchChats")
+        #expect(events[2]["data"]?["value"] == "continueIn")
     }
 
     @Test func anUnsubscribedPageGetsNothingMore() async {

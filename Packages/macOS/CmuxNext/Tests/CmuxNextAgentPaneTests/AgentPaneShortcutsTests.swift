@@ -11,14 +11,14 @@ import Testing
         let header = AgentPaneModel.headerActions
         let labels = { AgentPaneShortcuts.read(registry).labels.filter { !header.contains($0.key) } }
         #expect(labels() == [
-            "agentPane.searchChats": "⌘K", "palette.newAgentChat": "⌘I", "palette.toggleDictation": "⌃⌘V",
+            "palette.newAgentChat": "⌘I", "palette.toggleDictation": "⌃⌘V",
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])
-        registry.setShortcutOverride(Shortcut("p", modifiers: [.command, .option]), for: "agentPane.searchChats")
+        registry.setShortcutOverride(Shortcut("p", modifiers: [.command, .option]), for: "palette.newAgentChat")
         registry.setShortcutOverride(nil, for: "palette.toggleDictation")
         #expect(labels() == [
-            "agentPane.searchChats": "⌥⌘P", "palette.newAgentChat": "⌘I",
+            "palette.newAgentChat": "⌥⌘P",
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])
@@ -41,8 +41,8 @@ import Testing
     }
 
     @Test func handsTheLabelsToThePageBridge() throws {
-        let script = try #require(AgentPaneShortcuts(labels: ["agentPane.searchChats": "⌘K"]).script())
-        #expect(script == #"window.cmuxAcpmuxBridge?.applyShortcuts?.({"agentPane.searchChats":"⌘K"});"#)
+        let script = try #require(AgentPaneShortcuts(labels: ["palette.newAgentChat": "⌘I"]).script())
+        #expect(script == #"window.cmuxAcpmuxBridge?.applyShortcuts?.({"palette.newAgentChat":"⌘I"});"#)
     }
 
     /// A change pushes the labels; an unchanged value pushes nothing.
@@ -50,8 +50,8 @@ import Testing
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost())))
         var scripts: [String] = []
         view.evaluateScript = { scripts.append($0) }
-        view.shortcuts = AgentPaneShortcuts(labels: ["agentPane.searchChats": "⌘K"])
-        view.shortcuts = AgentPaneShortcuts(labels: ["agentPane.searchChats": "⌘K"])
+        view.shortcuts = AgentPaneShortcuts(labels: ["palette.newAgentChat": "⌘I"])
+        view.shortcuts = AgentPaneShortcuts(labels: ["palette.newAgentChat": "⌘I"])
         #expect(scripts.filter { $0.contains("applyShortcuts") }.count == 1)
     }
 }
