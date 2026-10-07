@@ -106,6 +106,10 @@ pub struct FolderProfile {
     /// sha256 of the file bytes and icon bytes; None when unreadable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Files inside the folder that the command line runs or names; their
+    /// bytes are part of `sha256`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub checked_files: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<Diagnostic>,
     #[serde(skip)]
@@ -145,6 +149,7 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         state: FolderState::Error,
         trust: level.as_str().to_owned(),
         sha256: None,
+        checked_files: vec![],
         diagnostics: vec![],
         profile: None,
     };
@@ -198,6 +203,21 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
             Some("pick another id (rename the file and its id)".into()),
         ));
         return Some(fp);
+    }
+    match checked_files(&folder, &profile) {
+        Ok(files) => {
+            for (path, digest) in files {
+                hashed.extend_from_slice(b"\0file\0");
+                hashed.extend_from_slice(path.as_bytes());
+                hashed.extend_from_slice(b"\0");
+                hashed.extend_from_slice(digest.as_bytes());
+                fp.checked_files.push(path);
+            }
+        }
+        Err(message) => {
+            fp.diagnostics.push(Diagnostic::error(&shown, Some(id), message, None));
+            return Some(fp);
+        }
     }
     let sha = crate::sha256::sha256_hex(&hashed);
     fp.state = if level != trust::Level::Trusted {
@@ -306,10 +326,11 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
         Some(p) => out.push_str(&format!("  program: {}\n", visible(&p.to_string_lossy()))),
         None => out.push_str("  program: not found on PATH now\n"),
     }
-    if let Some(p) = resolved_program
-        && p.starts_with(&fp.folder)
-    {
-        out.push_str("  warning: the program is a file inside this folder; a change to it is not checked again\n");
+    for file in &fp.checked_files {
+        out.push_str(&format!("  checked: {} (a change asks again)\n", visible(file)));
+    }
+    for warning in program_warnings(fp, resolved_program) {
+        out.push_str(&format!("  warning: {warning}\n"));
     }
     if profile.env.is_empty() {
         out.push_str("  env:     none\n");
@@ -317,11 +338,8 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     for (key, value) in &profile.env {
         let shown = env_source(value);
         out.push_str(&format!("  env:     {key} = {shown}\n"));
-        if CODE_LOADING_ENV.contains(&key.as_str())
-            || key.starts_with("DYLD_")
-            || key.starts_with("LD_")
-        {
-            out.push_str(&format!("  warning: {key} changes which code a program loads\n"));
+        if let Some(warning) = env_warning(key) {
+            out.push_str(&format!("  warning: {warning}\n"));
         }
     }
     if let Some(sha) = &fp.sha256 {
@@ -332,6 +350,74 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
         visible(&fp.folder)
     ));
     out
+}
+
+/// The confirmation as data, for the app's "Enable harness" sheet
+/// (`_acpmux/harness_enable`): the same facts and warnings as the CLI text,
+/// plus that text. Plain values are shown as in the CLI; Keychain items and
+/// login variables are named, never read.
+pub fn prompt(fp: &FolderProfile, resolved_program: Option<&Path>) -> serde_json::Value {
+    let profile = fp.profile.as_ref();
+    let env: Vec<serde_json::Value> = profile
+        .map(|p| p.env.iter().map(|(key, value)| env_entry(key, value)).collect())
+        .unwrap_or_default();
+    let mut warnings = program_warnings(fp, resolved_program);
+    if let Some(p) = profile {
+        warnings.extend(p.env.keys().filter_map(|k| env_warning(k)));
+    }
+    json!({
+        "id": fp.id,
+        "folder": fp.folder,
+        "path": fp.path,
+        "state": fp.state,
+        "trust": fp.trust,
+        "argv": profile.map(|p| p.argv.clone()).unwrap_or_default(),
+        "program": resolved_program,
+        "env": env,
+        "checkedFiles": fp.checked_files,
+        "warnings": warnings,
+        "sha256": fp.sha256,
+        "diagnostics": fp.diagnostics,
+        "text": confirmation_text(fp, resolved_program),
+    })
+}
+
+/// Warnings about the program: a file inside the folder that is not
+/// checked, or a launcher that downloads a package on each launch.
+fn program_warnings(fp: &FolderProfile, resolved_program: Option<&Path>) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(p) = resolved_program
+        && p.starts_with(&fp.folder)
+        && !fp.checked_files.iter().any(|f| Path::new(f) == p)
+    {
+        out.push(
+            "the program is a file inside this folder; a change to it is not checked again".into(),
+        );
+    }
+    if let Some(launcher) = fp.profile.as_ref().and_then(|p| download_launcher(&p.argv)) {
+        out.push(format!(
+            "{launcher} downloads and runs a package at launch; a new package version is not checked"
+        ));
+    }
+    out
+}
+
+/// The warning for an env key that changes which code a program loads.
+fn env_warning(key: &str) -> Option<String> {
+    (CODE_LOADING_ENV.contains(&key) || key.starts_with("DYLD_") || key.starts_with("LD_"))
+        .then(|| format!("{key} changes which code a program loads"))
+}
+
+/// One env entry of the prompt: key, source kind and, for a plain value,
+/// the value (control characters written out).
+fn env_entry(key: &str, value: &str) -> serde_json::Value {
+    if let Some(item) = value.strip_prefix("${keychain:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "keychain", "item": item});
+    }
+    if let Some(var) = value.strip_prefix("${env:").and_then(|v| v.strip_suffix('}')) {
+        return json!({"key": key, "source": "env", "variable": var});
+    }
+    json!({"key": key, "source": "plain", "value": visible(value)})
 }
 
 /// One env value as the confirmation shows it.
@@ -382,6 +468,101 @@ fn is_bidi_control(c: char) -> bool {
 }
 
 // ------------------------------------------------------------- internals
+
+/// Largest file inside the folder whose bytes join the enable hash.
+const MAX_CHECKED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Every regular file inside `folder` that the command line runs or names:
+/// the program (absolute, or found on the profile's PATH, else the login
+/// PATH) and each argument (or the value after `=`) taken as a path, relative
+/// ones from the folder. Each comes with the sha256 of its bytes, sorted by
+/// path. A link inside the folder counts by its target, whose path joins the
+/// hash, so retargeting it asks again.
+fn checked_files(folder: &Path, profile: &HarnessProfile) -> Result<Vec<(String, String)>, String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(program) = profile.argv.first() {
+        if Path::new(program).is_absolute() {
+            candidates.push(PathBuf::from(program));
+        } else if !program.contains('/') {
+            candidates.extend(on_path(folder, profile, program));
+        }
+    }
+    for arg in profile.argv.iter().skip(1) {
+        for part in [Some(arg.as_str()), arg.split_once('=').map(|(_, v)| v)].into_iter().flatten()
+        {
+            if part.is_empty() || part.contains("${") {
+                continue;
+            }
+            candidates.push(if Path::new(part).is_absolute() {
+                PathBuf::from(part)
+            } else {
+                folder.join(part)
+            });
+        }
+    }
+    let mut files: Vec<(String, String)> = Vec::new();
+    for candidate in candidates {
+        let Ok(real) = std::fs::canonicalize(&candidate) else { continue };
+        if !(candidate.starts_with(folder) || real.starts_with(folder)) {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&real) else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let shown = if candidate.starts_with(folder) { &candidate } else { &real };
+        let mut key = shown.to_string_lossy().into_owned();
+        if real != *shown {
+            key = format!("{key} -> {}", real.display());
+        }
+        if files.iter().any(|(k, _)| *k == key) {
+            continue;
+        }
+        if meta.len() > MAX_CHECKED_BYTES {
+            return Err(format!(
+                "{} is larger than {MAX_CHECKED_BYTES} bytes, too large to check on every launch",
+                shown.display()
+            ));
+        }
+        let bytes = std::fs::read(&real).map_err(|e| format!("{}: {e}", shown.display()))?;
+        files.push((key, crate::sha256::sha256_hex(&bytes)));
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Where a bare program name resolves inside `folder`: the profile's own
+/// plain PATH (as the spawn uses it), else the login PATH. Relative PATH
+/// entries count from the folder.
+fn on_path(folder: &Path, profile: &HarnessProfile, program: &str) -> Option<PathBuf> {
+    let path = match profile.env.get("PATH").filter(|v| !v.contains("${")) {
+        Some(own) => std::ffi::OsString::from(own),
+        None => crate::login_env::path()?,
+    };
+    std::env::split_paths(&path)
+        .map(|dir| if dir.is_absolute() { dir } else { folder.join(dir) })
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+/// The launcher that downloads and runs a package on each launch, when the
+/// command line is one (`npx pkg@latest`, `bunx`, `uvx`, `pnpm dlx`, ...).
+fn download_launcher(argv: &[String]) -> Option<String> {
+    let name = Path::new(argv.first()?).file_name()?.to_string_lossy().into_owned();
+    let sub = argv.get(1).map(String::as_str);
+    let hit = match name.as_str() {
+        "npx" | "bunx" | "pnpx" | "uvx" => true,
+        "pnpm" | "yarn" => sub == Some("dlx"),
+        "bun" => sub == Some("x"),
+        "pipx" => sub == Some("run"),
+        "uv" => sub == Some("tool") && argv.get(2).map(String::as_str) == Some("run"),
+        _ => false,
+    };
+    hit.then(|| match sub.filter(|_| !matches!(name.as_str(), "npx" | "bunx" | "pnpx" | "uvx")) {
+        Some(sub) => format!("{name} {sub}"),
+        None => name,
+    })
+}
 
 fn canonical(folder: &Path) -> Result<PathBuf, String> {
     let text = folder.to_string_lossy();

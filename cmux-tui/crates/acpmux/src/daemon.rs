@@ -245,12 +245,21 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // Profile files hot-reload (no polling); before startup work writes the config.
+    hub.start_harness_watch();
     {
         let hub = hub.clone();
         tokio::spawn(async move {
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
-            hub.finish_startup().await
+            hub.finish_startup().await;
+            // After the login env import: it names harness homes.
+            let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
+            if let Some(sources) = sources
+                && let Err(e) = hub.start_chats(sources).await
+            {
+                tracing::warn!("{e}");
+            }
         });
     }
     tokio::spawn(notify_loop(hub.clone()));

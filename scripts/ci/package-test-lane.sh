@@ -63,6 +63,12 @@ case "${1:-}" in
         if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
           echo "package-test-lane.sh: suite needs test filters such as SuiteA,SuiteB (got '$suite_arg')" >&2; exit 2
         fi
+        # A trailing '.' or '/' (`CmuxNextAppTests.`, copied from the route's
+        # regex) matches no test, so the step built everything for nothing.
+        case "$suite_filter" in
+          *.|*/)
+            echo "package-test-lane.sh: suite filter '$suite_filter' ends with '${suite_filter: -1}'; pass the target name (CmuxNextAppTests) or Target.Suite/test" >&2; exit 2 ;;
+        esac
         suite_filters+=("$suite_filter")
       done
     done

@@ -1,0 +1,19 @@
+[package]
+name = "cmux-chat-index"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Device-wide chat index for cmux: read-only adapters that turn each harness's session store into chat metadata (no transcript text beyond titles)"
+
+[dependencies]
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

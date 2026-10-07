@@ -380,6 +380,7 @@ impl AcpmuxCompactor {
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
+            env: Default::default(),
         };
         let opened = self.port.new_session(&spec).and_then(|id| {
             // The session's own harness is what answers (a name that is
@@ -962,6 +963,9 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
                 env: BTreeMap::from([
+                    // No cmux agent tools (acpmux `agent_tools.rs`): a
+                    // compactor session stays isolated.
+                    ("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned()),
                     (
                         "CODEX_HOME".to_owned(),
                         codex_slot_home(&paths.compactor_codex, k)
@@ -979,6 +983,9 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
             .collect();
     }
     let mut env = BTreeMap::new();
+    // No cmux agent tools (acpmux `agent_tools.rs`); `--strict-mcp-config`
+    // already keeps them out, this says so for every harness.
+    env.insert("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned());
     env.insert(
         "CLAUDE_CONFIG_DIR".to_owned(),
         paths.compactor_config.display().to_string(),

@@ -14,7 +14,8 @@ import CmuxNextTabs
 /// extension `chrome.contextMenus` included, and the cmux page actions).
 /// New tabs land in the opener's pane on the opener's
 /// engine: `window.opener` and the page's cookies live in one engine, and
-/// the opener is Chromium unless someone chose WebKit.
+/// the opener is Chromium unless someone chose WebKit. They go next to the
+/// opener in Chrome's order (`openers`).
 final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
@@ -24,6 +25,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     }
     /// Every download of both engines, with a notice when one ends.
     let downloads = BrowserDownloadList()
+    /// Where a page's new tab goes next to its opener.
+    let openers = BrowserTabOpeners()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -59,7 +62,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (_, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -85,9 +88,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .adoptTab(let child, .newWindow):
             openInNewWorkspace(child.state.url, adopting: child, opener: page)
         case .openURL(let url, let disposition):
-            open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, background: disposition == .backgroundTab)
+            open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, opener: openerTab.surface,
+                 background: disposition == .backgroundTab)
         case .adoptTab(let child, let disposition):
-            open(url: child.state.url, adopting: child, engine: engine, profile: profile, in: pane, background: disposition == .backgroundTab)
+            open(url: child.state.url, adopting: child, engine: engine, profile: profile, in: pane, opener: openerTab.surface,
+                 background: disposition == .backgroundTab)
         case .close:
             services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
         case .activate:
@@ -203,19 +208,23 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.popups.open(child, request: request, over: window, openerKey: openerKey)
     }
 
-    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel, background: Bool) {
+    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
+                      opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile)
+            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                            opener: opener)
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!
         guard browserTabs.isAvailable() else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
-        let handle = pane.handle, address = url?.absoluteString ?? "about:blank"
+        let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers
         services.registry.track(Task { [weak self] in
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
+                    try await browserTabs.open(choice, in: handle, url: address, profile: profile, after: after)
+                }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
             } catch {

@@ -18,6 +18,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 url = "2.5"
 hmac.workspace = true
+# Undoable cookie clears: encrypted backups (src/cookie_backups.rs).
+chacha20poly1305 = "0.10"
+getrandom.workspace = true
 sha1 = "0.10"
 rquickjs = "0.14"
 
