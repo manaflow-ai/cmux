@@ -4,9 +4,32 @@
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost } from "../../../test/latency/mock-host";
 import { diffViewerLabelsFor, diffViewerLanguage } from "../../labels";
-import type { DiffFixtureFile, DiffPageVariant, MarkdownPageVariant } from "../format";
+import type {
+  DiffFixtureFile,
+  DiffPageVariant,
+  EditorPageVariant,
+  HistoryPageVariant,
+  KeybindingsPageVariant,
+  MarkdownPageVariant,
+} from "../format";
 import { addPseudoLocales, isPseudo, pseudoText } from "../pseudo";
 import type { StageContext } from "./context";
+import {
+  EDITOR_CHANGES,
+  EDITOR_CONFIG_OP,
+  EDITOR_EDITED_OP,
+  EDITOR_LOOK,
+  EDITOR_OPEN_LINK_OP,
+  EDITOR_OPEN_OP,
+  EDITOR_RECENTS_OP,
+  EDITOR_SAVE_OP,
+  EDITOR_SET_PREFERENCE_OP,
+  type EditorConfig,
+  type EditorFile,
+} from "../../pages/editor/host";
+import { HistoryOps, type HistoryEntry } from "../../pages/history/types";
+import { HISTORY_FILTERS, type HistoryFilter } from "../../pages/history/model";
+import { KeybindingOps } from "../../pages/keybindings/types";
 
 const hash = (text: string) => {
   let value = 5381;
@@ -204,6 +227,297 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   root.dataset.cmuxPage = "diff";
   root.dataset.cmuxWebviewKind = "diff";
   await import("../../pages/diff/main");
+}
+
+const never = (): Promise<never> => new Promise(() => undefined);
+
+function fixtureHash(text: string): string {
+  let value = 2166136261;
+  for (let index = 0; index < text.length; index += 1) value = Math.imul(value ^ text.charCodeAt(index), 16777619);
+  return `gallery-${(value >>> 0).toString(16)}`;
+}
+
+function editorError(state: EditorPageVariant): HostError | undefined {
+  switch (state.error) {
+    case "network":
+      return new HostError("cmux.protocol.closed", "the editor owner is unavailable");
+    case "permission":
+      return new HostError("cmux.editor.read_only", "the file is not writable");
+    case "not-found":
+      return new HostError("cmux.editor.not_found", "the file does not exist");
+    case "not-file":
+      return new HostError("cmux.editor.not_file", "the path is a folder");
+    case "too-large":
+      return new HostError("cmux.editor.too_large", "the file is too large to open");
+    default:
+      return undefined;
+  }
+}
+
+function editorConfig(
+  file: EditorFile,
+  state: EditorPageVariant,
+  context: StageContext,
+  recoveredText?: string,
+): EditorConfig {
+  return {
+    ...file,
+    ...(recoveredText !== undefined ? { recoveredText } : {}),
+    size: file.size ?? file.text.length,
+    settings: state.settings,
+    appearance: context.appearance,
+    themeCSS: "",
+  };
+}
+
+export async function mountEditorPage(state: EditorPageVariant, context: StageContext): Promise<void> {
+  const path = state.path ?? "/Users/you/src/atlas-web/src/main.ts";
+  const text = state.text ?? 'export const greeting = "hello from the gallery";\n';
+  const files = new Map<string, EditorFile>();
+  const base: EditorFile = {
+    path,
+    text,
+    hash: state.hash ?? fixtureHash(text),
+    size: state.size ?? text.length,
+    readOnly: state.readOnly,
+    readOnlyReason: state.readOnlyReason,
+  };
+  files.set(path, base);
+  for (const [filePath, file] of Object.entries(state.files ?? {})) files.set(filePath, file);
+  for (const recent of state.recents ?? [])
+    if (!files.has(recent.path))
+      files.set(recent.path, {
+        path: recent.path,
+        text: "// Recent gallery file\n",
+        hash: fixtureHash(recent.path),
+        size: 22,
+      });
+  const failure = editorError(state);
+  const host = installMockHost(
+    {
+      [EDITOR_CONFIG_OP]: () => {
+        if (state.loading) return never();
+        if (failure) throw failure;
+        if (state.path === undefined && state.text === undefined && !state.files) return { pick: true };
+        return editorConfig(base, state, context, state.recoveredText);
+      },
+      [EDITOR_OPEN_OP]: (params: { path: string }) => {
+        const file = files.get(params.path);
+        if (!file) throw new HostError("cmux.editor.not_found", "the file does not exist");
+        return editorConfig(file, state, context);
+      },
+      [EDITOR_SAVE_OP]: (params: { path: string; text: string; baseHash: string | null }) => {
+        const current = files.get(params.path);
+        if (current && current.hash !== params.baseHash)
+          throw new HostError("cmux.editor.conflict", "the file changed on disk", {
+            hash: current.hash,
+            text: current.text,
+          });
+        if (state.readOnly) throw new HostError("cmux.editor.read_only", "the file is not writable");
+        const next = { path: params.path, text: params.text, hash: fixtureHash(params.text), size: params.text.length };
+        files.set(params.path, next);
+        host.emit(EDITOR_CHANGES, { path: params.path, hash: next.hash, text: next.text });
+        return { hash: next.hash };
+      },
+      [EDITOR_SET_PREFERENCE_OP]: () => ({}),
+      [EDITOR_RECENTS_OP]: () => ({
+        items: state.recents ?? [
+          { path, name: path.split("/").pop(), openedAt: Date.now() },
+          ...Array.from({ length: 8 }, (_, index) => ({
+            path: `/Users/you/src/atlas-web/src/feature-${index + 1}/module.ts`,
+            openedAt: Date.now() - (index + 1) * 86_400_000,
+          })),
+        ],
+        home: "/Users/you",
+      }),
+      ["cmux.editor.chooseFile"]: () => ({ path }),
+      [EDITOR_OPEN_LINK_OP]: () => null,
+      [EDITOR_EDITED_OP]: () => null,
+    },
+    [EDITOR_CHANGES, EDITOR_LOOK, "cmux.page.command"] as const,
+  );
+  host.delayMs = 0;
+  const root = document.documentElement;
+  root.dataset.cmuxPage = "editor";
+  root.dataset.cmuxWebviewKind = "editor";
+  await import("../../pages/editor/main");
+  if (state.conflict) {
+    const emitConflict = () => {
+      host.emit(EDITOR_CHANGES, {
+        path,
+        hash: state.conflict!.hash,
+        text: state.conflict!.text,
+        deleted: state.conflict!.deleted,
+      });
+    };
+    const started = Date.now();
+    const waitForView = () => {
+      const editor = (window as unknown as { __cmuxEditor?: { view?: () => unknown } }).__cmuxEditor;
+      if (editor?.view?.() || Date.now() - started > 4_000) emitConflict();
+      else window.setTimeout(waitForView, 100);
+    };
+    waitForView();
+  }
+}
+
+function historyError(state: HistoryPageVariant): HostError | undefined {
+  switch (state.error) {
+    case "network":
+      return new HostError("cmux.protocol.closed", "history is unavailable");
+    case "permission":
+      return new HostError("cmux.history.permission_denied", "history cannot be changed");
+    case "not-found":
+      return new HostError("cmux.history.not_found", "the history owner was not found");
+    default:
+      return undefined;
+  }
+}
+
+function historyMatches(entry: HistoryEntry, params: { kinds?: string[]; text?: string }): boolean {
+  if (params.kinds?.length && !params.kinds.includes(entry.kind)) return false;
+  const query = (params.text ?? "").trim().toLocaleLowerCase();
+  return (
+    !query ||
+    [entry.title, entry.detail, entry.cwd, entry.command, entry.workspace]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(query)
+  );
+}
+
+export async function mountHistoryPage(state: HistoryPageVariant, _context: StageContext): Promise<void> {
+  let entries = [...(state.entries ?? [])];
+  const failure = historyError(state);
+  const host = installMockHost(
+    {
+      [HistoryOps.list]: (params: { kinds?: string[]; text?: string; limit?: number }) => {
+        if (state.loading) return never();
+        if (failure) throw failure;
+        return {
+          entries: entries.filter((entry) => historyMatches(entry, params)).slice(0, params.limit ?? 200),
+          revision: 1,
+        };
+      },
+      [HistoryOps.remove]: (params: { ids: string[] }) => {
+        if (state.error === "permission")
+          throw new HostError("cmux.history.permission_denied", "history cannot be changed");
+        const ids = new Set(params.ids);
+        const before = entries.length;
+        entries = entries.filter((entry) => !ids.has(entry.id));
+        if (before !== entries.length) host.emit(HistoryOps.changed, { revision: 2, kinds: [] });
+        return { removed: before - entries.length };
+      },
+      [HistoryOps.removeSite]: () => ({ removed: 0 }),
+      [HistoryOps.clear]: () => ({ removed: 0 }),
+      ["cmux.app.action.run"]: () => ({}),
+      ["cmux.app.clipboard.write"]: () => ({}),
+    },
+    [HistoryOps.changed, "cmux.page.connection", "cmux.page.command"] as const,
+  );
+  host.delayMs = 0;
+  const root = document.documentElement;
+  root.dataset.cmuxPage = "history";
+  root.dataset.cmuxWebviewKind = "history";
+  await import("../../pages/history/main");
+  const query = state.query;
+  if (query) {
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(".history-search");
+      if (query.text !== undefined && input) {
+        input.value = query.text;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (query.filter) {
+        const index = (HISTORY_FILTERS as readonly HistoryFilter[]).indexOf(query.filter);
+        document.querySelectorAll<HTMLButtonElement>(".history-chip")[index]?.click();
+      }
+      if (query.selectIndex !== undefined || query.menuIndex !== undefined) {
+        window.setTimeout(() => {
+          const rows = document.querySelectorAll<HTMLElement>(".history-row");
+          const index = query.menuIndex ?? query.selectIndex!;
+          const row = rows[index];
+          if (!row) return;
+          if (query.menuIndex !== undefined)
+            row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 220, clientY: 180 }));
+          else row.click();
+        }, 100);
+      }
+    }, 100);
+  }
+}
+
+function keybindingsError(state: KeybindingsPageVariant): HostError | undefined {
+  switch (state.error) {
+    case "network":
+      return new HostError("cmux.protocol.closed", "keybindings are unavailable");
+    case "unsupported":
+      return new HostError("cmux.keybindings.unsupported", "keybindings.json writing is not supported yet");
+    case "not-found":
+      return new HostError("cmux.keybindings.keymap_failed", "the keymap file was not found");
+    default:
+      return undefined;
+  }
+}
+
+export async function mountKeybindingsPage(state: KeybindingsPageVariant, _context: StageContext): Promise<void> {
+  let bindings = [...(state.bindings ?? [])];
+  const failure = keybindingsError(state);
+  const host = installMockHost(
+    {
+      [KeybindingOps.list]: () => {
+        if (state.loading) return never();
+        if (failure) throw failure;
+        return { bindings };
+      },
+      [KeybindingOps.set]: () => {
+        if (failure) throw failure;
+        return {};
+      },
+      [KeybindingOps.remove]: () => {
+        if (failure) throw failure;
+        return {};
+      },
+      [KeybindingOps.reset]: () => {
+        if (failure) throw failure;
+        return {};
+      },
+      [KeybindingOps.recordStart]: () => ({}),
+      [KeybindingOps.recordStop]: () => ({}),
+      [KeybindingOps.keymapExport]: () => {
+        if (failure && state.error === "not-found") throw failure;
+        return { path: "/Users/you/Downloads/cmux-keymap.json" };
+      },
+      [KeybindingOps.keymapImport]: () => {
+        if (failure && state.error === "not-found") throw failure;
+        return { path: "/Users/you/Downloads/cmux-keymap.json" };
+      },
+    },
+    [KeybindingOps.changed, KeybindingOps.recorded, "cmux.page.connection", "cmux.page.command"] as const,
+  );
+  host.delayMs = 0;
+  const root = document.documentElement;
+  root.dataset.cmuxPage = "keybindings";
+  root.dataset.cmuxWebviewKind = "keybindings";
+  await import("../../pages/keybindings/main");
+  const query = state.query;
+  if (query) {
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(".keys-search");
+      if (query.text !== undefined && input) {
+        input.value = query.text;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (query.conflictsOnly) document.querySelector<HTMLButtonElement>(".keys-conflicts-only")?.click();
+      window.setTimeout(() => {
+        const rows = document.querySelectorAll<HTMLTableRowElement>(".keys-row");
+        if (query.selectIndex !== undefined) rows[query.selectIndex]?.click();
+        if (query.editIndex !== undefined)
+          rows[query.editIndex]?.querySelector<HTMLButtonElement>(".keys-when")?.click();
+        if (query.record) document.querySelector<HTMLButtonElement>(".keys-record")?.click();
+      }, 100);
+    }, 100);
+  }
 }
 
 // These pages already have protocol-faithful mock providers. Keep their mutations and streams.

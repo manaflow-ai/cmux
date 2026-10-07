@@ -13,6 +13,10 @@
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
+import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
+import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
+import type { HistoryEntry } from "../pages/history/types";
+import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import type { MockOptions } from "../pages/settings/mockProvider";
@@ -95,6 +99,46 @@ export type DiffPageVariant = VariantBase & {
   baseRef?: string;
 };
 
+/** The code editor page (src/pages/editor) on a cmuxPage host with a fixture file. */
+export type EditorPageVariant = VariantBase & {
+  path?: string;
+  text?: string;
+  hash?: string;
+  size?: number;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason;
+  recoveredText?: string;
+  settings?: unknown;
+  files?: Record<string, EditorFile>;
+  recents?: Array<{ path: string; name?: string; openedAt: number }>;
+  /** Leave the first host request pending so the page's loading state remains visible. */
+  loading?: boolean;
+  error?: "network" | "permission" | "not-found" | "not-file" | "too-large";
+  conflict?: { hash: string; text?: string; deleted?: boolean };
+};
+
+/** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
+export type HistoryPageVariant = VariantBase & {
+  entries?: HistoryEntry[];
+  loading?: boolean;
+  error?: "network" | "permission" | "not-found";
+  query?: {
+    text?: string;
+    filter?: HistoryFilter;
+    grouping?: HistoryGrouping;
+    selectIndex?: number;
+    menuIndex?: number;
+  };
+};
+
+/** The keyboard shortcuts page (src/pages/keybindings) on a cmuxPage host with bindings. */
+export type KeybindingsPageVariant = VariantBase & {
+  bindings?: Binding[];
+  loading?: boolean;
+  error?: "network" | "unsupported" | "not-found";
+  query?: { text?: string; conflictsOnly?: boolean; selectIndex?: number; editIndex?: number; record?: boolean };
+};
+
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & { props: P };
 
@@ -133,6 +177,9 @@ type EntryBase<V> = {
 export type AgentPaneEntry = EntryBase<AgentPaneVariant> & { host: "agent-pane" };
 export type MarkdownPageEntry = EntryBase<MarkdownPageVariant> & { host: "markdown-page" };
 export type DiffPageEntry = EntryBase<DiffPageVariant> & { host: "diff-page" };
+export type EditorPageEntry = EntryBase<EditorPageVariant> & { host: "editor-page" };
+export type HistoryPageEntry = EntryBase<HistoryPageVariant> & { host: "history-page" };
+export type KeybindingsPageEntry = EntryBase<KeybindingsPageVariant> & { host: "keybindings-page" };
 export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVariant<P>> & {
   host: "component";
   /** The component; loaded only in a stage frame. */
@@ -149,6 +196,9 @@ export type GalleryEntry =
   | AgentPaneEntry
   | MarkdownPageEntry
   | DiffPageEntry
+  | EditorPageEntry
+  | HistoryPageEntry
+  | KeybindingsPageEntry
   | SettingsPageEntry
   | PasswordsPageEntry
   | ComponentEntry<any>
@@ -173,6 +223,18 @@ export const markdownPageEntry = (entry: Omit<MarkdownPageEntry, "host">): Markd
   host: "markdown-page",
 });
 export const diffPageEntry = (entry: Omit<DiffPageEntry, "host">): DiffPageEntry => ({ ...entry, host: "diff-page" });
+export const editorPageEntry = (entry: Omit<EditorPageEntry, "host">): EditorPageEntry => ({
+  ...entry,
+  host: "editor-page",
+});
+export const historyPageEntry = (entry: Omit<HistoryPageEntry, "host">): HistoryPageEntry => ({
+  ...entry,
+  host: "history-page",
+});
+export const keybindingsPageEntry = (entry: Omit<KeybindingsPageEntry, "host">): KeybindingsPageEntry => ({
+  ...entry,
+  host: "keybindings-page",
+});
 export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
   return { ...entry, host: "component" };
 }

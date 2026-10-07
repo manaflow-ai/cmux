@@ -161,10 +161,6 @@
     "pages/cloud/sectionParts.tsx#PortField",
     "pages/cloud/sectionParts.tsx#Unavailable",
     "pages/coderouter/CodeRouterPage.tsx#CodeRouterPage",
-    "pages/editor/EditorPage.tsx#EditorPage",
-    "pages/history/HistoryPage.tsx#HistoryPage",
-    "pages/history/KindIcon.tsx#KindIcon",
-    "pages/keybindings/KeybindingsPage.tsx#KeybindingsPage",
     "pages/markdown/linkOverlays.tsx#LinkCardView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
     "pages/markdown/linkOverlays.tsx#LinkPopoverView",
@@ -198,7 +194,6 @@
     "ui/UiProvider.tsx#UiProvider",
     "ui/VirtualList.tsx#VirtualList",
     "viewer-empty/DiffEmptyState.tsx#DiffEmptyState",
-    "viewer-empty/EditorEmptyState.tsx#EditorEmptyState",
     "viewer-empty/EmptyState.tsx#EmptyState",
     "viewer-empty/EmptyState.tsx#RecentList",
     "viewer-empty/EmptyState.tsx#TailPath",
@@ -206,14 +201,5 @@
     "viewer-empty/PathPicker.tsx#PathPickerDialog",
     "viewer-empty/icons.tsx#EmptyIcon"
   ],
-  "pages": [
-    "cmux.apps",
-    "cmux.changelog",
-    "cmux.cloud",
-    "cmux.coderouter",
-    "cmux.editor",
-    "cmux.history",
-    "cmux.icon-picker",
-    "cmux.keybindings"
-  ]
+  "pages": ["cmux.apps", "cmux.changelog", "cmux.cloud", "cmux.coderouter", "cmux.icon-picker"]
 }
