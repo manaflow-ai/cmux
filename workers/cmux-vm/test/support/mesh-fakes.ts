@@ -55,6 +55,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     rotations: 0,
   };
   let hostCounter = 10;
+  /** While set, rule creates wait for this promise (a stalled provider call). */
+  let ruleHold: Promise<void> | null = null;
+  const heldWaiters: Array<() => void> = [];
+  let heldCount = 0;
 
   const tunnelBody = (tunnel: FakeTunnel, privateKey: string) => ({
     id: tunnel.id,
@@ -162,6 +166,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       }
     }
     if (path === "/v5/firewall/rules" && method === "POST") {
+      if (ruleHold !== null) {
+        heldCount += 1;
+        for (const wake of heldWaiters.splice(0)) wake();
+        await ruleHold;
+      }
       state.ruleCreates += 1;
       if (state.ruleCreateStatus !== null) return json({ message: "refused" }, state.ruleCreateStatus);
       const source = typeof fields["source"] === "object" && fields["source"] !== null ? Object.fromEntries(Object.entries(fields["source"])) : {};
@@ -236,6 +245,23 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       state.ruleCreateStatus = status;
     },
     ruleCreateCount: () => state.ruleCreates,
+    /** Rule creates stall until the returned function is called. */
+    holdRuleCreates(): () => void {
+      let release = () => {};
+      ruleHold = new Promise<void>((resolve) => {
+        release = () => {
+          ruleHold = null;
+          resolve();
+        };
+      });
+      heldCount = 0;
+      return () => release();
+    },
+    /** Resolves once a rule create is stalled by holdRuleCreates. */
+    ruleCreateHeld(): Promise<void> {
+      if (heldCount > 0) return Promise.resolve();
+      return new Promise<void>((resolve) => heldWaiters.push(resolve));
+    },
   };
 }
 

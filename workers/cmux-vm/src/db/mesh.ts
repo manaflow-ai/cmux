@@ -79,6 +79,8 @@ export interface MeshStoreService {
    */
   readonly findDeviceForSignedRequest: (deviceId: string) => Effect.Effect<Option.Option<MeshDeviceRow & { readonly tenantId: TenantId }>, StoreError>;
   readonly markDeviceDeleted: (tenantId: TenantId, deviceId: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** The tenant's live devices, in every mesh, whose `created_by` is exactly `createdBy` (G1: a removed member's devices). */
+  readonly listDevicesCreatedBy: (tenantId: TenantId, createdBy: string) => Effect.Effect<ReadonlyArray<MeshDeviceRow>, StoreError>;
   /** Records a rotated WireGuard key; false when another live device of the mesh holds it. */
   readonly updateDeviceKey: (tenantId: TenantId, deviceId: string, wgPublicKey: string, at: Date) => Effect.Effect<boolean, StoreError>;
 
@@ -288,6 +290,15 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [deviceId, tenantId, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      listDevicesCreatedBy: (tenantId, createdBy) =>
+        sql
+          .query(
+            "mesh.listDevicesCreatedBy",
+            `SELECT ${DEVICE_COLUMNS} FROM cmux_vm.mesh_devices
+              WHERE tenant_id = $1 AND created_by = $2 AND deleted_at IS NULL ORDER BY created_at, device_cmux_id`,
+            [tenantId, createdBy],
+          )
+          .pipe(Effect.flatMap(decode(DeviceRow, "mesh.listDevicesCreatedBy")), Effect.map((rows) => rows.map(toDevice))),
       updateDeviceKey: (tenantId, deviceId, wgPublicKey, at) =>
         sql
           .query(
