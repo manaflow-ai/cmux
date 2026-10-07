@@ -9,11 +9,26 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
     public static let root = ["sidebar", "workspaceRow"]
     public static let orderKey = "secondLineOrder"
     /// The S1 keys these replace, read for one release when the new key is
-    /// absent (like `sidebar.stickyBandsScroll`). Remove after it.
+    /// absent (like `sidebar.stickyBandsScroll`). The launch migration
+    /// (`migrateLegacyWorkspaceRowKeys`) and every write of the new toggle
+    /// remove them. Remove after the release.
     static let legacyPaths: [WorkspaceRowElement: [String]] = [
         .directory: ["sidebar", "showWorkspaceDirectory"],
         .tabCount: ["sidebar", "showCounts"],
     ]
+
+    /// The S1 key a `sidebar.workspaceRow.<element>` key replaced, if any.
+    static func legacyPath(for path: [String]) -> [String]? {
+        guard path.count == root.count + 1, path.starts(with: root),
+              let element = path.last.flatMap(WorkspaceRowElement.init(rawValue:)) else { return nil }
+        return legacyPaths[element]
+    }
+
+    /// The S1 value that applies at `path` while the new key is absent: what
+    /// Settings shows for the new toggle until the launch migration moves it.
+    static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
+        legacyPath(for: path).flatMap { root.value(at: $0) }
+    }
 
     public init() {}
 
@@ -149,5 +164,31 @@ extension WorkspaceRowSetting {
                 .hiddenFromSettingsPage("per-kind override: cmux.json only"))
         }
         return rows
+    }
+}
+
+extension SettingsController {
+    /// Moves `sidebar.showWorkspaceDirectory` and `sidebar.showCounts` to
+    /// their `sidebar.workspaceRow.*` keys in one atomic write, once at
+    /// launch, so the file says what the sidebar draws. A set new key wins
+    /// and the S1 key is dropped; a bad S1 value stays (with its diagnostic)
+    /// until the user fixes it or writes the new toggle. Returns whether it
+    /// wrote.
+    @discardableResult
+    public func migrateLegacyWorkspaceRowKeys() async throws -> Bool {
+        var edits: [(path: [String], value: JSONValue?)] = []
+        for element in WorkspaceRowElement.allCases {
+            guard let legacy = WorkspaceRowSetting.legacyPaths[element], let old = try await file.value(at: legacy) else { continue }
+            let path = WorkspaceRowSetting.path(element)
+            if try await file.value(at: path) == nil {
+                guard let on = old.boolValue else { continue }
+                edits.append((path, .bool(on)))
+            }
+            edits.append((legacy, nil))
+        }
+        guard !edits.isEmpty else { return false }
+        try await file.apply(edits)
+        await reloadAfterWrite()
+        return true
     }
 }

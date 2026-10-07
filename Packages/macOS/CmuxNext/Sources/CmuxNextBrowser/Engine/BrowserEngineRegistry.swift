@@ -25,6 +25,8 @@ public final class BrowserEngineRegistry {
         guard let engine = engines[kind] else {
             throw BrowserEngineError.engineNotRegistered(kind)
         }
+        // A proxied tab opens only in Chromium (fail closed, never unproxied).
+        if configuration.machineStore != nil, kind != .cef { throw BrowserEngineError.machineStoreRequiresChromium }
         if case .unavailable(let reason) = engine.availability {
             throw BrowserEngineError.engineUnavailable(kind, reason: reason)
         }

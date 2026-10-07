@@ -10,6 +10,8 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("palette.welcomeChecklist", run: { _ in services.onboarding.show() })
+        // Help menu, palette and Settings: one handler.
+        registry.bind("onboarding.continueSetup", run: { _ in services.onboarding.continueSetup() })
         registry.bind("palette.importClassicSessions", run: { _ in services.onboarding.show(step: .classicSessions) })
         registry.bind("importAndSync.show", run: { _ in services.onboarding.show() })
         registry.bind("palette.onboardingGallery", run: { _ in services.onboarding.showGallery() })

@@ -68,10 +68,13 @@ extension AppActionContext {
     }
 
     /// Reason closure for `bind(_:unavailable:invoke:)` while the daemon
-    /// lacks `capability`.
+    /// lacks `capability`. It reads the daemon the action commands when
+    /// availability is asked (`activeDaemon`), not the one active at bind.
     func needs(_ capability: String) -> @MainActor () -> String? {
-        let daemon = services.activeDaemon
-        return { daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability) }
+        { [services] in
+            let daemon = services.activeDaemon
+            return daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability)
+        }
     }
 
     func connection() -> DaemonConnection? {

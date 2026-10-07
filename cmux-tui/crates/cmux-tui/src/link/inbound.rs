@@ -37,6 +37,77 @@ pub(super) enum InboundRefused {
     Owner(OwnerRefused),
 }
 
+/// What an open owner session watches (`serve_inbound_watched`): every new
+/// pairing view, and the register of open owner sessions that a reload
+/// waits on before it removes a revoked WireGuard peer.
+#[derive(Clone)]
+pub(super) struct Revocations {
+    pub(super) view: tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>,
+    pub(super) open: std::sync::Arc<OpenOwnerSessions>,
+}
+
+/// Open owner sessions per WireGuard key.
+#[derive(Default)]
+pub(super) struct OpenOwnerSessions {
+    keys: std::sync::Mutex<std::collections::HashMap<[u8; 32], usize>>,
+    closed: tokio::sync::Notify,
+}
+
+impl OpenOwnerSessions {
+    fn enter(self: &std::sync::Arc<Self>, key: [u8; 32]) -> OpenOwnerSession {
+        *self
+            .keys
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(key)
+            .or_default() += 1;
+        OpenOwnerSession { register: self.clone(), key }
+    }
+
+    fn any_open(&self, keys: &[[u8; 32]]) -> bool {
+        let open = self.keys.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        keys.iter().any(|key| open.get(key).is_some_and(|count| *count > 0))
+    }
+
+    /// Returns once no owner session of `keys` is open (event-driven: each
+    /// session's end wakes this).
+    pub(super) async fn closed(&self, keys: &[[u8; 32]]) {
+        loop {
+            let notified = self.closed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if !self.any_open(keys) {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// One open owner session in [`OpenOwnerSessions`]; leaves it on drop.
+struct OpenOwnerSession {
+    register: std::sync::Arc<OpenOwnerSessions>,
+    key: [u8; 32],
+}
+
+impl Drop for OpenOwnerSession {
+    fn drop(&mut self) {
+        let mut open = self.register.keys.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(count) = open.get_mut(&self.key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                open.remove(&self.key);
+            }
+        }
+        drop(open);
+        self.register.closed.notify_waiters();
+    }
+}
+
+/// How long a revoked owner session waits for the dialing side to close
+/// after its own shutdown (the dialer's FIN acknowledges the close).
+const REVOKED_CLOSE_ACK: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The daemon entry a link stream may reach for the session listening on
 /// `session_socket`: its remote entry, never the session socket itself.
 pub(super) fn daemon_entry(session_socket: &Path) -> PathBuf {
@@ -72,7 +143,7 @@ pub(super) async fn serve_inbound_watched<S>(
     pairings: &Pairings,
     session_socket: &Path,
     owner: Option<&OwnerSession>,
-    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
+    revocations: Option<Revocations>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -106,7 +177,7 @@ async fn serve_owner_session<S>(
     peer_key: [u8; 32],
     peer: &cmux_link::stamp::LinkPeer,
     owner: Option<&OwnerSession>,
-    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
+    revocations: Option<Revocations>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -128,11 +199,11 @@ where
     }
     drop(probe);
     let mut daemon = connect_same_uid(&socket, uid).await?;
-    let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
-    let Some(mut revocations) = revocations else {
-        let _ = splice.await;
+    let Some(Revocations { view: mut revocations, open }) = revocations else {
+        let _ = tokio::io::copy_bidirectional(&mut stream, &mut daemon).await;
         return Ok(());
     };
+    let _open = open.enter(peer_key);
     // The owner stays the owner only while the current pairing view still
     // maps this key to the same peer and that peer is still authorized.
     let still_owner = |pairings: &Pairings| {
@@ -140,21 +211,40 @@ where
             .by_key(&peer_key)
             .is_some_and(|record| record.peer() == *peer && owner.authorize(&record.peer()).is_ok())
     };
-    let revoked = async {
-        loop {
-            if revocations.changed().await.is_err() {
-                // The link is shutting down its pairing view: keep serving.
-                std::future::pending::<()>().await;
+    let revoked = {
+        let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
+        let watch = async {
+            loop {
+                if revocations.changed().await.is_err() {
+                    // The link is shutting down its pairing view: keep serving.
+                    std::future::pending::<()>().await;
+                }
+                if !still_owner(&revocations.borrow_and_update()) {
+                    return;
+                }
             }
-            if !still_owner(&revocations.borrow_and_update()) {
-                return;
-            }
+        };
+        tokio::select! {
+            _ = splice => false,
+            () = watch => true,
         }
     };
-    tokio::select! {
-        _ = splice => Ok(()),
-        () = revoked => Err(InboundRefused::Owner(OwnerRefused::NotOwner)),
+    if !revoked {
+        return Ok(());
     }
+    // Close while the WireGuard peer still exists (the reload waits for this
+    // session before it removes the peer): shut down, then wait, bounded,
+    // for the dialing side's own close.
+    drop(daemon);
+    let _ = stream.shutdown().await;
+    let _ = tokio::time::timeout(REVOKED_CLOSE_ACK, async {
+        let mut sink = [0u8; 1024];
+        while matches!(tokio::io::AsyncReadExt::read(&mut stream, &mut sink).await, Ok(n) if n > 0)
+        {
+        }
+    })
+    .await;
+    Err(InboundRefused::Owner(OwnerRefused::NotOwner))
 }
 
 /// Connect to `socket` and require that its listener runs as `uid`.

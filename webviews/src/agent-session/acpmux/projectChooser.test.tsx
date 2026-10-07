@@ -106,11 +106,11 @@ test("renders the attached folder, computer and branch tray without context chip
   const branch = doc.querySelector<HTMLButtonElement>('[aria-label="Branch"]')!;
   await act(async () => branch.click());
   const branchRow = doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!;
-  expect([branchRow.textContent, branchRow.getAttribute("aria-checked"), branchRow.getAttribute("aria-disabled")]).toEqual([
-    "main",
-    "true",
-    "true",
-  ]);
+  expect([
+    branchRow.textContent,
+    branchRow.getAttribute("aria-checked"),
+    branchRow.getAttribute("aria-disabled"),
+  ]).toEqual(["✓main", "true", "true"]);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {

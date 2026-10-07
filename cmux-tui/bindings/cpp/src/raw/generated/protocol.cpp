@@ -1570,6 +1570,11 @@ Result<Json> Codec<ColumnPin>::encode(const ColumnPin& value) {
     auto encoded_mode = encode_value(value.mode);
     if (!encoded_mode) return std::move(encoded_mode).error();
     object.emplace("mode", std::move(encoded_mode).value());
+    if (!value.role.is_absent()) {
+        auto encoded = encode_value(value.role);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("role", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -1594,6 +1599,16 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_mode);
         if (!decoded) return std::move(decoded).error();
         result.mode = std::move(decoded).value();
+    }
+    const Json* field_role = value.find("role");
+    if (field_role) {
+        if (field_role->is_null()) {
+            result.role = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_role);
+            if (!decoded) return std::move(decoded).error();
+            result.role = Field<std::string>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -23798,6 +23813,11 @@ Result<Json> Codec<SetColumnDockRequest>::encode(const SetColumnDockRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("permanent", std::move(encoded).value());
     }
+    if (!value.role.is_absent()) {
+        auto encoded = encode_value(value.role);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("role", std::move(encoded).value());
+    }
     if (!value.transaction.is_absent()) {
         auto encoded = encode_value(value.transaction);
         if (!encoded) return std::move(encoded).error();
@@ -23856,6 +23876,16 @@ Result<SetColumnDockRequest> Codec<SetColumnDockRequest>::decode(const Json& val
             auto decoded = decode_value<bool>(*field_permanent);
             if (!decoded) return std::move(decoded).error();
             result.permanent = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_role = value.find("role");
+    if (field_role) {
+        if (field_role->is_null()) {
+            result.role = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_role);
+            if (!decoded) return std::move(decoded).error();
+            result.role = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_transaction = value.find("transaction");
@@ -33929,6 +33959,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand178FieldRequirements{{
     {"display_name", 12U, "shared-sizing-v1"},
     {"user_id", 12U, "shared-sizing-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand180FieldRequirements{{
+    {"role", 12U, "dock-column-role-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 7> kCommand181FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
@@ -34147,7 +34180,7 @@ constexpr std::array<CommandMetadata, 235> kCommands{{
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand178FieldRequirements)},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-column-dock", "control", 12U, "dock-columns-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-column-dock", "control", 12U, "dock-columns-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand180FieldRequirements)},
     {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand181FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
