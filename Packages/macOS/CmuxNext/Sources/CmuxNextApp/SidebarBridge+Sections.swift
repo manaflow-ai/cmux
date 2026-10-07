@@ -17,7 +17,7 @@ extension SidebarBridge {
     static let builtInActions: [SidebarBuiltIn: ActionID] = [
         .home: "home.show",
         .settings: "openSettings",
-        .account: "accounts.show",
+        .account: "sidebar.profileMenu", // the profile control (amendment 2); Accounts stays `accounts.show`
         .notifications: "showNotifications",
         .history: "history.show",
         .bookmarks: "bookmark.manager",
@@ -26,6 +26,7 @@ extension SidebarBridge {
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
+        .searchChats: "agentPane.searchChats",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -37,8 +38,7 @@ extension SidebarBridge {
         activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
-    /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
-    /// spaces are in SidebarBridge+PinnedItems.
+    /// Runs a sidebar item (sidebar-sections.md 2); pinned tabs, pages, spaces: SidebarBridge+PinnedItems.
     func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             var invocation = ActionInvocation(origin: .user)
@@ -85,13 +85,16 @@ extension SidebarBridge {
             // So are the unread count (Notifications' dot) and the built-ins'
             // shortcuts (their tooltips, e.g. the footer gear's "Settings (⌘,)").
             // The selected item comes from the one selection (SidebarModel.selectedItem).
-            for await (layout, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String]) in
+            for await (layout, unread, shortcuts, showChats) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String], Bool) in
                 _ = apps.apps
-                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
+                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
+                        DesignSettings.shared.sidebarSections.showChats)
             }) {
-                guard self != nil else { return }
-                if model.layout != layout { model.layout = layout }
-                let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
+                guard let self else { return }
+                let visibleLayout = layout.chatsLayout(enabled: showChats)
+                if model.layout != visibleLayout { model.layout = visibleLayout }
+                self.chatsMount.show(showChats, services: self.services)
+                let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
                                           app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }

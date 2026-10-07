@@ -35,15 +35,16 @@ public struct ServerReach: Hashable, Sendable {
         case ssh(SSHHost)
         /// An absolute socket path on this Mac.
         case unix(String)
-        /// This Mac's `cmux link` socket (absolute): each connection dials the
-        /// server's install with an owner session (`dialPreamble`).
+        /// This Mac's `cmux link` socket (absolute): each connection runs the
+        /// bundled `cmux` with ``dialArguments(linkSocket:)``.
         case overlay(linkSocket: String)
     }
 
-    /// The `link.dial` line an overlay connection sends first: the server's
-    /// owner session, which only its owner may open (the server decides).
-    public var dialPreamble: String {
-        "{\"op\":\"link.dial\",\"host\":\"\(installID)\",\"service\":\"owner_session\"}"
+    /// The fixed argv (after the bundled `cmux`) of an overlay connection's
+    /// bridge: the server's owner session through this Mac's link, which
+    /// only the server's owner may open (the server decides).
+    public func dialArguments(linkSocket: String) -> [String] {
+        ["link", "dial", "--host", installID, "--service", "owner_session", "--socket", linkSocket]
     }
 
     public struct Invalid: Error, Equatable, Sendable {

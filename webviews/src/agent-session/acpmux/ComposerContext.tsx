@@ -5,9 +5,11 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -323,6 +325,7 @@ function FolderMenu({
                 >
                   {folders.map((folder) => (
                     <MenuRadioItem key={folder.id} value={folder.id} className="acpmux-menu-item">
+                      <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
                       <span className="acpmux-menu-text" title={folder.id}>
                         <span className="acpmux-menu-label">{folder.label}</span>
                         <span className="acpmux-menu-description">{folder.detail ?? folder.id}</span>
@@ -381,6 +384,7 @@ function LocationPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
+  const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -441,7 +445,7 @@ function LocationPicker({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        {...press}
       >
         {button}
       </button>

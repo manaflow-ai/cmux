@@ -144,10 +144,22 @@ export function readRevision(root = repoRoot): Revision {
 }
 
 function agentPaneCSS(): string {
+  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
+    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
+      if (!specifier.startsWith(".")) return statement;
+      const imported = path.resolve(path.dirname(file), specifier);
+      if (seen.has(imported)) return "";
+      seen.add(imported);
+      if (!fs.existsSync(imported)) return statement;
+      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
+    });
+
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
-      const body = file.endsWith("shared/styles.css") ? css.replace(/^@import .*$/gm, "") : css;
+      const body = file.endsWith("shared/styles.css")
+        ? css.replace(/^@import .*$/gm, "")
+        : inlineRelativeImports(file, css);
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");

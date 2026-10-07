@@ -50,4 +50,17 @@ if ! awk '
   exit 1
 fi
 
+# Run 37568319518 lost its publish here: the step ran the tip's workflow over an older
+# build_sha checkout that had no upload script ("No such file or directory"). Anything the
+# step itself cannot run must still leave the nightly to publish.
+if ! awk '
+  /^      - name: Upload dSYMs to Sentry/ { in_step=1; next }
+  in_step && /^      - name:/ { in_step=0 }
+  in_step && /^        continue-on-error: true$/ { saw=1 }
+  END { exit !saw }
+' "$ROOT_DIR/.github/workflows/nightly.yml"; then
+  echo "FAIL: the nightly dSYM upload step must be continue-on-error so a missing or broken uploader never blocks a publish"
+  exit 1
+fi
+
 echo "PASS: dSYM upload retries with backoff and never fails the nightly"

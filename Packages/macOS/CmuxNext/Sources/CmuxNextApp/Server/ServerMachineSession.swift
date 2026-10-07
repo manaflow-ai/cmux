@@ -26,9 +26,13 @@ final class ServerMachineSession {
     var autoConnect = true
     @ObservationIgnored private var started = false
 
+    /// The app's own bundled `cmux` (overlay route bridge), nil when missing.
+    @ObservationIgnored private let cli: URL?
+
     init(reach: ServerReach, binary: URL?, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
+         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil) {
         self.reach = reach
+        self.cli = cli
         self.localIdentity = localIdentity
         switch reach.route {
         case .ssh(let host):
@@ -70,9 +74,14 @@ final class ServerMachineSession {
             }
             started = true
             let localIdentity = localIdentity
-            // Each connection asks the link for the server's owner session;
-            // the server refuses anyone but its owner.
-            daemon.start(remote: { linkSocket }, preamble: reach.dialPreamble, admit: { identity in
+            guard let cli else {
+                daemon.store.markFailed(RemoteStrings.noClient)
+                return
+            }
+            // Each connection runs the bundled `cmux link dial` for the
+            // server's owner session; the server refuses anyone but its owner.
+            let bridge = DaemonBridge(executable: cli.path, arguments: reach.dialArguments(linkSocket: linkSocket))
+            daemon.start(remote: { linkSocket }, bridge: bridge, admit: { identity in
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             })
         }
