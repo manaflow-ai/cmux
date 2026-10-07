@@ -7,5 +7,11 @@ public struct WorkspaceListSnapshot: Hashable, Sendable {
     /// Every listed machine is unreachable.
     public var allOffline: Bool
 
+    public init(sections: [WorkspaceListSection], emptyState: WorkspaceListEmptyState?, allOffline: Bool) {
+        self.sections = sections
+        self.emptyState = emptyState
+        self.allOffline = allOffline
+    }
+
     public var rows: [WorkspaceListRow] { sections.flatMap(\.rows) }
 }

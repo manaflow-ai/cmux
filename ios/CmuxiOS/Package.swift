@@ -24,6 +24,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
+        .package(path: "../../Packages/Shared/CmuxMobileWire"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
@@ -55,6 +56,8 @@ let package = Package(
                 "CmuxiOSOnboardingCore",
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSWorkspaces",
+                "CmuxiOSWorkspacesCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -212,6 +215,41 @@ let package = Package(
                 "CmuxiOSDesign",
                 "CmuxiOSTerminal",
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C5 (plans/cmux-next/ios-next/c5-workspaces.md): workspace
+        // mirrors and intent logs over the control plane, the list model and
+        // the seams for the terminal source (C1) and the picker (C8). No
+        // UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSWorkspacesCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSWorkspacesCoreTests",
+            dependencies: [
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Workspaces tab, workspace detail, machines sheet and picker.
+        .target(
+            name: "CmuxiOSWorkspaces",
+            dependencies: [
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                "CmuxiOSTerminal",
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
             ],
             resources: [.process("Resources")],
