@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import {
   aptClosureProblems,
   basePackageProblems,
+  bakedPrograms,
+  chromeForTestingShape,
   cmuxCuaReleaseShape,
   DEFAULT_LOCK_PATH,
   diffCounts,
@@ -20,6 +22,8 @@ import {
   parseInputsLock,
   percentile,
   profileLinks,
+  programChecksCommand,
+  programInstallCommand,
   readInputsLock,
   rolesManifest,
   sbomComponentCounts,
@@ -43,7 +47,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -262,5 +266,81 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(problemsOf(raw)).toEqual([]);
     raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
+  });
+});
+
+describe("browser role: off by default, installed on first use, sandboxed, background tabs throttled (RT8, D-A1)", () => {
+  const lock = readInputsLock();
+  const CFT_SHA256 = "ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732";
+  const cftIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "chrome-for-testing");
+
+  test("the browser role is off and first-use; its closure is never baked; background tabs are not full rate", () => {
+    expect(lock.roles.browser).toMatchObject({ default: "off", firstUse: true });
+    expect(lock.roles.browser.env).toMatchObject({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0" });
+    for (const name of lock.roles.browser.apt) {
+      expect(lock.apt.ubuntu.firstUse.browser[name]).toBeDefined();
+      expect(lock.apt.ubuntu.packages[name]).toBeUndefined();
+    }
+    expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libgbm1", "libasound2t64", "fonts-liberation"]));
+  });
+
+  test("Chrome for Testing 154 (the CEF fork's major) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
+    const cft = lock.programs.find((p) => p.name === "chrome-for-testing")!;
+    expect(cft).toMatchObject({ ...chromeForTestingShape("154.0.8037.92"), sha256: CFT_SHA256, size: 196202491, firstUse: true });
+    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip");
+    expect(cft.source).toContain("md5=eb+FnbaHwkXCE8wFqB2DJw==");
+  });
+
+  test("first-use programs are not baked: no store install, no profile link, no programs-run check", () => {
+    expect(bakedPrograms(lock).map((p) => p.name)).not.toContain("chrome-for-testing");
+    expect(profileLinks(lock).map((l) => l.command)).not.toContain("chrome");
+    expect(programChecksCommand(lock)).not.toContain("chrome --version");
+  });
+
+  test("roles.json carries the browser role's env, its first-use programs and the store path of chrome", () => {
+    const browser = rolesManifest(lock).roles.browser;
+    expect(browser.default).toBe("off");
+    expect(browser.firstUse).toBe(true);
+    expect(browser.env).toEqual({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0", CMUX_BROWSER_HOST_CHROMIUM: `/opt/cmux/store/${CFT_SHA256}/chrome-linux64/chrome` });
+    expect(browser.programs).toEqual([
+      expect.objectContaining({ name: "chrome-for-testing", version: "154.0.8037.92", sha256: CFT_SHA256, size: 196202491, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
+    ]);
+    expect(rolesManifest(lock).roles.display.programs).toEqual([]);
+  });
+
+  test("a zip program unpacks with unzip into its store entry, after the sha256 and size checks", () => {
+    const cmd = programInstallCommand(lock.programs.find((p) => p.name === "chrome-for-testing")!);
+    expect(cmd).toContain(`unzip -q /tmp/cmux-dl/${CFT_SHA256} -d /opt/cmux/store/${CFT_SHA256}.partial`);
+    expect(cmd.indexOf("sha256sum -c")).toBeLessThan(cmd.indexOf("unzip"));
+    expect(cmd).toContain(`test -x /opt/cmux/store/${CFT_SHA256}.partial/chrome-linux64/chrome`);
+  });
+
+  test("a first-use program needs roles that are all first-use roles", () => {
+    const raw = fresh();
+    raw.programs[cftIndex()].roles = ["cua"];
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].firstUse: role cua is not a first-use role`);
+    raw.programs[cftIndex()].roles = [];
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].firstUse: needs at least one role`);
+  });
+
+  test("the browser role refuses full-rate background tabs and any sandbox-off switch", () => {
+    const raw = fresh();
+    raw.roles.browser.env.CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE = "1";
+    raw.roles.browser.env.CMUX_BROWSER_HOST_CHROMIUM_ARGS = "--no-sandbox";
+    raw.roles.browser.env.EXTRA = "--disable-setuid-sandbox";
+    raw.roles.browser.env["bad key"] = "x";
+    const problems = problemsOf(raw);
+    expect(problems).toContain('roles.browser.env.CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: must be "0" (background tabs are throttled, RT8 idle budget)');
+    expect(problems).toContain("roles.browser.env.CMUX_BROWSER_HOST_CHROMIUM_ARGS: --no-sandbox is refused (the sandbox stays on)");
+    expect(problems).toContain("roles.browser.env.EXTRA: --disable-setuid-sandbox is refused (the sandbox stays on)");
+    expect(problems).toContain('roles.browser.env: bad variable name "bad key"');
+    delete raw.roles.browser.env;
+    expect(problemsOf(raw)).toContain('roles.browser.env.CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: must be "0" (background tabs are throttled, RT8 idle budget)');
+  });
+
+  test("Chrome for Testing must come from Google's versioned release URL", () => {
+    const raw = fresh();
+    raw.programs[cftIndex()].url = "https://example.com/chrome-linux64.zip";
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("154.0.8037.92").url}`);
   });
 });
