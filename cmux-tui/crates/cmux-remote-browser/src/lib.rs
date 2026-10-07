@@ -3,10 +3,11 @@
 //!
 //! This crate holds the control messages and input events of a remote tab
 //! and the pure reducers both ends share: the host's session state, the menu
-//! token lifecycle, the scroll-offset writer handoff of the split compositor
+//! token lifecycle, the viewer's client state, the scroll-offset writer handoff of the split compositor
 //! and the cookie sync conflict rule. It does no I/O and reads no clock; time
 //! is always an input. Shared test vectors: `schemas/remote-tab/`.
 
+pub mod client;
 pub mod cookie;
 pub mod menu;
 pub mod proto;

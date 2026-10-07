@@ -30,7 +30,7 @@ final class PaletteActionsMenuView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     /// The corner the menu grows from: its bottom trailing corner, above the
-    /// footer's "Actions ⌘K" (layer coordinates, origin at the bottom left).
+    /// footer's "Actions ⇥" (layer coordinates, origin at the bottom left).
     var scalePivot: CGPoint { CGPoint(x: bounds.width, y: 0) }
 
     /// The menu's contents scaled about `scalePivot`, for its layer's

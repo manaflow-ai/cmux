@@ -257,13 +257,16 @@ public final class AgentPaneModel {
         case .touched:
             return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
+        case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New).
-            guard id == "newTab.page" || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
+            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
+            // and the command palette's chats page ("Show all", decision K1).
+            guard id == "newTab.page" || id == "agentPane.searchChats" || (id == "palette.welcomeChecklist" && newTab != nil),
+                  let onRunAction else {
                 return Self.unsupported("action.run")
             }
             onRunAction(id)
