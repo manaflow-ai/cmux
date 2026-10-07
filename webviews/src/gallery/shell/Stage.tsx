@@ -218,7 +218,9 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
   const themeOptions = [
     ...darkThemes.map((theme) => ({ value: theme.name, label: `Dark · ${theme.name}` })),
     ...lightThemes.map((theme) => ({ value: theme.name, label: `Light · ${theme.name}` })),
-    ...(!themes.some((theme) => theme.name === env.theme) ? [{ value: env.theme, label: `${env.theme} (missing)` }] : []),
+    ...(!themes.some((theme) => theme.name === env.theme)
+      ? [{ value: env.theme, label: `${env.theme} (missing)` }]
+      : []),
   ];
   const appearanceOptions = [
     { value: "auto", label: "Auto" },
@@ -236,7 +238,13 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
   const selectClass = "gallery-control-select";
   return (
     <div className="gallery-controls">
-      <Select className={selectClass} value={env.theme} options={themeOptions} onChange={(value) => set("theme", value)} label="Theme" />
+      <Select
+        className={selectClass}
+        value={env.theme}
+        options={themeOptions}
+        onChange={(value) => set("theme", value)}
+        label="Theme"
+      />
       <Select
         className={selectClass}
         value={env.colorScheme}
@@ -266,7 +274,13 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         finalFocus={moreButtonRef}
       >
         <div className="gallery-more-grid">
-          <Select className={selectClass} value={env.locale} options={localeOptions} onChange={(value) => set("locale", value)} label="Locale" />
+          <Select
+            className={selectClass}
+            value={env.locale}
+            options={localeOptions}
+            onChange={(value) => set("locale", value)}
+            label="Locale"
+          />
           <label>
             Font
             <input
@@ -335,7 +349,10 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
                   { value: "custom", label: "Custom" },
                 ]}
                 onChange={(value) =>
-                  set("window", value === "custom" ? `${windowSize(env.window).width}x${windowSize(env.window).height}` : value)
+                  set(
+                    "window",
+                    value === "custom" ? `${windowSize(env.window).width}x${windowSize(env.window).height}` : value,
+                  )
                 }
                 label="Window"
               />
@@ -346,7 +363,9 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
                     value={env.window}
                     aria-label="Custom window size"
                     placeholder="1440x900"
-                    onChange={(event) => /^\d{3,4}x\d{3,4}$/.test(event.target.value) && set("window", event.target.value)}
+                    onChange={(event) =>
+                      /^\d{3,4}x\d{3,4}$/.test(event.target.value) && set("window", event.target.value)
+                    }
                   />
                 </label>
               )}
@@ -375,29 +394,33 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
             </>
           )}
           {env.frame === "component" && (
-            <Select
-              className={selectClass}
-              value={typeof env.width === "number" ? "custom" : env.width}
-              options={[
-                ...Object.entries(WIDTHS).map(([name, px]) => ({ value: name, label: `${name} (${px})` })),
-                { value: "custom", label: "Custom" },
-              ]}
-              onChange={(value) => set("width", value === "custom" ? widthPx(env.width) : (value as keyof typeof WIDTHS))}
-              label="Width"
-            />
-            {typeof env.width === "number" && (
-              <label>
-                Custom width
-                <input
-                  type="number"
-                  min={240}
-                  max={3000}
-                  value={env.width}
-                  aria-label="Custom width"
-                  onChange={(event) => set("width", Number(event.target.value) || 760)}
-                />
-              </label>
-            )}
+            <>
+              <Select
+                className={selectClass}
+                value={typeof env.width === "number" ? "custom" : env.width}
+                options={[
+                  ...Object.entries(WIDTHS).map(([name, px]) => ({ value: name, label: `${name} (${px})` })),
+                  { value: "custom", label: "Custom" },
+                ]}
+                onChange={(value) =>
+                  set("width", value === "custom" ? widthPx(env.width) : (value as keyof typeof WIDTHS))
+                }
+                label="Width"
+              />
+              {typeof env.width === "number" && (
+                <label>
+                  Custom width
+                  <input
+                    type="number"
+                    min={240}
+                    max={3000}
+                    value={env.width}
+                    aria-label="Custom width"
+                    onChange={(event) => set("width", Number(event.target.value) || 760)}
+                  />
+                </label>
+              )}
+            </>
           )}
           <Select
             className={selectClass}

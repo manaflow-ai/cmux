@@ -368,12 +368,15 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               label: VIEW_LABELS[view],
             }))}
             onValueChange={(value) => {
-              if ((VIEWS as readonly string[]).includes(value)) go({ ...address, search: { ...search, view: value as View } });
+              if ((VIEWS as readonly string[]).includes(value))
+                go({ ...address, search: { ...search, view: value as View } });
             }}
           />
           <Controls
             env={env}
-            onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
+            onChange={(next) =>
+              go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)
+            }
           />
         </Toolbar>
         <details className="gallery-covers">
