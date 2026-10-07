@@ -116,6 +116,8 @@ pub struct Config {
     pub self_argv: Vec<String>,
     /// `server.json` of the install layout (watched for `ConfigChanged`).
     pub server_config: Option<PathBuf>,
+    /// The units' `--mode`; `None` resolves it from CMUX_SERVER_MODE.
+    pub server_mode: Option<cmux_server_core::platform::InstallMode>,
 }
 
 impl Config {
@@ -132,6 +134,7 @@ impl Config {
             action_log: None,
             self_argv: Vec::new(),
             server_config: None,
+            server_mode: None,
         }
     }
 }

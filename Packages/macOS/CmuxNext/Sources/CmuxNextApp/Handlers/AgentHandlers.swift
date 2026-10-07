@@ -45,6 +45,8 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
+            if let pane = context.scope(invocation).pane,
+               openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
             withAgentPane(invocation, context: context) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
@@ -159,6 +161,36 @@ enum AgentHandlers {
             return mounted()
         }
         return nil
+    }
+
+    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
+    /// workspace whose only tab is the chat, like a new thread in the Codex
+    /// and Claude apps (lawrence-call-1006 D). The chat inherits the focused
+    /// tab's cwd and draft as a tab would. Scripts, an explicit target and a
+    /// daemon that cannot hold a chat get a tab in `pane`: false.
+    private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
+                                                  context: AppActionContext) -> Bool {
+        let services = context.services
+        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
+              let windowID = context.activeWindow?.state.id else { return false }
+        let folder = pane.selectedTab?.cwd
+        services.newTabKinds.record(.agent, folder: folder)
+        let source = pane.agentSeedFromSelectedTab()
+        let daemon = pane.daemon
+        context.registry.track(Task { @MainActor in
+            var seed = await source?.take() ?? AgentPaneSeed()
+            seed.cwd = seed.cwd ?? folder
+            var spawn = WorkspaceSpawn(cwd: seed.cwd)
+            spawn.firstChat = seed
+            do {
+                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
+                return nil
+            } catch {
+                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new agent chat: \(error)")
+            }
+        })
+        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {

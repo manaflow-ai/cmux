@@ -641,7 +641,7 @@ Params:
 | `capabilities` | `array<string>` | default unchanged | Additive client features understood by the server |
 | `user_id` | `string` | default unchanged | Shared sizing identity; asserted by the client and not verified |
 | `display_name` | `string` | default unchanged | Shared sizing identity; defaults to `name` |
-| `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`; anything else is `unknown`; defaults to `kind` |
+| `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
 
@@ -650,6 +650,15 @@ or the request origin. Identity fields are clamped like `name`. A connection tha
 `shared-sizing-v1` in `capabilities` receives `size-state` events on its
 subscribe and attach streams and `participant`/`size_state` in terminal
 `attach-surface` responses.
+
+`linux` and `windows` are the GPUI desktop app on Linux and Windows. A
+connection that also sends `open-device-kinds-v1` (advertised in `identify`)
+decodes every `device_kind` and reads a kind it does not know as `unknown`; it
+receives `linux`, `windows` and any later kind as they are in every size state
+(`size-state`, `attach-surface`, `get-size-state`, `set-size-policy`,
+`reattach-view`). Other connections receive those kinds as `unknown`, because
+SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
+the real kind for every connection.
 
 Result: `object{}`.
 
@@ -5804,6 +5813,30 @@ live socket gets `live`), and then emits the same state as a
 `cloud-subscription-state` event, so a change that raced the reply never
 leaves the client on an older state. Every later change of the shared socket
 is a `cloud-subscription-state` event.
+
+### cloud-mux-subscribe, cloud-mux-unsubscribe, cloud-mux-ack
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The leased chief's MuxDO wake queue (`mux:<agent>`, plans/cmux-next/cloud-chief-vm.md).
+The agent is the lease token's `agt` claim, never a request field: the
+subscribe commands take no fields and `cloud-mux-ack` takes only
+`conversation` and `seq` (an unknown field is refused). A person's lease is
+refused with `mux_needs_chief`.
+
+Events on the subscribe stream: `cloud-mux-wake {seq, wakes, account?}` for
+new wakes and `cloud-mux-resynced {seq, pending, account?}` after a
+(re)subscribe, so a wake missed while the socket was down is delivered. A
+wake is ids only: `{conversation, seq, reason}`, never message text; the
+brain reads the message through its own authorized conversation read.
+
+`cloud-mux-ack {conversation, seq}` sends `mux.ack` for the lease's chief
+with idempotency key `mux-ack:<conversation>:<seq>`: a repeated ack is a
+replay and changes nothing.
 
 ### create-profile
 
