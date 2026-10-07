@@ -116,6 +116,17 @@ describe("links", () => {
     expect(unsafe).toContain("run");
   });
 
+  test("does not nest GitHub references inside link or image labels", () => {
+    const out = renderToStaticMarkup(
+      createElement(Markdown, {
+        githubRepository: "manaflow-ai/cmux",
+        children: "[Fix #1234](https://example.com) ![#5678](https://example.com/image.png)",
+      }),
+    );
+    expect(out.match(/href="https:\/\/github\.com/g) ?? []).toHaveLength(0);
+    expect(out).toContain('href="https://example.com/"');
+  });
+
   test("linkifies bare and qualified GitHub references in prose", () => {
     const out = renderToStaticMarkup(
       createElement(Markdown, {
