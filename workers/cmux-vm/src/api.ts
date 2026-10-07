@@ -45,7 +45,7 @@ export const VmState = Schema.Literal("starting", "running", "pausing", "paused"
 export type VmState = typeof VmState.Type;
 
 const IDLE_DEFINITION =
-  "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work, disk I/O and commands that produce no traffic do not keep it awake, while an open SSH, terminal or exec connection does. -1 never pauses for idleness.";
+  "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness.";
 
 /** Label keys and values: short, printable, safe in URLs. */
 const LABEL_KEY = /^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/u;

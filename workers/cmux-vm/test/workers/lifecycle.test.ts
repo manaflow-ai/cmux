@@ -356,7 +356,11 @@ describe("deleteVm", () => {
     expect(t.upstream.callsTo("DELETE", /^\/v5\/vms\//).map((call) => call.path)).toEqual([`/v5/vms/${upstreamId}`]);
     expect((await t.request(`/v1/vms/${vmId}`, bearer(key))).status).toBe(404);
     expect((await t.request(`/v1/vms/${vmId}`, bearer(key), { method: "DELETE" })).status).toBe(404);
-    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.delete", cmuxId: vmId, outcome: "ok" })]);
+    // Refused attempts are audited too, with the public error they got.
+    expect(t.audit).toEqual([
+      expect.objectContaining({ action: "vm.delete", cmuxId: vmId, outcome: "ok" }),
+      expect.objectContaining({ action: "vm.delete", cmuxId: vmId, outcome: "NotFound" }),
+    ]);
   });
 
   it("forgets a VM that is already gone upstream", async () => {
