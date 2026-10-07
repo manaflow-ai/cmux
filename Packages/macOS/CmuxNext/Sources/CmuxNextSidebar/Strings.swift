@@ -49,7 +49,7 @@ enum Strings {
     static func activity(_ state: StatusIndicatorState) -> String? {
         switch state {
         case .idle: nil
-        case .busy: state.progress.map { activityProgress(Int(($0 * 100).rounded())) } ?? activityRunning
+        case .busy, .working: state.progress.map { activityProgress(Int(($0 * 100).rounded())) } ?? activityRunning
         case .paused: activityPaused
         case .waiting: activityNeedsInput
         case .error: activityError
