@@ -27,7 +27,8 @@ mod marquee;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
-#[cfg(feature = "settings")]
+// The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
+#[cfg(all(feature = "settings", not(target_os = "macos")))]
 mod system;
 
 pub use clock::*;
