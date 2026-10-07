@@ -22,15 +22,17 @@ to edit.
 
 The host decides how the real code receives the data:
 
-| helper              | host                                                            | a variant is                                                              |
-| ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `agentPaneEntry`    | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot` |
-| `markdownPageEntry` | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                            |
-| `diffPageEntry`     | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`        |
-| `componentEntry`    | one React component under `UiProvider` and the page base styles | `{ props }`, plus `load: () => import(...)`                               |
-| `nativeEntry`       | the native gallery only (CmuxNextGallery)                       | `{ fixture }`: a repo path of a Swift model's JSON                        |
+| helper               | host                                                            | a variant is                                                              |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `agentPaneEntry`     | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot` |
+| `markdownPageEntry`  | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                            |
+| `diffPageEntry`      | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`        |
+| `settingsPageEntry`  | the settings page on its real mock provider through cmuxPage    | `{ section, focus?, options?, host?, accounts?, steps? }`                 |
+| `passwordsPageEntry` | the passwords page on its real mock provider through cmuxPage   | `{ data, loading?, authenticate?, failure?, steps? }`                     |
+| `componentEntry`     | one React component under `UiProvider` and the page base styles | `{ props }`, plus `load: () => import(...)`                               |
+| `nativeEntry`        | the native gallery only (CmuxNextGallery)                       | `{ fixture }`: a repo path of a Swift model's JSON                        |
 
-For another page (settings, cloud, history and the rest), add a host in `src/gallery/frame/pages.ts`
+For another page (cloud, history and the rest), add a host in `src/gallery/frame/pages.ts`
 on the same pattern: `installMockHost(ops, streams)` from the page's ops, then `import` the page's
 real `main.tsx`. Then add its helper and variant type to `format.ts`.
 
@@ -89,12 +91,14 @@ export default componentEntry<DisclosureProps>({
 
 ## Window mode
 
-Window mode is the default view. The entry renders at its real size in the pane that `Panes`
-selects (`one`: the whole content area; `two`: the left pane; `agent-right`: the right column).
-The window around it has its real size (16:9 by default), and the shell scales the finished
-window down with one transform. A full-page surface (settings, a page tab) uses `one`. The pane
-size comes from the app's metrics (`MetricTunables.swift` for each density), so you add nothing
-for window mode. `component` mode shows the entry alone at a pane width, for close work.
+Window mode is the default view. The surface renders at the real size of its pane: the window
+preset (16:9 by default), the app's metrics (`MetricTunables.swift` for each density: sidebar
+width, titlebar, tab strip, column gap) and `Panes` (`one`: the whole content area; `two`: the
+left of two panes; `agent-right`: the right column) give the pane size. Only the surface is drawn,
+inside a plain neutral frame with a caption (the preset and the pane size in points). Nothing of
+the native window (sidebar, tab strip, title bar) is imitated. The shell scales the finished
+surface down with one transform, so nothing reflows. A full-page surface uses `one`. You add
+nothing for window mode. `component` mode shows the entry at a chosen pane width, for close work.
 
 ## Play steps and checks
 
@@ -144,6 +148,19 @@ numbers) for each case; click a cell for each step's details. A failing play fai
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
+## Settings and passwords
+
+`pages.settings` and `pages.passwords` fill the full content area (`one` in window mode).
+Their width presets exercise narrow and wide standalone panes. Settings variants include every
+section and a focused, customized state for each control group below the initial viewport.
+`steps` open the real controls through DOM events; the host waits for the requested elements
+and fails the stage if an expected form never appears. They do not replace the page components.
+
+Passwords fixtures contain metadata only. This branch has no React import or conflict-review
+screen and no vault-lock screen. The `locked` variant shows the page's authentication-failure
+notice. Reveal, delete confirmation, and export warning/authentication/save panels are native;
+the mock provider exercises their page outcomes without drawing substitute sheets.
+
 ## Coverage
 
 `test/gallery-coverage.test.ts` fails when an exported component or a `PageDescriptor` has no entry
@@ -163,6 +180,7 @@ chat). Do not write those entries yourself.
 
 ## Seeing it
 
+- Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.
 - Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it).
 - Shared: `scripts/gallery-deploy.sh` in hq publishes a build at
   `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/latest/`.

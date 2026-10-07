@@ -1,7 +1,9 @@
 //! `cookies.clear`, scoped as in the app (driver-protocol.md): the target
 //! tab's site (registrable domain), narrowed by exact name, domain and path.
 //! `{ all: true }` and a tab with no site are refused: the cmux backends
-//! share goldens with the app, whose tabs use the person's profile.
+//! share goldens with the app, whose tabs use the person's profile. Every
+//! clear is undoable: the cookies it deletes go to an encrypted backup
+//! first (crate::cookie_backups) and `cookies.restore` puts them back.
 
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::protocol::DriverError;
@@ -59,28 +61,116 @@ impl Inner {
         };
         let text = |name: &str| params.get(name).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (name, domain, path) = (text("name"), text("domain"), text("path"));
-        let cookies = self.conn.call(
-            None,
-            "Storage.getCookies",
-            self.cookie_store(params),
-            INTERNAL_TIMEOUT,
-        )?;
-        for cookie in cookies["cookies"].as_array().into_iter().flatten() {
+        let store = self.cookie_store(params);
+        let cookies =
+            self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
+        let matched: Vec<Value> = cookies["cookies"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|cookie| {
+                let field = |key: &str| cookie[key].as_str().unwrap_or("");
+                on_site(field("domain"), &site)
+                    && name.is_none_or(|n| n == field("name"))
+                    && domain.is_none_or(|d| d == field("domain"))
+                    && path.is_none_or(|p| p == field("path"))
+            })
+            .cloned()
+            .collect();
+        if matched.is_empty() {
+            return Ok(json!({"cleared": 0, "restoreId": null, "site": site}));
+        }
+        // Undoable (private data P2): the backup is written before any
+        // cookie is deleted; no backup, no clear. A full store refuses the
+        // clear (never drops an older backup).
+        let backups = crate::cookie_backups::shared().map_err(backup_failed)?;
+        backups.prune_expired(crate::cookie_backups::now_secs());
+        let record = json!({
+            "site": site,
+            "store": store.get("browserContextId"),
+            "createdAt": (crate::cookie_backups::now_secs() * 1000.0).round(),
+            "cookies": matched,
+        });
+        let plain_len = serde_json::to_vec(&record).map_or(0, |plain| plain.len());
+        if let Some(full) = backups.full(plain_len) {
+            return Err(DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                format!("cookies.clear: {full}"),
+            ));
+        }
+        let restore_id = backups.save(&record).map_err(backup_failed)?;
+        for cookie in &matched {
             let field = |key: &str| cookie[key].as_str().unwrap_or("");
-            if !on_site(field("domain"), &site)
-                || name.is_some_and(|n| n != field("name"))
-                || domain.is_some_and(|d| d != field("domain"))
-                || path.is_some_and(|p| p != field("path"))
-            {
-                continue;
-            }
             self.send(
                 &session,
                 "Network.deleteCookies",
                 json!({"name": field("name"), "domain": field("domain"), "path": field("path")}),
             )?;
         }
-        Ok(Value::Null)
+        Ok(json!({"cleared": matched.len(), "restoreId": restore_id, "site": site}))
+    }
+
+    /// `cookies.restore {restoreId}`: puts back the cookies a clear backed
+    /// up, in the store they came from. A cookie set since the clear (same
+    /// name, domain and path) is kept, not overwritten; a cookie past its
+    /// expiry is left out. The backup is deleted once restored.
+    pub(super) fn cookies_restore(&self, params: &Value) -> Result<Value, DriverError> {
+        let restore_id = params
+            .get("restoreId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| DriverError::invalid("cookies.restore: restoreId must be a string"))?;
+        let backups = crate::cookie_backups::shared().map_err(backup_failed)?;
+        let now = crate::cookie_backups::now_secs();
+        backups.prune_expired(now);
+        let record = backups
+            .load(restore_id)
+            .map_err(|message| DriverError::invalid(format!("cookies.restore: {message}")))?;
+        let store = match record["store"].as_str() {
+            Some(context) => {
+                let open = self
+                    .proxy_contexts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .contains(context);
+                if !open {
+                    return Err(DriverError::invalid(
+                        "cookies.restore: the store these cookies came from is closed",
+                    ));
+                }
+                json!({"browserContextId": context})
+            }
+            None => json!({}),
+        };
+        let current =
+            self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?;
+        let key = |cookie: &Value| {
+            ["name", "domain", "path"].map(|k| cookie[k].as_str().unwrap_or("").to_owned())
+        };
+        let existing: std::collections::HashSet<[String; 3]> =
+            current["cookies"].as_array().into_iter().flatten().map(key).collect();
+        let (mut kept, mut expired) = (0, 0);
+        let mut restore = Vec::new();
+        for cookie in record["cookies"].as_array().into_iter().flatten() {
+            if crate::cookie_backups::expired(cookie, now) {
+                expired += 1;
+            } else if existing.contains(&key(cookie)) {
+                kept += 1;
+            } else {
+                restore.push(cookie_param(cookie));
+            }
+        }
+        if !restore.is_empty() {
+            let mut call = store;
+            call["cookies"] = Value::Array(restore.clone());
+            self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?;
+        }
+        backups.remove(restore_id).map_err(backup_failed)?;
+        Ok(json!({
+            "restored": restore.len(),
+            "kept": kept,
+            "expired": expired,
+            "site": record["site"],
+        }))
     }
 }
 
@@ -119,25 +209,8 @@ fn new_store(inner: &Inner, params: Value, copy: bool) -> Result<String, DriverE
 /// Copies the profile's cookies into `context`, one way.
 fn copy_profile_cookies(inner: &Inner, context: &str) -> Result<(), DriverError> {
     let cookies = inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
-    let copies: Vec<Value> = cookies["cookies"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|cookie| {
-            let mut copy = serde_json::Map::new();
-            for field in COOKIE_PARAMS {
-                if let Some(value) = cookie.get(*field) {
-                    copy.insert((*field).to_owned(), value.clone());
-                }
-            }
-            if cookie["session"] != json!(true)
-                && let Some(expires) = cookie.get("expires")
-            {
-                copy.insert("expires".into(), expires.clone());
-            }
-            Value::Object(copy)
-        })
-        .collect();
+    let copies: Vec<Value> =
+        cookies["cookies"].as_array().into_iter().flatten().map(cookie_param).collect();
     if !copies.is_empty() {
         inner.conn.call(
             None,
@@ -147,6 +220,33 @@ fn copy_profile_cookies(inner: &Inner, context: &str) -> Result<(), DriverError>
         )?;
     }
     Ok(())
+}
+
+/// A `Storage.getCookies` cookie as a `Storage.setCookies` one.
+fn cookie_param(cookie: &Value) -> Value {
+    let mut copy = serde_json::Map::new();
+    for field in COOKIE_PARAMS {
+        if let Some(value) = cookie.get(*field) {
+            copy.insert((*field).to_owned(), value.clone());
+        }
+    }
+    if cookie["session"] != json!(true)
+        && let Some(expires) = cookie.get("expires")
+    {
+        copy.insert("expires".into(), expires.clone());
+    }
+    Value::Object(copy)
+}
+
+/// A clear or restore the backup store could not serve: refused, nothing
+/// deleted.
+fn backup_failed(message: String) -> DriverError {
+    DriverError::new(
+        crate::protocol::ErrorCode::Unsupported,
+        format!(
+            "cookies: the cookie backup is not available, so nothing was cleared or restored: {message}"
+        ),
+    )
 }
 
 /// The fields of a `Storage.getCookies` cookie that `Storage.setCookies`

@@ -106,6 +106,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_build_graph_health.py
 
+      - name: Validate Zig-free fleet step lockfiles
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_zig_free_step_lockfiles.py
+
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workload_profiles.py
@@ -745,6 +749,10 @@ jobs:
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_app_bundle_license_compliance.sh
+
+      - name: Validate shipped libintl check
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_verify_app_libintl.py
 
       - name: Validate unit-test SwiftPM retry guard
         if: ${{ matrix.group == 'app-host-execution' }}

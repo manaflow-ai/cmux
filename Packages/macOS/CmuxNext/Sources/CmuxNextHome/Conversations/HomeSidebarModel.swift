@@ -23,6 +23,11 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     public var isReply: Bool
     /// "1:46 PM", "Yesterday", "Tuesday", "10/1/26".
     public var time: String
+    /// The newest message's time (MessagesLab's sidebar formats its own label).
+    public var lastAt: Date
+    /// The other participants in display order.
+    public var people: [HomeSidebarPerson]
+
     public var unread: Bool
     public var unreadCount: Int
     public var mentions: Int
@@ -74,7 +79,8 @@ extension HomeSidebarItem {
             id: row.id, title: title,
             avatars: others.prefix(row.kind == .group ? 3 : 1).map { HomeAvatar(initials: $0.initials, seed: $0.id.rawValue) },
             isGroup: row.kind == .group, badge: row.kind == .group ? others.first?.initials : nil,
-            preview: preview.text, isReply: preview.isReply, time: time, unread: row.unread > 0, unreadCount: row.unread,
+            preview: preview.text, isReply: preview.isReply, time: time, lastAt: row.timestamp,
+            people: others.map { HomeSidebarPerson(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) }, unread: row.unread > 0, unreadCount: row.unread,
             mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief,
             accessibilityLabel: Self.accessibility(title: title, row: row, preview: preview.text, time: time))
     }
