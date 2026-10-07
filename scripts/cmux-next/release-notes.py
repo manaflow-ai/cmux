@@ -88,6 +88,17 @@ def whats_new_digest(args):
     return document if document["entries"] else None
 
 
+def write_community_summary(digest, args):
+    """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
+    release-notes artifact keeps it and the R2 upload publishes it with the notes."""
+    import community
+    text = community.summary(digest, f"https://cmux.com/whats-new/{digest['version']}")
+    if text:
+        os.makedirs(args.out, exist_ok=True)
+        with open(os.path.join(args.out, f"community-{args.build}.md"), "w", encoding="utf-8") as out:
+            out.write(text)
+
+
 def build(args):
     span = rev_range(args.since, args.head)
     commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
@@ -103,6 +114,7 @@ def build(args):
     digest = whats_new_digest(args)
     if digest is not None:
         notes["whatsNew"] = digest
+        write_community_summary(digest, args)
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, f"{args.build}.json")
     with open(path, "w", encoding="utf-8") as out:
