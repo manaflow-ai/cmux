@@ -27,21 +27,28 @@ public struct CommandRunner: CommandRunning, Sendable {
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
     private let environment: [String: String]
+    /// Optional environment assigned to launched children. `nil` preserves the
+    /// normal Foundation inheritance behavior.
+    private let childEnvironment: [String: String]?
     private let bundledBinPath: String?
     private let fallbackSearchDirectories: [String]
 
     /// Creates a command runner.
     /// - Parameters:
     ///   - environment: The environment whose `PATH` is searched; defaults to the process environment.
+    ///   - childEnvironment: The complete environment assigned to a child, or
+    ///     `nil` to inherit the runner process environment.
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        childEnvironment: [String: String]? = nil,
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
         fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
     ) {
         self.environment = environment
+        self.childEnvironment = childEnvironment
         self.bundledBinPath = bundledBinPath
         self.fallbackSearchDirectories = fallbackSearchDirectories
     }
@@ -81,7 +88,8 @@ public struct CommandRunner: CommandRunning, Sendable {
             let execution = try CommandExecution(
                 executableURL: executableURL,
                 arguments: resolvedArguments,
-                currentDirectoryURL: URL(fileURLWithPath: directory)
+                currentDirectoryURL: URL(fileURLWithPath: directory),
+                environment: childEnvironment
             )
             return await execution.run(timeout: timeout)
         } catch {

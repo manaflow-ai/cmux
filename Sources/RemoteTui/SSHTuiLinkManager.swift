@@ -139,7 +139,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         browser = proxy
         let task = Task {
             try await proxy.start(client: clientURL, arguments: connection.browserArguments(stateDirectory: paths.stateDir.path),
-                                  environment: connection.configuration.sshProcessEnvironment, releaseHub: {})
+                                  environment: connection.sshProcessEnvironment, releaseHub: {})
         }
         browserStarting = task
         defer { if browserStarting == task { browserStarting = nil } }

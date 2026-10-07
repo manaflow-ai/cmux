@@ -7,13 +7,28 @@ import Foundation
 
 /// Stable SSH identity and launch configuration for a cmux-tui session.
 public struct SSHTuiConnection: Sendable {
+    /// Creates an SSH connection description with a stable launch environment.
+    ///
+    /// - Parameters:
+    ///   - configuration: The persisted SSH workspace configuration.
+    ///   - environment: The local environment inherited by SSH children.
     public init(
-        configuration: WorkspaceRemoteConfiguration
+        configuration: WorkspaceRemoteConfiguration,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.configuration = configuration
+        inheritedEnvironment = environment
     }
 
     public let configuration: WorkspaceRemoteConfiguration
+    /// The complete local environment captured for this connection's children.
+    /// Capturing it once keeps route identity and every SSH launch consistent.
+    private let inheritedEnvironment: [String: String]
+
+    /// The local environment used by the carrier, browser proxy and SSH helpers.
+    public var sshProcessEnvironment: [String: String] {
+        configuration.sshProcessEnvironment(inheriting: inheritedEnvironment)
+    }
 
     /// Coding agents whose cmux-tui hooks the host installs on each attach, so
     /// their state reaches the sidebar. Not part of the link identity.
@@ -45,15 +60,13 @@ public struct SSHTuiConnection: Sendable {
         var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
         if includeAgentSocket {
-            if configuration.agentSocketPathOverrideIsSet {
-                if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !agent.isEmpty {
-                    components.append(agent)
-                } else {
-                    components.append("<disabled-agent>")
-                }
+            if let agent = sshProcessEnvironment["SSH_AUTH_SOCK"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !agent.isEmpty {
+                components.append(agent)
+            } else if configuration.agentSocketPathOverrideIsSet {
+                components.append("<disabled-agent>")
             } else {
-                components.append("<inherited-agent>")
+                components.append("<no-agent>")
             }
         }
         return SHA256.hash(data: Data(components.joined(separator: "\0").utf8))

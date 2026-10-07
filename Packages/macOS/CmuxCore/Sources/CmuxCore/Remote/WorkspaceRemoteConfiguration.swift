@@ -504,7 +504,10 @@ extension WorkspaceRemoteConfiguration {
     }
 
     /// Applies the agent override to a complete local child environment.
-    func sshProcessEnvironment(inheriting inherited: [String: String]) -> [String: String] {
+    ///
+    /// - Parameter inherited: The environment captured from the launching app.
+    /// - Returns: The inherited environment with the configured agent override applied.
+    public func sshProcessEnvironment(inheriting inherited: [String: String]) -> [String: String] {
         var environment = inherited
         if let agentSocketPath {
             environment["SSH_AUTH_SOCK"] = agentSocketPath

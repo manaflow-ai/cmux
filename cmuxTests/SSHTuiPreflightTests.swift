@@ -53,6 +53,24 @@ struct SSHTuiPreflightTests {
         #expect(firstPath != secondPath)
     }
 
+    @Test("Inherited agent sockets use the same value for the child and route identity")
+    func inheritedAgentSocketIsCapturedPerConnection() throws {
+        let first = SSHTuiConnection(
+            configuration: configuration(identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-a.sock"]
+        )
+        let second = SSHTuiConnection(
+            configuration: configuration(identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-b.sock"]
+        )
+
+        #expect(first.sshProcessEnvironment["SSH_AUTH_SOCK"] == "/tmp/inherited-agent-a.sock")
+        #expect(second.sshProcessEnvironment["SSH_AUTH_SOCK"] == "/tmp/inherited-agent-b.sock")
+        #expect(first.id == second.id)
+        #expect(first.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+            != second.authenticationArguments.first { $0.hasPrefix("ControlPath=") })
+    }
+
     /// Explicit disable must not reuse an inherited-agent control master.
     @Test("An explicitly disabled agent uses a separate route from an inherited agent")
     func disabledAgentDoesNotShareInheritedRoute() throws {

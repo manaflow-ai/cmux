@@ -222,7 +222,7 @@ public actor CloudMachineLink {
             session: route.hasPrefix("ssh://") ? session : nil,
             sshArguments: sshArguments
         )
-        var environment = ssh?.configuration.sshProcessEnvironment
+        var environment = ssh?.sshProcessEnvironment
             ?? ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
         process.environment = environment
