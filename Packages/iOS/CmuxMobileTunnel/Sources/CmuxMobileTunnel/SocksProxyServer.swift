@@ -15,11 +15,13 @@ public final class SocksProxyServer: Sendable {
     public let port: Int
     private let listener: any Channel
     private let relays: TunnelTaskSet
+    private let lifecycle: SocksProxyLifecycle
 
-    private init(port: Int, listener: any Channel, relays: TunnelTaskSet) {
+    private init(port: Int, listener: any Channel, relays: TunnelTaskSet, lifecycle: SocksProxyLifecycle) {
         self.port = port
         self.listener = listener
         self.relays = relays
+        self.lifecycle = lifecycle
     }
 
     /// Starts the proxy on `127.0.0.1:<port>` (`0` picks a free port).
@@ -34,11 +36,18 @@ public final class SocksProxyServer: Sendable {
         onConnect: (@Sendable (String, Int) -> Void)? = nil
     ) async throws -> SocksProxyServer {
         let relays = TunnelTaskSet(limit: maximumConnections)
+        let lifecycle = SocksProxyLifecycle()
         let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
             .childChannelInitializer { inbound in
-                inbound.eventLoop.makeCompletedFuture {
+                guard lifecycle.register(inbound) else {
+                    return inbound.eventLoop.makeCompletedFuture {
+                        inbound.close(promise: nil)
+                    }
+                }
+                return inbound.eventLoop.makeCompletedFuture {
                     try inbound.pipeline.syncOperations.addHandler(
-                        SocksHandshakeHandler(backend: backend, relays: relays, credential: credential, onConnect: onConnect)
+                        SocksHandshakeHandler(backend: backend, relays: relays, lifecycle: lifecycle,
+                                             credential: credential, onConnect: onConnect)
                     )
                 }
             }
@@ -50,7 +59,7 @@ public final class SocksProxyServer: Sendable {
             try? await listener.close()
             throw TunnelOpenError.generalFailure
         }
-        return SocksProxyServer(port: bound, listener: listener, relays: relays)
+        return SocksProxyServer(port: bound, listener: listener, relays: relays, lifecycle: lifecycle)
     }
 
     /// Whether the listener still accepts (iOS can invalidate listeners of a
@@ -64,8 +73,67 @@ public final class SocksProxyServer: Sendable {
 
     /// Stops accepting and aborts every open tunnel.
     public func stop() async {
+        await lifecycle.stop()
         try? await listener.close()
         await relays.cancelAll()
+    }
+}
+
+/// Shared lifecycle state for a proxy listener and all of its child channels.
+///
+/// The listener can be closed while an accepted channel is still in the
+/// SOCKS handshake. Keep those channels in the same stop domain so stopping a
+/// route cannot leave a handshake alive long enough to open a new backend
+/// connection. This is deliberately lock-based: child-channel initialization
+/// happens on an NIO event loop while `stop()` runs from an async caller.
+final class SocksProxyLifecycle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    private var channels: [ObjectIdentifier: any Channel] = [:]
+
+    /// Registers an accepted child. Returns false when stop has already begun.
+    @discardableResult
+    func register(_ channel: any Channel) -> Bool {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            channel.close(promise: nil)
+            return false
+        }
+        channels[ObjectIdentifier(channel)] = channel
+        lock.unlock()
+        return true
+    }
+
+    func unregister(_ channel: any Channel) {
+        lock.lock()
+        channels[ObjectIdentifier(channel)] = nil
+        lock.unlock()
+    }
+
+    var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    /// Marks the listener stopped and closes every handshake channel that was
+    /// accepted before the stop. New child channels are rejected by register.
+    func stop() async {
+        let channels = takeStopChannels()
+
+        for channel in channels {
+            try? await channel.close().get()
+        }
+    }
+
+    private func takeStopChannels() -> [any Channel] {
+        lock.lock()
+        stopped = true
+        let channels = Array(self.channels.values)
+        self.channels.removeAll()
+        lock.unlock()
+        return channels
     }
 }
 
@@ -80,15 +148,18 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     private let backend: any SocksConnectBackend
     private let relays: TunnelTaskSet
+    private let lifecycle: SocksProxyLifecycle
     private let credential: SocksCredential?
     private let onConnect: (@Sendable (String, Int) -> Void)?
     private var state = State.greeting
     private var pending: [UInt8] = []
 
-    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, credential: SocksCredential?,
+    init(backend: any SocksConnectBackend, relays: TunnelTaskSet, lifecycle: SocksProxyLifecycle,
+         credential: SocksCredential?,
          onConnect: (@Sendable (String, Int) -> Void)?) {
         self.backend = backend
         self.relays = relays
+        self.lifecycle = lifecycle
         self.credential = credential
         self.onConnect = onConnect
     }
@@ -112,6 +183,11 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
     func channelReadComplete(context: ChannelHandlerContext) {
         // Keep pulling until the request is complete.
         if state == .greeting || state == .authentication || state == .request { context.read() }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        lifecycle.unregister(context.channel)
+        context.fireChannelInactive()
     }
 
     private func advance(context: ChannelHandlerContext) {
@@ -195,8 +271,13 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
         let channel = context.channel
         let backend = backend
         let relays = relays
+        let lifecycle = lifecycle
         let handler = UncheckedSendableBox(self)
         let body: @Sendable () async -> Void = { [pendingAtOpen = pending] in
+            guard !lifecycle.isStopped else {
+                try? await channel.close().get()
+                return
+            }
             let exit: any TunnelByteStream
             do {
                 exit = try await backend.open(host: host, port: port)
@@ -205,15 +286,24 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                 _ = try? await channel.eventLoop.submit { handler.value.fail(reply, channel: channel) }.get()
                 return
             }
+            guard !lifecycle.isStopped else {
+                await exit.close()
+                try? await channel.close().get()
+                return
+            }
             // Reply, then swap the handshake handler for the byte adapter;
             // the success reply is queued ahead of any relayed byte.
             let inbound: NIOChannelByteStream
             do {
                 inbound = try await channel.eventLoop.submit { () throws -> NIOChannelByteStream in
+                    guard !lifecycle.isStopped, channel.isActive else {
+                        throw TunnelOpenError.unavailable
+                    }
                     handler.value.state = .done
                     let reply = SocksReply.succeeded.message(allocator: channel.allocator)
                     channel.writeAndFlush(reply, promise: nil)
                     let stream = try NIOChannelByteStream.installSync(on: channel, leftover: pendingAtOpen)
+                    lifecycle.unregister(channel)
                     channel.pipeline.removeHandler(handler.value, promise: nil)
                     return stream
                 }.get()

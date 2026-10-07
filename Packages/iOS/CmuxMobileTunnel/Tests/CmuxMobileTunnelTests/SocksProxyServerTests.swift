@@ -197,6 +197,25 @@ import Testing
         #expect(backend.exits.first?.closed == true)
         #expect(!proxy.isListening)
     }
+
+    @Test(.timeLimit(.minutes(1))) func stopClosesHandshakeBeforeItCanOpenBackend() async throws {
+        let backend = ScriptedBackend()
+        let proxy = try await SocksProxyServer.start(backend: backend)
+        let fd = try RawClient.connect(port: proxy.port)
+        defer { close(fd) }
+
+        // Leave this client between the greeting and CONNECT request. Closing
+        // only the listener would leave the accepted handshake alive, letting
+        // the request below open a backend after stop returned.
+        RawClient.send(fd, [5, 1, 0])
+        #expect(RawClient.receive(fd, count: 2) == [5, 0])
+        await proxy.stop()
+
+        RawClient.send(fd, RawClient.socksConnect(host: "localhost", port: 3000))
+        let rest = await Task.detached { RawClient.receiveAll(fd) }.value
+        #expect(rest.isEmpty)
+        #expect(backend.opens.isEmpty)
+    }
 }
 
 final class Recorder: @unchecked Sendable {

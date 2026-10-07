@@ -92,6 +92,8 @@ final class ScriptedBackend: SocksConnectBackend, @unchecked Sendable {
 enum RawClient {
     static func connect(port: Int) throws -> Int32 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         var address = sockaddr_in()
