@@ -4,6 +4,9 @@
 
 use super::*;
 
+#[cfg(unix)]
+mod dev_orphan_exit;
+
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,

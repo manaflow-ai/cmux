@@ -15751,6 +15751,9 @@ mod loopback_forward_tests;
 mod image_paste_tests;
 
 #[cfg(test)]
+#[path = "server/orphan_shutdown_tests.rs"]
+mod orphan_shutdown_tests;
+#[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
 
