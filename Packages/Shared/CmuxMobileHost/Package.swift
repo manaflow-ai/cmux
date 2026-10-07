@@ -37,6 +37,7 @@ let package = Package(
             dependencies: [
                 "CmuxMobileHost",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),

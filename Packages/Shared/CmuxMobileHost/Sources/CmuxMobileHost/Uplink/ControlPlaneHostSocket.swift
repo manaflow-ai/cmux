@@ -20,7 +20,26 @@ public final class ControlPlaneHostSocket: HostControlSocket {
                 guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)), value.objectValue != nil else {
                     continue
                 }
-                continuation.yield(value)
+                // A host socket carries snapshots, signals and read results. Dropping an
+                // arbitrary frame when the bounded inbox is full can strand a TURN read or
+                // lose a signaling message with no sequence number to trigger repair. Close
+                // the connection and let the uplink reconnect instead; mirrored streams then
+                // resume from their cursors and pending reads fail/retry at their caller.
+                switch continuation.yield(value) {
+                case .dropped:
+                    await connection.close(code: 1013)
+                    continuation.finish()
+                    return
+                case .terminated:
+                    await connection.close(code: 1000)
+                    return
+                case .enqueued:
+                    continue
+                @unknown default:
+                    await connection.close(code: 1013)
+                    continuation.finish()
+                    return
+                }
             }
             continuation.finish()
         }
