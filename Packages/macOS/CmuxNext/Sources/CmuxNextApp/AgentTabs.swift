@@ -119,6 +119,8 @@ final class AgentTabStore {
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
+    /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
+    var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
@@ -238,7 +240,7 @@ final class AgentTabStore {
         let model = AgentPaneModel(
             host: host,
             sessionId: sessions[key] ?? record.session,
-            seed: seeds.removeValue(forKey: key),
+            seed: seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store),
             newTab: newTabPages[key]?.page,
             allowsTabConversion: true
         )

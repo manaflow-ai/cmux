@@ -498,7 +498,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       <span>{entry.name}</span>
                       {folderNote(entry) && <span className="acpmux-menu-description">{folderNote(entry)}</span>}
                       {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                    </PickerOption>
+                    </PickerOption>,
                   ])}
                 </div>
               </PickerOptionList>
