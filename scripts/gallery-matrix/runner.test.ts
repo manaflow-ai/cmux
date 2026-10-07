@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { PNG } from "pngjs";
 import { deleteLedgerIds, diffPng, parseManifest, shardCases, writeLedger } from "./runner";
 
@@ -27,11 +26,12 @@ test("computes a pixel diff and threshold percentage", () => {
 });
 
 test("ledger cleanup deletes exact recorded ids without listing", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "gallery-ledger-")); const path = join(dir, "ledger.json");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-ledger-")); const path = join(dir, "ledger.json");
   writeLedger(path, { runId: "test", createdAt: new Date().toISOString(), vmIds: ["vm-exact"], deletedVmIds: [] });
   const deleted: string[] = []; let listed = false;
   await deleteLedgerIds(path, async (id) => { deleted.push(id); });
   expect(deleted).toEqual(["vm-exact"]);
   expect(listed).toBe(false);
   expect(readFileSync(path, "utf8")).toContain("vm-exact");
+  rmSync(dir, { recursive: true, force: true });
 });
