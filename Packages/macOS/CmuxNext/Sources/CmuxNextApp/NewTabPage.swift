@@ -276,7 +276,7 @@ extension NewTabPage {
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        guard let inputToken = services.keyRouter.beginNewTabInput(for: pane) else {
+        guard let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane) else {
             openingPanes.remove(openingKey)
             return
         }
@@ -288,7 +288,7 @@ extension NewTabPage {
         }
         handler.inputReady = { [weak pane] _, token in
             guard let pane else { return }
-            pane.services.keyRouter.acknowledgeNewTabInput(token, in: pane.view.window)
+            pane.services.keyRouter.newTabInputCoordinator.acknowledge(token, in: pane.view.window)
         }
         let spare = seed == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
@@ -296,7 +296,7 @@ extension NewTabPage {
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
             openingPanes.remove(openingKey)
-            services.keyRouter.cancelNewTabInput(in: pane.view.window)
+            services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
             return
         }
         openingPanes.remove(openingKey)
@@ -318,7 +318,7 @@ extension NewTabPage {
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
         let services = pane.services
-        services.keyRouter.cancelNewTabInput(in: pane.view.window)
+        services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).

@@ -1,50 +1,51 @@
 import AppKit
 
-extension KeyRouter {
-    /// Starts capturing at the action, while the previous tab may still be first responder.
-    func beginNewTabInput(for pane: PaneController) -> String? {
-        guard let window = pane.view.window else { return nil }
-        // One opening owns a window's pre-first-responder queue. Serialize a
-        // second Cmd-T in another pane until the first opening settles rather
-        // than allowing the queues to overwrite each other.
-        guard newTabInput[window.windowNumber] == nil else { return nil }
+/// Owns the short interval between Cmd-T and the New Tab field's readiness acknowledgement.
+@MainActor
+final class NewTabInputCoordinator {
+    weak var router: KeyRouter?
+    private var buffers: [Int: NewTabInputBuffer] = [:]
+
+    init(router: KeyRouter) { self.router = router }
+
+    func begin(for pane: PaneController) -> String? {
+        guard let router, let window = pane.view.window, buffers[window.windowNumber] == nil else { return nil }
         let buffer = NewTabInputBuffer(focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey,
                   pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window else { return false }
             return window.makeFirstResponder(view.webView)
-        }, deliver: { [weak self, weak window] event in
-            guard let self, let window else { return }
-            self.dispatchingSynthetic(event) {
-                if !self.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }, deliver: { [weak router, weak window] event in
+            guard let router, let window else { return }
+            router.dispatchingSynthetic(event) {
+                if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
         })
-        newTabInput[window.windowNumber] = buffer
+        buffers[window.windowNumber] = buffer
         return buffer.token
     }
 
-    func cancelNewTabInput(in window: NSWindow?) {
+    func cancel(in window: NSWindow?) {
         guard let window else { return }
-        newTabInput[window.windowNumber] = nil
+        buffers[window.windowNumber] = nil
     }
 
-    func captureNewTabInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, !Self.isChord(event.modifierFlags),
-              (Self.isPrintable(event) || event.keyCode == Self.deleteKeyCode) else { return false }
-        let (controller, kind) = focus(for: window)
+    func capture(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard let router, let window, !KeyRouter.isChord(event.modifierFlags),
+              (KeyRouter.isPrintable(event) || event.keyCode == KeyRouter.deleteKeyCode) else { return false }
+        let (controller, kind) = router.focus(for: window)
         guard kind == .content, controller != nil else { return false }
-        return newTabInput[window.windowNumber]?.capture(event) ?? false
+        return buffers[window.windowNumber]?.capture(event) ?? false
     }
 
-    func acknowledgeNewTabInput(_ token: String, in window: NSWindow?) {
+    func acknowledge(_ token: String, in window: NSWindow?) {
         guard let window else { return }
-        newTabInput[window.windowNumber]?.acknowledge(token)
-        flushNewTabInput(in: window)
+        buffers[window.windowNumber]?.acknowledge(token)
+        flush(in: window)
     }
 
-    func flushNewTabInput(in window: NSWindow?) {
-        guard let window, let buffer = newTabInput[window.windowNumber], buffer.drain() else { return }
-        // A replayed Cmd-T can create the next opening; it keeps its own queue.
-        if newTabInput[window.windowNumber] === buffer { newTabInput[window.windowNumber] = nil }
+    func flush(in window: NSWindow?) {
+        guard let window, let buffer = buffers[window.windowNumber], buffer.drain() else { return }
+        if buffers[window.windowNumber] === buffer { buffers[window.windowNumber] = nil }
     }
 }
