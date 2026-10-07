@@ -11,7 +11,7 @@ import { Effect, Option } from "effect";
 import { CmuxVmApi, Vm, type VmState } from "../api.ts";
 import { CurrentPrincipal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
-import { missingScope, notImplemented, unavailable, vmNotFound } from "../errors.ts";
+import { missingScope, notImplemented, type NotFound, type ServiceUnavailable, unavailable, vmNotFound } from "../errors.ts";
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -43,7 +43,7 @@ const requireScope = (scope: Scope) =>
   );
 
 /** Logs which dependency failed (operation tag only, never ids or causes) and answers 503. */
-const storeUnavailable = (error: { readonly operation: string }) =>
+const storeUnavailable = (error: { readonly operation: string }): Effect.Effect<never, ServiceUnavailable> =>
   Effect.logWarning("cmux-vm dependency unavailable").pipe(
     Effect.annotateLogs({ operation: error.operation }),
     Effect.zipRight(Effect.fail(unavailable())),
@@ -87,7 +87,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:read", (vm, proofs) =>
           upstream.getVm(vm, proofs).pipe(
             Effect.map((found) => toVm(vm.value, found)),
-            Effect.catchAll((error) =>
+            Effect.catchAll((error): Effect.Effect<never, NotFound | ServiceUnavailable> =>
               error.status === 404 ? Effect.fail(vmNotFound()) : storeUnavailable({ operation: `upstream.${error.operation}.${error.status ?? "network"}` }),
             ),
           ),

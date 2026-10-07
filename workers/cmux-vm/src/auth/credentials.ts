@@ -75,7 +75,7 @@ const looksLikeCompactJws = (value: string): boolean => {
 const JWKS_MAX_AGE_MS = 10 * 60 * 1000;
 const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
 
-const optionalString = Schema.optional(Schema.String);
+const optionalString = Schema.optionalWith(Schema.String, { exact: true });
 /** The public JWK fields jose reads for ES256 (and RSA, for completeness). */
 const Jwk = Schema.Struct({
   kty: optionalString,
