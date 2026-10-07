@@ -39,19 +39,29 @@ test("a card from reply text or shell output renders no frame and loads nothing"
   expect(html).toContain(">Load preview</button>");
 });
 
-test("the frame loads the page's root only after a click, without forms", async () => {
+// The click is the reader's consent: it loads the address the card shows (hqacp-v4 loaded "/", a
+// directory listing, for /preview.html), on the same loopback host and port, still without forms.
+test("the frame loads the address the card shows only after a click, without forms", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const opened: string[] = [];
   await act(async () =>
-    root.render(createElement(PreviewCard, { url: "http://127.0.0.1:3000/admin", onOpen: (u) => opened.push(u) })),
+    root.render(
+      createElement(PreviewCard, {
+        url: "http://127.0.0.1:3000/preview.html?tab=1#top",
+        onOpen: (u) => opened.push(u),
+      }),
+    ),
   );
   expect(container.querySelector("iframe")).toBeNull();
   const load = container.querySelector<HTMLButtonElement>(".acpmux-turn-preview-load")!;
   expect(load.textContent).toBe("Load preview");
   await act(async () => load.click());
   const frame = container.querySelector("iframe")!;
-  expect(frame.getAttribute("src")).toBe("http://127.0.0.1:3000/");
+  expect(container.querySelector(".acpmux-turn-preview-address")!.textContent).toBe(
+    "127.0.0.1:3000/preview.html?tab=1",
+  );
+  expect(frame.getAttribute("src")).toBe("http://127.0.0.1:3000/preview.html?tab=1");
   expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin");
   // Loading is not opening: the host was asked for nothing.
   expect(opened).toEqual([]);

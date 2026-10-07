@@ -343,7 +343,9 @@ export function Composer({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (blocked) return false;
-    const prompt = unwrapped().trim();
+    // The field holds markdown with its typed text escaped; the agent gets the text as typed.
+    const draftText = unwrapped();
+    const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;

@@ -40,8 +40,9 @@ final class AppServices {
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
-    /// SSH machines (Connect to Machine…).
+    /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) var ssh: SSHService!
+    private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
@@ -93,8 +94,7 @@ final class AppServices {
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
-    private(set) lazy var serverMenuBar = ServerMenuBarController(makeSource: { [unowned self] in
-        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [weak self] in self?.home.refreshChiefTab() }) })
+    private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -122,9 +122,7 @@ final class AppServices {
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) var configActions: ConfigActionsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
-    private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry, showHideEnabled: { [weak self] in
-        self?.settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyFallback
-    })
+    private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
