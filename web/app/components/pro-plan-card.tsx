@@ -13,7 +13,6 @@ export type ProAnnualLabels = {
   yearly: string;
   monthly: string;
   perMonth: string;
-  billedYearlySaving: string;
 };
 
 /**
@@ -122,20 +121,14 @@ export function ProPlanCard({
       </div>
       <div className="mt-3">
         {action ?? (
-          <>
-            <ProCtaLink
-              checkoutHref={checkoutHrefs[interval]}
-              requiresSignIn={requiresSignIn}
-              interval={interval}
-              location={location}
-            >
-              {ctaLabel}
-            </ProCtaLink>
-            {/* Reserved in both periods so the card keeps its height. */}
-            <p className="mt-2 min-h-5 text-sm text-muted">
-              {interval === "year" ? labels.billedYearlySaving : null}
-            </p>
-          </>
+          <ProCtaLink
+            checkoutHref={checkoutHrefs[interval]}
+            requiresSignIn={requiresSignIn}
+            interval={interval}
+            location={location}
+          >
+            {ctaLabel}
+          </ProCtaLink>
         )}
       </div>
       {children}

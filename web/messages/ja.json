@@ -1761,8 +1761,7 @@
         "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
       ],
       "annual": {
-        "yearly": "年払い",
-        "billedYearlySaving": "年額${amount}を一括請求（{percent}%お得）"
+        "yearly": "年払い"
       }
     },
     "max": {
