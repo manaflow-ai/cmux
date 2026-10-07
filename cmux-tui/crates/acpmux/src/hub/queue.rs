@@ -3,6 +3,18 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// A prompt waiting for the running turn to end.
+#[derive(Debug, Clone)]
+pub struct QueuedPrompt {
+    pub prompt_id: String,
+    pub turn_id: String,
+    pub client: String,
+    pub preview: String,
+    pub queued_at: u64,
+    /// Fired by `remove_queued`: the waiting `session/prompt` answers withdrawn at once.
+    pub(super) withdraw: Arc<Notify>,
+}
+
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
 pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
     json!({

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">Markdown image showcase</title>
+  <desc id="desc">A dark blue banner with three colored shapes and labels for text, math, and diagrams.</desc>
+  <rect width="960" height="240" rx="24" fill="#101827"/>
+  <circle cx="108" cy="120" r="52" fill="#a78bfa"/>
+  <rect x="188" y="68" width="104" height="104" rx="20" fill="#34d399"/>
+  <path d="M372 62L436 176H308Z" fill="#fbbf24"/>
+  <text x="480" y="108" font-family="sans-serif" font-size="36" font-weight="700" fill="#f8fafc">Markdown showcase</text>
+  <text x="480" y="152" font-family="sans-serif" font-size="22" fill="#cbd5e1">Text · Math · Diagrams · Media</text>
+</svg>

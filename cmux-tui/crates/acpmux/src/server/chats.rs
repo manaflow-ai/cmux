@@ -12,6 +12,10 @@
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
+//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots}`: the
+//!   app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`);
+//!   answers the roots view with `applied: true`. While chats are off,
+//!   `_acpmux/chats` answers `enabled: false` and no chats.
 //!
 //! Titles and folders are user data (C5): only the local unix socket gets
 //! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
@@ -114,6 +118,21 @@ pub(super) async fn route(
             })
             .await
         }
+        "_acpmux/chat_settings" => {
+            let settings = crate::chats::ChatSettings::from_params(&params)
+                .map_err(RpcError::invalid_params)?;
+            let hub = hub.clone();
+            blocking(move || {
+                let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
+                let mut view = match hub.chat_index() {
+                    Some(service) if running => service.roots_view(),
+                    _ => json!({"ready": false}),
+                };
+                view["applied"] = json!(true);
+                Ok(view)
+            })
+            .await
+        }
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -124,7 +143,8 @@ async fn page(service: Option<Arc<ChatService>>, query: ChatQuery) -> Result<Val
     };
     blocking(move || {
         let (chats, next) = service.list(&query);
-        Ok(json!({"ready": true, "chats": chats, "nextCursor": next}))
+        let enabled = service.enabled();
+        Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next}))
     })
     .await
 }

@@ -57,7 +57,8 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
-| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; the 69f4256 menu and delete strings carry all 21 app languages (upstream has en and ja) |
+| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; every string carries all 21 app languages (upstream has en and ja; the rest machine translated, `needs_review`) |
+| AppKitNative.xcstrings | every string in all 21 app languages (machine translated, `needs_review`); `check-l10n.sh` scans this package's tables |
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |

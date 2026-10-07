@@ -101,7 +101,7 @@ export default agentPaneEntry({
     "queued-send-remove": {
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
-      answers: { "chat.queue.remove": { removed: true } },
+      native: { "chat.queue.remove": { removed: true } },
       then: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
