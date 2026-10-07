@@ -1,10 +1,22 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
-// Leo (T3 Code ref, 2026-10-07): while the window shows a full-page
-// destination (`SidebarModel.showsBack`), the footer band gives way to one
-// wide Back button in the same spot, a universal way back to where you were.
+// The footer: its accessory slots, and Back. Leo (T3 Code ref, 2026-10-07):
+// while the window shows a full-page destination (`SidebarModel.showsBack`),
+// the footer band gives way to one wide Back button in the same spot, a
+// universal way back to where you were.
 extension SidebarView {
+    /// Installs (or removes, with nil) the view in a footer slot.
+    public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
+        accessories[slot]?.removeFromSuperview()
+        accessories[slot] = view
+        if let view {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            footer.addSubview(view)
+        }
+        needsLayout = true
+    }
+
     func installBackButton() {
         backButton.isHidden = true
         backButton.onPress = { [weak self] in self?.model.onBack?() }
