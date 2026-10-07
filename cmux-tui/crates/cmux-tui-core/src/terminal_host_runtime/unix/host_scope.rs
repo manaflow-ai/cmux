@@ -20,6 +20,10 @@
 //! failed move is reported once and the host keeps running in the daemon's
 //! unit, as before.
 
+#[cfg(target_os = "linux")]
+#[path = "host_scope_watch.rs"]
+mod watch;
+
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -99,16 +103,29 @@ pub(crate) fn place_host(pid: u32) {
         sudo
     };
     command.args(busctl_args(pid)).stdin(Stdio::null()).stdout(Stdio::null());
+    // Arm the cgroup watches before the request, so the move's events
+    // cannot be missed (host_scope_watch.rs).
+    #[cfg(target_os = "linux")]
+    let watch = watch::PlacementWatch::new(
+        std::path::Path::new("/sys/fs/cgroup"),
+        HOST_SLICE,
+        &scope_unit(pid),
+    );
     let result = command.stderr(Stdio::piped()).output();
     let failure = match result {
         Ok(output) if output.status.success() => {
             // StartTransientUnit only queues the job. The host must not get
             // Launch (and fork its shell) before the move is done, or the
             // shell stays in the daemon unit. Bounded; fail open.
-            if wait_until_placed(pid) {
+            #[cfg(target_os = "linux")]
+            let waited = watch.and_then(|watch| watch.wait(PLACEMENT_WAIT));
+            #[cfg(not(target_os = "linux"))]
+            let waited: Result<(), &str> = Ok(());
+            let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+            if cgroup_names_scope(&cgroup, pid) {
                 return;
             }
-            format!("the scope did not take the host within {PLACEMENT_WAIT:?}")
+            format!("the scope did not take the host within {PLACEMENT_WAIT:?} ({waited:?})")
         }
         Ok(output) => {
             format!("{}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim())
@@ -128,21 +145,6 @@ pub(crate) fn place_host(pid: u32) {
 fn cgroup_names_scope(cgroup: &str, pid: u32) -> bool {
     let scope = format!("/{}", scope_unit(pid));
     cgroup.lines().any(|line| line.trim_end().ends_with(&scope))
-}
-
-/// Wait until the host's cgroup names its scope, at most PLACEMENT_WAIT.
-fn wait_until_placed(pid: u32) -> bool {
-    let deadline = std::time::Instant::now() + PLACEMENT_WAIT;
-    loop {
-        let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
-        if cgroup_names_scope(&cgroup, pid) {
-            return true;
-        }
-        if std::time::Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
 }
 
 #[cfg(test)]
