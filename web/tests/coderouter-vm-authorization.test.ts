@@ -59,7 +59,7 @@ describe("signed VM authorization", () => {
     const tokens = [
       valid.slice(0, valid.lastIndexOf(".") + 1) + "A".repeat(43),
       await arbitraryToken({ aud: "other" }), await arbitraryToken({ iss: "other" }),
-      await arbitraryToken({ exp: now - 1 }), await arbitraryToken({ iat: now + 60 }),
+      await arbitraryToken({ iat: now + 60 }),
       await arbitraryToken({ exp: now + VM_AUTHORIZATION_LIFETIME_SECONDS + 1 }),
       await arbitraryToken({ iat: null }), await arbitraryToken({ exp: null }),
       await arbitraryToken({ vm_id: "" }), await arbitraryToken({ team_id: null }),
@@ -72,6 +72,20 @@ describe("signed VM authorization", () => {
       expect((await authenticateRequestRouteToken(request(token), async () => { lookups++; return identity; })).ok).toBe(false);
       expect(lookups).toBe(0);
     }
+  });
+
+  test("a machine's credential outlives its exp claim; only the database row ends it", async () => {
+    // The edge injects this header from a rule fixed at create, so a running
+    // machine can never receive a fresh token. Expiry by clock cut every
+    // machine older than the lifetime off coderouter and its reflection API.
+    const token = await arbitraryToken({ iat: now - 40 * 24 * 60 * 60, exp: now - 10 * 24 * 60 * 60 });
+    expect((await verifyVmAuthorization(token))?.vm_id).toBe("vm-1");
+    let lookups = 0;
+    const live = await authenticateRequestRouteToken(request(token), async () => { lookups++; return identity; });
+    expect(live.ok).toBe(true);
+    expect(lookups).toBe(1);
+    // Revoked, or the machine is no longer live: the lookup finds no row.
+    expect((await authenticateRequestRouteToken(request(token), async () => null)).ok).toBe(false);
   });
 
   test("a VM A token cannot authorize a VM B or different-owner database row", async () => {

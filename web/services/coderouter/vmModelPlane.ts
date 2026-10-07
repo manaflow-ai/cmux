@@ -9,12 +9,16 @@
 // differs from the binding, so a rule cannot be reused for another machine.
 //
 // Provisioning is mandatory: a coderouter outage fails the create and the
-// workflow rolls the machine back. There is no plan or entitlement gate;
+// workflow rolls the machine back. Outside production a machine is wired
+// only when CMUX_CODEROUTER_EDGE_ORIGIN names a reachable origin (see
+// resolveEdgeOrigin). There is no plan or entitlement gate;
 // every team member's machine gets a token. The only exception is the
 // local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0, which creates an
 // unwired machine (no env, no rule, still no secret). Never set it in
-// production. Tokens expire and are revocable; signing keys rotate through the
-// configured key-version map.
+// production. The edge rule cannot change on a running machine, so a token
+// lives as long as its machine: revocation (destroy, team removal) and the
+// live-machine check end it, not its `exp` claim. Signing keys rotate through
+// the configured key-version map.
 import { issueVmAuthorizationToken, revokeRouteTokensForVm } from "./repository";
 import { ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "./routeTokenAuth";
 import { VM_AUTHORIZATION_HEADER } from "./vmAuthorization";
@@ -76,16 +80,22 @@ const defaultDependencies: VmModelPlaneDependencies = {
 /**
  * The origin guests dial. An explicit CMUX_CODEROUTER_EDGE_ORIGIN wins; a
  * Vercel preview serves itself (its branch URL), so a PR can be tested end to
- * end without touching production; otherwise coderouter.dev.
+ * end without touching production; production uses coderouter.dev.
+ *
+ * Any other deployment (a dev backend, a local checkout) has no origin: it
+ * signs with its own key and keeps its database private, so production can
+ * verify neither, and the provider edge cannot reach a private host. Its
+ * machines get no edge rule instead of one that sends every guest request to
+ * production with a credential production refuses.
  */
-export function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "edgeOriginEnv" | "vercelEnv" | "vercelBranchUrl">): string {
+export function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "edgeOriginEnv" | "vercelEnv" | "vercelBranchUrl">): string | null {
   const explicit = dependencies.edgeOriginEnv()?.trim();
   if (explicit) return coderouterEdgeOrigin(explicit);
   const branchUrl = dependencies.vercelBranchUrl()?.trim();
   if (dependencies.vercelEnv() === "preview" && branchUrl) {
     return coderouterEdgeOrigin(`https://${branchUrl.replace(/^https?:\/\//, "")}`);
   }
-  return DEFAULT_CODEROUTER_EDGE_ORIGIN;
+  return dependencies.vercelEnv() === "production" ? DEFAULT_CODEROUTER_EDGE_ORIGIN : null;
 }
 
 /** Extra headers the edge must add for the origin to be reachable at all (preview SSO bypass). */
@@ -148,11 +158,17 @@ export async function provisionVmModelPlane(
   input: VmModelPlaneInput,
   dependencies: VmModelPlaneDependencies = defaultDependencies,
 ): Promise<VmModelPlaneProvision> {
-  let origin: string;
+  let origin: string | null;
   try {
     origin = resolveEdgeOrigin(dependencies);
   } catch (err) {
     throw new VmModelPlaneUnavailableError(errorMessage(err), err);
+  }
+  if (origin === null) {
+    console.warn(
+      `[vm] no coderouter edge origin outside production: machine ${input.cloudVmId} gets no model plane. Set ${CODEROUTER_EDGE_ORIGIN_ENV} to a public origin that shares this deployment's signing key and database to wire it.`,
+    );
+    return { edgeRules: [] };
   }
   let token: string;
   try {
