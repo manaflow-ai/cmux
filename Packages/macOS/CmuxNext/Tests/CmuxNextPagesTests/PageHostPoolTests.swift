@@ -59,6 +59,33 @@ struct PageHostPoolTests {
         pool.dropSpare()
     }
 
+    @Test func resettingAnUntouchedHostClearsThePreviousPagesStorage() async throws {
+        let window = Self.window()
+        defer { window.close() }
+        let pool = Self.pool()
+        pool.follow(window)
+        pool.noteLikely()
+        await Self.spareReady(pool)
+
+        let first = try #require(pool.claim(.settings, routes: [], window: window))
+        await first.waitUntilLoaded()
+        _ = try await first.webKitView.callAsyncJavaScript(
+            "localStorage.setItem('reset-secret', 'a'); return localStorage.length;",
+            contentWorld: .page)
+        #expect(!first.touched)
+        pool.release(first)
+        #expect(pool.spareHost === first)
+
+        let second = try #require(pool.claim(.settings, routes: [], window: window))
+        await second.waitUntilLoaded()
+        let count = try await second.webKitView.callAsyncJavaScript(
+            "return localStorage.length;", contentWorld: .page) as? Int
+        #expect(count == 0)
+
+        pool.release(second)
+        pool.dropSpare()
+    }
+
     private static func pool() -> PageHostPool {
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
