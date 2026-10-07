@@ -15,7 +15,9 @@ public import Foundation
 /// redirect hop and for the URL the response came from (an HSTS upgrade
 /// moves a request without a redirect hop), and an `http` URL whose
 /// `https` form it blocks is refused, first or as a hop, since that
-/// upgrade takes the request along before the delegate hears of it. A body larger than `maxBodyBytes` fails the fetch, and so
+/// upgrade takes the request along before the delegate hears of it. The
+/// first URL and each hop are judged again against the current policy in
+/// the step that sends them, after their cookies were read. A body larger than `maxBodyBytes` fails the fetch, and so
 /// does a body that would take the bodies all of the fetcher's requests
 /// hold at once past its `BrowserReplFetchBudget`. A fetch that has not
 /// finished after `resourceTimeout` fails, so a body that never ends (an
