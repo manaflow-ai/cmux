@@ -632,19 +632,23 @@ public final class ConversationStore {
 
     /// The host reports whether this conversation is on screen in a
     /// foreground window. While it is, everything that arrives is read; the
-    /// unread backlog found when viewing begins becomes the catch-up target.
+    /// unread backlog found when the visit begins becomes the catch-up
+    /// target. Going inactive (app switch, occlusion) keeps the visit.
     public func setViewing(_ viewing: Bool) {
         guard viewing != isViewing else { return }
         isViewing = viewing
-        if !viewing {
-            catchUpCaptured = false
-            let hadCatchUp = catchUpMarker != nil
-            catchUpMarker = nil
-            catchUpCount = 0
-            if hadCatchUp { notify(.readState) }
-            return
-        }
-        refreshReadState()
+        if viewing { refreshReadState() }
+    }
+
+    /// The reader left the conversation (back, another conversation
+    /// selected): the catch-up target ends; the next visit finds its own.
+    public func endVisit() {
+        isViewing = false
+        catchUpCaptured = false
+        guard catchUpMarker != nil else { return }
+        catchUpMarker = nil
+        catchUpCount = 0
+        notify(.readState)
     }
 
     /// The reader reached the first unread message (or tapped the arrow).

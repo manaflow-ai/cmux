@@ -31,6 +31,8 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     var titleNameLabel: NSTextField { titleView.nameLabel }
     private var contentItem: NSSplitViewItem!
     private(set) var selected: MacConversationEntry?
+    /// Total unread across conversations (the Dock badge).
+    private(set) lazy var unreadBadge = ConversationUnreadBadge(stores: entries.map(\.store))
 
     init(entries: [MacConversationEntry]) {
         self.entries = entries
@@ -82,12 +84,58 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         addSplitViewItem(contentItem)
         splitView.dividerStyle = .thin
         if let first = entries.first { select(first) }
+        unreadBadge.onChange = { [weak self] in
+            guard let self else { return }
+            MacConversationLab.onUnreadTotalChange?(self.unreadBadge.total)
+        }
+        let center = NotificationCenter.default
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            center.addObserver(self, selector: #selector(viewingConditionsChanged), name: name, object: nil)
+        }
+    }
+
+    private weak var viewingWindow: NSWindow?
+
+    private func observeWindowForViewing() {
+        if let window = view.window, window !== viewingWindow {
+            viewingWindow = window
+            let center = NotificationCenter.default
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
+                center.addObserver(self, selector: #selector(viewingConditionsChanged), name: name, object: window)
+            }
+            center.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: window)
+        }
+        updateViewing()
+    }
+
+    @objc private func viewingConditionsChanged() {
+        updateViewing()
+    }
+
+    @objc private func windowWillClose() {
+        for entry in entries { entry.store.endVisit() }
+    }
+
+    /// Messages reads the selected conversation only while its window is on
+    /// screen in the active app; everything else accumulates unread.
+    private func updateViewing() {
+        let window = view.window
+        let windowShowing = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
+        let active = NSApp.isActive || MacConversationLab.treatsInactiveAsViewing
+        for entry in entries {
+            if entry === selected {
+                entry.store.setViewing(windowShowing && active)
+            } else {
+                entry.store.endVisit()
+            }
+        }
     }
 
     private var didSetInitialSidebarWidth = false
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        observeWindowForViewing()
         guard !didSetInitialSidebarWidth else { return }
         didSetInitialSidebarWidth = true
         // Measured: Messages' sidebar glass panel ends 328 pt from the window edge.
@@ -96,6 +144,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
 
     func select(_ entry: MacConversationEntry) {
         selected = entry
+        updateViewing()
         sidebar.markSelected(entry.id)
         let controller = entry.controller
         controller.onInfoChange = { [weak self, weak entry] info, meID, connected in
@@ -349,7 +398,6 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private var visible: [MacConversationEntry] = []
     private var selectedID: String?
     /// Newest seq each conversation had while it was on screen.
-    private var seenSeq: [String: Int] = [:]
     private let table = NSTableView()
     private let search = NSSearchField()
     private let searchPill = MacFlippedView()
@@ -447,21 +495,10 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         return matching.sorted { lastActivity($0) > lastActivity($1) }
     }
 
-    private func newestIncomingSeq(_ entry: MacConversationEntry) -> Int {
-        entry.store.messages.last { $0.seq != nil && $0.senderID != entry.store.meID }?.seq ?? 0
-    }
-
+    /// The service's read marker decides: a conversation stays unread until it
+    /// is viewed in a foreground window (or read on another device).
     private func isUnread(_ entry: MacConversationEntry) -> Bool {
-        if entry.id == selectedID {
-            seenSeq[entry.id] = newestIncomingSeq(entry)
-            return false
-        }
-        guard let seen = seenSeq[entry.id] else {
-            // Conversations never opened in this window start read.
-            seenSeq[entry.id] = newestIncomingSeq(entry)
-            return false
-        }
-        return newestIncomingSeq(entry) > seen
+        entry.store.unreadCount > 0
     }
 
     private func refresh(changed entry: MacConversationEntry? = nil) {
@@ -506,7 +543,6 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     func markSelected(_ id: String) {
         selectedID = id
         if let index = visible.firstIndex(where: { $0.id == id }) {
-            seenSeq[id] = newestIncomingSeq(visible[index])
             table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
         }
         guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
@@ -694,6 +730,19 @@ final class MacConversationListRowView: NSTableRowView {
 @MainActor
 public enum MacConversationLab {
     private static var windows: [NSWindowController] = []
+    /// Total unread across the lab's conversations changed (a host's Dock badge).
+    public static var onUnreadTotalChange: (@MainActor (Int) -> Void)?
+    /// Driven runs never activate; their selected conversation still counts as viewed.
+    public static var treatsInactiveAsViewing = false
+
+    /// Unread per conversation and in total, for lab drivers.
+    public static func unreadSummary() -> String {
+        guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return "none" }
+        let parts = split.entries.map { "\($0.id)=\($0.store.unreadCount)" }
+        let window = split.view.window
+        let state = "window visible=\(window?.isVisible ?? false) occluded=\(!(window?.occlusionState.contains(.visible) ?? false)) active=\(NSApp.isActive)"
+        return (parts + ["total=\(split.unreadBadge.total)", state]).joined(separator: " ")
+    }
 
     /// Reads `CMUX_UITEST_CONVERSATION_LAB` (a conversation-sim WebSocket URL).
     public static func openIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) {

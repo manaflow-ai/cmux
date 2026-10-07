@@ -80,6 +80,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var swipeRowID: String?
     private var timestampsRevealed: CGFloat = 0
 
+    /// Messages' "Go Up" button (see the catch-up extension below).
+    private let catchUpButton = NSButton()
+
     public init(store: ConversationStore, serviceTitle: String = "iMessage") {
         self.store = store
         self.serviceTitle = serviceTitle
@@ -156,6 +159,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
+        installCatchUp()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
     }
@@ -309,7 +313,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         } else if origin + scrollView.contentInsets.top > scrollView.contentSize.height * 3 {
             store.olderNoLongerWanted()
         }
-        if isNearBottom(60) { store.markNewestRead() }
+        // Reading follows viewing (the window marks the store viewed), not
+        // scroll position: Messages reads the whole conversation on open.
+        updateCatchUp()
     }
 
     private struct Anchor {
@@ -351,6 +357,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
         if case .connection = change { return }
+        if case .readState = change { updateCatchUp(); return }
+        defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
         #if DEBUG
@@ -1085,6 +1093,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
         guard let verb = parts.first else { return "error empty" }
         let argument = parts.count > 1 ? parts[1] : ""
+        if let reply = catchUpLabCommand(verb) { return reply }
         switch verb {
         case "type":
             view.window?.makeFirstResponder(composer.textView)
@@ -1846,6 +1855,103 @@ final class MacMenuBubbleHighlight: NSObject, NSMenuDelegate {
 
     nonisolated func menuDidClose(_ menu: NSMenu) {
         MainActor.assumeIsolated { end() }
+    }
+}
+// MARK: - Catch-up
+
+/// Messages' "Go Up" button: selecting a conversation with unread messages
+/// lands on the newest one and offers a glass up-arrow in the transcript's
+/// top-right corner that jumps to the first unread message. It leaves once
+/// that message has been on screen.
+extension MacConversationViewController {
+    fileprivate func installCatchUp() {
+        let label = String(localized: "conversation.catchUp.label", defaultValue: "Jump to First Unread Message", bundle: .module)
+        catchUpButton.image = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        catchUpButton.imagePosition = .imageOnly
+        if #available(macOS 26.0, *) {
+            catchUpButton.bezelStyle = .glass
+            catchUpButton.borderShape = .circle
+        } else {
+            catchUpButton.bezelStyle = .circular
+        }
+        catchUpButton.controlSize = .large
+        catchUpButton.contentTintColor = .systemBlue
+        catchUpButton.target = self
+        catchUpButton.action = #selector(catchUpClicked)
+        catchUpButton.setAccessibilityLabel(label)
+        catchUpButton.setAccessibilityIdentifier("conversation.catchUp")
+        catchUpButton.toolTip = label
+        catchUpButton.isHidden = true
+        catchUpButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(catchUpButton)
+        NSLayoutConstraint.activate([
+            catchUpButton.widthAnchor.constraint(equalToConstant: 32),
+            catchUpButton.heightAnchor.constraint(equalToConstant: 32),
+            catchUpButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            catchUpButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+        ])
+    }
+
+    /// Hides the arrow once the first unread message reaches the visible
+    /// transcript; shows it while that message is above (or not yet loaded).
+    fileprivate func updateCatchUp() {
+        guard store.catchUpMarker != nil, hasPositioned else {
+            setCatchUpVisible(false)
+            return
+        }
+        if let target = store.catchUpTarget, let index = rowIndex[target.rowID] {
+            let visibleTop = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
+            if tableView.rect(ofRow: index).maxY > visibleTop {
+                store.dismissCatchUp()
+                setCatchUpVisible(false)
+                return
+            }
+        }
+        setCatchUpVisible(true)
+    }
+
+    private func setCatchUpVisible(_ visible: Bool) {
+        guard catchUpButton.isHidden == visible else { return }
+        catchUpButton.isHidden = !visible
+    }
+
+    @objc private func catchUpClicked() {
+        catchUpButton.isEnabled = false
+        Task { [weak self] in
+            guard let self else { return }
+            let rowID = await self.store.loadCatchUpTarget()
+            self.catchUpButton.isEnabled = true
+            guard let rowID else { return }
+            self.jumpToRow(rowID)
+        }
+    }
+
+    /// Scrolls so the row sits just under the toolbar.
+    fileprivate func jumpToRow(_ rowID: String) {
+        tableView.layoutSubtreeIfNeeded()
+        guard let index = rowIndex[rowID] else { return }
+        isPinnedToBottom = false
+        let top = scrollView.contentInsets.top
+        let y = min(max(-top, tableView.rect(ofRow: index).minY - top - 8), maxOffset)
+        store.dismissCatchUp()
+        setCatchUpVisible(false)
+        animateScroll(to: NSPoint(x: 0, y: y), duration: 0.35, timing: CAMediaTimingFunction(name: .easeInEaseOut))
+    }
+
+    /// Lab verbs: `catchup` (state), `catchup go`, `unread`.
+    fileprivate func catchUpLabCommand(_ verb: String) -> String? {
+        switch verb {
+        case "catchup":
+            return "catchup \(catchUpButton.isHidden ? "hidden" : "visible") marker \(store.catchUpMarker.map(String.init) ?? "-") count \(store.catchUpCount) target \(store.catchUpTarget?.seq.map(String.init) ?? "-")"
+        case "catchupgo":
+            catchUpClicked()
+            return "ok"
+        case "unread":
+            return "unread \(store.unreadCount) lastRead \(store.lastReadSeq) viewing \(store.isViewing) all \(MacConversationLab.unreadSummary())"
+        default:
+            return nil
+        }
     }
 }
 #endif

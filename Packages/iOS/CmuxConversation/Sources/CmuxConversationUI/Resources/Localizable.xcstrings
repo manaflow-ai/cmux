@@ -52,6 +52,23 @@
         }
       }
     },
+    "conversation.catchUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to First Unread Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の未読メッセージへ移動"
+          }
+        }
+      }
+    },
     "conversation.composer.addComment": {
       "extractionState": "manual",
       "localizations": {

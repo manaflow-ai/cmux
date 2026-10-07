@@ -72,7 +72,11 @@ import Testing
         store.apply(.readState(ConversationReadState(lastReadSeq: 80, unreadCount: 14, headSeq: 100)))
         store.setViewing(true)
         #expect(store.catchUpMarker == 80)
+        // Switching apps keeps the visit (and its catch-up target).
         store.setViewing(false)
+        store.setViewing(true)
+        #expect(store.catchUpMarker == 80)
+        store.endVisit()
         #expect(store.catchUpMarker == nil)
         store.apply(.message(backend.makeMessage(seq: 101, sender: "lc"), eventSeq: 1))
         store.apply(.message(backend.makeMessage(seq: 102, sender: "aw"), eventSeq: 2))
