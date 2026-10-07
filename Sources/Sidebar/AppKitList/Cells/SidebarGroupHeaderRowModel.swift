@@ -78,4 +78,6 @@ struct SidebarGroupHeaderRowActions {
     let onOpenDocs: () -> Void
     /// Resolves current notification availability for retained rows.
     var notificationState: () -> NotificationState = { .unavailable }
+    /// Sets the group's own color (nil clears it back to any config color).
+    var onSetColor: (String?) -> Void = { _ in }
 }

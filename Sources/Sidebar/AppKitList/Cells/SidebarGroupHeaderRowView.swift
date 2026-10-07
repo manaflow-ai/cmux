@@ -623,6 +623,49 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         ))
     }
 
+    /// Group Color submenu, built like the workspace row's color menu: clear,
+    /// a custom color prompt, then the named palette with swatches.
+    private func makeColorMenuItem(
+        model: SidebarGroupHeaderRowModel,
+        actions: SidebarGroupHeaderRowActions
+    ) -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let palette = WorkspaceTabColorSettings.palette()
+        if model.tintHex != nil {
+            let clearItem = menuItem(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color")) {
+                actions.onSetColor(nil)
+            }
+            clearItem.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "xmark.circle", pointSize: 13, weight: nil
+            )
+            submenu.addItem(clearItem)
+        }
+        let customItem = menuItem(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…")) { [weak self] in
+            guard let hex = WorkspaceCustomColorPrompt.run(
+                currentHex: model.tintHex,
+                presentingWindow: self?.window
+            ) else { return }
+            actions.onSetColor(hex)
+        }
+        customItem.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "paintpalette", pointSize: 13, weight: nil
+        )
+        submenu.addItem(customItem)
+        if !palette.isEmpty {
+            submenu.addItem(.separator())
+        }
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: model.tintHex,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        ).addPaletteItems(to: submenu, palette: palette) { hex in
+            actions.onSetColor(hex)
+        }
+        let parent = menuItem(String(localized: "workspaceGroup.contextMenu.groupColor", defaultValue: "Group Color")) {}
+        parent.submenu = submenu
+        return parent
+    }
+
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
@@ -645,6 +688,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.contextMenu.pin", defaultValue: "Pin Group"),
             action: actions.onTogglePinned
         ))
+        menu.addItem(makeColorMenuItem(model: model, actions: actions))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),

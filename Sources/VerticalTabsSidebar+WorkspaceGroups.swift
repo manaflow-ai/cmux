@@ -579,6 +579,9 @@ extension VerticalTabsSidebar {
             }
         )
         actions.notificationState = resolveNotificationState
+        actions.onSetColor = { [weak tabManager] hex in
+            tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
+        }
         return actions
     }
 
