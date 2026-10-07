@@ -148,10 +148,10 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
    `InstallHostAccount`, `MobileLinkHostRunner`, `MobileLinkService`, and the C2/C4/C8/C13/C14
    adapters; the old “no `MobileLinkHostAccount`” blocker is resolved in source but has no live
    build evidence yet (d1b-mac-integration.md 1–4).
-2. Host-role TURN credentials still need deployment: configure
-   `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` and verify
-   `POST /v1/realtime/turn` returns `turn:` URLs. Until then a host socket falls back to STUN
-   (d1b-mac-integration.md 2; b2 12.1).
+2. Host-role TURN credentials still need deployment: use the secrets-safe procedure in
+   [the backend runbook](../backend-runbook.md), then verify `POST /v1/realtime/turn` returns
+   `turn:`/`turns:` URLs and a tagged pair selects a relay candidate with Force TURN. Until then a
+   host socket falls back to STUN (d1b-mac-integration.md 2; b2 12.1).
 3. The Mac app's task dispatch and terminal spawn switches are off by default. A live composer/task
    check must explicitly use the DEV switches after acpmux is available; otherwise the host reports
    `spawn_unverified` (d1b-mac-integration.md 3; c8 7).

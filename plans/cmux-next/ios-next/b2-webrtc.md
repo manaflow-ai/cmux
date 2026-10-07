@@ -265,8 +265,10 @@ to `host-signal.test.ts` but not run (no `node_modules` on this Mac).
 
 ## 12. Live verification (credentials are absent on this machine)
 
-1. Backend: `wrangler secret put CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` on a dev
-   env; `curl -X POST /v1/realtime/turn` with a bearer returns `ice_servers` with `turn:` URLs.
+1. Backend: follow [the TURN section in the backend runbook](../backend-runbook.md) to set
+   `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` on the development environment;
+   the secrets-safe probe of `POST /v1/realtime/turn` must return `ice_servers` with `turn:` or
+   `turns:` URLs. A successful HTTP mint is necessary but does not prove an ICE relay.
 2. Mac (B5) runs `WebRTCAcceptor` on its host socket; phone on cellular dials with `WebRTCCarrier`;
    badge shows `p2p` on the same LAN, `turn` with `iceTransportPolicy relay` forced from the DEV menu.
 3. Roam Wi-Fi to cellular mid-terminal: ICE restart keeps the session (`pathChanged`), or the
