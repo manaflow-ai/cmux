@@ -26,6 +26,17 @@ import Testing
 
     private func values(_ result: AgentPaneShellCompletion.Result) -> [String] { result.candidates.map(\.value) }
 
+    /// A test shell must ignore login startup, even when it changes completion or exits early.
+    @Test(arguments: ["bash", "zsh"])
+    func testShellIgnoresLoginProfiles(shell: String) async throws {
+        let fixture = try ShellCompletionFixture(shell: shell)
+        defer { fixture.remove() }
+        for name in [".bash_profile", ".profile", ".zprofile", ".zlogin"] {
+            try Data("exit 71\n".utf8).write(to: fixture.directory.appending(path: name))
+        }
+        #expect(values(try await fixture.completion.complete("ech", cwd: fixture.cwd)).contains("echo"))
+    }
+
     @Test func theWordUnderTheCaretStartsAfterTheLastUnquotedSeparator() {
         typealias C = AgentPaneShellCompletion
         #expect(C.word(in: "") == C.Word(start: 0, text: "", commandPosition: true))
