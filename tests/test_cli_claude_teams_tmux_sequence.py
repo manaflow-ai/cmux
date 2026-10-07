@@ -6,6 +6,7 @@ Regression test: `cmux claude-teams` supports Claude's tmux teammate flow.
 from __future__ import annotations
 
 import json
+import os
 import socketserver
 import subprocess
 import tempfile
@@ -305,6 +306,8 @@ def main() -> int:
 
         tmux_pane_log = tmp / "tmux-pane.log"
         tmux_socket_log = tmp / "tmux-socket.log"
+        tmux_value_log = tmp / "tmux-value.log"
+        identity_log = tmp / "identity.log"
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
@@ -316,6 +319,8 @@ def main() -> int:
 set -euo pipefail
 printf '%s\\n' "${TMUX_PANE-__UNSET__}" > "$FAKE_TMUX_PANE_LOG"
 printf '%s\\n' "${CMUX_SOCKET_PATH-__UNSET__}" > "$FAKE_SOCKET_LOG"
+printf '%s\\n' "${TMUX-__UNSET__}" > "$FAKE_TMUX_VALUE_LOG"
+tmux display-message -p $'#{socket_path}\\t#{pid}' > "$FAKE_IDENTITY_LOG"
 window_target="$(tmux display-message -t "${TMUX_PANE}" -p '#{session_name}:#{window_index}')"
 printf '%s\\n' "$window_target" > "$FAKE_WINDOW_TARGET_LOG"
 split_pane="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
@@ -337,6 +342,8 @@ tmux kill-session -t "$window_target"
         env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
         env["FAKE_SOCKET_LOG"] = str(tmux_socket_log)
+        env["FAKE_TMUX_VALUE_LOG"] = str(tmux_value_log)
+        env["FAKE_IDENTITY_LOG"] = str(identity_log)
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
@@ -378,6 +385,23 @@ tmux kill-session -t "$window_target"
         socket_value = read_text(tmux_socket_log)
         if socket_value != str(socket_path):
             print(f"FAIL: expected CMUX_SOCKET_PATH={socket_path}, got {socket_value!r}")
+            return 1
+
+        # Server identity formats (#18381): oh-my-claude-sisyphus >= 5.6 gates
+        # team startup on `display-message -p '#{socket_path}\t#{pid}'`.
+        # socket_path must round-trip the first field of the injected $TMUX;
+        # pid must be a live process, and the shim's socket peer is this test
+        # harness itself.
+        tmux_value = read_text(tmux_value_log)
+        if tmux_value == "__UNSET__":
+            print("FAIL: expected TMUX to be set in the teammate environment")
+            return 1
+        expected_socket_path = tmux_value.split(",", 1)[0]
+
+        identity = read_text(identity_log)
+        expected_identity = f"{expected_socket_path}\t{os.getpid()}"
+        if identity != expected_identity:
+            print(f"FAIL: expected server identity {expected_identity!r}, got {identity!r}")
             return 1
 
         window_target = read_text(window_target_log)
