@@ -11,10 +11,11 @@ bun run services/conversation-sim/selftest.ts        # boots its own server on a
 
 Env: `PORT`, `HOST`, `SEED` (history seed, default 1337), `LOG=verbose` (log
 every RPC and media fetch), `EVENT_LOG_CAP` (default 50000),
-`GROUP_MESSAGES` / `DIRECT_MESSAGES` (default 20000 / 5000).
+`GROUP_MESSAGES` / `DIRECT_MESSAGES` / `INTL_MESSAGES` (default 20000 / 5000 / 300).
 
 Connect a simulator or the DEBUG app to `ws://127.0.0.1:4870/ws?conversation=group`
-(or `conversation=direct`). From a physical device use the Mac's LAN or
+(or `conversation=direct`, or `conversation=intl` for Spanish, Japanese and
+French speakers to exercise Translate). From a physical device use the Mac's LAN or
 Tailscale address; attachment URLs are built from the `Host` header the client
 connected with, so they resolve from the same network path.
 

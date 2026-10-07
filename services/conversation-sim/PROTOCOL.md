@@ -12,7 +12,9 @@ Transport: WebSocket at `ws://<host>:<port>/ws?conversation=<id>`, one JSON-RPC
 2.0 object per text frame. Media over plain HTTP on the same port.
 
 Conversations hosted: `group` (title "cmux", 3 other participants, ~20k
-messages) and `direct` (1:1, ~5k messages). Both live for the life of the
+messages), `direct` (1:1, ~5k messages) and `intl` (title "Amigos", Spanish,
+Japanese and French speakers, ~300 messages, seeded on its own stream so the
+other two are unchanged). All live for the life of the
 process and keep growing.
 
 ## Requests (client to server)

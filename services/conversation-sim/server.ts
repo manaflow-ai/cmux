@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { INTL_PEOPLE, intlHistory, intlText } from "./intl";
 
 // ---------------------------------------------------------------- types
 
@@ -66,6 +67,7 @@ const EVENT_LOG_CAP = Number(process.env.EVENT_LOG_CAP ?? 50_000);
 const REPLAY_LIMIT = 500;
 const GROUP_COUNT = Number(process.env.GROUP_MESSAGES ?? 20_000);
 const DIRECT_COUNT = Number(process.env.DIRECT_MESSAGES ?? 5_000);
+const INTL_COUNT = Number(process.env.INTL_MESSAGES ?? 300);
 
 const knobs = {
   latencyScale: 1,
@@ -122,6 +124,8 @@ class Store {
   headEventSeq = 0;
   conns = new Set<Conn>();
   lastReadSeq = 0;
+  /** Per-sender text for conversations with their own corpus (intl). */
+  speak?: (rng: Rng, senderId: string) => string;
   constructor(public conv: Conversation) {}
 
   get headSeq() {
@@ -312,8 +316,20 @@ function boot() {
   generateHistory(direct, DIRECT_COUNT, 0.45, SEED + 1);
   stores.set("group", group);
   stores.set("direct", direct);
+  // Spanish, Japanese and French speakers for Translate; its own seed stream.
+  const intl = new Store({
+    id: "intl",
+    title: "Amigos",
+    kind: "group",
+    participants: [ME, ...INTL_PEOPLE.map(({ lang, ...p }) => p)],
+  });
+  intl.speak = intlText;
+  for (const m of intlHistory(mulberry32(SEED + 2), INTL_COUNT, ME.id)) {
+    intl.append({ ...m, replyCount: 0, reactions: [], attachments: [], ...(m.senderId === ME.id ? { status: "delivered" as const } : {}) });
+  }
+  stores.set("intl", intl);
   log(
-    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} images=${media.size} in ${Math.round(performance.now() - t0)}ms`,
+    `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} intl=${intl.headSeq} images=${media.size} in ${Math.round(performance.now() - t0)}ms`,
   );
 }
 
@@ -567,7 +583,7 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
   if (R() < 0.05) {
     void (async () => {
       await botSleep(uniform(4000, 20_000));
-      m.text = editedText(R, m.text || "photo");
+      m.text = store.speak ? store.speak(R, bot.id) : editedText(R, m.text || "photo");
       m.editedAt = Date.now();
       store.emit("message.updated", m);
     })();
@@ -580,12 +596,12 @@ async function botReply(store: Store, mine: Message) {
   const typing = Math.min(total * 0.7, typingMs("x".repeat(40)));
   await botSleep(total - typing);
   const bot = pick(R, store.bots());
-  await botSay(store, bot, replyText(R), R() < 0.35 ? { replyToId: mine.id } : {}, typing);
+  await botSay(store, bot, store.speak ? store.speak(R, bot.id) : replyText(R), R() < 0.35 ? { replyToId: mine.id } : {}, typing);
 }
 
-function randomBotMessage(store: Store): { text: string; opts: Partial<Message> } {
+function randomBotMessage(store: Store, bot?: Participant): { text: string; opts: Partial<Message> } {
   const opts: Partial<Message> = {};
-  let text = messageText(R);
+  let text = store.speak && bot ? store.speak(R, bot.id) : messageText(R);
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
@@ -609,7 +625,7 @@ async function botLoop(store: Store) {
       if (roll < 0.08) {
         const n = randInt(R, 3, 6);
         for (let i = 0; i < n; i++) {
-          const { text, opts } = randomBotMessage(store);
+          const { text, opts } = randomBotMessage(store, bot);
           await botSay(store, bot, text, opts, uniform(500, 1800));
         }
       } else if (roll < 0.23) {
@@ -618,7 +634,7 @@ async function botLoop(store: Store) {
         await botSleep(uniform(1500, 6000));
         store.broadcastTyping(bot.id, false);
       } else {
-        const { text, opts } = randomBotMessage(store);
+        const { text, opts } = randomBotMessage(store, bot);
         await botSay(store, bot, text, opts);
       }
       if (R() < 0.1 && store.headSeq) {
@@ -637,7 +653,7 @@ async function botLoop(store: Store) {
 async function burst(store: Store, count: number, intervalMs?: number) {
   for (let i = 0; i < count; i++) {
     const bot = pick(R, store.bots());
-    const { text, opts } = randomBotMessage(store);
+    const { text, opts } = randomBotMessage(store, bot);
     store.create(bot.id, text, opts);
     if (intervalMs === undefined) await sleep(uniform(150, 600));
     else if (intervalMs > 0) await sleep(intervalMs);
@@ -832,4 +848,4 @@ setInterval(() => {
 }, 1000);
 
 for (const s of stores.values()) void botLoop(s);
-log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct)`);
+log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct|intl)`);
