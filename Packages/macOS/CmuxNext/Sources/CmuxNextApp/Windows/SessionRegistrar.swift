@@ -44,6 +44,7 @@ final class SessionRegistrar {
                  String(machines.local.store.isProvisional)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
                     + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
+                    + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
             }) {
                 self?.sync()
             }
@@ -100,6 +101,7 @@ final class SessionRegistrar {
     private func transport(_ daemon: DaemonService) -> JSONValue {
         if daemon.isLocal { return .object(["kind": .string("local")]) }
         if let ssh = machines.sshSession(daemon.machineID) { return SSHService.transport(ssh) }
+        if let server = machines.server(daemon.machineID) { return ServerReachService.transport(server) }
         return .object(["kind": .string("cloud"), "machine": .string(daemon.machineID)])
     }
 }

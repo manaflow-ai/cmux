@@ -19,7 +19,8 @@ import {
 import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
 import type { PlayReport } from "../play";
-import { fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
+import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
+import metrics from "virtual:cmux-gallery/metrics";
 import themes from "virtual:cmux-gallery/themes";
 
 const sum = (report: PlayReport, value: (step: PlayReport["steps"][number]) => number) =>
@@ -143,9 +144,9 @@ export function Stage({
   let frame: { width: number; height: number };
   let scale = 1;
   if (windowed) {
-    // The window lays out at its real size; one transform scales the finished window, so its
-    // aspect ratio, text and spacing stay as the user sees them.
-    frame = windowSize(env.window);
+    // The surface lays out at the real size of its pane in that window; one transform scales the
+    // finished surface, so its aspect ratio, text and spacing stay as the user sees them.
+    frame = entryPaneSize(env.window, env.layout, env.density, metrics);
     scale = thumbnail ? THUMBNAIL_WIDTH / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   } else {
     // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
@@ -159,7 +160,12 @@ export function Stage({
       <figcaption>
         <strong>{label ?? state}</strong>
         {note && !thumbnail && <span className="gallery-note">{note}</span>}
-        {windowed && <span className="gallery-note">{Math.round(scale * 100)}%</span>}
+        {windowed && (
+          <span className="gallery-note">
+            {WINDOW_PRESETS[env.window as keyof typeof WINDOW_PRESETS]?.label ?? env.window} window · pane {frame.width}
+            ×{frame.height} pt · {Math.round(scale * 100)}%
+          </span>
+        )}
         <a href={`frame.html?${query}`} target="_blank" rel="noreferrer">
           open
         </a>
