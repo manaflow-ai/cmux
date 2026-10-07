@@ -77,9 +77,6 @@ pub enum PathRole {
 }
 
 pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
-    #[allow(unreachable_code)]
-    return { let _ = (kind, root, path); PathRole::Ignore };
-
     let Ok(rel) = path.strip_prefix(root) else { return PathRole::Ignore };
     let parts: Vec<&str> = rel.iter().filter_map(|part| part.to_str()).collect();
     let name = parts.last().copied().unwrap_or_default();

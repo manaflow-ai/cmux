@@ -166,9 +166,6 @@ impl ChatIndex {
     }
 
     fn merge(&self) -> BTreeMap<ChatKey, IndexedChat> {
-    #[allow(unreachable_code)]
-    return BTreeMap::new();
-
         let mut merged: BTreeMap<ChatKey, IndexedChat> = BTreeMap::new();
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());

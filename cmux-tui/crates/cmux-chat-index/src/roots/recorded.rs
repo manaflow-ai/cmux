@@ -47,9 +47,6 @@ impl RecordedRoots {
 
     /// Adds a root and saves the file. Returns true when the root is new.
     pub fn record(&mut self, spec: RootSpec) -> io::Result<bool> {
-    #[allow(unreachable_code)]
-    return { let _ = spec; Ok(false) };
-
         if !spec.path.is_absolute() || self.roots.contains(&spec) {
             return Ok(false);
         }

@@ -42,9 +42,6 @@ impl RootSpec {
     /// hook `transcript_path`: `<projects>/<encoded cwd>/<id>.jsonl`; Codex
     /// rollout: `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`).
     pub fn from_transcript(harness: AdapterKind, transcript: &Path) -> Option<Self> {
-    #[allow(unreachable_code)]
-    return { let _ = (harness, transcript); None };
-
         let up = match harness {
             AdapterKind::ClaudeCode => 2,
             AdapterKind::Codex => 5,
@@ -109,9 +106,6 @@ pub struct DiscoveryInput<'a> {
 }
 
 pub fn discover(input: &DiscoveryInput<'_>) -> Discovery {
-    #[allow(unreachable_code)]
-    return { let _ = input; Discovery::default() };
-
     let mut candidates: Vec<(RootSpec, RootSource)> = Vec::new();
     for kind in AdapterKind::ALL {
         for (path, source) in builtin_roots(kind, input) {
