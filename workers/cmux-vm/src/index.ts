@@ -2,9 +2,10 @@
  * Cloudflare Worker entry. Secrets arrive as Worker secrets and are wrapped in
  * Redacted immediately; they are never logged or returned.
  */
-import { Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
+import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -20,6 +21,7 @@ import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
 import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
+import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -42,9 +44,12 @@ export interface Env {
   readonly CMUX_VM_MESH_EXPERIMENT?: string;
   /** Stack team ids allowed into the mesh experiment: comma or space separated. */
   readonly CMUX_VM_MESH_TENANT_IDS?: string;
+  /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
+  readonly STACK_WEBHOOK_SECRET?: string;
 }
 
 const liveServices = (env: Env) => {
+  const sql = hyperdriveSqlLayer(env.HYPERDRIVE.connectionString);
   const policy = tenantPolicyLayer({
     environment: parseEnvironment(env.ENVIRONMENT),
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
@@ -52,19 +57,23 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer).pipe(
-      Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+      Layer.provide(sql),
     ),
     policy,
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
-    stackLayers({
-      apiUrl: env.STACK_API_URL,
-      projectId: env.STACK_PROJECT_ID,
-      serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
-    }),
+    // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
+    Layer.provideMerge(
+      stackLayers({
+        apiUrl: env.STACK_API_URL,
+        projectId: env.STACK_PROJECT_ID,
+        serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
+      }),
+      sqlMembershipCacheLayer.pipe(Layer.provide(sql)),
+    ),
     s3aServices(env),
     meshServices(env),
     stackTeamAdminLayer({
@@ -104,8 +113,15 @@ const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
     if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
       return notConfigured;
     }
-    const { handler } = makeWebHandler(liveServices(env), { perRequest: withRequestConnection });
-    return (incoming) => handler(incoming);
+    const secret = env.STACK_WEBHOOK_SECRET?.trim();
+    const { handler } = makeWebHandler(liveServices(env), {
+      perRequest: withRequestConnection,
+      perWebhook: withRequestConnection,
+      ...(secret === undefined || secret.length === 0 ? {} : { stackWebhookSecret: Redacted.make(secret) }),
+    });
+    // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
+    const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));
+    return makeSchemaGate(check, (incoming) => handler(incoming));
   } catch {
     console.error("cmux-vm configuration invalid");
     return notConfigured;

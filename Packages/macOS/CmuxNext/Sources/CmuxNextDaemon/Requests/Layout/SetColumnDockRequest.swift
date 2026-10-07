@@ -7,6 +7,7 @@ import Foundation
 public struct SetColumnDockRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-column-dock"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.dockColumns
     public var pane: PaneID
     public var dock: Bool
     public var edge: String?

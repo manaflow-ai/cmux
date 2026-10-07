@@ -42,18 +42,22 @@ import Testing
         #expect(view.page == nil)
     }
 
-    /// A new page subscriber gets the theme, shortcuts and preview state, as the old host pushed
-    /// them after each load.
+    /// A new page subscriber gets the theme, shortcuts, preview state and the edited-files card's
+    /// settings, as the old host pushed them after each load.
     @Test func aSubscribedPageGetsTheCurrentState() async throws {
         let (view, _) = try pageView()
         defer { view.close() }
         view.previewFeatures = true
+        var editedFiles = AgentPaneEditedFilesSetting()
+        editedFiles.show = "collapsed"
+        view.editedFiles = editedFiles
         let received = await subscribe(try #require(view.page))
         // A theme change (the view joining a scope) may push the theme again; that is harmless.
         let kinds = received().compactMap { $0["kind"]?.stringValue }
         #expect(kinds.first == "theme")
-        #expect(Set(kinds) == ["theme", "shortcuts", "preview"])
+        #expect(Set(kinds) == ["theme", "shortcuts", "preview", "editedFiles"])
         #expect(received().first { $0["kind"] == "preview" }?["value"] == .bool(true))
+        #expect(received().first { $0["kind"] == "editedFiles" }?["value"] == ["show": "collapsed", "maxRows": 5, "scope": "turn"])
     }
 
     /// Commands, focus and links reach the page as events; no script runs.
@@ -64,7 +68,6 @@ import Testing
         view.evaluateScript = { scripts.append($0) }
         let received = await subscribe(try #require(view.page))
         let before = received().count
-        view.showSearchChats()
         view.showContinueIn()
         view.runPermissionAction("permissionDeny")
         view.runPermissionAction("notAPermissionAction")
@@ -72,7 +75,7 @@ import Testing
         _ = await view.model.respond(to: .ready)
         view.revealTurn("t-9")
         let events = received().dropFirst(before).map { "\($0["kind"]?.stringValue ?? ""):\($0["value"]?.stringValue ?? "")" }
-        #expect(events == ["command:searchChats", "command:continueIn", "command:permissionDeny", "focusLocation:", "revealTurn:t-9"])
+        #expect(events == ["command:continueIn", "command:permissionDeny", "focusLocation:", "revealTurn:t-9"])
         #expect(scripts.isEmpty)
     }
 

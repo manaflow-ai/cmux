@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens};
+use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect, RefuseReason, SessionState,
+    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, Rect, RefuseReason, SessionState,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -23,6 +23,8 @@ pub trait Presentation {
     fn context_menu_result(&mut self, fork_token: i64, command: Option<i64>) -> bool;
     /// `None` cancels.
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool;
+    /// Answers the JS dialog with the fork's token (`text` for a prompt).
+    fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool;
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -49,15 +51,16 @@ pub struct HostTab {
     screen: Option<ScreenSize>,
     /// Each open viewer's last screen seq (`rb.open` is seq 0).
     viewer_seqs: BTreeMap<String, u32>,
+    /// The token the next JS dialog gets (tokens start at 1, never repeat).
+    next_dialog: u64,
+    fork_dialog: Option<ForkDialog>,
 }
 
-fn flatten_ids(items: &[MenuItem], out: &mut Vec<i64>) {
-    for item in items {
-        if item.item_type != "separator" && item.item_type != "submenu" {
-            out.push(item.id);
-        }
-        flatten_ids(&item.items, out);
-    }
+/// The JS dialog Chromium has open, with the fork's own token.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ForkDialog {
+    rb_token: u64,
+    fork_token: i64,
 }
 
 impl HostTab {
@@ -73,6 +76,8 @@ impl HostTab {
             capture_wanted: false,
             screen: None,
             viewer_seqs: BTreeMap::new(),
+            next_dialog: 1,
+            fork_dialog: None,
         }
     }
 
@@ -223,6 +228,12 @@ impl HostTab {
                 }
                 Vec::new()
             }
+            Control::DialogResult { token, accept, text } => {
+                if let Some(open) = self.fork_dialog.take_if(|d| d.rb_token == *token) {
+                    p.dialog_result(open.fork_token, *accept, text.as_deref());
+                }
+                Vec::new()
+            }
             _ => Vec::new(),
         }
     }
@@ -270,7 +281,7 @@ impl HostTab {
         p: &mut dyn Presentation,
     ) -> Vec<Control> {
         let mut item_ids = Vec::new();
-        flatten_ids(&menu.items, &mut item_ids);
+        command_ids(&menu.items, &mut item_ids);
         let item_count = u32::try_from(menu.items.len()).unwrap_or(u32::MAX);
         let Ok(outcome) = self.menus.apply(MenuInput::Show {
             kind: menu.kind,
@@ -335,6 +346,34 @@ impl HostTab {
             pixel_height: (f64::from(applied.css_height) * applied.scale).ceil() as u32,
             scale: applied.scale,
         })
+    }
+
+    /// Chromium opened a JS dialog (alert, confirm, prompt, beforeunload)
+    /// with the fork's token; returns the messages for the viewers. A
+    /// dialog still open on the viewers is cancelled first (Chromium shows
+    /// one at a time, so a new one means the old one is gone).
+    pub fn dialog_opened(
+        &mut self,
+        fork_token: i64,
+        dialog: Dialog,
+        _p: &mut dyn Presentation,
+    ) -> Vec<Control> {
+        let mut out = self.dialog_reset();
+        let token = self.next_dialog;
+        self.next_dialog += 1;
+        self.fork_dialog = Some(ForkDialog { rb_token: token, fork_token });
+        out.push(Control::DialogShow { token, dialog });
+        out
+    }
+
+    /// Chromium reset its dialog state (the page navigated away or closed):
+    /// its callback is gone, so the open dialog is cancelled on the viewers
+    /// (`rb.dialog.cancel`) and a late answer reaches nothing.
+    pub fn dialog_reset(&mut self) -> Vec<Control> {
+        match self.fork_dialog.take() {
+            Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
+            None => Vec::new(),
+        }
     }
 
     pub fn state(&self) -> SessionState {

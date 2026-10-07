@@ -80,10 +80,46 @@ import Testing
     }
 
     @Test func aServerThatIsThisMacUsesTheBrainSocketDirectly() {
-        let local = ServerReachPlan.LocalServer(hostName: "cmuxs-Mac-mini", brainSocket: "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock")
+        let local = ServerReachPlan.LocalServer(hostNames: ["cmuxs-Mac-mini"], brainSocket: "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock")
         let plan = ServerReachPlan.make(chiefs: [Self.chief("a", placedOn: Self.host)],
                                         hosts: [PairedServer(host: Self.host, name: "cmuxs-Mac-mini", kind: "server")], local: local)
         #expect(plan.desired.first?.route == .unix(local.brainSocket))
+    }
+
+    /// A Mac whose DHCP host name ("mac") differs from the LocalHostName the
+    /// server was paired under is still this Mac: any of its names matches.
+    @Test func thisMacMatchesUnderAnyOfItsNames() {
+        let socket = "/Users/cmux/.cmux/brains/chief/daemon/cmux.sock"
+        let local = ServerReachPlan.LocalServer(hostNames: ["mac", "cmuxs-MacBook-Pro-2", "cmux’s MacBook Pro (2)"], brainSocket: socket)
+        let host = PairedServer(host: Self.host, name: "cmuxs-MacBook-Pro-2", kind: "server")
+        #expect(ServerReachPlan.route(for: host, local: local) == .unix(socket))
+        let other = PairedServer(host: Self.otherHost, name: "build-box", kind: "server")
+        guard case .ssh = ServerReachPlan.route(for: other, local: local) else {
+            Issue.record("a server with another name must not be this Mac")
+            return
+        }
+    }
+
+    /// Overlay route (server-reach.md 7 step 1): a server whose install this
+    /// Mac's link has as a paired peer is dialed through the link; this Mac's
+    /// own brain still wins, and an unpaired server stays on SSH.
+    @Test func aServerPairedWithThisMacsLinkUsesTheOverlay() throws {
+        let link = ServerReachPlan.LinkPeers(socket: "/tmp/cmux-501/link.sock", installs: [Self.install])
+        let host = PairedServer(host: Self.host, name: "build-box", kind: "server")
+        #expect(ServerReachPlan.route(for: host, install: Self.install, local: nil, link: link) == .overlay(linkSocket: link.socket))
+        guard case .ssh = ServerReachPlan.route(for: host, install: "inst_bbbbbbbbbbbbbbbbbbbb", local: nil, link: link) else {
+            Issue.record("an install the link does not know must not use the overlay")
+            return
+        }
+        let me = ServerReachPlan.LocalServer(hostNames: ["build-box"], brainSocket: "/Users/me/.cmux/brains/chief/daemon/cmux.sock")
+        #expect(ServerReachPlan.route(for: host, install: Self.install, local: me, link: link) == .unix(me.brainSocket))
+        let reach = try ServerReach(hostID: Self.host, installID: Self.install, name: "build-box", route: .overlay(linkSocket: link.socket))
+        #expect(ServerReach(transportFields: reach.transportFields) == reach)
+        #expect(reach.dialArguments(linkSocket: link.socket)
+            == ["link", "dial", "--host", Self.install, "--service", "owner_session", "--socket", link.socket])
+        #expect(ServerReachPlan.parseLinkShow(Data(#"{"running":true,"socket":"/tmp/l.sock","install":"inst_x"}"#.utf8)) == "/tmp/l.sock")
+        #expect(ServerReachPlan.parseLinkShow(Data(#"{"running":false,"socket":null}"#.utf8)) == nil)
+        #expect(ServerReachPlan.parsePeerList(Data(#"{"peers":[{"install":"inst_a"},{"install":"inst_b"}]}"#.utf8)) == ["inst_a", "inst_b"])
     }
 
     @Test func diffKeepsShownServersAndRemovesRevokedOnes() throws {

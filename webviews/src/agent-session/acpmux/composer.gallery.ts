@@ -16,8 +16,27 @@ export default agentPaneEntry({
   title: "Composer",
   area: "Agent pane",
   height: 420,
+  widths: { narrow: 400, normal: 760, wide: 760 },
   // The transcript must not move while a play step opens a menu over it.
-  anchors: [{ selector: ".acpmux-scroll" }],
+  anchors: [
+    { selector: ".acpmux-scroll" },
+    { selector: ".acpmux-composer-box" },
+    { selector: ".acpmux-composer-context" },
+  ],
+  checks: {
+    anchorMovePx: {
+      value: 0,
+      reason: "Footer menus and the capped draft must preserve the transcript and shelf geometry.",
+    },
+    layoutShiftMax: {
+      value: 0,
+      reason: "The location tray is attached to the composer and must not reflow the transcript.",
+    },
+    longFrameFailMs: {
+      value: 33,
+      reason: "Composer interactions must stay below one display frame on the gallery host.",
+    },
+  },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -54,6 +73,26 @@ export default agentPaneEntry({
       },
       snapshot: chat(finished),
     },
+    "long-draft-light": {
+      note: "The capped long draft in the light theme proof matrix.",
+      ready: {
+        draft: Array.from(
+          { length: 18 },
+          (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        ).join("\n"),
+      },
+      snapshot: chat(finished),
+    },
+    "long-draft-dark": {
+      note: "The capped long draft in the dark theme proof matrix.",
+      ready: {
+        draft: Array.from(
+          { length: 18 },
+          (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        ).join("\n"),
+      },
+      snapshot: chat(finished),
+    },
     working: {
       note: "A turn running: Send becomes Stop.",
       snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
@@ -63,6 +102,18 @@ export default agentPaneEntry({
     "codex-model": {
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
+    },
+    "tray-long-branch": {
+      note: "The attached tray keeps a long branch readable without moving the composer.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+    },
+    "docked-400": {
+      note: "The recessed location shelf at a 400px dock width.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+    },
+    "wide-760": {
+      note: "The composer and shelf at the 760px wide proof width.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
     },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
@@ -77,6 +128,37 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    "access-menu": {
+      note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-access",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          usage: { used: 48_000, size: 200_000 },
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "ask",
+            availableModes: [
+              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
+              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
+              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
+              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+            ],
+          },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
       },
     },
     disconnected: {

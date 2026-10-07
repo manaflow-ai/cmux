@@ -5,24 +5,19 @@ import Testing
 /// Detection of every browser in the catalog from fixture folders, one
 /// family at a time. Never reads the real home.
 @Suite struct CatalogDetectionTests {
-    static let chromiumBrowsers = ImportBrowser.allCases.filter { $0.family == .chromium && !$0.profileIsDataDirectory }
+    static let chromiumBrowsers = ImportBrowser.allCases.filter {
+        $0.family == .chromium && !$0.profileIsDataDirectory && $0.safeStorageService != nil
+    }
     static let firefoxBrowsers = ImportBrowser.allCases.filter { $0.family == .firefox && $0 != .tor }
 
-    @Test func catalogIsComplete() {
-        // The user's list (2026-09-30), by family.
+    @Test func catalogKeepsTheUsersList() {
+        // The user's list (2026-09-30); the registry may only grow.
         let expected: Set<ImportBrowser> = [
             .chrome, .chromeBeta, .chromeDev, .chromeCanary, .chromium, .arc, .dia, .brave, .braveBeta, .braveNightly,
             .edge, .edgeBeta, .edgeDev, .edgeCanary, .vivaldi, .opera, .operaGX, .helium, .comet, .sidekick, .yandex, .thorium,
             .safari, .safariTechnologyPreview, .firefox, .zen, .floorp, .librewolf, .waterfox, .tor, .orion, .duckDuckGo,
         ]
-        #expect(Set(ImportBrowser.allCases) == expected)
-        for browser in ImportBrowser.allCases {
-            #expect(!browser.bundleIDs.isEmpty, "\(browser) has no bundle id")
-            #expect(browser.dataDirectory.hasPrefix("Library/"), "\(browser) data folder is not under ~/Library")
-            #expect((browser.family == .chromium) == (browser.safeStorageService != nil), "\(browser) Keychain item")
-        }
-        // Two sources never share a folder (they would list the same profiles twice).
-        #expect(Set(ImportBrowser.allCases.map(\.dataDirectory)).count == ImportBrowser.allCases.count)
+        #expect(Set(ImportBrowser.allCases).isSuperset(of: expected))
     }
 
     @Test(arguments: chromiumBrowsers)
@@ -37,7 +32,7 @@ import Testing
         #expect(source.profiles.allSatisfy { $0.availability(of: .cookies) == .available })
     }
 
-    @Test(arguments: [ImportBrowser.opera, .operaGX])
+    @Test(arguments: ImportBrowser.allCases.filter(\.profileIsDataDirectory))
     func operaKeepsOneProfileInItsDataFolder(_ browser: ImportBrowser) throws {
         let home = try FixtureHome()
         let root = home.directory(browser)

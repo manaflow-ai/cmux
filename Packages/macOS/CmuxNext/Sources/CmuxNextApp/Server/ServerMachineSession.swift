@@ -26,16 +26,20 @@ final class ServerMachineSession {
     var autoConnect = true
     @ObservationIgnored private var started = false
 
+    /// The app's own bundled `cmux` (overlay route bridge), nil when missing.
+    @ObservationIgnored private let cli: URL?
+
     init(reach: ServerReach, binary: URL?, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
+         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil) {
         self.reach = reach
+        self.cli = cli
         self.localIdentity = localIdentity
         switch reach.route {
         case .ssh(let host):
             let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID) }
             self.link = link
             daemon = link?.daemon ?? DaemonService(machineID: reach.machineID)
-        case .unix:
+        case .unix, .overlay:
             link = nil
             daemon = DaemonService(machineID: reach.machineID)
         }
@@ -60,6 +64,24 @@ final class ServerMachineSession {
             let localIdentity = localIdentity
             daemon.start(remote: { path }, admit: { identity in
                 // The brain's daemon is its own session, never this Mac's home daemon (fails closed).
+                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+            })
+        case .overlay(let linkSocket):
+            guard localIdentity() != nil else { return }
+            guard !started else {
+                daemon.retryWake.fire()
+                return
+            }
+            started = true
+            let localIdentity = localIdentity
+            guard let cli else {
+                daemon.store.markFailed(RemoteStrings.noClient)
+                return
+            }
+            // Each connection runs the bundled `cmux link dial` for the
+            // server's owner session; the server refuses anyone but its owner.
+            let bridge = DaemonBridge(executable: cli.path, arguments: reach.dialArguments(linkSocket: linkSocket))
+            daemon.start(remote: { linkSocket }, bridge: bridge, admit: { identity in
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             })
         }
