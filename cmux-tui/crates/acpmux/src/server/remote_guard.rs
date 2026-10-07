@@ -84,6 +84,12 @@ pub(super) async fn check(
     params: &mut Value,
 ) -> Result<(), RpcError> {
     let web = origin.web_class();
+    // A per-session env is set over the unix socket only (session_env.rs).
+    if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
+        && crate::session_env::present(params.pointer("/_meta/acpmux"))
+    {
+        return Err(crate::session_env::origin_refused());
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
