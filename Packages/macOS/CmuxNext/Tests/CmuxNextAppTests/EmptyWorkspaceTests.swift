@@ -3,8 +3,8 @@ import AppKit
 import CmuxNextDaemon
 import Testing
 
-/// A workspace created empty shows its actions until New is pressed. Lost
-/// terminals are covered by EmptiedWorkspaceTests separately.
+/// A workspace created empty shows its title until Return creates its first
+/// tab. Lost terminals are covered by EmptiedWorkspaceTests separately.
 @MainActor
 struct EmptyWorkspaceTests {
     final class Recorder { var keys: [WorkspaceKey] = [] }
@@ -37,14 +37,15 @@ struct EmptyWorkspaceTests {
         await Self.settle { false }
         #expect(recorder.keys.isEmpty)
         #expect(controller.focus.state.expectation == nil)
-        let actions = try #require(controller.emptyView)
-        #expect(controller.contentView.emptyView === actions)
-        // Repeated New presses while the pane delta is in flight create once.
-        actions.onNew?()
-        actions.onNew?()
+        let emptyView = try #require(controller.emptyView)
+        #expect(controller.contentView.emptyView === emptyView)
+        #expect(!Self.containsButton(emptyView), "the empty workspace has no native buttons")
+        // Repeated Return presses while the pane delta is in flight create once.
+        try Self.pressReturn(emptyView)
+        try Self.pressReturn(emptyView)
         await Self.settle { controller.focus.state.expectation != nil }
         controller.applyCurrent()
-        actions.onNew?()
+        try Self.pressReturn(emptyView)
         await Self.settle { false }
         #expect(recorder.keys == [Self.key])
         // This harness uses the terminal fallback when no agent host is bound.
@@ -141,18 +142,29 @@ struct EmptyWorkspaceTests {
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        let actions = try #require(controller.emptyView)
-        actions.onNew?()
+        let emptyView = try #require(controller.emptyView)
+        try Self.pressReturn(emptyView)
         await Self.settle { recorder.keys.count == 1 }
         await Self.settle { false }
         controller.applyCurrent()
         await Self.settle { false }
         #expect(recorder.keys.count == 1, "a store change does not retry an explicit request")
-        actions.onNew?()
+        try Self.pressReturn(emptyView)
         await Self.settle { recorder.keys.count == 2 }
         #expect(recorder.keys.count == 2)
         controller.teardown()
         withExtendedLifetime((services, state)) {}
+    }
+
+    private static func pressReturn(_ view: EmptyWorkspaceView) throws {
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: 0, context: nil, characters: "\r",
+                                                  charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: event)
+    }
+
+    private static func containsButton(_ view: NSView) -> Bool {
+        view.subviews.contains { $0 is NSButton || Self.containsButton($0) }
     }
 }
 

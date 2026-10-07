@@ -79,7 +79,7 @@ final class LineTransport: Sendable {
     private let writer: SocketWriter
     let path: String
 
-    init(path: String) throws(DaemonError) {
+    init(path: String, preamble: String? = nil) throws(DaemonError) {
         self.path = path
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
@@ -110,6 +110,14 @@ final class LineTransport: Sendable {
             let code = errno
             Darwin.close(fd)
             throw .connectFailed(path: path, errno: code)
+        }
+        if let preamble {
+            do {
+                try LinePreamble(fd: fd).exchange(preamble)
+            } catch {
+                Darwin.close(fd)
+                throw error
+            }
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
