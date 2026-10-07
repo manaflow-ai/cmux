@@ -461,6 +461,9 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
     }
     m.text = question;
     m.poll = poll;
+    // The question replaced the text: its mentions and effect go with it.
+    delete m.mentions;
+    delete m.effect;
     m.editedAt = undefined;
   }
   addHistoryAudio(conv, drafts, seed);
@@ -468,7 +471,10 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
   const formatRng = mulberry32(seed ^ 0x7e57);
   for (const d of drafts) {
     const { day, replyToIndex, ...rest } = d;
-    const textRuns = randomTextRuns(formatRng, rest.text);
+    // Draw for every draft so the formatting stream stays aligned; poll
+    // questions stay plain.
+    const drawn = randomTextRuns(formatRng, rest.text);
+    const textRuns = rest.poll ? undefined : drawn;
     if (textRuns) (rest as Partial<Message>).textRuns = textRuns;
     store.append(rest);
   }
@@ -502,6 +508,7 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
     m.editedAt = undefined;
     delete m.mentions; // they indexed the replaced text
     delete m.effect; // effects belong to text messages
+    delete m.poll;
     m.attachments = [makeAudioAttachment(`aud_${conv.id}_${i + 1}`, rng)];
   };
   for (let i = 0; i < drafts.length - 40; i++) if (rng() < 0.015 && !drafts[i].attachments.length) toAudio(i);
