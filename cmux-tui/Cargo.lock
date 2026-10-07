@@ -35,6 +35,7 @@ dependencies = [
  "unicode-width",
  "uuid",
  "wait-timeout",
+ "zeroize",
 ]
 
 [[package]]
