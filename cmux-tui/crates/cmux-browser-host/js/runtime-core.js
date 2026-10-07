@@ -929,9 +929,10 @@
     }
     emitTabCreated() {}
     // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
-    // that data store instead of the session's default one.
-    async newPage(url, { background, dataStore } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
+    // that data store instead of the session's default one; `incognito`
+    // opens it in a store that keeps nothing (driver-protocol.md).
+    async newPage(url, { background, dataStore, incognito } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }), ...(incognito === undefined ? {} : { incognito: !!incognito }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;

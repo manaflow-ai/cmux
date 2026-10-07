@@ -91,6 +91,8 @@ fn an_incognito_session_opens_every_tab_incognito() {
     s.call("session.configure", &json!({"incognito": true})).unwrap();
     let tab = open(&s, json!({"url": format!("{origin}/second?inherit")})).unwrap();
     assert_eq!(listed(&s, "?inherit")["incognito"], true);
+    let off = s.call("session.configure", &json!({"incognito": false})).unwrap_err();
+    assert_eq!(off.code, cmux_browser_host::protocol::ErrorCode::Forbidden, "{off}");
     let refused = open(&s, json!({"url": format!("{origin}/second?persistent"), "incognito": false}))
         .unwrap_err();
     assert_eq!(refused.code, cmux_browser_host::protocol::ErrorCode::Forbidden, "{refused}");
