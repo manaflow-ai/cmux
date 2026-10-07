@@ -148,6 +148,9 @@ try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120):
         sys.exit("app did not come up")
     # The palette's registry path (`action.run`), the same one the palette runs.
+    # A fresh app shows Home; a Chromium tab gives the window a focused workspace pane.
+    report["seed"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": BASE + "/two"}, "focus": True})
+    wait(lambda: "error" not in rpc("browser.page.state"), 45)
     # It takes no arguments: the tab starts on the default page, then the typed-URL path loads the test page.
     report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
     if "error" in report["open"]:
