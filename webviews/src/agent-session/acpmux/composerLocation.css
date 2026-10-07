@@ -1,4 +1,4 @@
-/* The location row above the composer (ComposerContext.tsx): "This Mac ⌄ · <folder> ⌄", one quiet
+/* The location tray below the composer (ComposerContext.tsx): folder and branch controls, one quiet
    row of text menu buttons that all look alike. A control is a plain text button (no native bezel,
    no fill, no weight change); hover and an open menu lay a soft rounded wash from the theme under
    it, and keyboard focus draws a ring in the theme's text color. The padding is always there, so
@@ -7,14 +7,22 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
+  gap: 8px;
   min-width: 0;
-  height: 28px;
-  margin: 0 12px -2px;
+  height: 36px;
+  margin: -12px 0 16px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--acpmux-composer-edge);
+  border-top: 0;
+  border-radius: 0 0 20px 20px;
+  background: var(--acpmux-composer-tray);
   color: var(--agent-muted);
   font-size: 12px;
   line-height: 16px;
 }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; }
+.acpmux-composer-context > .acpmux-location-picker { flex: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;

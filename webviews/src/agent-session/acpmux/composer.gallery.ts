@@ -17,7 +17,13 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 420,
   // The transcript must not move while a play step opens a menu over it.
-  anchors: [{ selector: ".acpmux-scroll" }],
+  anchors: [{ selector: ".acpmux-scroll" }, { selector: ".acpmux-composer-context" }],
+  checks: {
+    layoutShiftMax: {
+      value: 0,
+      reason: "The location tray is attached to the composer and must not reflow the transcript.",
+    },
+  },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -63,6 +69,10 @@ export default agentPaneEntry({
     "codex-model": {
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
+    },
+    "tray-long-branch": {
+      note: "The attached tray keeps a long branch readable without moving the composer.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
     },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",

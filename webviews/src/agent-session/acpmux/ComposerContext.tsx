@@ -23,7 +23,7 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string };
 
-/// The small location row above the composer. New chats can choose a local or Cloud
+/// The location tray attached below the composer. New chats can choose a local or Cloud
 /// computer and one of its known folders. Once the first turn starts the computer is a label and
 /// the folder moves the chat (`onMove`), except while a turn runs.
 export function ComposerContext({
@@ -84,53 +84,94 @@ export function ComposerContext({
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
+  const branch = summary?.branch ?? "main";
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
-      <LocationPicker
-        label={t(CONTEXT_LABELS.computer)}
-        menu="Computer"
-        value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-        options={computers}
-        selected={selectedComputer}
-        disabled={readOnly}
-        onPick={(id) => {
-          if (!readOnly && id !== selectedComputer) {
-            setSelectedComputer(id);
-            const folder = availableFolders(summary, sessions, id)[0]?.id;
-            if (folder) onProject?.(folder, id === "local" ? undefined : id);
-          }
-        }}
-      />
-      <span className="acpmux-context-divider" aria-hidden="true">
-        ·
-      </span>
-      {!readOnly && selectedComputer === "local" && projectChoices ? (
-        <FolderMenu
-          label={t(CONTEXT_LABELS.folder)}
-          menu="Location"
-          folders={folders}
-          current={currentFolder}
-          onPick={(cwd) => onProject?.(cwd)}
-          onBrowse={onBrowseProject}
-        />
-      ) : (
+      <div className="acpmux-location-leading">
+        {!readOnly && selectedComputer === "local" && projectChoices ? (
+          <FolderMenu
+            label={t(CONTEXT_LABELS.folder)}
+            menu="Location"
+            folders={folders}
+            current={currentFolder}
+            onPick={(cwd) => onProject?.(cwd)}
+            onBrowse={onBrowseProject}
+          />
+        ) : (
+          <LocationPicker
+            label={t(CONTEXT_LABELS.folder)}
+            menu="Location"
+            value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+            options={folders}
+            selected={currentFolder}
+            disabled={readOnly && !moves}
+            icon={<FolderIcon />}
+            allowPath
+            onPick={(cwd) => {
+              if (moves) {
+                if (cwd !== currentFolder) onMove?.(cwd);
+              } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+            }}
+          />
+        )}
         <LocationPicker
-          label={t(CONTEXT_LABELS.folder)}
-          menu="Location"
-          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
-          options={folders}
-          selected={currentFolder}
-          disabled={readOnly && !moves}
-          icon={<FolderIcon />}
-          allowPath
-          onPick={(cwd) => {
-            if (moves) {
-              if (cwd !== currentFolder) onMove?.(cwd);
-            } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+          label={t(CONTEXT_LABELS.computer)}
+          menu="Computer"
+          value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+          options={computers}
+          selected={selectedComputer}
+          disabled={readOnly}
+          onPick={(id) => {
+            if (!readOnly && id !== selectedComputer) {
+              setSelectedComputer(id);
+              const folder = availableFolders(summary, sessions, id)[0]?.id;
+              if (folder) onProject?.(folder, id === "local" ? undefined : id);
+            }
           }}
         />
-      )}
+      </div>
+      <BranchPicker branch={branch} />
     </div>
+  );
+}
+
+function BranchPicker({ branch }: { branch: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="acpmux-location-picker" title={branch}>
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
+          <LocationFace icon={<BranchIcon />} value={branch} chevron />
+        </MenuButton>
+        <MenuPopup side="top" className="acpmux-menu acpmux-location-menu" align="end">
+          <MenuItem className="acpmux-menu-item" onSelect={() => setOpen(false)}>
+            <span className="acpmux-menu-text">
+              <span className="acpmux-menu-label">{branch}</span>
+            </span>
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+    </span>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      aria-hidden="true"
+    >
+      <circle cx="4" cy="3" r="1.5" />
+      <circle cx="4" cy="13" r="1.5" />
+      <circle cx="12" cy="13" r="1.5" />
+      <path d="M4 4.5v5A3.5 3.5 0 0 0 7.5 13H10.5M4 6.5A3.5 3.5 0 0 1 7.5 3H10" />
+    </svg>
   );
 }
 
@@ -267,7 +308,7 @@ function FolderMenu({
         <MenuButton className="acpmux-location-button" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
-        <MenuPopup className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side="top" className="acpmux-menu acpmux-location-menu" align="end">
           {folders.length > 0 && (
             <>
               <div className="acpmux-location-folders">
@@ -411,6 +452,7 @@ function LocationPicker({
         anchor={open ? trigger.current : null}
         label={label}
         className="acpmux-menu acpmux-location-menu"
+        side="top"
       >
         <Combobox
           suggestions={suggestions}

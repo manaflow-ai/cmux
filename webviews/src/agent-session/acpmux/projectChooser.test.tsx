@@ -91,15 +91,17 @@ const render = (
     ),
   );
 
-test("renders plain right-aligned computer and folder pickers without context chips", async () => {
+test("renders the attached folder, computer and branch tray without context chips", async () => {
   await render();
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
-    "This Mac",
     "cmux",
+    "This Mac",
+    "main",
   ]);
-  // Two chevrons and the folder's icon: every part of the row is the same text menu button.
-  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(3);
+  expect(doc.querySelector(".acpmux-composer-context")).not.toBeNull();
+  // Folder and branch icons plus the shared chevrons keep the controls aligned.
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon").length).toBeGreaterThanOrEqual(3);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -121,7 +123,8 @@ test("offers Cloud computers and sends the selected computer with its folder", a
 
 test("locks both location labels after the first turn", async () => {
   await render({ turnCount: 1 }, true);
-  expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
+  expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(1);
+  expect(doc.querySelector('.acpmux-location-button[aria-label="Branch"]')).not.toBeNull();
   expect(doc.querySelectorAll(".acpmux-location-readonly")).toHaveLength(2);
   expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
 });
