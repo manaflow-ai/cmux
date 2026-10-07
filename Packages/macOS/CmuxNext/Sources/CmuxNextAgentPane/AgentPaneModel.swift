@@ -42,10 +42,6 @@ public final class AgentPaneModel {
     /// Runs an app action requested by an empty-state or new-tab control,
     /// returning whether it ran.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
-    /// The app actions any agent tab may run: the location row's SSH… and cmux Cloud….
-    static let connectActions: Set<String> = ["remote.connect", "newCloudMachine"]
-    /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
-    static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -280,17 +276,7 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New),
-            // the command palette's chats page ("Show all", decision K1), and the location row's SSH and
-            // cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH"). The New
-            // Tab page also runs Add Harness… ("Integrate a harness").
-            guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id)
-                    || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
-                  let onRunAction else {
-                return Self.unsupported("action.run")
-            }
-            if !onRunAction(id), let fallback = Self.connectFallbacks[id] { _ = onRunAction(fallback) }
-            return AgentPaneReply.success()
+            return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
