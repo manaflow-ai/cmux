@@ -123,8 +123,11 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         if reliable { try await waitForRoom(label.label) }
         let accepted = try state.withLockUnchecked { state -> Bool in
             guard !state.closed else { throw WebRTCPeerError.closed }
-            var queue = state.laneQueues[label.label] ?? LaneQueue(label: label)
-            if !reliable, queue.queuedBytes + frame.bytes.count > limits.laneBudget { return false }
+            var queue = state.laneQueues.removeValue(forKey: label.label) ?? LaneQueue(label: label)
+            if !reliable, queue.queuedBytes + frame.bytes.count > limits.laneBudget {
+                state.laneQueues[label.label] = queue
+                return false
+            }
             let id = state.nextFrameID
             state.nextFrameID &+= 1
             queue.append(chunker.split(frame.bytes, reliable: reliable, id: id))
@@ -337,7 +340,9 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             guard !state.closed, let entry = state.entries[id] else { return (nil, nil, false) }
             guard let label = entry.label else { return (entry, data, false) }
             if label.lane.reliability.isReliable { state.receivedBytes += data.count }
-            var reassembly = state.reassembly[id] ?? MessageReassembly(maxFrameBytes: maxFrame)
+            // Taken out of the dictionary so appending to its buffer does not
+            // copy it (copy-on-write) on every piece.
+            var reassembly = state.reassembly.removeValue(forKey: id) ?? MessageReassembly(maxFrameBytes: maxFrame)
             let frame = reassembly.receive(data)
             state.reassembly[id] = reassembly
             guard let frame, label.lane.reliability.isReliable else { return (entry, frame, false) }
