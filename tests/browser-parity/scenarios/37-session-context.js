@@ -56,7 +56,12 @@ try {
 } catch (e) {
   refusal = e.message;
 }
-emitCmux("other-session-refused-on-owner-tab", /belongs to the REPL session "ctxowner", which is still running/.test(refusal ?? ""));
+// The refusal names the owner session as the backend runs it: the dev
+// driver as `ctxowner`; the app as run.mjs names it,
+// `parity-<scenario>-ctxowner-<suffix>`, followed by its workspace.
+const ownerName = /^(?:ctxowner|parity-37-session-context-ctxowner-[a-z0-9]{1,6})$/;
+const named = /belongs to the REPL session "([^"]+)"(?: \(workspace [0-9A-Fa-f-]{36}\))?, which is still running/.exec(refusal ?? "");
+emitCmux("other-session-refused-on-owner-tab", !!named && ownerName.test(named[1]));
 // ---- cell session=ctxowner cmux-only
 await ownerTab.reload();
 emitCmux("owner-options-survive-another-session", !ownerApplies || (await ownerTab.evaluate(() => navigator.userAgent)) === "brepl-owner-ua");
