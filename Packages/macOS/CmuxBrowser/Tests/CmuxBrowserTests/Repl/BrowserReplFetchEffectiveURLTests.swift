@@ -183,6 +183,16 @@ struct BrowserReplFetchEffectiveURLTests {
         #expect(error.message.contains("https://upgrade.test/landing"), "\(error.message)")
     }
 
+    /// HSTS never applies to an IP address, and a loopback request stays on
+    /// the machine, so those `http` URLs are requested as before.
+    @Test("An IP address or loopback host has no HSTS form to refuse")
+    func ipAndLoopbackAreNotUpgraded() {
+        for url in ["http://127.0.0.1/x", "http://[::1]:8080/x", "http://192.0.2.1/x", "http://localhost/x"] {
+            #expect(BrowserReplFetcher.hstsUpgraded(URL(string: url)!) == nil, "\(url)")
+        }
+        #expect(BrowserReplFetcher.hstsUpgraded(URL(string: "http://upgrade.test:80/x")!)?.absoluteString == "https://upgrade.test/x")
+    }
+
     @Test("An http URL the policy allows on https too keeps its cookies")
     func bothSchemesKeepCookies() async throws {
         for allowed in [["upgrade.test"], ["http://upgrade.test", "https://upgrade.test"]] {

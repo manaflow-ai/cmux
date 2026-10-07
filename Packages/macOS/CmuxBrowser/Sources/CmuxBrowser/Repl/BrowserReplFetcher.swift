@@ -14,8 +14,8 @@ public import Foundation
 /// session's domain policy is checked for the first URL, for every
 /// redirect hop and for the URL the response came from (an HSTS upgrade
 /// moves a request without a redirect hop), and an `http` URL whose
-/// `https` form it blocks is sent without cookies, since that upgrade
-/// takes them along before the delegate hears of it. A body larger than `maxBodyBytes` fails the fetch, and so
+/// `https` form it blocks is refused, first or as a hop, since that
+/// upgrade takes the request along before the delegate hears of it. A body larger than `maxBodyBytes` fails the fetch, and so
 /// does a body that would take the bodies all of the fetcher's requests
 /// hold at once past its `BrowserReplFetchBudget`. A fetch that has not
 /// finished after `resourceTimeout` fails, so a body that never ends (an
@@ -181,7 +181,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
               scheme == "http" || scheme == "https" else {
             return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: only http(s) URLs are supported")), 0)
         }
-        if let reason = reason(url) {
+        if let reason = reason(url) ?? upgradeBlockReason(url) {
             return (.failure(BrowserReplDriverError(code: "blocked", message: "fetch: \(urlString) is blocked: \(reason)")), 0)
         }
         let credentials = request["credentials"] as? String ?? "include"
@@ -225,7 +225,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             }
             if let data = Data(base64Encoded: body) { urlRequest.httpBody = data }
         }
-        if Self.sendsCookies(info, to: url), !cookiesMayBeUpgraded(url) {
+        if Self.sendsCookies(info, to: url) {
             if urlRequest.value(forHTTPHeaderField: "Cookie") == nil,
                let cookie = await cookieHeader(for: url, targetID: info.targetID) {
                 urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
@@ -294,18 +294,24 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         }
     }
 
-    /// Whether cookies for `url` could reach a URL the domain policy
-    /// blocks: CFNetwork upgrades an `http` request to a host it has an
-    /// HSTS entry for (one a response set, or the preloaded list) to
-    /// `https` before it is sent, with the headers already on it, and tells
-    /// the delegate only once the response arrives. An `http` URL whose
-    /// `https` form the policy blocks therefore goes without cookies.
-    /// HSTS never applies to an IP address (RFC 6797 section 8.1.1), and a
-    /// loopback host's cookies stay on this machine whichever scheme takes
-    /// them, so those keep theirs.
-    private func cookiesMayBeUpgraded(_ url: URL) -> Bool {
-        guard let upgraded = Self.hstsUpgraded(url) else { return false }
-        return reason(upgraded) != nil
+    /// Why `url` may not be requested although the policy allows it, or
+    /// nil: CFNetwork upgrades an `http` request to a host it has an HSTS
+    /// entry for (one a response set, or the preloaded list) to `https`
+    /// before it is sent, with its method, headers and body, and tells the
+    /// delegate only once the response arrives. So an `http` URL whose
+    /// `https` form the policy blocks is never requested, first or as a
+    /// redirect hop: its request could reach that blocked origin. HSTS
+    /// never applies to an IP address (RFC 6797 section 8.1.1), and a
+    /// loopback host's request stays on this machine whichever scheme
+    /// takes it, so those are requested.
+    private func upgradeBlockReason(_ url: URL) -> String? {
+        guard let upgraded = Self.hstsUpgraded(url), let reason = reason(upgraded) else { return nil }
+        var https = URLComponents()
+        https.scheme = "https"
+        https.host = upgraded.host
+        https.port = upgraded.port
+        let pattern = https.string ?? upgraded.absoluteString
+        return "the browser may upgrade it to \(upgraded.absoluteString) (HSTS) before it is sent, with its headers and body, and that URL is blocked: \(reason); allow the https form too (for example \(pattern)) to fetch it"
     }
 
     /// The URL an HSTS upgrade sends `url` to (RFC 6797 section 8.3: the
@@ -405,7 +411,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     ) {
         // Every hop is checked against the domain policy; a blocked hop fails
         // the fetch instead of returning the redirect.
-        if let url = request.url, let reason = reason(url) {
+        if let url = request.url, let reason = reason(url) ?? upgradeBlockReason(url) {
             lock.withLock { tasks[task.taskIdentifier]?.blocked = "fetch: redirect to \(url.absoluteString) is blocked: \(reason)" }
             completionHandler(nil)
             task.cancel()
@@ -442,7 +448,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             // The Cookie header goes on every hop; cookies for the new URL
             // come from the tab by the credentials rules.
             Self.removeCookieHeaders(from: &next)
-            if let url = next.url, Self.sendsCookies(info, to: url), !self.cookiesMayBeUpgraded(url),
+            if let url = next.url, Self.sendsCookies(info, to: url),
                let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
