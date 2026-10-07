@@ -185,10 +185,11 @@ impl Hub {
     /// rules write takes: the session may have changed since the guard ran,
     /// or while this prompt waited in the queue. A refused prompt never
     /// reaches the harness; the log records `prompt_refused`.
-    pub(super) fn check_dispatch(
-        &self,
-        session: &Session,
+    pub(super) async fn check_dispatch(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
         control: Control,
+        trust_gate: bool,
         prompt_id: &str,
         turn_id: &str,
         client: &str,
@@ -196,6 +197,12 @@ impl Hub {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control).err()
+        };
+        let refused = match refused {
+            Some(e) => Some(e),
+            None => {
+                crate::server::trust_gate::check_dispatch(self, trust_gate, session).await.err()
+            }
         };
         let Some(e) = refused else { return Ok(()) };
         self.append(
