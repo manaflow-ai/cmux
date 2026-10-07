@@ -53,7 +53,7 @@ public actor NIOSSHTunnelOpener: SSHDirectTCPIPOpener {
         }
         let single = Task { () throws -> SSHConnection in
             let opened = try await task.value
-            await self.adopt(opened)
+            self.adopt(opened)
             guard let last = opened.last else { throw SSHSessionFailure.invalidChain }
             return last
         }
