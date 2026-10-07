@@ -41,16 +41,22 @@ public struct ConversationRunPlan: Sendable, Equatable {
         }
         var entries: [Entry] = []
         entries.reserveCapacity(messages.count)
-        for (index, message) in messages.enumerated() {
-            let previous = index > 0 ? messages[index - 1] : nil
-            let next = index + 1 < messages.count ? messages[index + 1] : nil
-            let showsTimestamp = previous.map { message.sentAt.timeIntervalSince($0.sentAt) >= Self.timestampGap } ?? true
-            let firstInRun = showsTimestamp || !(previous.map { Self.sameRun($0, message) } ?? false)
-            let lastInRun: Bool = {
-                guard let next else { return !typingParticipantIDs.contains(message.senderID) }
-                if next.sentAt.timeIntervalSince(message.sentAt) >= Self.timestampGap { return true }
-                return !Self.sameRun(message, next)
-            }()
+        // Neighbors are read in place: copying whole messages into optionals
+        // dominated this pass, which runs over every loaded message per update.
+        for index in messages.indices {
+            let message = messages[index]
+            let hasPrevious = index > 0
+            let hasNext = index + 1 < messages.count
+            let showsTimestamp = hasPrevious ? message.sentAt.timeIntervalSince(messages[index - 1].sentAt) >= Self.timestampGap : true
+            let firstInRun = showsTimestamp || !(hasPrevious && Self.sameRun(messages[index - 1], message))
+            let lastInRun: Bool
+            if !hasNext {
+                lastInRun = !typingParticipantIDs.contains(message.senderID)
+            } else if messages[index + 1].sentAt.timeIntervalSince(message.sentAt) >= Self.timestampGap {
+                lastInRun = true
+            } else {
+                lastInRun = !Self.sameRun(message, messages[index + 1])
+            }
             let status: Status
             if message.delivery?.isFailed == true {
                 status = .notDelivered
