@@ -195,10 +195,20 @@ final class ComputerUseHelperDaemon {
         (Bundle.main.bundleIdentifier ?? "").contains(".debug")
     }
 
-    /// `/tmp/cmux-cua-<uid>/<scope>/cua.sock`: short enough for a Unix
-    /// socket, private to this user, one per app build (tag).
+    /// `<this user's temp dir>/cmux-cua/<scope>/cua.sock`: the per-user
+    /// Darwin temp directory (`_CS_DARWIN_USER_TEMP_DIR`, 0700 and owned by
+    /// the user, unlike the shared /tmp), one socket per app build (tag),
+    /// short enough for a Unix socket address (~83 of 104 bytes).
     nonisolated static func defaultSocketPath(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> String {
-        "/tmp/cmux-cua-\(getuid())/\(scope(bundleID))/cua.sock"
+        "\(userTemporaryDirectory())cmux-cua/\(scope(bundleID))/cua.sock"
+    }
+
+    /// The per-user Darwin temp directory, with a trailing slash.
+    nonisolated static func userTemporaryDirectory() -> String {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return NSTemporaryDirectory() }
+        let path = String(cString: buffer)
+        return path.hasSuffix("/") ? path : path + "/"
     }
 
     nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> URL {
@@ -225,7 +235,7 @@ final class ComputerUseHelperDaemon {
         if let value { setenv(key, value, 1) } else { unsetenv(key) }
     }
 
-    /// The socket directory and its parent (under a predictable /tmp path)
+    /// The socket directory and its parent (cmux-cua under the user's temp directory)
     /// and the helper's state directory: each must be a real directory owned
     /// by this user and is set to 0700. A symlink or another user's directory
     /// there could hand the helper's socket to someone else, so nothing starts.
