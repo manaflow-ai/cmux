@@ -11,9 +11,12 @@ enum AddHarnessHandler {
         registry.bind("palette.addHarness", run: { invocation in
             // A new tab takes the focus: automation runs `cmux harness guide` itself.
             guard invocation.allowsViewChange else { return context.refuse(AddHarnessStrings.needsFocus) }
-            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
-            if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
-            pane.openAgentTab(seed: AgentPaneSeedSource(seed))
+            // The same pane path as New Agent Chat: from Home or a settling workspace it makes the
+            // first pane, then opens the chat there.
+            AgentHandlers.withAgentPane(invocation, context: context) { pane in
+                if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
+                pane.openAgentTab(seed: AgentPaneSeedSource(seed))
+            }
         })
     }
 
