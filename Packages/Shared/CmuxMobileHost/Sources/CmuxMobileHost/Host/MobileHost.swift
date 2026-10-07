@@ -20,6 +20,7 @@ public actor MobileHost {
 
     private let linkHost: LinkHost
     private let context: MobileHostContext
+    private let keyResolver: (any CarrierKeyResolver)?
     private var sessionsTask: Task<Void, Never>?
     private var revocationTask: Task<Void, Never>?
     private var servers: [ObjectIdentifier: MobileSessionServer] = [:]
@@ -29,9 +30,10 @@ public actor MobileHost {
     public init(configuration: MobileHostConfiguration, acceptor: any LinkAcceptor, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, handlers: MobileChannelHandlers = MobileChannelHandlers(),
                 linkConfiguration: LinkConfiguration = LinkConfiguration(), clock: LinkClock = .continuous,
-                workspaceStartSeq: UInt64? = nil) {
+                workspaceStartSeq: UInt64? = nil, keyResolver: (any CarrierKeyResolver)? = nil) {
         self.configuration = configuration
         self.authorizer = authorizer
+        self.keyResolver = keyResolver
         let owner = WorkspaceStreamOwner(hostID: configuration.hostID, daemon: daemon, startSeq: workspaceStartSeq)
         workspaceStream = owner
         let executor = MobileOpExecutor(
@@ -88,10 +90,14 @@ public actor MobileHost {
 
     // MARK: Private
 
-    private func serve(_ session: LinkSession) {
+    /// The carrier's authenticated peer becomes the hello's attestation
+    /// (b5-mac-host.md 3): a proof for another install is refused.
+    private func serve(_ session: LinkSession) async {
+        guard !stopped else { return }
+        let attestation = await CarrierAttestation.make(identity: await session.peerIdentity, resolver: keyResolver)
         guard !stopped else { return }
         // Registered before its hello, so a revocation during admission finds it.
-        let server = MobileSessionServer(session: session, context: context)
+        let server = MobileSessionServer(session: session, context: context, attestation: attestation)
         let id = ObjectIdentifier(server)
         servers[id] = server
         Task { [weak self] in

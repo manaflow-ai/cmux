@@ -38,17 +38,21 @@ public struct TrustStoreKeyLookup: TrustedKeyLookup {
     }
 
     public func isTrustedDevice(directKey: Data, onHost host: String?) async -> Bool {
-        guard let state = await mirror.state, directKey.count == 32 else { return false }
+        await trustedInstall(directKey: directKey, onHost: host) != nil
+    }
+
+    public func trustedInstall(directKey: Data, onHost host: String?) async -> String? {
+        guard let state = await mirror.state, directKey.count == 32 else { return nil }
         let at = millis()
         let encoded = directKey.base64URLEncodedString()
-        if state.devices.values.contains(where: { d in
+        if let device = state.devices.values.sorted(by: { $0.install < $1.install }).first(where: { d in
             d.certs.direct.map { $0.key == encoded && valid($0, key: d.publicKey, user: user, install: d.install, purpose: .direct, at: at) } ?? false
-        }) { return true }
-        guard let host else { return false }
-        return state.guests.values.contains { g in
+        }) { return device.install }
+        guard let host else { return nil }
+        return state.guests.values.sorted(by: { $0.device.install < $1.device.install }).first { g in
             g.host == host && g.device.cert.key == encoded
                 && valid(g.device.cert, key: g.device.publicKey, user: g.device.user, install: g.device.install, purpose: .direct, at: at)
-        }
+        }?.device.install
     }
 
     public func verifyFingerprint(_ certificate: LinkCertificate, from install: String) async -> Bool {

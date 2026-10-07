@@ -29,16 +29,18 @@ struct PhoneHarness {
 
     init(devices: ((P256.Signing.PrivateKey) -> [PairedDevice])? = nil, handlers: MobileChannelHandlers = MobileChannelHandlers(),
          daemon: FakeDaemon = FakeDaemon(),
-         authorizer: (any MobileDeviceAuthorizer)? = nil, key: P256.Signing.PrivateKey = P256.Signing.PrivateKey()) async throws {
+         authorizer: (any MobileDeviceAuthorizer)? = nil, key: P256.Signing.PrivateKey = P256.Signing.PrivateKey(),
+         carrierIdentity: LinkPeerIdentity? = nil, keyResolver: (any CarrierKeyResolver)? = nil) async throws {
         let paired = devices?(key) ?? [PairedDevice(install: Self.install, userID: Self.userID, keyID: "k1",
                                                      publicKey: key.publicKey.x963Representation)]
         let store = StaticTrustStore(devices: paired)
         let network = LoopbackNetwork()
         let host = MobileHost(
             configuration: MobileHostConfiguration(hostID: Self.hostID, accountUserID: Self.userID),
-            acceptor: network.acceptor, daemon: daemon,
+            acceptor: carrierIdentity.map { IdentifiedAcceptor(inner: network.acceptor, identity: $0) } ?? network.acceptor,
+            daemon: daemon,
             authorizer: authorizer ?? TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),
-            handlers: handlers, linkConfiguration: Self.fast, workspaceStartSeq: 1000)
+            handlers: handlers, linkConfiguration: Self.fast, workspaceStartSeq: 1000, keyResolver: keyResolver)
         await host.start()
         let phone = LinkSession(
             peer: LinkPeer(hostID: Self.hostID),

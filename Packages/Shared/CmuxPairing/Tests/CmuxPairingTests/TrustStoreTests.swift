@@ -58,6 +58,11 @@ import Testing
         #expect(await lookup.isTrustedDevice(directKey: f.guestKey, onHost: "host_a1"))
         #expect(!(await lookup.isTrustedDevice(directKey: f.guestKey, onHost: "host_other")))
         #expect(!(await lookup.isTrustedDevice(directKey: f.guestKey, onHost: nil)))
+        // B5 maps a Noise key to the install its hello must prove.
+        #expect(await lookup.trustedInstall(directKey: f.phoneKey, onHost: nil) == "inst_p1")
+        #expect(await lookup.trustedInstall(directKey: f.guestKey, onHost: "host_a1") == "inst_g1")
+        #expect(await lookup.trustedInstall(directKey: f.guestKey, onHost: nil) == nil)
+        #expect(await lookup.trustedInstall(directKey: Data(repeating: 1, count: 32), onHost: "host_a1") == nil)
         // B4's authorizer hook.
         let authorizer = TrustStoreAuthorizer(lookup: lookup, host: "host_a1")
         #expect(await authorizer.authorize(device: try #require(DirectPublicKey(rawRepresentation: f.guestKey))))
