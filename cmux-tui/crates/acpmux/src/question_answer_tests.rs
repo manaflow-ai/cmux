@@ -112,3 +112,16 @@ fn the_question_is_read_from_the_request_meta() {
     assert_eq!(question(&request).map(|q| q["harness"].clone()), Some(json!("claude")));
     assert!(question(&json!({"toolCall": {}})).is_none());
 }
+
+#[test]
+fn pending_hint_names_answer_for_a_question_and_allow_for_a_tool() {
+    let question = json!({"toolCall": {"_meta": {"acpmux": {"question": claude()}}},
+                          "options": [{"optionId": "allow_once", "kind": "allow_once"}]});
+    let hint = pending_hint(&question, "s1");
+    assert!(hint.contains("acpmux session answer s1 --answer \"Auth=<choice>\""), "{hint}");
+    assert!(hint.contains("acpmux session deny s1"), "{hint}");
+    assert!(!hint.contains("allow"), "{hint}");
+    let tool = json!({"toolCall": {"kind": "execute"},
+                      "options": [{"optionId": "yes", "kind": "allow_once"}, {"optionId": "no", "kind": "reject_once"}]});
+    assert_eq!(pending_hint(&tool, "s1"), "acpmux session allow s1 [yes|no] | acpmux session deny s1");
+}
