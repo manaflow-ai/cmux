@@ -121,11 +121,22 @@ class Excusing(unittest.TestCase):
 
     def test_a_job_the_base_did_not_run_blocks(self):
         del self.gh.jobs[2]
-        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next"):
+        with self.assertRaisesRegex(excuse.Refused, "no completed feat-cmux-next run"):
             self.judge()
 
+    def test_the_newest_base_run_with_a_verdict_for_the_job_decides(self):
+        # 2026-10-07: the newest base push run's swift test was cancelled by the next push.
+        self.gh.base_runs.insert(0, {"id": 22, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure"})
+        self.gh.jobs[4] = dict(failed_job(4, 22, BASE_SHA), conclusion="cancelled")
+        self.gh.jobs[5] = dict(failed_job(5, 22, BASE_SHA, name=SCHEME))
+        self.gh.jobs[5]["steps"] = [{"name": "Set up runner", "status": "completed", "conclusion": "failure"}]
+        text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
+        self.assertNotIn("run 22", text)
+
     def test_no_completed_base_run_blocks(self):
-        self.gh.base_runs = [dict(self.gh.base_runs[0])]
+        self.gh.base_runs = []
         with self.assertRaisesRegex(excuse.Refused, "no completed"):
             self.judge()
 
@@ -156,6 +167,11 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "nothing to compare"):
             self.judge()
 
+    def test_a_red_run_with_no_failed_job_listed_blocks(self):
+        self.gh.jobs[1]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
+            self.judge()
+
     def test_check_names_resolve_to_their_head_jobs(self):
         self.gh.check_runs = [{"check_runs": [
             {"id": 1, "name": SWIFT, "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"},
@@ -172,6 +188,39 @@ class Excusing(unittest.TestCase):
         self.gh.json = json_with_checks
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
         self.assertIn("run 20", "\n".join(lines))
+
+    def with_checks(self, checks):
+        self.gh.check_runs = [{"check_runs": checks}]
+        original = self.gh.json
+
+        def json_with_checks(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+                return copy.deepcopy(self.gh.check_runs)
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.gh.jobs[int(route.rsplit("/", 1)[1])])
+            return original(route, paginate=paginate)
+
+        self.gh.json = json_with_checks
+
+    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+        self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
+                           "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
+        self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+        self.assertIn(SWIFT, "\n".join(lines))
+        self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_with_no_other_failed_job_blocks(self):
+        self.gh.jobs[1]["conclusion"] = "success"
+        self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
+                           "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
+        self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
 
 class Script(unittest.TestCase):
