@@ -275,3 +275,20 @@ fn scan_lists_every_folder_profile_with_its_state() {
     assert!(!json.contains("us-east-1"), "{json}");
     assert!(scan(&f.cfg, &f.gate, &f.root).unwrap().is_empty());
 }
+
+#[test]
+fn the_confirmation_never_prints_raw_control_characters() {
+    let f = fx("escapes");
+    let hidden = ACME.replace(
+        "args = [\"acp\", \"--model\", \"${model}\"]",
+        "args = [\"acp\", \"\\u001b[2K\\rsafe\", \"x\\ny\"]",
+    );
+    f.profile("acme", &hidden.replace("us-east-1", "east\\u001b[8m\\u202egnp"));
+    f.trust("trusted");
+    let fp = load_one(&f.cfg, &f.gate, &f.folder, "acme").unwrap();
+    let text = confirmation_text(&fp, Some(Path::new("/bin/echo")));
+    let body: String = text.lines().collect::<Vec<_>>().join("");
+    assert!(!body.chars().any(|c| c.is_control() || c == '\u{202e}'), "{text:?}");
+    assert!(text.contains("\\u{202e}gnp"), "{text}");
+    assert!(text.contains("\\x1b[2K\\rsafe"), "{text}");
+}
