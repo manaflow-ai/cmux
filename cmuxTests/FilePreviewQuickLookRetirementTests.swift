@@ -11,23 +11,21 @@ import Testing
 @MainActor
 @Suite("Quick Look retirement")
 struct FilePreviewQuickLookRetirementTests {
-    private final class ReentrantResponderView: NSView {
-        var onResign: (() -> Void)?
+    private final class ReentrantWindowView: NSView {
+        var onWindowTransition: (() -> Void)?
 
-        override var acceptsFirstResponder: Bool {
-            true
-        }
-
-        override func resignFirstResponder() -> Bool {
-            onResign?()
-            return super.resignFirstResponder()
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil {
+                onWindowTransition?()
+            }
+            super.viewWillMove(toWindow: newWindow)
         }
     }
 
     @Test
-    func retirementInvalidatesCachedPreviewBeforeSynchronousResponderTeardown() throws {
+    func retirementInvalidatesCachedPreviewBeforeSynchronousWindowTeardown() throws {
         let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-10728-quicklook-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-2vc3-quicklook-\(UUID().uuidString)")
         try Data([0x00, 0x01, 0x02, 0x03]).write(to: fileURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
@@ -63,26 +61,24 @@ struct FilePreviewQuickLookRetirementTests {
         window.contentView = container
         window.makeKeyAndOrderFront(nil)
         let previewView = try #require(container.livePreviewView())
-        let responder = ReentrantResponderView(
+        let reentrantView = ReentrantWindowView(
             frame: NSRect(x: 0, y: 0, width: 20, height: 20)
         )
-        previewView.addSubview(responder)
-        #expect(window.makeFirstResponder(responder))
-        #expect(window.firstResponder === responder)
+        previewView.addSubview(reentrantView)
 
-        var resignCount = 0
+        var transitionCount = 0
         var previewDuringRetirement: QLPreviewView?
-        responder.onResign = {
-            resignCount += 1
+        reentrantView.onWindowTransition = {
+            transitionCount += 1
             previewDuringRetirement = container.livePreviewView()
         }
 
         session.dismantle(container)
-        responder.onResign = nil
+        reentrantView.onWindowTransition = nil
 
         #expect(
-            resignCount > 0,
-            "The fixture must observe AppKit's synchronous responder teardown"
+            transitionCount > 0,
+            "The fixture must observe AppKit's synchronous window teardown"
         )
         #expect(
             previewDuringRetirement == nil,
