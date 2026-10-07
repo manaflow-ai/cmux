@@ -68,6 +68,20 @@ describe("thread minimap geometry", () => {
     expect(turnScrollTop(turns[1], tops)).toBe(400);
   });
 
+  test("every turn in the viewport is lit (long-chat reference: a run of 2 to 7 ticks)", () => {
+    const tops = new Float64Array([0, 100, 400, 500, 900]);
+    const turns = minimapTurns([
+      row("user-1", "user", "a"),
+      row("a", "assistant", ""),
+      row("user-2", "user", "b"),
+      row("b", "assistant", ""),
+      row("user-3", "user", "c"),
+    ]);
+    expect(visibleTurns(turns, tops, 1000, 0, 300)).toEqual({ first: 0, last: 0 });
+    expect(visibleTurns(turns, tops, 1000, 350, 300)).toEqual({ first: 0, last: 1 });
+    expect(visibleTurns(turns, tops, 1000, 450, 500)).toEqual({ first: 1, last: 2 });
+  });
+
   test("popover centers on the tick and stays inside the viewport", () => {
     expect(popoverOffset(200, 104, 600)).toBe(148);
     expect(popoverOffset(10, 104, 600)).toBe(8);
