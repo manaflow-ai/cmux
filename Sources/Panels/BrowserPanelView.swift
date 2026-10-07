@@ -5614,6 +5614,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
         private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var pendingHostedInspectorDockConfiguration: (configuration: String?, reason: String)?
+        private var hostedInspectorDockConfiguration: String?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5625,7 +5626,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         deinit {
-            hostedInspectorSideDockPromotionTask?.cancel()
+            cancelHostedInspectorSideDockPromotion()
             pendingHostedInspectorDockConfiguration = nil
             if let trackingArea {
                 removeTrackingArea(trackingArea)
@@ -5744,6 +5745,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func setHostedInspectorFrontendWebView(_ webView: WKWebView?) {
             if hostedInspectorFrontendWebView !== webView {
                 pendingHostedInspectorDockConfiguration = nil
+                hostedInspectorDockConfiguration = nil
             }
             hostedInspectorFrontendWebView = webView
             lastHostedInspectorManualSideDockAllowed = nil
@@ -6074,6 +6076,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             cancelHostedWebKitPresentationRefresh()
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             pendingHostedInspectorDockConfiguration = nil
+            hostedInspectorDockConfiguration = nil
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
@@ -6088,6 +6091,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func clearStaleHostedInspectorOwnershipState() {
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             pendingHostedInspectorDockConfiguration = nil
+            hostedInspectorDockConfiguration = nil
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
@@ -6192,7 +6196,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         @discardableResult
         func promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded() -> Bool {
-            guard !isHostedInspectorDividerDragActive,
+            guard hostedInspectorDockConfiguration != "bottom",
+                  !isHostedInspectorDividerDragActive,
                   !isHostedInspectorSideDockActive(),
                   let slotView = localInlineSlotView,
                   let hit = hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) else {
@@ -6216,7 +6221,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         /// before mutating, so it is safe even if the layout changes in between.
         private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
             guard hostedInspectorSideDockPromotionTask == nil else { return }
-            guard !isHostedInspectorDividerDragActive,
+            guard hostedInspectorDockConfiguration != "bottom",
+                  !isHostedInspectorDividerDragActive,
                   !isHostedInspectorSideDockActive(),
                   let slotView = localInlineSlotView,
                   hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
@@ -6234,6 +6240,12 @@ struct WebViewRepresentable: NSViewRepresentable {
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             }
             hostedInspectorSideDockPromotionTask = task
+        }
+
+        private func cancelHostedInspectorSideDockPromotion() {
+            hostedInspectorSideDockPromotionTask?.cancel()
+            hostedInspectorSideDockPromotionTask = nil
+            hostedInspectorSideDockPromotionTaskID = nil
         }
 
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
@@ -6357,6 +6369,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard !isHostedInspectorDividerDragActive else {
                 pendingHostedInspectorDockConfiguration = (dockConfiguration, reason)
                 return
+            }
+
+            hostedInspectorDockConfiguration = dockConfiguration
+            if dockConfiguration == "bottom" {
+                // A bottom-docked inspector must stay inline after a drag. Cancel
+                // any promotion that was scheduled by the preceding layout pass;
+                // subsequent passes are also blocked by the recorded configuration.
+                cancelHostedInspectorSideDockPromotion()
             }
 
             switch dockConfiguration {
