@@ -124,8 +124,11 @@ dismisses on tap or swipe. The action button is an accessibility custom action a
 `revision`, `flags: [String: RemoteFlagValue]` (bool, int, string), `minimumMacProtocol`,
 `whatsNewRevision`, `demoContent`. `RemoteConfigSource` streams `SourceSnapshot<RemoteConfig>`
 like every other seam. `MockRemoteConfigSource` uses `MockSnapshotHub`; a real source plugs into
-`AppContainer.remoteConfigFactory` when B1 publishes the message family (`config.snapshot` in
-`cmux.mobile/1`, A0 owns the schema).
+`AppContainer.remoteConfigFactory` now uses the authenticated `GET /v1/mobile/config` projection
+served by B1. `URLSessionRemoteConfigSource` emits the cached projection immediately, refreshes
+every five minutes, maps the envelope's `version` to `revision`, and preserves the last valid
+value when auth, transport, status or payload validation fails. A future `config.snapshot` stream
+can replace this low-frequency source without changing the shell seam.
 
 Merge with A1 local flags (`FeatureFlagStore`), highest first: launch environment
 (`CMUX_IOS_FLAG_*`), the device's DEV override, the remote value, the build default. Remote keys
@@ -202,9 +205,10 @@ The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
 
 ## 12. Verification (2026-10-06)
 
-- `CmuxiOSPlatformTests`: 41 Swift Testing tests pass on macOS through a scratch package that links
-  the same sources (router, deferral, notification payloads, toast queue, flag merge, remote config,
-  diagnostic sink, What's New, Mac verdicts, demo, keep-awake and billing mocks).
+- The prior `CmuxiOSPlatformTests` set had 41 Swift Testing tests passing through a macOS scratch
+  package. This slice adds three HTTP remote-config tests (envelope mapping, fail-closed cache and
+  negative-revision clamping); they are statically parsed here and await the hosted Swift test
+  lane before being counted as passing evidence.
 - `CmuxiOSShellTests` (with the new remote-layer tests) and `CmuxiOSPlatformTests` compile for
   `arm64-apple-ios17.0-simulator`; the whole `CmuxiOSApp` target builds with SwiftPM; the app target's
   scene delegate typechecks against it. `check-l10n.sh` and `check-concurrency.sh` pass.
@@ -213,6 +217,6 @@ The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
   manifest (none on this Mac) or 40 GiB free (27 GiB). No install, no screenshots; UI paths
   (toast overlay, diagnostics share, What's New sheet, Mac gate, keep-awake, plans) are UNVERIFIED
   on a device.
-- Follow-ups: the `applinks:cmux.com` entitlement and AASA from `web/`; B1 `config.snapshot`; B5
-  capabilities and power assertion; C7 payload keys; C11 moves the consent toggle; D3 replay masks.
-
+- Follow-ups: the `applinks:cmux.com` entitlement and AASA from `web/`; B1 realtime
+  `config.snapshot` replacement for the low-frequency HTTP projection; B5 capabilities and power
+  assertion; C7 payload keys; C11 moves the consent toggle; D3 replay masks.

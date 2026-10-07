@@ -23,7 +23,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.1 | Root auth gate and restore screen | kept | done |
 | 1.1 | NotificationService extension | C7 | done (extension target typechecked, not compiled by Xcode) |
 | 1.1 | CloudVPN packet-tunnel extension | C12 | dropped (c12-cloud.md 3: VM attach rides `CmuxLink`) |
-| 1.1 | Remote feature flags | C16 | seam only (flag merge built; B1 `config.snapshot` not served) |
+| 1.1 | Remote feature flags | C16 | done (authenticated `/v1/mobile/config` source; cached, fail-closed refresh; realtime `config.snapshot` remains a carrier follow-up) |
 | 1.1 | App Review demo mode | C16 | done (DEBUG `CMUX_IOS_DEMO`; remote trigger waits on B1) |
 | 1.1 | Multiple scenes | - | dropped (out of scope) |
 | 1.1 | Pointer, indirect input, 120 Hz | A2, D1 | done |

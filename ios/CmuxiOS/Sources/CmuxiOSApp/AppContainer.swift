@@ -48,8 +48,8 @@ final class AppContainer {
     let router: ShellRouter
     /// The one toast owner; feature screens get it from here.
     let toasts = ToastCenter()
-    /// B1 fills this when the control plane serves `config.snapshot`; nil
-    /// keeps the mock (an empty config).
+    /// The authenticated API config projection. Nil keeps the mock when no
+    /// API origin is configured (SSH-only and preview launches).
     var remoteConfigFactory: (@Sendable () -> any RemoteConfigSource)?
     private let remoteConfigCache = RemoteConfigCache()
     private var remoteConfigTask: Task<Void, Never>?
@@ -241,6 +241,20 @@ final class AppContainer {
         }
         // C12: the team's Cloud machines over CloudDO.
         let coordinator = gate.coordinator
+        if let base {
+            let cached = remoteConfigCache.load() ?? .empty
+            let sessionToken: @Sendable () async throws -> String = { @MainActor in
+                try await coordinator.accessToken()
+            }
+            remoteConfigFactory = {
+                URLSessionRemoteConfigSource(
+                    baseURL: base,
+                    appVersion: version,
+                    initial: cached,
+                    token: sessionToken
+                )
+            }
+        }
         let withCloud = CloudComposition.adding(to: factories, base: base, identity: madeIdentity,
                                                 sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
