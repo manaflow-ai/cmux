@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
-import { groupRows, rowsInSection, schema, sections } from "./schema";
+import { categories } from "./categories";
+import { schema } from "./schema";
 
 const button = (id: string, title: string, disabled = false) => ({
   id,
@@ -73,12 +74,13 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   ...extra,
 });
 const variants: Record<string, SettingsPageVariant> = {};
-for (const section of sections) {
-  variants[section.id] = variant(section.id);
-  variants[`${section.id}-customized`] = variant(section.id, { options: { values: customValues } });
+for (const category of categories) {
+  const allThemes = category.id === "theme";
+  variants[category.id] = variant(category.id, { allThemes });
+  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
-  for (const [index, group] of groupRows(rowsInSection(section.id)).entries())
-    variants[`${section.id}-group-${index + 1}`] = variant(section.id, {
+  for (const [index, group] of category.groups.entries())
+    variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
       focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
@@ -99,7 +101,7 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 Object.assign(variants, {
-  backdrops: variant("appearance", {
+  backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {
       ...host,
@@ -117,13 +119,6 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
-  }),
-  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
-  "theme-custom-spec": variant("appearance", {
-    steps: [
-      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
-      wait("[data-theme-list] .theme-choice:nth-child(2)"),
-    ],
   }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
@@ -152,13 +147,61 @@ Object.assign(variants, {
     ],
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
+  "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
-  "theme-picker": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), wait(".domain-panel")],
+  "theme-picker": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-theme-option]")],
+    note: "The theme popover over every bundled theme.",
   }),
-  "theme-picker-empty": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), input(".domain-panel input", "no-such-theme")],
+  "theme-picker-search": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
+  }),
+  "theme-picker-empty": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
+  }),
+  "theme-light-dark": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha" } },
+    note: "Match System Appearance: a light and a dark theme.",
+  }),
+  "theme-overrides": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Nord" } },
+    host: {
+      ...host,
+      theme: {
+        levels: ["room", "workspace", "terminal"],
+        current: { room: null, workspace: "Tokyo Night", terminal: "Gruvbox Dark" },
+        config: "Apple System Colors",
+        app: null,
+      },
+    },
+    note: "Scope overrides inline on the setting (P4): no space, workspace or terminal tabs.",
+  }),
+  "theme-app-separate": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Gruvbox Dark" } },
+    host: {
+      ...host,
+      theme: { levels: ["terminal"], current: { terminal: null }, config: "Apple System Colors", app: "Rose Pine" },
+    },
+    note: "An app theme apart from the terminal theme.",
+  }),
+  "theme-managed": variant("theme", {
+    allThemes: true,
+    options: {
+      managed: { "appearance.theme": { value: "GitHub Light Default", source: "profile", reason: "Set by your organization", team: "Acme" } },
+    },
+    note: "An MDM lock inline on the setting.",
+  }),
+  "changed-only": variant("general", {
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: "Show Only Changed lists every changed setting across categories.",
   }),
   "font-picker": variant("terminal", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
@@ -283,6 +326,24 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
+// The two overall looks for the chief's pick (layout.css): each on the Theme section with every
+// bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
+for (const look of ["quiet", "dense"] as const) {
+  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
+  variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
+  variants[`look-${look}-browser`] = variant("browser", {
+    look,
+    options: { values: customValues },
+    note: `${look} look: Browser, customized, with an MDM lock.`,
+  });
+  variants[`look-${look}-changed`] = variant("general", {
+    look,
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: `${look} look: Show Only Changed.`,
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
   title: "Settings",
@@ -311,6 +372,10 @@ export default settingsPageEntry({
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
+    "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/ThemePicker.tsx",
+    "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",

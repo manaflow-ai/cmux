@@ -3,6 +3,7 @@
 // `cmux.settings.*` ops; while the daemon is unreachable they are refused here and nothing
 // queues. A `cmux.settings.changed` event (any writer: this page, the CLI, a hand edit)
 // re-reads the rows; an older read never replaces a newer one.
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { PageCommand } from "./keyboard";
 import { rowsByKey } from "./schema";
 import { t } from "./strings";
@@ -49,6 +50,8 @@ export type SettingsState = {
   host: HostLists | null;
   /** The Accounts part; null until read, or when the host has none. */
   accounts: AccountsState | null;
+  /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
+  themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
 
 export type WriteResult = { ok: true } | { ok: false; error: WireError };
@@ -74,7 +77,9 @@ export class SettingsStore {
     domains: emptyDomains,
     host: null,
     accounts: null,
+    themeColors: null,
   };
+  private themeColorsRequested = false;
   private readonly listeners = new Set<() => void>();
   private refreshSequence = 0;
   private readonly unsubscribers: Array<() => void> = [];
@@ -120,6 +125,15 @@ export class SettingsStore {
   async setTheme(level: string, spec: string | null): Promise<void> {
     await this.request("cmux.settings.theme.set", { level, spec });
     await this.refreshHost();
+  }
+
+  /** Reads the theme colors once (the Theme section asks when it first draws). */
+  async loadThemeColors(): Promise<void> {
+    if (this.themeColorsRequested) return;
+    this.themeColorsRequested = true;
+    const reply = await this.request("cmux.settings.theme.colors", {});
+    if (reply.ok && !this.disposed)
+      this.update({ themeColors: new Map(reply.value.themes.map((theme) => [theme.name, theme])) });
   }
 
   /** Whether `text` is a theme spec the host accepts. */

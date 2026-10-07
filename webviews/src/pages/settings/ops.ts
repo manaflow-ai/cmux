@@ -9,6 +9,8 @@
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
 // schemars macro; then they come from the generated client.
 
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -65,8 +67,19 @@ export type HostLists = {
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
-  /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
-  theme?: { levels: string[]; current: Record<string, string | null> };
+  /**
+   * Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme: a
+   * level with a theme overrides appearance.theme there (the page shows it inline, P4). `config`
+   * names the theme the Ghostty config resolves to (the preview of an unset appearance.theme).
+   * `app`, when present, is the app theme apart from the terminal theme (null: match the
+   * terminal), set with `cmux.settings.theme.set` at level `app`.
+   */
+  theme?: {
+    levels: string[];
+    current: Record<string, string | null>;
+    config?: string | null;
+    app?: string | null;
+  };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
@@ -135,6 +148,8 @@ export type SettingsOps = {
   "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
+  /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
+  "cmux.settings.theme.colors": [Record<string, never>, { themes: GhosttyTheme[] }];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */

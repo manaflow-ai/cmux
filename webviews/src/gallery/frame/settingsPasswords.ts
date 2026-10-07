@@ -4,6 +4,7 @@ import type { PageFixtureStep, PasswordsPageVariant, SettingsPageVariant } from 
 import type { SettingsClient } from "../../pages/settings/ops";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
+import themes from "virtual:cmux-gallery/themes";
 
 async function bridge(client: SettingsClient, ops: string[], streams: string[]) {
   const host = installMockHost(
@@ -66,7 +67,14 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   addPseudoLocales(table);
   installCatalog(table);
   document.documentElement.lang = context.env.locale;
-  const mock = createMockClient(structuredClone(state.options ?? {}));
+  const options = structuredClone(state.options ?? {});
+  if (state.allThemes) {
+    // The app publishes every bundled Ghostty theme and answers their colors.
+    const { mockDomains } = await import("../../pages/settings/mockProvider");
+    options.domains = { ...mockDomains, ...options.domains, themes: themes.map((theme) => theme.name) };
+  }
+  const mock = createMockClient(options);
+  if (state.allThemes) mock.provider.themeColors = themes;
   mock.provider.host = { ...mock.provider.host, ...structuredClone(state.host ?? {}) };
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   window.addEventListener("pagehide", mock.close, { once: true });
@@ -92,6 +100,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.theme.set",
+      "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
@@ -121,12 +130,13 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   const { sectionHref } = await import("../../pages/settings/router");
   history.replaceState(null, "", `${location.pathname}${location.search}#${sectionHref(state.section, state.focus)}`);
   document.documentElement.dataset.cmuxPage = "settings";
+  if (state.look) document.documentElement.dataset.settingsLook = state.look;
   await import("../../pages/settings/main");
   if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
-    const { rowsInSection } = await import("../../pages/settings/schema");
+    const { categoryOf, categoryRows } = await import("../../pages/settings/categories");
     await fixtureElement(
-      rowsInSection(state.section).length
-        ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled)"
+      categoryRows(categoryOf(state.section)).length
+        ? "[data-row-key] input:not(:disabled), [data-row-key] button:not(:disabled), [data-row-key] select:not(:disabled), [data-theme-picker]:not(:disabled)"
         : "[data-card]",
     );
   }

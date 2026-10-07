@@ -26,6 +26,8 @@ import {
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { validate } from "./validate";
+import { mockThemeColors } from "./mockThemes";
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 export type MockOptions = {
   managed?: Record<string, { value: unknown } & ManagedInfo>;
@@ -53,6 +55,8 @@ type Params = Record<string, unknown>;
 
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
+  /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
+  themeColors: GhosttyTheme[] = mockThemeColors;
   revision = 1;
   diagnostics: Diagnostic[];
   readonly domains: Domains | null;
@@ -97,9 +101,11 @@ export class MockSettingsProvider {
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
-        this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
+        if (level === "app") this.setHost({ ...this.host, theme: { ...theme, app: spec } });
+        else this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
         return {};
       },
+      "cmux.settings.theme.colors": () => ({ themes: this.themeColors }),
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
@@ -143,6 +149,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.theme.set",
+      "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
@@ -186,7 +193,12 @@ export class MockSettingsProvider {
       { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
       { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
     ],
-    theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
+    theme: {
+      levels: ["room", "workspace", "terminal"],
+      current: { room: null, workspace: "Dracula", terminal: null },
+      config: "Apple System Colors",
+      app: null,
+    },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
