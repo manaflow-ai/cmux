@@ -1184,10 +1184,13 @@ class SideLanes(unittest.TestCase):
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
 
-    def test_a_stuck_push_run_superseded_by_a_newer_push_is_cancelled_not_rerun(self):
-        # cmux-next.yml push runs each hold their own concurrency group, so a newer
-        # push never cancels an older one. Re-running the old one on Blacksmith spends
-        # a scarce slot on a head the newer run already covers.
+    def test_a_stuck_push_run_superseded_by_a_newer_push_is_not_cancelled(self):
+        # 2026-10-07 00:20Z to 01:05Z: with a push about once a minute, this rescue
+        # cancelled every cmux-next push run on feat-cmux-next while a newer push run
+        # existed (run 37552678540: "cancelled but not re-run: a newer push run ...
+        # covers the branch instead"), running jobs included, so no tip swift test
+        # completed. cmux-next.yml queues each push Mac job in a group per branch
+        # (one runs, one waits), so a newer push never makes this one cancel it.
         payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
                              head_branch="feat-cmux-next")
         target = rescue.target_from_event(payload, "manaflow-ai/cmux")
@@ -1197,10 +1200,42 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=payload)
         self.assertEqual(code, 0)
         self.assertIn("newer:feat-cmux-next", api.calls)
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
         self.assertIn(f"a newer push run on feat-cmux-next ({RUN_ID + 7})", summary)
+        self.assertIn("never cancelled", summary)
+
+    def test_a_refused_cmux_next_push_job_in_a_superseded_run_is_not_cancelled(self):
+        # A mini refused a job, the run still goes at the watch's end, and a newer push
+        # run exists: the running jobs finish, and the newer run covers the branch.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        running = job("cmux-next Release compile (Xcode 26)", status="in_progress", labels=[SIDE],
+                      runner="mini-2-glaeda-2")
+        api = SupersedingAPI(clock, lambda seconds: [refused_job("cmux-next swift test", labels=(SIDE,)), running],
+                             newer=[RUN_ID + 3])
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_a_refused_cmux_next_push_job_is_still_rerun(self):
+        # The refusal re-run stays: with no newer push run, the finished run's
+        # failed jobs are re-run, and nothing is cancelled.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, lambda seconds: [refused_job("cmux-next swift test", labels=(SIDE,))],
+                             finished=lambda seconds: True)
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertIn("re-ran the failed jobs", summary)
 
     def test_a_stuck_push_run_with_no_newer_push_is_rescued(self):
         # The branch head is no test: a head commit outside the workflow's paths has
