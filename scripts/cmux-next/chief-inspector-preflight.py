@@ -26,6 +26,7 @@ ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
 ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "chief-inspector-preflight"))
 ap.add_argument("--reply-wait", type=int, default=300)
+ap.add_argument("--from-workspace", action="store_true", help="open it from a workspace pane, not from Home")
 opts = ap.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 TAG, APP = opts.tag, opts.app
@@ -131,24 +132,26 @@ def turn_ended():
     return None
 
 
-def browser_tab():
+def browser_tabs():
     try:
         tabs = json.loads(cli("--json", "tab", "list"))
     except ValueError:
-        return None
-    found = []
+        return []
+    return [t for t in tabs if isinstance(t, dict) and t.get("content_kind") == "browser"]
 
-    def walk(v):
-        if isinstance(v, dict):
-            if v.get("content_kind") == "browser" and "127.0.0.1" in json.dumps(v):
-                found.append(v)
-            for x in v.values():
-                walk(x)
-        elif isinstance(v, list):
-            for x in v:
-                walk(x)
-    walk(tabs)
-    return found[0] if found else None
+
+BEFORE = set()
+
+
+def browser_tab():
+    """A browser tab opened by this run whose page is a loopback inspector."""
+    for t in browser_tabs():
+        if t["id"] in BEFORE:
+            continue
+        state = cli("browser", t["id"], "state")
+        if "127.0.0.1" in state:
+            return {**t, "state": state}
+    return None
 
 
 def page(tab, name, *args):
@@ -197,6 +200,11 @@ try:
     ended = wait(turn_ended, opts.reply_wait, 2)
     note("turn", ended=bool(ended), status=(ended or {}).get("status"), harness=(ended or {}).get("harness"))
     snapshot("01-home")
+    if opts.from_workspace:
+        note("select workspace", result=rpc("action.run", {"id": "workspace.selectFirst"}))
+        time.sleep(2)
+    # Tabs an earlier run left in the tag's app session are not this run's.
+    BEFORE.update(t["id"] for t in browser_tabs())
     # The palette path: Cmd-Shift-P, the query, Return.
     keys = [rpc("debug.key", {"key": "p", "modifiers": ["command", "shift"]})]
     for ch in "memory inspector":
@@ -205,9 +213,11 @@ try:
     keys.append(rpc("debug.key", {"key": "return", "target": "palette"}))
     tab = wait(browser_tab, 30, 1)
     if not tab:
-        note("palette did not open the tab; running the action directly", keys=keys[:2])
-        rpc("action.run", {"id": "chief.openMemoryInspector"})
+        note("palette did not open the tab; running the action directly", keys=keys)
+        note("action.run", result=rpc("action.run", {"id": "chief.openMemoryInspector"}))
         tab = wait(browser_tab, 30, 1)
+    open(os.path.join(opts.out, "tab-list.json"), "w").write(cli("--json", "tab", "list"))
+    json.dump(rpc("debug.window_list"), open(os.path.join(opts.out, "window-list.json"), "w"), indent=2)
     tab_id = (tab or {}).get("id")
     note("inspector tab", tab=tab_id, pane=(tab or {}).get("pane_id"))
     time.sleep(3)

@@ -2,7 +2,9 @@
 
 A debug page that shows how a Chief's OptChat memory works. Open it with Command-Shift-P, then
 "Chief: Open Memory Inspector" (DEV and nightly builds), or with "Show Memory" in the Chief
-settings sidebar. It opens as a browser tab in a new column to the right of the current column.
+settings sidebar. It opens as a browser tab in a new column to the right of the focused pane's
+column. From Home (no focused pane) the column goes right of the last column of the window's
+workspace, and the app shows that workspace with the new tab selected.
 
 ## The mental model it teaches
 
@@ -82,3 +84,16 @@ loopback. The app will reach it through the existing trusted server path: the se
 existing server credential and the host with the token it holds. The page itself is in the app's
 own optchat-chief binary, so only JSON crosses the link. Until then the action opens the local
 Chief only and says so for a remote one.
+
+## Status (2026-10-06)
+
+- Landed on feat-cmux-next: d0a1d5603451 (red tests a069281246cd, feature 4862d71eece9, review
+  fixes 3e499312044c). Follow-up: open from Home, preflight script.
+- Preflight on cmux-lawrence-2 (`scripts/cmux-next/chief-inspector-preflight.py`, tag chinsp-v1,
+  fleet build 7d1be20cb6b7a14152bf6bd5): a real claude-sr turn over 320 seeded notes; the API
+  rebuilt that turn with view, system and message hashes all equal to the trace (cached layout,
+  first cache mark at byte 49929). The palette row "Chief: Open Memory Inspector" ran and opened
+  the tab. From Home the first build refused with "No pane is focused"; the Home anchor fixes it.
+- Not done: pixel screenshots of the page (window snapshots do not render Chromium content; the
+  page is checked through the app's browser automation text and DOM instead), and the remote
+  brain path.
