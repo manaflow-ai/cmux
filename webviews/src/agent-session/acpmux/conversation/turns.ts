@@ -9,6 +9,7 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
+import { renderCall } from "./renderCall";
 import { timestampTurns } from "./timestamps";
 import type { Translate } from "../i18n";
 
@@ -23,6 +24,9 @@ export const WORKING = "working";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
 /// preview card, with the page's address as its text.
 export const PREVIEW = "preview";
+/// A row added for each render call of an ended turn (renderCall.ts), above its answer: the
+/// render card, with the call as its one item.
+export const RENDER = "render";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -145,6 +149,7 @@ function shapeTurn(
     if (open)
       shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
+  shaped.push(...renderRows(body, version));
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
   const preview = turnPreviewUrl(user, turn);
@@ -165,6 +170,19 @@ function shapeTurn(
 }
 
 const VERSION_SPAN = 1_000_000;
+
+/// One render card per render call in `body`, in call order.
+function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
+  return body.flatMap((row) =>
+    row.kind === "activity"
+      ? (row.items ?? []).flatMap((item, index) =>
+          item.tool && renderCall(item.tool)
+            ? [{ id: `${RENDER}-${item.tool.id || `${row.id}-${index}`}`, version, at: row.at, kind: RENDER, items: [item] }]
+            : [],
+        )
+      : [],
+  );
+}
 
 /// One edited-files card per ended turn: the turn's edit rows merged into the first one (its id,
 /// so View changes still finds the turn), every edit's items in order. It is `ended`, so it
