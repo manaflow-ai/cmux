@@ -16,24 +16,14 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated static let systemCatalog =
         URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/name_availability.plist")
 
-    /// The Symbols tab's names, sorted: the bundled snapshot (the symbols the deployment target
-    /// draws, scripts/cmux-next/gen-sf-symbol-names.py) plus the names a newer system's catalog
-    /// adds. A missing or unreadable system catalog leaves the snapshot, so the tab is never empty.
-    /// Both files are read off the main actor.
+    /// The Symbols tab's names, sorted, read at run time from the running system's catalog
+    /// (off the main actor). The app ships no copy of Apple's symbol names (SF Symbols
+    /// license); a missing or unreadable catalog gives no names, and the page shows its empty
+    /// state.
     @concurrent nonisolated static func names(catalog: URL = systemCatalog) async -> [String] {
-        // concurrency-allow: @concurrent, so these file reads never run on the main actor
-        var names = Set(snapshot(Bundle.module.url(forResource: "IconPickerSymbols", withExtension: "txt")))
-        if let plist = NSDictionary(contentsOf: catalog), let symbols = plist["symbols"] as? [String: Any] {
-            names.formUnion(symbols.keys.filter(IconValue.isSymbolName))
-        }
-        return names.sorted()
-    }
-
-    /// The bundled snapshot (Resources/IconPickerSymbols.txt), one name per line.
-    private nonisolated static func snapshot(_ url: URL?) -> [String] {
-        // concurrency-allow: called only from the @concurrent names(catalog:)
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").map(String.init).filter(IconValue.isSymbolName)
+        // concurrency-allow: @concurrent, so this file read never runs on the main actor
+        guard let plist = NSDictionary(contentsOf: catalog), let symbols = plist["symbols"] as? [String: Any] else { return [] }
+        return symbols.keys.filter(IconValue.isSymbolName).sorted()
     }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
