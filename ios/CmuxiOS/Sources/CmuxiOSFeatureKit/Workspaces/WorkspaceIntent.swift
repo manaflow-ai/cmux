@@ -6,4 +6,6 @@ public enum WorkspaceIntent: Hashable, Sendable {
     case create(hostID: HostID, title: String?)
     case rename(workspaceID: WorkspaceSummary.ID, title: String)
     case close(workspaceID: WorkspaceSummary.ID)
+    /// Clears unread on every surface of the workspace.
+    case markRead(workspaceID: WorkspaceSummary.ID)
 }
