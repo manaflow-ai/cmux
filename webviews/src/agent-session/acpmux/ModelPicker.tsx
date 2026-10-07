@@ -407,6 +407,7 @@ export function ModelPicker(props: ModelPickerProps) {
               >
                 <span aria-hidden="true">★</span>
               </button>
+              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
               <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
                 {harnesses.map((entry, index) => (
                   <button
