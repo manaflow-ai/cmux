@@ -463,6 +463,10 @@ pub struct Config {
     /// config.json entries a profile file replaced; `save` keeps them.
     #[serde(skip)]
     pub shadowed_config: BTreeMap<String, HarnessProfile>,
+    /// Where folder profiles' trust and enable records are read (H4,
+    /// `config/folder_profiles.rs`); None (an in-code config): no folder profiles.
+    #[serde(skip)]
+    pub folder_gate: Option<folder_profiles::FolderGate>,
 }
 
 impl Config {
@@ -583,6 +587,7 @@ impl Config {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
         }
+        cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.path = Some(path);
         Ok(cfg)
     }
@@ -931,6 +936,7 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,

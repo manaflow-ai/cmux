@@ -11,7 +11,8 @@ import os
 ///
 /// Closing a workspace asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
-/// on; that question has "Don't ask again". The other destructive actions
+/// on; that question has "Don't ask again". Delete Space follows the same
+/// rule for the workspaces it closes. The other destructive actions
 /// always ask. A target that does not resolve is not asked about: the
 /// handler then refuses it with the usual typed reason.
 enum DestructiveConfirmation {
@@ -59,7 +60,7 @@ enum DestructiveConfirmation {
         case "browser.allowAgentWithExtensions":
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
-            return RoomConfirmation.prompt(invocation, context)
+            return await RoomConfirmation.prompt(invocation, context)
         case "remote.install", "remote.forget":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "tabGroup.close":

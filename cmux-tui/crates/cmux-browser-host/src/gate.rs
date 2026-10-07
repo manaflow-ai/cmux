@@ -19,6 +19,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod proxy;
+pub use proxy::NameResolver;
 mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
@@ -68,6 +70,10 @@ pub struct Gate {
     tab_secrets: Arc<TabSecrets>,
     /// `automation.input` events for this lease session, if published.
     inputs: Option<crate::automation_input::InputEmitter>,
+    /// This machine's name resolver (the range rule for proxied sessions).
+    resolver: NameResolver,
+    /// The session's new tabs use a proxy (its last session.configure).
+    proxied: std::sync::atomic::AtomicBool,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -92,7 +98,16 @@ impl Gate {
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
+            resolver: proxy::system_resolver(),
+            proxied: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// The name resolver the range rule uses for a proxied session's URLs
+    /// (tests give their own).
+    pub fn with_resolver(mut self, resolver: NameResolver) -> Gate {
+        self.resolver = resolver;
+        self
     }
 
     /// Publishes `automation.input` for the inputs this session dispatches,
@@ -275,6 +290,12 @@ impl Gate {
                     "session.configure: content rules come from the host's domain policy",
                 ));
             }
+            "session.configure" => {
+                if let Some(reason) = self.proxy_refusal(params) {
+                    return Err(proxy::refused(reason));
+                }
+                ("", None)
+            }
             _ => ("", None),
         };
         if let Some(url) = url
@@ -292,11 +313,15 @@ impl Gate {
     /// The domain policy and the range rule for a URL the agent opens or
     /// fetches (navigations and fetch never disagree).
     fn url_refusal(&self, url: &str) -> Option<String> {
-        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        policy.navigation_refusal(url).or_else(|| {
-            let parsed = url::Url::parse(url).ok()?;
-            policy.egress_refusal(&parsed, self.grants.remote)
-        })
+        let refusal = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            policy.navigation_refusal(url).or_else(|| {
+                let parsed = url::Url::parse(url).ok()?;
+                policy.egress_refusal(&parsed, self.grants.remote)
+            })
+        };
+        // Resolved outside the policy lock (a lookup can take a while).
+        refusal.or_else(|| self.proxied_name_refusal(url))
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -438,6 +463,11 @@ impl VmHost for Gate {
                 }
             }),
         };
+        if method == "session.configure"
+            && let Ok(Reply::Value(answer)) = &result
+        {
+            self.note_configured(answer);
+        }
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target

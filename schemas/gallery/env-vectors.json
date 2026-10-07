@@ -16,7 +16,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -38,7 +42,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -59,7 +67,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -81,7 +93,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -104,7 +120,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -127,7 +147,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -150,7 +174,11 @@
         "reducedMotion": true,
         "highContrast": true,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -173,7 +201,11 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "xlarge",
-        "windowKey": "inactive"
+        "windowKey": "inactive",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
       }
     },
     {
@@ -195,7 +227,90 @@
         "reducedMotion": false,
         "highContrast": false,
         "dynamicSize": "default",
-        "windowKey": "key"
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "frame": "component",
+        "window": "pro14",
+        "zoom": "0.5",
+        "layout": "agent-right"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "component",
+        "window": "pro14",
+        "zoom": 0.5,
+        "layout": "agent-right"
+      }
+    },
+    {
+      "query": {
+        "frame": "nope",
+        "window": "1920x1200",
+        "zoom": "fit",
+        "layout": "three"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "1920x1200",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "window": "99x99",
+        "zoom": "9"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": 2,
+        "layout": "one"
       }
     }
   ]
