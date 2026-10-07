@@ -623194,6 +623194,124 @@
         }
       }
     },
+    "cli.browser.repl.error.allWorkspacesDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces is refused in a cmux terminal: a REPL call from a cmux terminal acts only on its own workspace's sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرفض --all-workspaces في طرفية cmux: يعمل استدعاء REPL من طرفية cmux على جلسات مساحة العمل الخاصة به فقط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces wird in einem cmux-Terminal abgelehnt: Ein REPL-Aufruf aus einem cmux-Terminal wirkt nur auf die Sitzungen seines eigenen Arbeitsbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces se rechaza en un terminal de cmux: una llamada REPL desde un terminal de cmux solo actúa sobre las sesiones de su propio espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces est refusé dans un terminal cmux : un appel REPL depuis un terminal cmux n’agit que sur les sessions de son propre espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナルでは --all-workspaces は拒否されます。cmux ターミナルからの REPL 呼び出しは、そのターミナル自身のワークスペースのセッションにのみ作用します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 터미널에서는 --all-workspaces가 거부됩니다. cmux 터미널에서 보낸 REPL 호출은 해당 터미널의 워크스페이스 세션에만 적용됩니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 终端中会拒绝 --all-workspaces：来自 cmux 终端的 REPL 调用只作用于该终端所在工作区的会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 終端機中會拒絕 --all-workspaces：來自 cmux 終端機的 REPL 呼叫只會作用於該終端機所屬工作區的工作階段"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.otherWorkspaceDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A REPL call from a cmux terminal acts only on its own workspace's sessions; run it from a terminal of that workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل استدعاء REPL من طرفية cmux على جلسات مساحة العمل الخاصة به فقط؛ شغّله من طرفية في مساحة العمل تلك"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein REPL-Aufruf aus einem cmux-Terminal wirkt nur auf die Sitzungen seines eigenen Arbeitsbereichs; führen Sie ihn in einem Terminal dieses Arbeitsbereichs aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una llamada REPL desde un terminal de cmux solo actúa sobre las sesiones de su propio espacio de trabajo; ejecútala desde un terminal de ese espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un appel REPL depuis un terminal cmux n’agit que sur les sessions de son propre espace de travail ; lancez-le depuis un terminal de cet espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナルからの REPL 呼び出しは、そのターミナル自身のワークスペースのセッションにのみ作用します。対象のワークスペースのターミナルから実行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 터미널에서 보낸 REPL 호출은 해당 터미널의 워크스페이스 세션에만 적용됩니다. 그 워크스페이스의 터미널에서 실행하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 cmux 终端的 REPL 调用只作用于该终端所在工作区的会话；请在该工作区的终端中运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 cmux 終端機的 REPL 呼叫只會作用於該終端機所屬工作區的工作階段；請在該工作區的終端機中執行"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.workspaceInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -624380,55 +624498,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
+            "value": "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list` lists this workspace's; from outside cmux, `cmux browser repl list --all-workspaces` lists every one)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عدد جلسات REPL للمتصفح المفتوحة كبير جدًا؛ أعد تعيين إحداها باستخدام `cmux browser repl reset NAME` (يعرضها `cmux browser repl list --all-workspaces`)"
+            "value": "عدد جلسات REPL للمتصفح المفتوحة كبير جدًا؛ أعد تعيين إحداها باستخدام `cmux browser repl reset NAME` (يعرض `cmux browser repl list` جلسات مساحة العمل هذه؛ ومن خارج cmux يعرضها جميعًا `cmux browser repl list --all-workspaces`)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zu viele Browser-REPL-Sitzungen sind geöffnet; setzen Sie eine mit `cmux browser repl reset NAME` zurück (`cmux browser repl list --all-workspaces` listet sie auf)"
+            "value": "Zu viele Browser-REPL-Sitzungen sind geöffnet; setzen Sie eine mit `cmux browser repl reset NAME` zurück (`cmux browser repl list` listet die dieses Arbeitsbereichs auf; außerhalb von cmux listet `cmux browser repl list --all-workspaces` alle auf)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hay demasiadas sesiones REPL del navegador abiertas; restablece una con `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` las enumera)"
+            "value": "Hay demasiadas sesiones REPL del navegador abiertas; restablece una con `cmux browser repl reset NAME` (`cmux browser repl list` enumera las de este espacio de trabajo; fuera de cmux, `cmux browser repl list --all-workspaces` las enumera todas)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trop de sessions REPL du navigateur sont ouvertes ; réinitialisez-en une avec `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` les liste)"
+            "value": "Trop de sessions REPL du navigateur sont ouvertes ; réinitialisez-en une avec `cmux browser repl reset NAME` (`cmux browser repl list` liste celles de cet espace de travail ; hors de cmux, `cmux browser repl list --all-workspaces` les liste toutes)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開いているブラウザ REPL セッションが多すぎます。`cmux browser repl reset NAME` でいずれかをリセットしてください（`cmux browser repl list --all-workspaces` で一覧表示できます）"
+            "value": "開いているブラウザ REPL セッションが多すぎます。`cmux browser repl reset NAME` でいずれかをリセットしてください（`cmux browser repl list` でこのワークスペースのセッションを、cmux の外から `cmux browser repl list --all-workspaces` ですべてを一覧表示できます）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는 브라우저 REPL 세션이 너무 많습니다. `cmux browser repl reset NAME`으로 하나를 재설정하세요(`cmux browser repl list --all-workspaces`로 목록을 볼 수 있습니다)"
+            "value": "열려 있는 브라우저 REPL 세션이 너무 많습니다. `cmux browser repl reset NAME`으로 하나를 재설정하세요(`cmux browser repl list`는 이 워크스페이스의 세션을, cmux 밖에서 `cmux browser repl list --all-workspaces`는 모든 세션을 나열합니다)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开的浏览器 REPL 会话过多；请使用 `cmux browser repl reset NAME` 重置其中一个（`cmux browser repl list --all-workspaces` 会列出它们）"
+            "value": "打开的浏览器 REPL 会话过多；请使用 `cmux browser repl reset NAME` 重置其中一个（`cmux browser repl list` 列出此工作区的会话；在 cmux 之外，`cmux browser repl list --all-workspaces` 列出全部会话）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟的瀏覽器 REPL 工作階段過多；請使用 `cmux browser repl reset NAME` 重設其中一個（`cmux browser repl list --all-workspaces` 會列出它們）"
+            "value": "開啟的瀏覽器 REPL 工作階段過多；請使用 `cmux browser repl reset NAME` 重設其中一個（`cmux browser repl list` 會列出此工作區的工作階段；在 cmux 之外，`cmux browser repl list --all-workspaces` 會列出全部）"
           }
         }
       }

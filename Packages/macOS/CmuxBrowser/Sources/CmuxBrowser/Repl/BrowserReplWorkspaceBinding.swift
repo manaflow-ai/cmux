@@ -5,7 +5,10 @@ public import Foundation
 /// An explicit workspace (`--workspace`) must exist. The caller's workspace
 /// (`CMUX_WORKSPACE_ID`) is a hint: the environment can be inherited from a
 /// different cmux instance, so an id this instance does not know falls back
-/// to the focused workspace, the same as a caller outside cmux.
+/// to the focused workspace, the same as a caller outside cmux. The
+/// workspace of the cmux terminal the calling process runs in, when the
+/// socket transport traced one, overrides both
+/// (``caller(explicitHandle:caller:derived:)``).
 public struct BrowserReplWorkspaceBinding {
     /// Why no workspace could be chosen.
     public enum Failure: Error, Equatable {
@@ -91,7 +94,13 @@ public struct BrowserReplWorkspaceBinding {
     ///   caller's workspace: a `workspace_id` that names another one is
     ///   refused, and the environment's `caller` is ignored.
     public func caller(explicitHandle: String?, caller: UUID?, derived: UUID?) -> Result<Caller, Failure> {
-        self.caller(explicitHandle: explicitHandle, caller: caller)
+        guard let derived else { return self.caller(explicitHandle: explicitHandle, caller: caller) }
+        guard let explicitHandle else { return .success(.inside(derived)) }
+        guard let explicit = UUID(uuidString: explicitHandle.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return .failure(.explicitWorkspaceInvalid(explicitHandle))
+        }
+        guard explicit == derived else { return .failure(.otherWorkspaceDenied(requested: explicit, caller: derived)) }
+        return .success(.inside(derived))
     }
 
     /// The sessions `list` and `reset` act on.
@@ -106,7 +115,10 @@ public struct BrowserReplWorkspaceBinding {
     /// runs in no cmux terminal (`derived` is `nil`) may ask for every
     /// workspace's; see ``caller(explicitHandle:caller:derived:)``.
     public func scope(allWorkspaces: Bool, explicitHandle: String?, caller: UUID?, derived: UUID?) -> Result<Scope, Failure> {
-        if allWorkspaces { return .success(.allWorkspaces) }
+        if allWorkspaces {
+            if let derived { return .failure(.allWorkspacesDenied(caller: derived)) }
+            return .success(.allWorkspaces)
+        }
         return self.caller(explicitHandle: explicitHandle, caller: caller, derived: derived).map { .caller($0) }
     }
 

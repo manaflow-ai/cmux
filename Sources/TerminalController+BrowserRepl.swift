@@ -49,6 +49,14 @@ final class BrowserReplHost: @unchecked Sendable {
 /// those sessions. `reset` and `list` act on the caller's sessions unless
 /// `all_workspaces` is true.
 ///
+/// A caller that runs in a cmux terminal is that terminal's workspace's
+/// caller: the transport's peer process id, traced through its process tree
+/// to a pane's PTY (``BrowserReplCallerLocality``), decides, not its
+/// parameters or environment. It cannot name another workspace or ask for
+/// every workspace's sessions. A same-user process outside every cmux
+/// terminal still can; a private session's owner token is the boundary
+/// against it.
+///
 /// A session a client makes without `--session` (the interactive REPL and
 /// `mcp`) carries the client's random `session_owner` token on every call,
 /// and a one-shot run's session a token only this call holds: the registry
@@ -125,17 +133,16 @@ extension TerminalController {
         }
         let registry = BrowserReplHost.shared.registry
         let owner = Self.browserReplOwner(params)
-        if params["all_workspaces"] as? Bool == true {
+        switch await v2BrowserReplWorkspaceScope(params: params, allWorkspaces: params["all_workspaces"] as? Bool == true) {
+        case .failure(let failure):
+            return Self.browserReplError(failure)
+        case .success(.allWorkspaces):
             let count = registry.reset(name: name, workspaceID: nil, owner: owner)
             return .ok(["session": name, "existed": count > 0, "count": count])
-        }
-        switch await v2BrowserReplCaller(params: params) {
-        case .failure(let error):
-            return error
-        case .success(.outside) where !BrowserReplSessionRegistry.isPrivateName(name):
+        case .success(.caller(.outside)) where !BrowserReplSessionRegistry.isPrivateName(name):
             let existed = registry.reset(outsideNamed: name)
             return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "outside_cmux": true])
-        case .success(let caller):
+        case .success(.caller(let caller)):
             guard let workspaceID = Self.browserReplWorkspace(of: caller) else { return Self.browserReplNoWorkspaceError }
             let existed = registry.reset(BrowserReplSessionKey(workspaceID: workspaceID, name: name), owner: owner)
             return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "workspace_id": workspaceID.uuidString])
@@ -149,18 +156,16 @@ extension TerminalController {
         let registry = BrowserReplHost.shared.registry
         let owner = Self.browserReplOwner(params)
         let entries: [BrowserReplSessionRegistry.Entry]
-        if params["all_workspaces"] as? Bool == true {
+        switch await v2BrowserReplWorkspaceScope(params: params, allWorkspaces: params["all_workspaces"] as? Bool == true) {
+        case .failure(let failure):
+            return Self.browserReplError(failure)
+        case .success(.allWorkspaces):
             entries = registry.list(workspaceID: nil, owner: owner)
-        } else {
-            switch await v2BrowserReplCaller(params: params) {
-            case .failure(let error):
-                return error
-            case .success(.outside):
-                // A caller outside cmux lists the sessions such callers share.
-                entries = registry.listOutside()
-            case .success(.inside(let id)):
-                entries = registry.list(workspaceID: id, owner: owner)
-            }
+        case .success(.caller(.outside)):
+            // A caller outside cmux lists the sessions such callers share.
+            entries = registry.listOutside()
+        case .success(.caller(.inside(let id))):
+            entries = registry.list(workspaceID: id, owner: owner)
         }
         let sessions = entries.map { entry -> [String: Any] in
             [
@@ -198,17 +203,46 @@ extension TerminalController {
     }
 
     private nonisolated func v2BrowserReplCaller(params: [String: Any]) async -> BrowserReplCallerResolution {
-        switch await v2BrowserReplWorkspaceCaller(params: params) {
-        case .success(let caller):
+        switch await v2BrowserReplWorkspaceScope(params: params, allWorkspaces: false) {
+        case .success(.caller(let caller)):
             return .success(caller)
-        case .failure(.explicitWorkspaceNotFound(let id)):
-            let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
-            return .failure(.err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil))
-        case .failure(.explicitWorkspaceInvalid(let handle)):
-            let prefix = String(localized: "cli.browser.repl.error.workspaceInvalid", defaultValue: "Not a workspace in this cmux instance")
-            return .failure(.err(code: "not_found", message: "\(prefix): \(handle.debugDescription)", data: nil))
-        case .failure(.noFocusedWorkspace):
+        case .success(.allWorkspaces):
+            // Not reached: no scope of every workspace was asked for.
             return .failure(Self.browserReplNoWorkspaceError)
+        case .failure(let failure):
+            return .failure(Self.browserReplError(failure))
+        }
+    }
+
+    private nonisolated static func browserReplError(_ failure: BrowserReplWorkspaceBinding.Failure) -> V2CallResult {
+        switch failure {
+        case .explicitWorkspaceNotFound(let id):
+            let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
+            return .err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil)
+        case .explicitWorkspaceInvalid(let handle):
+            let prefix = String(localized: "cli.browser.repl.error.workspaceInvalid", defaultValue: "Not a workspace in this cmux instance")
+            return .err(code: "not_found", message: "\(prefix): \(handle.debugDescription)", data: nil)
+        case .noFocusedWorkspace:
+            return browserReplNoWorkspaceError
+        case .otherWorkspaceDenied(let requested, let caller):
+            let prefix = String(
+                localized: "cli.browser.repl.error.otherWorkspaceDenied",
+                defaultValue: "A REPL call from a cmux terminal acts only on its own workspace's sessions; run it from a terminal of that workspace"
+            )
+            return .err(
+                code: "denied",
+                message: "\(prefix): \(requested.uuidString)",
+                data: ["workspace_id": requested.uuidString, "caller_workspace_id": caller.uuidString]
+            )
+        case .allWorkspacesDenied(let caller):
+            return .err(
+                code: "denied",
+                message: String(
+                    localized: "cli.browser.repl.error.allWorkspacesDenied",
+                    defaultValue: "--all-workspaces is refused in a cmux terminal: a REPL call from a cmux terminal acts only on its own workspace's sessions"
+                ),
+                data: ["caller_workspace_id": caller.uuidString]
+            )
         }
     }
 
@@ -321,7 +355,7 @@ extension TerminalController {
         } catch BrowserReplSessionRegistry.Refusal.tooManySessions(let limit) {
             let prefix = String(
                 localized: "cli.browser.repl.error.tooManySessions",
-                defaultValue: "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
+                defaultValue: "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list` lists this workspace's; from outside cmux, `cmux browser repl list --all-workspaces` lists every one)"
             )
             return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
         } catch BrowserReplSessionRegistry.Refusal.tooManyPrivateSessions(let limit) {
@@ -369,21 +403,41 @@ extension TerminalController {
         return .ok(payload)
     }
 
-    /// Where a call comes from. `workspace_id` is an explicit choice and
-    /// must exist; `caller_workspace_id` (the CLI's `CMUX_WORKSPACE_ID`)
-    /// counts when this instance knows it; otherwise the caller is outside
-    /// cmux, with the focused workspace of the key or frontmost window.
-    private nonisolated func v2BrowserReplWorkspaceCaller(
-        params: [String: Any]
-    ) async -> Result<BrowserReplWorkspaceBinding.Caller, BrowserReplWorkspaceBinding.Failure> {
+    /// Where a call comes from, and for `list` and `reset` the sessions it
+    /// acts on. A socket peer that runs in a cmux terminal (its process tree
+    /// traced from the transport's peer process id to a pane's PTY) is that
+    /// terminal's workspace's caller, whatever it sends: `workspace_id` may
+    /// name only that workspace, `caller_workspace_id` is ignored and
+    /// `all_workspaces` is refused. For any other caller `workspace_id` is
+    /// an explicit choice and must exist; `caller_workspace_id` (the CLI's
+    /// `CMUX_WORKSPACE_ID`) counts when this instance knows it; otherwise
+    /// the caller is outside cmux, with the focused workspace of the key or
+    /// frontmost window.
+    private nonisolated func v2BrowserReplWorkspaceScope(
+        params: [String: Any],
+        allWorkspaces: Bool
+    ) async -> Result<BrowserReplWorkspaceBinding.Scope, BrowserReplWorkspaceBinding.Failure> {
         // Present is explicit, whatever it holds: one that is not a
         // workspace id fails instead of falling back.
         let explicit: String? = params["workspace_id"].flatMap { value in
             value is NSNull ? nil : (value as? String) ?? String(describing: value)
         }
         let caller = v2UUID(params, "caller_workspace_id")
-        return await Task { @MainActor [weak self] () -> Result<BrowserReplWorkspaceBinding.Caller, BrowserReplWorkspaceBinding.Failure> in
-            BrowserReplWorkspaceBinding(
+        let peer = SocketCommandTaskPolicy.peerProcessID
+        return await Task { @MainActor [weak self] () -> Result<BrowserReplWorkspaceBinding.Scope, BrowserReplWorkspaceBinding.Failure> in
+            // The same pid -> pane lookup agent hook delivery uses: a
+            // process's controlling TTY matched against every live pane's PTY.
+            let terminals = AppDelegate.shared?.liveAgentDeliveryTTYBindings() ?? []
+            let derived = BrowserReplCallerLocality(
+                host: getpid(),
+                parent: TerminalController.browserReplParentProcessID,
+                workspace: { pid in
+                    agentLiveProcessIdentity(pid: pid)?.ttyDevice.flatMap {
+                        agentDeliveryTargetMatchingTTYDevice($0, surfaceTTYDevices: terminals)?.workspaceId
+                    }
+                }
+            ).workspace(ofPeer: peer)
+            return BrowserReplWorkspaceBinding(
                 exists: { AppDelegate.shared?.workspaceFor(tabId: $0) != nil },
                 focused: {
                     let manager = AppDelegate.shared?.currentScriptableMainWindow()?.tabManager ?? self?.tabManager
@@ -391,7 +445,15 @@ extension TerminalController {
                           manager.tabs.contains(where: { $0.id == selected }) else { return nil }
                     return selected
                 }
-            ).caller(explicitHandle: explicit, caller: caller)
+            ).scope(allWorkspaces: allWorkspaces, explicitHandle: explicit, caller: caller, derived: derived)
         }.value
+    }
+
+    /// The parent of a live process, or nil.
+    private nonisolated static func browserReplParentProcessID(_ pid: pid_t) -> pid_t? {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize)) == expectedSize else { return nil }
+        return pid_t(bitPattern: info.pbi_ppid)
     }
 }

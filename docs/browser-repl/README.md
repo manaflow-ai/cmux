@@ -493,6 +493,23 @@ rest. Measurements: [performance.md](performance.md).
   own session from outside cmux. A `--workspace` that
   names no workspace of this cmux instance (unknown, blank, or a ref that
   does not resolve) is refused; it never falls back to another workspace.
+- A caller that runs in a cmux terminal reaches only that terminal's
+  workspace. cmux traces the socket peer's process id (from the socket
+  transport, not from the request) through its parent processes to the
+  first one whose controlling terminal is a cmux pane's PTY, so a process
+  that left the terminal's session (`setsid`) still counts while its
+  parent shell lives. That workspace is the caller's, whatever the call
+  sends: `--workspace` (`workspace_id`) naming another workspace and
+  `--all-workspaces` are refused with a `denied` error, and a
+  `CMUX_WORKSPACE_ID` (`caller_workspace_id`) of another workspace is
+  ignored. An interactive REPL or `mcp` whose pane moves to another
+  workspace is refused from then on; start it again. Residual: a same-user
+  process outside every cmux terminal (one that detached from the
+  terminal and outlived its parents, or one of another terminal app) is
+  an outside caller: it can still list, reset and use
+  every workspace's named sessions. Named sessions are shared by name and
+  are not an isolation boundary; private sessions (owner tokens, the
+  interactive REPL's, `mcp`'s and one-shot runs) are.
 - A session name is 1 to 64 characters of letters, digits, `.`, `_` and
   `-`. One cmux instance keeps at most 32 sessions open (named, one-shot and
   `mcp` ones together; each holds a JavaScript thread, timers and

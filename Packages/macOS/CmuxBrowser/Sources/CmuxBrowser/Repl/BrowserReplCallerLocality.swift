@@ -31,6 +31,14 @@ public struct BrowserReplCallerLocality {
     /// The workspace of the cmux terminal `peer` runs in, or `nil` when it
     /// runs in none or the transport reported no process id.
     public func workspace(ofPeer peer: Int32?) -> UUID? {
-        nil
+        guard var current = peer else { return nil }
+        var visited: Set<Int32> = []
+        for _ in 0..<Self.maximumDepth {
+            guard current > 1, current != host, visited.insert(current).inserted else { return nil }
+            if let found = workspace(current) { return found }
+            guard let next = parent(current) else { return nil }
+            current = next
+        }
+        return nil
     }
 }

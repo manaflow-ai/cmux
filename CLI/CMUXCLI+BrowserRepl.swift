@@ -500,7 +500,8 @@ extension CMUXCLI {
     name in another workspace is another session. Outside cmux, one session
     per name is shared by every caller outside cmux, whatever workspace is
     focused (its tabs open in the one focused when it was made). `list` and
-    `reset` act on your sessions (`--all-workspaces` for every one). A name is up to
+    `reset` act on your sessions (`--all-workspaces` for every one, refused
+    in a cmux terminal, which reaches only its own workspace). A name is up to
     64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open.
 
     ## Environment
