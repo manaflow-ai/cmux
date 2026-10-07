@@ -164,7 +164,7 @@ terminal browser  notification  agent  sidebar  git
 pairing  projection  provider  raw
 ```
 
-On the `cmux` surface the lifecycle root is spelled `daemon` and `server` is
+Run as `cmux`, the CLI spells the lifecycle root `daemon`, and `server` is
 the machine server (`cmux help server`); `srv` is a shorthand on `cmux-tui`
 only.
 
