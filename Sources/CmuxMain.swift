@@ -39,6 +39,12 @@ enum CmuxMain {
 
     /// Installs the AppKit policy that makes exceptions escaping the run loop fatal.
     static func installCrashOnExceptionsPolicy(defaults: UserDefaults = .standard) {
-        // The implementation is added with the startup repair.
+        // AppKit catches exceptions at the run-loop boundary by default. If one
+        // unwinds through a Swift concurrency job, that leaves the runtime's
+        // thread-local executor tracking pointing at the dead job's stack frame.
+        // The next main-actor check then crashes far from the original throw.
+        // Registering the default makes AppKit terminate at the throw instead.
+        // `register(defaults:)` preserves an explicit user or test override.
+        defaults.register(defaults: ["NSApplicationCrashOnExceptions": true])
     }
 }

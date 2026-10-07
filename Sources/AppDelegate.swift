@@ -1873,6 +1873,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Report Objective-C exceptions that reach NSApplication's run loop
+                // with their reason and throw stack. CmuxMain terminates them at
+                // the throw; without this, Sentry only sees the later, unrelated
+                // crash caused by the corrupted executor state.
+                options.enableUncaughtNSExceptionReporting = true
                 // Structured logs power the transport diagnostics bridge
                 // (TransportSentryReporter on the host diagnostic ring below).
                 options.enableLogs = true
