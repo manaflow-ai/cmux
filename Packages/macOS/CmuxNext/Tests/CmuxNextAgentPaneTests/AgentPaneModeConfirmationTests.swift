@@ -197,20 +197,16 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         let sheets = Sheets(on: rig.transport, reply: nil)
-        // Two options in different slots: a second ticket for the same slot replaces the first.
+        // Two options in different slots: the second asks while the first's sheet is open.
         let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]]
-        let firstTicket = await rig.ticket(Self.fastIntent)
-        let secondTicket = await rig.ticket(effort)
-        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: firstTicket) }
-        let second = Task {
-            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"], ticket: secondTicket)
-        }
+        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: await rig.ticket(Self.fastIntent)) }
         #expect(await eventually { sheets.asked.count == 1 })
+        let second = await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
+                                    ticket: await rig.ticket(effort))
+        #expect(second == .modeNotConfirmed, "no second sheet while one is open")
+        #expect(sheets.asked == ["fast = true"])
         sheets.answer(true)
-        #expect(await eventually { sheets.asked.count == 2 })
-        sheets.answer(false)
         #expect(await first.value == nil)
-        #expect(await second.value == .modeNotConfirmed)
         #expect(sheets.maxOpen == 1)
     }
 }
