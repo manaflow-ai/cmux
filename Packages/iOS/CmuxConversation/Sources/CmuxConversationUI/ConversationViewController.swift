@@ -384,6 +384,8 @@ public final class ConversationViewController: UIViewController {
         case .readState:
             updateCatchUp()
             return
+        case .draft:
+            return
         default:
             rebuild(change: change)
         }

@@ -30,6 +30,8 @@ public enum ConversationStoreChange: Sendable, Equatable {
     case readState
     /// Pin, Hide Alerts, Mark as Unread or delete changed; the transcript is unaffected.
     case listState
+    /// The unsent composer draft changed; the transcript is unaffected.
+    case draft
 }
 
 /// Backend-agnostic transcript state: one ordered window of messages that
@@ -58,6 +60,10 @@ public final class ConversationStore {
     /// The conversation is on screen in a foreground window: arrivals are read
     /// (and receipts sent) as they land, as in Messages.
     public private(set) var isViewing = false
+    /// Unsent composer text (empty when none). Survives switching
+    /// conversations and, with `draftStorage`, relaunches.
+    public private(set) var draft = ""
+    private let draftStorage: (any ConversationDraftStorage)?
     private var serverRead: ConversationReadState?
     private var catchUpCaptured = false
 
@@ -108,8 +114,10 @@ public final class ConversationStore {
         backend: any ConversationBackend,
         pageSize: Int = ConversationStore.defaultPageSize,
         clock: any Clock<Duration> = ContinuousClock(),
-        makeClientMessageID: @escaping @Sendable () -> String = { UUID().uuidString }
+        makeClientMessageID: @escaping @Sendable () -> String = { UUID().uuidString },
+        draftStorage: (any ConversationDraftStorage)? = nil
     ) {
+        self.draftStorage = draftStorage
         self.backend = backend
         self.pageSize = pageSize
         self.clock = clock
@@ -157,6 +165,12 @@ public final class ConversationStore {
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
             pendingReadSeq = 0
+            if draft.isEmpty, let saved = draftStorage?.draft(conversationID: info.id), ConversationDraft.isDraft(saved) {
+                draft = saved
+                notify(.draft)
+            } else if !draft.isEmpty {
+                draftStorage?.setDraft(draft, conversationID: info.id)
+            }
             notify(.connection)
             if lagged || !hasLoadedNewest {
                 loadNewest(rebase: lagged)
@@ -803,6 +817,20 @@ public final class ConversationStore {
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: false))
         }
+    }
+
+    /// Records the composer's unsent text as this conversation's draft.
+    public func setDraft(_ text: String) {
+        let next = ConversationDraft.isDraft(text) ? text : ""
+        guard next != draft else { return }
+        draft = next
+        if let id = info?.id { draftStorage?.setDraft(next.isEmpty ? nil : next, conversationID: id) }
+        notify(.draft)
+    }
+
+    /// The conversation list summary for the draft ("Draft: …" body), nil when none.
+    public var draftSummary: String? {
+        draft.isEmpty ? nil : ConversationDraft.summaryText(draft)
     }
 
     /// Composer text changed. Typing stays on while edits keep coming.

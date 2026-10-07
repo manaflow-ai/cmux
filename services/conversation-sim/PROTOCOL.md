@@ -28,7 +28,7 @@ process and keep growing.
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
 | `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
-| `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
+| `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?, sendReadReceipts?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
 | `audioPlayed` | `{messageId}` | `{}` |
 
@@ -52,6 +52,9 @@ conversations (env `MAX_PINNED`) are pinned, and one more fails with `-32004
 `markedUnread` (Hide Alerts stays). A deleted conversation is recoverable: a
 new message from someone else, or `deleted: false`, brings it back. Every
 change is pushed to the conversation's subscribed clients as `conversation`.
+`sendReadReceipts` (default true) is the details panel's per-conversation
+Send Read Receipts: while it is off, `markRead` still moves the shared marker
+but others are not told (`/admin/state` `receiptSeq` stops advancing).
 
 ## Notifications (server to client)
 
@@ -84,6 +87,7 @@ dedupes on `eventSeq` and on message `id`.
 Conversation {
   id, title, kind: "group"|"direct", participants: [Participant],
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
+  sendReadReceipts                                  // details toggle, default true
 }
 Participant  { id, name, initials, colorHex, isMe }
 Message {

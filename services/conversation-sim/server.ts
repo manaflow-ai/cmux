@@ -37,6 +37,8 @@ interface Conversation {
   muted: boolean;
   markedUnread: boolean;
   deleted: boolean;
+  // Details: Send Read Receipts for this conversation.
+  sendReadReceipts: boolean;
 }
 const MAX_PINNED = Number(process.env.MAX_PINNED ?? 9);
 interface AttachmentRef {
@@ -210,6 +212,8 @@ class Store {
   headEventSeq = 0;
   conns = new Set<Conn>();
   lastReadSeq = 0;
+  /** Highest seq others were told I read (advances only while Send Read Receipts is on). */
+  receiptSeq = 0;
   constructor(public conv: Conversation) {}
 
   /** Messages from others after the read marker. */
@@ -499,7 +503,7 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
 const stores = new Map<string, Store>();
 function boot() {
   const t0 = performance.now();
-  const listState = { pinned: false, muted: false, markedUnread: false, deleted: false };
+  const listState = { pinned: false, muted: false, markedUnread: false, deleted: false, sendReadReceipts: true };
   const group = new Store({ id: "group", title: "cmux", kind: "group", participants: [ME, LAWRENCE, AUSTIN, LEO], ...listState });
   const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN], ...listState });
   generateHistory(group, GROUP_COUNT, 0.25, SEED);
@@ -599,6 +603,7 @@ function wireConversation(c: Conversation) {
     muted: c.muted,
     markedUnread: c.markedUnread,
     deleted: c.deleted,
+    sendReadReceipts: c.sendReadReceipts,
   };
   if (c.pinned && c.pinOrder !== undefined) out.pinOrder = c.pinOrder;
   return out;
@@ -607,7 +612,7 @@ function wireConversation(c: Conversation) {
 /** Applies a list action with Messages' rules; throws on an invalid one. */
 function updateConversation(store: Store, p: any): Conversation {
   const c = store.conv;
-  for (const key of ["pinned", "muted", "markedUnread", "deleted"])
+  for (const key of ["pinned", "muted", "markedUnread", "deleted", "sendReadReceipts"])
     if (p?.[key] !== undefined && typeof p[key] !== "boolean") throw invalid(key);
   if (p?.pinOrder !== undefined && (!Number.isInteger(p.pinOrder) || p.pinOrder < 0)) throw invalid("pinOrder");
   const deleting = p?.deleted === true;
@@ -629,6 +634,7 @@ function updateConversation(store: Store, p: any): Conversation {
   if (p?.pinOrder !== undefined && c.pinned) c.pinOrder = p.pinOrder;
   if (p?.muted !== undefined) c.muted = p.muted;
   if (p?.markedUnread !== undefined) c.markedUnread = p.markedUnread;
+  if (p?.sendReadReceipts !== undefined) c.sendReadReceipts = p.sendReadReceipts;
   if (p?.deleted !== undefined) {
     c.deleted = p.deleted;
     if (c.deleted) {
@@ -885,6 +891,8 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
       // The read receipt: on direct, the other side would now see "Read".
       store.setLastRead(p.upToSeq);
+      // With Send Read Receipts off, others never learn this read.
+      if (store.conv.sendReadReceipts) store.receiptSeq = Math.max(store.receiptSeq, store.lastReadSeq);
       vlog(`markRead conn=${conn.id} upTo=${p.upToSeq} lastRead=${store.lastReadSeq}`);
       return {};
     default:
@@ -1282,7 +1290,8 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         connections: s.conns.size,
         lastReadSeq: s.lastReadSeq,
         unreadCount: s.unreadCount(),
-        listState: { pinned: s.conv.pinned, pinOrder: s.conv.pinOrder, muted: s.conv.muted, markedUnread: s.conv.markedUnread, deleted: s.conv.deleted },
+        listState: { pinned: s.conv.pinned, pinOrder: s.conv.pinOrder, muted: s.conv.muted, markedUnread: s.conv.markedUnread, deleted: s.conv.deleted, sendReadReceipts: s.conv.sendReadReceipts },
+        receiptSeq: s.receiptSeq,
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }
