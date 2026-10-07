@@ -40,6 +40,33 @@ struct BrowserReplPinnedFileAccessTests {
         #expect(text?.contains("outside secret") != true, "the load read a file outside the session's directories through the swapped link")
     }
 
+    /// The browser opens the file after `loadFileURL` returns. Before
+    /// macOS 27, WebKit's processes may read the user's temporary directory
+    /// whatever directory a load was granted, so a link another session
+    /// renames in once the grant is taken (the rename lock is free again)
+    /// must not lead the load there either.
+    @Test("A link swapped in below the root after the load started reaches nothing outside it")
+    func aLinkSwappedInAfterTheLoadStartedReadsNothingOutside() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        try Data("<p>outside secret</p>".utf8).write(to: URL(fileURLWithPath: scratch.outside + "/index.html"))
+        let url = URL(fileURLWithPath: scratch.root + "/site/index.html")
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let waiter = FileLoadWaiter()
+        webView.navigationDelegate = waiter
+        try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)]) { readAccess in
+            webView.loadFileURL(url, allowingReadAccessTo: readAccess)
+        }
+        try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
+        try manager.createSymbolicLink(atPath: scratch.root + "/site", withDestinationPath: scratch.outside)
+        await waiter.wait()
+        let text = try? await webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String
+        #expect(text?.contains("outside secret") != true, "the load read a file outside the session's directories through a link swapped in after it started")
+    }
+
     /// A tab's own loads of a session's file (a crashed web process's
     /// recovery, a discarded tab's restore, a reload, the page's links)
     /// start without the driver: they too take read access to the
