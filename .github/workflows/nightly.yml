@@ -146,6 +146,7 @@ jobs:
       published_sha: ${{ steps.decide.outputs.published_sha }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
       variants: ${{ steps.decide.outputs.variants }}
+      feeds: ${{ steps.decide.outputs.feeds }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
       build_only: ${{ steps.decide.outputs.build_only }}
@@ -205,17 +206,6 @@ jobs:
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
             const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
-            // Nightly ships one universal DMG for downloads plus one thin DMG per
-            // architecture for updates. Browsers cannot tell Apple silicon from
-            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
-            // feed stay universal; the app's feed resolver moves every install
-            // onto its architecture's feed at the first update check.
-            // A manually dispatched fast build is a branch-dogfood artifact only.
-            // It deliberately produces one Apple silicon DMG and never publishes
-            // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
-            core.setOutput('variants', JSON.stringify(variants));
-            core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
             core.setOutput('build_only', buildOnly ? 'true' : 'false');
             core.setOutput('cold_cache', coldCache ? 'true' : 'false');
@@ -232,6 +222,25 @@ jobs:
             const isTrackRef = isMainRef || isNextRef;
             const channel = isRcRef ? 'rc' : 'nightly';
             const track = isRcRef ? 'rc' : isNextRef ? 'nightly-next' : 'nightly';
+            // Nightly ships one universal DMG for downloads plus one thin DMG per
+            // architecture for updates. Browsers cannot tell Apple silicon from
+            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
+            // feed stay universal; the app's feed resolver moves every install
+            // onto its architecture's feed at the first update check.
+            // A manually dispatched fast build is a branch-dogfood artifact only.
+            // It deliberately produces one Apple silicon DMG and never publishes
+            // to the shared NIGHTLY release or feed.
+            // nightly-next ships arm64 only (Leo, 2026-10-07): one DMG notarization per
+            // build instead of three, after Apple's queue held all three past the wait in
+            // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
+            // their last build, so an Intel Mac is never offered an arm64-only app.
+            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            const feeds = track === 'nightly-next'
+              ? ['appcast-arm64.xml']
+              : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
+            core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('feeds', feeds.join(' '));
+            core.setOutput('legacy_variant', 'universal');
             const channelIdentity = {
               nightly: {
                 bundleId: 'com.cmuxterm.app.nightly',
@@ -2460,6 +2469,9 @@ jobs:
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
+      # The appcasts this track publishes (decide): one on nightly-next, four on main.
+      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
@@ -2497,6 +2509,12 @@ jobs:
           set -euo pipefail
           cd nightly-out
           ls -l
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            # arm64 only (decide): no Intel or universal names to assemble.
+            [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
+            [ -f appcast-arm64.xml ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
+            exit 0
+          fi
           for variant in arm64 x86_64; do
             [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
             [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
@@ -2514,6 +2532,7 @@ jobs:
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
+        id: notes
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2524,13 +2543,28 @@ jobs:
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |
           set -euo pipefail
+          read -ra feeds <<< "$NIGHTLY_FEEDS"
+          download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
+          arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          ${arm64_line}"
+          else
+            downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          ${arm64_line}
+          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](${download}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check"
+          fi
+          # The release metadata steps below list the same downloads.
+          {
+            echo "downloads<<CMUX_DOWNLOADS_EOF"
+            printf '%s\n' "$downloads"
+            echo "CMUX_DOWNLOADS_EOF"
+          } >> "$GITHUB_OUTPUT"
           cat > nightly-downloads.md <<EOF
           Automated ${CHANNEL} build for \`${NOTES_HEAD:0:7}\` from \`${NOTES_BRANCH}\`.
           Published commit: \`${NOTES_HEAD}\`.
-          **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
-          - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          ${downloads}
           EOF
           # Older builds on this rolling release bundle GNU libintl in the ghostty
           # CLI helper; keep the LGPL source notice while the source is attached.
@@ -2549,7 +2583,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -2569,7 +2603,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
           done
 
@@ -2593,27 +2627,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            # arm64 only (decide): the x86_64, universal and legacy names keep their last build.
+            variants=(arm64)
+            aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg")
+          else
+            variants=(arm64 x86_64 universal)
+            aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg" "${CHANNEL_DMG_PREFIX}-x86_64.dmg" "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg")
+          fi
+          args=()
+          for variant in "${variants[@]}"; do
+            args+=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}-${NIGHTLY_BUILD}.dmg")
+          done
+          for daemon in linux-arm64 linux-amd64 darwin-arm64 darwin-amd64; do
+            args+=(--immutable "nightly-out/cmuxd-remote-${daemon}-${NIGHTLY_BUILD}")
+          done
+          args+=(--immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt")
+          args+=(--immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")
+          args+=(--immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt")
+          for alias in "${aliases[@]}"; do
+            args+=(--alias "nightly-out/$alias")
+          done
+          for feed in $NIGHTLY_FEEDS; do
+            args+=(--feed "nightly-out/$feed")
+          done
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
-            --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
-            --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
-            --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
@@ -2692,10 +2733,7 @@ jobs:
             Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
             Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
             Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+            ${{ steps.notes.outputs.downloads }}
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next'
@@ -2711,7 +2749,7 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -2734,7 +2772,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for appcast in $NIGHTLY_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
             python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
@@ -2768,10 +2806,7 @@ jobs:
             Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
             Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
             Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+            ${{ steps.notes.outputs.downloads }}
 
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
