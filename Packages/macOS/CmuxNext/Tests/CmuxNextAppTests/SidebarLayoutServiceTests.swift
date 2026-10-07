@@ -156,21 +156,17 @@ import Testing
         #expect(owner.calls.map(\.op) == expected)
     }
 
-    /// A stored default from before Recents gains it once per Mac; after
-    /// the user removes it, a later launch leaves it out.
-    @Test func recentsIsOfferedOncePerMac() async throws {
+    /// SIDEBAR-NO-RECENTS: a stored layout without Recents never gains it
+    /// back; the Chats section is a client setting (sidebar.showChats), not a layout op.
+    @Test func recentsIsNoLongerOffered() async throws {
         let defaults = Self.freshDefaults()
         let owner = FakeOwner()
         owner.stored.sections.removeAll { $0.id == SidebarLayoutDocument.recentsSectionID }
         let first = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
         first.start()
-        await settled { owner.calls.count == 1 }
-        #expect(owner.calls.map(\.op) == [.sectionAdd(SidebarLayoutDocument.recentsSection, index: 1)])
-        let next = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
-        next.start()
-        await settled { next.mirror.sections == owner.stored.sections }
+        await settled { first.mirror.sections == owner.stored.sections }
         await settled { false }
-        #expect(owner.calls.count == 1)
+        #expect(owner.calls.isEmpty)
     }
 
     @Test func snapshotsDecodeTheDecimalRevision() throws {

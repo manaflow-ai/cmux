@@ -30,6 +30,7 @@ import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 export type MockOptions = {
+  chatFolders?: ListRow["folders"];
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
   diagnostics?: Diagnostic[];
@@ -69,6 +70,7 @@ export class MockSettingsProvider {
   revision = 1;
   diagnostics: Diagnostic[];
   readonly domains: Domains | null;
+  private readonly chatFolders: ListRow["folders"];
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -79,6 +81,7 @@ export class MockSettingsProvider {
   private connected: boolean;
 
   constructor(options: MockOptions = {}) {
+    this.chatFolders = options.chatFolders;
     this.managed = new Map(
       Object.entries(
         options.managed ?? {
@@ -382,6 +385,9 @@ export class MockSettingsProvider {
     const managed = this.managed.get(key);
     return {
       key,
+      ...(key === "agents.chats.roots"
+        ? { folders: this.chatFolders, user_roots: this.values.get(key) as string[] | undefined }
+        : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
       customized: this.values.has(key),

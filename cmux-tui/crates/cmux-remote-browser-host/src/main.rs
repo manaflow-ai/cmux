@@ -1,18 +1,20 @@
 //! `cmux-remote-browser-host`: serves remote browser tabs (remote-tab-r2.md).
 //!
 //! Modes (browser process; CEF helpers carry `--type=`):
-//! - `--serve [--listen 127.0.0.1:4103] [--url URL] [--once]`: one tab over
+//! - `--serve [--listen 127.0.0.1:4103] [--url URL | --ui-page | --picker-page] [--once]`: one tab over
 //!   cmux.rd/1 (service rb/1, stream carrier). macOS.
-//! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N]`: the loopback viewer
+//! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`: the loopback viewer
 //!   that measures a serving host (any platform).
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
 
-/// `--probe ADDR OUT_DIR [--keys N] [--idle-ms N]`.
+/// `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`.
 fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     use cmux_remote_browser_host::probe::{Plan, run};
     let i = args.iter().position(|a| a == "--probe")?;
     let usage = || {
-        eprintln!("usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N]");
+        eprintln!(
+            "usage: --probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]"
+        );
         Some(std::process::ExitCode::from(2))
     };
     let (Some(addr), Some(out)) = (args.get(i + 1), args.get(i + 2)) else { return usage() };
@@ -30,6 +32,9 @@ fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     if let Some(ms) = value("--idle-ms") {
         plan.idle_ms = ms;
     }
+    plan.ui = args.iter().any(|a| a == "--ui");
+    plan.pickers = args.iter().any(|a| a == "--pickers");
+    plan.stuck_key = args.iter().any(|a| a == "--stuck-key");
     let report = run(addr, std::path::Path::new(out), plan);
     println!(
         "{}",
@@ -61,7 +66,15 @@ fn main() -> std::process::ExitCode {
         };
         let opts = cmux_remote_browser_host::serve::Options {
             listen,
-            url: flag("--url").unwrap_or_else(|| cmux_remote_browser_host::smoke::PAGE.into()),
+            url: flag("--url").unwrap_or_else(|| {
+                if all.iter().any(|a| a == "--ui-page") {
+                    cmux_remote_browser_host::probe::UI_PAGE.into()
+                } else if all.iter().any(|a| a == "--picker-page") {
+                    cmux_remote_browser_host::probe::PICKER_PAGE.into()
+                } else {
+                    cmux_remote_browser_host::smoke::PAGE.into()
+                }
+            }),
             once: all.iter().any(|a| a == "--once"),
         };
         let code = cmux_remote_browser_host::serve::run(&mut argv, opts);
@@ -97,6 +110,8 @@ fn main() -> std::process::ExitCode {
         on_needs_begin_frames: None,
         on_dialog: None,
         on_dialog_reset: None,
+        on_surface: None,
+        on_surface_frame: None,
     };
     // SAFETY: argv and the strings outlive the call; the callbacks are valid.
     let code = unsafe {

@@ -79,6 +79,8 @@ struct Rig {
     now: u64,
     /// Complete frames the viewer got: (frame number, keyframe, first payload byte).
     got: Vec<(u32, bool, u8)>,
+    /// Complete frames of popup streams: (stream, keyframe, first payload byte).
+    popup_got: Vec<(u16, bool, u8)>,
 }
 
 impl Rig {
@@ -92,6 +94,7 @@ impl Rig {
             log,
             now: 0,
             got: Vec::new(),
+            popup_got: Vec::new(),
         }
     }
 
@@ -109,7 +112,11 @@ impl Rig {
             self.viewer.push_datagram(d, self.now).expect("viewer accepts the datagram");
         }
         while let Some((stream, frame)) = self.viewer.pop_frame() {
-            assert_eq!(stream, 0);
+            if stream != 0 {
+                let first = frame.body.access_unit.get(5).copied().unwrap_or(0);
+                self.popup_got.push((stream, frame.flags & flags::KEYFRAME != 0, first));
+                continue;
+            }
             let first = frame.body.access_unit.get(5).copied().unwrap_or(0);
             self.got.push((frame.frame, frame.flags & flags::KEYFRAME != 0, first));
         }
@@ -269,4 +276,61 @@ impl Rig {
     fn pump_encoder_fails_next(&mut self) {
         self.pump.encoder_mut().fail_next = true;
     }
+}
+
+/// A popup stream with its own fake encoder and log.
+fn add_popup(rig: &mut Rig, stream: u16) -> Rc<RefCell<Log>> {
+    let log = Rc::new(RefCell::new(Log::default()));
+    let encoder = Fake { log: log.clone(), kbps: 300, fail_next: false };
+    rig.pump.add_stream(stream, 200, 100, encoder).expect("a new stream");
+    rig.viewer.open_stream(stream).expect("the viewer opens the stream");
+    log
+}
+
+#[test]
+fn a_popup_stream_is_encoded_by_its_own_encoder_and_reaches_the_viewer_on_its_stream() {
+    let mut rig = Rig::new();
+    rig.pump.start(0);
+    rig.capture(1, small());
+    let popup = add_popup(&mut rig, 1);
+    rig.advance(1000);
+    let frame = Frame { id: 100, log: popup.clone() };
+    let out = rig.pump.frame_on(1, frame, small(), rig.now, rig.now);
+    assert!(!out.refresh, "a popup frame never asks the page capture for a refresh");
+    rig.deliver(&out);
+    assert_eq!(popup.borrow().encoded, vec![(100, true)], "the popup's first frame is a keyframe");
+    assert_eq!(rig.log.borrow().encoded.len(), 1, "the page encoder did not see it");
+    assert_eq!(rig.popup_got, vec![(1, true, 100)]);
+    // A frame of an unknown stream is dropped and its lease goes back.
+    let frame = Frame { id: 900, log: popup.clone() };
+    let out = rig.pump.frame_on(9, frame, small(), rig.now, rig.now);
+    assert!(out.datagrams.is_empty());
+    assert!(popup.borrow().released.contains(&900));
+    // Removing the stream gives its held frame back.
+    assert!(!popup.borrow().released.contains(&100), "the popup holds its latest frame");
+    rig.pump.remove_stream(1);
+    assert!(popup.borrow().released.contains(&100));
+}
+
+#[test]
+fn a_viewer_recovery_request_on_a_popup_stream_is_served_from_its_held_frame() {
+    let mut rig = Rig::new();
+    rig.pump.start(0);
+    rig.capture(1, small());
+    let popup = add_popup(&mut rig, 2);
+    let out = rig.pump.frame_on(2, Frame { id: 7, log: popup.clone() }, small(), rig.now, rig.now);
+    rig.deliver(&out);
+    rig.advance(300_000);
+    rig.feedback();
+    rig.viewer.request_keyframe(2).expect("stream 2");
+    for _ in 0..10 {
+        rig.advance(300_000);
+        let out = rig.feedback();
+        rig.deliver(&out);
+        if popup.borrow().encoded.len() == 2 {
+            break;
+        }
+    }
+    assert_eq!(popup.borrow().encoded, vec![(7, true), (7, true)]);
+    assert_eq!(rig.log.borrow().encoded.len(), 1, "the page stream was not re-encoded");
 }

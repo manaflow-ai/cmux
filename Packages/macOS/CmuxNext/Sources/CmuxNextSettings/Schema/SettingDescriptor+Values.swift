@@ -19,6 +19,11 @@ extension SettingDescriptor {
     /// outside the range are refused here, although the parser clamps them,
     /// so the window never writes a value that loads with a warning.
     public func accepts(_ value: JSONValue) -> Bool {
+        if path == ChatSettings.rootsPath {
+            guard let items = value.arrayValue else { return false }
+            let validator = ChatRootValidator()
+            return items.allSatisfy { $0.stringValue.map { validator.refusal($0) == nil } ?? false }
+        }
         switch kind {
         case .choice(let choices):
             if path == BackdropSelectionSetting().configPath { return BackdropSelectionSetting.accepts(value) }

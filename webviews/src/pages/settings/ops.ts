@@ -20,6 +20,9 @@ export type ListRow = {
   default: unknown;
   customized: boolean;
   managed: ManagedInfo | null;
+  /** Chat roots retain refused entries and administrator provenance for the list editor. */
+  folders?: Array<{ path: string; managed: boolean; reason: string | null }>;
+  user_roots?: string[];
 };
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };

@@ -67,7 +67,7 @@ export function SettingRow({
           )}
           {error && (
             <div className="row-error" role="alert" title={error.detail}>
-              {error.message}
+              {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}
         </div>

@@ -328,7 +328,7 @@ fn with_column_docks(
             .enumerate()
             .any(|(other, column)| other != index && column.dock.is_none());
         if columns[index].dock.is_none() && !edge_taken && other_scrolls {
-            columns[index].dock = Some(ColumnDock { edge, mode, permanent: false });
+            columns[index].dock = Some(ColumnDock::new(edge, mode));
         }
     }
     Ok(screens)

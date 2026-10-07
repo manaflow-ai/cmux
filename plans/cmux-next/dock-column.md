@@ -27,6 +27,12 @@ docked column per edge per screen (making another column docked on that edge und
 in the same commit); at least one column scrolls (`dock-column-last-scrolling`); new columns are
 never docked; column order is unchanged, so older clients render the column in place.
 
+A dock may carry a role (`dock.role`, capability `dock-column-role-v1`). The one role is
+`agent_chat`: the agent chat column of the two-column layout (lawrence-call-1006 D). It is set with
+the pin (`set-column-dock` `role`, or `role` in `move-tab-to-column`'s `dock`), journaled and
+restored with it, dropped when the column is unpinned or pinned again without it, and read as no
+role by a build that does not know it. The app keeps new tools out of a column with that role.
+
 ## Geometry (S1 to S6)
 
 - S1. The first docked column per edge in daemon order holds it; any other docked column scrolls.
