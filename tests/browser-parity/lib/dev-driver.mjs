@@ -696,7 +696,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         throw Object.assign(new DriverError("forbidden", `frame.observe: ${method} is not a read; use frame.evaluate`), { errorName: "observe_not_allowed" });
       }
       if (!Array.isArray(args) || args.length > 8 || JSON.stringify(args).length > 65536) throw new DriverError("invalid", "frame.observe: args: expected at most 8 JSON values (64 KiB)");
-      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => globalThis[${AGENT_KEY}][m](...a)`, args: [method, ...args], awaitPromise: true });
+      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => { const A = globalThis[${AGENT_KEY}]; return A.reply(A[m](...a)); }`, args: [method, ...args], awaitPromise: true });
     },
     "frame.ownerBox": async ({ targetId, frameId: id }) => {
       const frame = frameFor(targetId, id);
