@@ -417,5 +417,62 @@ class AppcastTests(unittest.TestCase):
             self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
 
 
+
+class MetadataFallbackTests(unittest.TestCase):
+    """A publish is never lost to GitHub metadata: the notes degrade, the marker stays."""
+
+    def run_main(self, directory, collect):
+        AppcastTests.write_feeds(None, directory)
+        details = directory / "downloads.md"
+        details.write_text("Download links\n")
+        out = directory / "notes.md"
+        github = Mock(repo=REPO)
+        github.rest.return_value = {"body": f"<!-- cmux-published-sha: {BASE} -->\nOld notes"}
+        argv = ["nightly_release_notes.py", "--repo", REPO, "--tag", "nightly-next", "--head", HEAD,
+                "--branch", "nightly-next", "--details", str(details), "--out", str(out),
+                "--appcasts", str(directory), "--build", "102"]
+        with unittest.mock.patch.object(NOTES, "GitHub", return_value=github), \
+                unittest.mock.patch.object(NOTES, "collect_prs", side_effect=collect), \
+                unittest.mock.patch.object(sys, "argv", argv):
+            return NOTES.main(), out
+
+    def test_metadata_failure_publishes_minimal_notes_with_the_marker(self):
+        failure = RuntimeError("GitHub metadata request failed; check Actions token")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            status, out = self.run_main(directory, failure)
+            self.assertEqual(status, 0)
+            body = out.read_text()
+            self.assertIn(f"https://github.com/{REPO}/compare/{BASE}...{HEAD}", body)
+            self.assertIn("Download links", body)
+            published = out.with_suffix(".published.md").read_text()
+            self.assertTrue(published.startswith(f"<!-- cmux-published-sha: {HEAD} -->"))
+            feed = ET.parse(directory / "appcast.xml").getroot()
+            current = [item for item in feed.iter("item") if item.findtext(f"{{{SPARKLE}}}version") == "102"][0]
+            self.assertIn("compare", current.findtext("description"))
+
+    def test_a_transient_metadata_timeout_also_degrades(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            status, out = self.run_main(Path(temporary), NOTES.TransientGitHubError("kept timing out"))
+            self.assertEqual(status, 0)
+            self.assertTrue(out.with_suffix(".published.md").read_text().startswith(f"<!-- cmux-published-sha: {HEAD} -->"))
+
+    def test_a_broken_appcast_still_fails_the_publish(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            AppcastTests.write_feeds(None, directory)
+            (directory / "appcast.xml").unlink()
+            details = directory / "downloads.md"
+            details.write_text("Download links\n")
+            github = Mock(repo=REPO)
+            github.rest.return_value = {"body": ""}
+            argv = ["nightly_release_notes.py", "--repo", REPO, "--tag", "nightly-next", "--head", HEAD,
+                    "--branch", "nightly-next", "--details", str(details), "--out", str(directory / "notes.md"),
+                    "--appcasts", str(directory), "--build", "102"]
+            with unittest.mock.patch.object(NOTES, "GitHub", return_value=github), \
+                    unittest.mock.patch.object(sys, "argv", argv), self.assertRaises(RuntimeError):
+                NOTES.main()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
