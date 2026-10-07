@@ -30,6 +30,9 @@ public actor LinkSession: CmuxLink {
 
     // Transports.
     var current: Attached?
+    /// The authenticated peer of the first transport that carried a
+    /// session (host) or of the current one (dialer).
+    var authenticatedPeer: LinkPeerIdentity?
     /// Dialer: a transport that sent `hello` and waits for `welcome`.
     var pendingDial: Attached?
     var nextGeneration: UInt64 = 1
@@ -110,6 +113,11 @@ public actor LinkSession: CmuxLink {
 
     /// The session epoch assigned by the host (0 before the first welcome).
     public var currentEpoch: UInt64 { epoch }
+
+    /// The peer the carrier authenticated (`LinkTransport.peerIdentity`).
+    /// On the host it is fixed by the transport that started the session;
+    /// `LinkHost` never resumes the session on another identity.
+    public var peerIdentity: LinkPeerIdentity? { authenticatedPeer }
 
     public var badge: PathBadge? {
         guard let current, machine.state.isLive else { return nil }

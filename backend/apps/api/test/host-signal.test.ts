@@ -83,4 +83,13 @@ describe("HostDO signal relay", { timeout: 60_000 }, () => {
     expect(signalBodyError("bye", { reason: "superseded" })).toBeUndefined()
     expect(signalBodyError("bye", { reason: "whatever" })?.code).toBe("validation.invalid")
   })
+
+  it("accepts a bounded auth {key, sig} on offer and answer", () => {
+    const auth = { key: "BJv1Yp3x+Q==", sig: "MEUCIQ_-" }
+    expect(signalBodyError("offer", { sdp: "v=0", carrier: "webrtc", auth })).toBeUndefined()
+    expect(signalBodyError("answer", { sdp: "v=0", auth })).toBeUndefined()
+    expect(signalBodyError("answer", { sdp: "v=0", auth: { key: "a", sig: "b", extra: "c" } })?.code).toBe("validation.invalid")
+    expect(signalBodyError("offer", { sdp: "v=0", auth: { key: "x".repeat(257), sig: "b" } })?.code).toBe("validation.invalid")
+    expect(signalBodyError("offer", { sdp: "v=0", auth: { key: "not base64!", sig: "b" } })?.code).toBe("validation.invalid")
+  })
 })

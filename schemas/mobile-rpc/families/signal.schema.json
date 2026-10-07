@@ -18,11 +18,16 @@
         "expires_at": { "$ref": "../common.schema.json#/$defs/Timestamp" }
       }
     },
+    "SignalAuth": {
+      "description": "The signer's P-256 identity key (X9.63, base64) and its ECDSA signature (raw r||s, base64) over the DTLS fingerprint binding (plans/cmux-next/ios-next/b2-webrtc.md section 8). Peers require it on V1; the relay only bounds its shape.",
+      "type": "object", "additionalProperties": false, "required": ["key", "sig"],
+      "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 256 }, "sig": { "type": "string", "minLength": 1, "maxLength": 256 } }
+    },
     "signal.offer": {
       "type": "object", "additionalProperties": false, "required": ["sdp"],
-      "properties": { "sdp": { "type": "string", "minLength": 1, "maxLength": 65536 }, "ice_restart": { "type": "boolean" }, "carrier": { "enum": ["webrtc", "webrtc-wg"] } }
+      "properties": { "sdp": { "type": "string", "minLength": 1, "maxLength": 65536 }, "ice_restart": { "type": "boolean" }, "carrier": { "enum": ["webrtc", "webrtc-wg"] }, "auth": { "$ref": "#/$defs/SignalAuth" } }
     },
-    "signal.answer": { "type": "object", "additionalProperties": false, "required": ["sdp"], "properties": { "sdp": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
+    "signal.answer": { "type": "object", "additionalProperties": false, "required": ["sdp"], "properties": { "sdp": { "type": "string", "minLength": 1, "maxLength": 65536 }, "auth": { "$ref": "#/$defs/SignalAuth" } } },
     "signal.ice": {
       "type": "object", "additionalProperties": false, "required": ["candidate", "sdp_mid", "sdp_mline_index"],
       "properties": { "candidate": { "type": "string", "maxLength": 1024 }, "sdp_mid": { "type": ["string", "null"], "maxLength": 64 }, "sdp_mline_index": { "type": ["integer", "null"], "minimum": 0 } }

@@ -220,6 +220,11 @@ extension LinkSession {
             closeTransportLater(old.transport)
         }
         current = attached
+        if case .dialer = role {
+            authenticatedPeer = attached.transport.peerIdentity
+        } else if authenticatedPeer == nil {
+            authenticatedPeer = attached.transport.peerIdentity
+        }
         rtt = nil
         outbound.removeAll()
         for id in channels.keys { channels[id]?.queuedBytes = 0 }

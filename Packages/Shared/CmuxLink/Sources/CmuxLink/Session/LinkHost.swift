@@ -90,7 +90,7 @@ public actor LinkHost {
                 }
                 guard let self,
                       case let .hello(id, epoch)? = try? LinkFrame(decoding: frame.bytes),
-                      let (routed, resumed) = await self.route(id: id, epoch: epoch) else {
+                      let (routed, resumed) = await self.route(id: id, epoch: epoch, identity: transport.peerIdentity) else {
                     await transport.close()
                     return
                 }
@@ -100,9 +100,20 @@ public actor LinkHost {
         }
     }
 
-    private func route(id: UUID, epoch: UInt64) async -> (LinkSession, Bool)? {
+    private func route(id: UUID, epoch: UInt64, identity: LinkPeerIdentity?) async -> (LinkSession, Bool)? {
         guard !isClosed else { return nil }
         if let existing = sessionsByID[id] {
+            // A session belongs to the peer that started it: a transport
+            // that proved another key of the same kind is refused, neither
+            // resumed nor allowed to replace it. Another key kind is another
+            // carrier (B4 X25519, B2 P-256) of possibly the same device, so
+            // migration stays possible; the app-level proof (B5 hello)
+            // binds the device across carriers.
+            if let owner = await existing.peerIdentity {
+                guard let identity, owner.keyKind != identity.keyKind || owner.sameKey(as: identity) else {
+                    return nil
+                }
+            }
             let existingEpoch = await existing.currentEpoch
             let closed = await existing.state.isClosed
             if !closed, epoch != 0, existingEpoch == epoch {
