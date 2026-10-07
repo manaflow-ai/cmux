@@ -14017,6 +14017,137 @@
           }
         }
       }
+    },
+    "onboarding.computerUse.helper.versionMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use helper version mismatch. Update cmux NIGHTLY and this build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار مساعد استخدام الكمبيوتر غير متطابق. حدّث cmux NIGHTLY وهذا الإصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verzija Computer Use pomoćnika se ne podudara. Ažurirajte cmux NIGHTLY i ovu verziju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Versionen af Computer Use-hjælperen passer ikke. Opdater cmux NIGHTLY og denne version."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version des Computer-Use-Helfers passt nicht. Aktualisiere cmux NIGHTLY und diesen Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La versión del asistente de Computer Use no coincide. Actualiza cmux NIGHTLY y esta compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La version de l’assistant Computer Use ne correspond pas. Mettez à jour cmux NIGHTLY et cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La versione dell’helper di Computer Use non corrisponde. Aggiorna cmux NIGHTLY e questa build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Useヘルパーのバージョンが一致しません。cmux NIGHTLYとこのビルドを更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែកម្មវិធីជំនួយ Computer Use មិនត្រូវគ្នា។ ធ្វើបច្ចុប្បន្នភាព cmux NIGHTLY និង build នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 도우미 버전이 일치하지 않습니다. cmux NIGHTLY와 이 빌드를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Versjonen av Computer Use-hjelperen stemmer ikke. Oppdater cmux NIGHTLY og denne versjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wersja pomocnika Computer Use nie pasuje. Zaktualizuj cmux NIGHTLY i tę wersję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A versão do auxiliar do Computer Use não corresponde. Atualize o cmux NIGHTLY e esta build."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Версия помощника Computer Use не совпадает. Обновите cmux NIGHTLY и эту сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวอร์ชันของตัวช่วย Computer Use ไม่ตรงกัน อัปเดต cmux NIGHTLY และ build นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use yardımcısının sürümü uyuşmuyor. cmux NIGHTLY’yi ve bu derlemeyi güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Версія помічника Computer Use не збігається. Оновіть cmux NIGHTLY і цю збірку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên bản trình trợ giúp Computer Use không khớp. Hãy cập nhật cmux NIGHTLY và bản dựng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 辅助程序版本不匹配。请更新 cmux NIGHTLY 和此版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 輔助程式版本不符。請更新 cmux NIGHTLY 和此版本。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
