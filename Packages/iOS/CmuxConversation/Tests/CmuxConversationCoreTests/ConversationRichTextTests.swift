@@ -3,6 +3,22 @@ import Testing
 @testable import CmuxConversationCore
 
 @Suite struct ConversationRichTextTests {
+    @Test func aPlainTextEditKeepsFormattingOnTheCharactersItLeftAlone() {
+        // "make it bold now": "make" bold, "now" exploding.
+        let runs = [
+            ConversationTextRun(location: 0, length: 4, style: [.bold]),
+            ConversationTextRun(location: 13, length: 3, effect: .explode),
+        ]
+        let carried = ConversationRichText.carried(runs, from: "make it bold now", to: "make this bold now")
+        #expect(carried == [
+            ConversationTextRun(location: 0, length: 4, style: [.bold]),
+            ConversationTextRun(location: 15, length: 3, effect: .explode),
+        ])
+        // Retyping a formatted word leaves the new word plain.
+        #expect(ConversationRichText.carried(runs, from: "make it bold now", to: "take it bold now")
+            == [ConversationTextRun(location: 1, length: 3, style: [.bold]), ConversationTextRun(location: 13, length: 3, effect: .explode)])
+    }
+
     @Test func normalizeClipsDropsPlainResolvesOverlapAndMerges() {
         let runs = [
             ConversationTextRun(location: 8, length: 10, style: [.bold]),

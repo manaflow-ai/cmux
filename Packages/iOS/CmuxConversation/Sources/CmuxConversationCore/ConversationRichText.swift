@@ -98,6 +98,29 @@ public enum ConversationRichText {
         return result
     }
 
+    /// Carries formatting through a plain-text edit: characters in the
+    /// unchanged prefix and suffix keep their style and effect, the replaced
+    /// middle is plain (what a text view does when you retype that span).
+    public static func carried(_ runs: [ConversationTextRun], from oldText: String, to newText: String) -> [ConversationTextRun] {
+        let old = Array(oldText.utf16)
+        let new = Array(newText.utf16)
+        guard !runs.isEmpty, !new.isEmpty else { return [] }
+        var prefix = 0
+        while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < old.count - prefix, suffix < new.count - prefix,
+              old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
+        let delta = new.count - old.count
+        var carried: [ConversationTextRun] = []
+        for run in normalized(runs, utf16Count: old.count) {
+            let head = NSIntersectionRange(run.range, NSRange(location: 0, length: prefix))
+            if head.length > 0 { carried.append(ConversationTextRun(location: head.location, length: head.length, style: run.style, effect: run.effect)) }
+            let tail = NSIntersectionRange(run.range, NSRange(location: old.count - suffix, length: suffix))
+            if tail.length > 0 { carried.append(ConversationTextRun(location: tail.location + delta, length: tail.length, style: run.style, effect: run.effect)) }
+        }
+        return normalized(carried, utf16Count: new.count)
+    }
+
     /// Trims surrounding whitespace the way a send does and shifts the runs.
     public static func trimmed(_ text: String, runs: [ConversationTextRun]) -> (text: String, runs: [ConversationTextRun]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

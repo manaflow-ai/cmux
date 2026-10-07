@@ -186,7 +186,9 @@ extension ConversationViewController {
         revealRowID = message.rowID
         let overlay = MessageEditOverlay(text: message.text)
         overlay.onSave = { [weak self] text in
-            self?.store.edit(messageID: message.id, text: text)
+            // The in-place field edits plain text; formatting on characters the
+            // edit left alone carries over.
+            self?.store.edit(messageID: message.id, text: text, textRuns: ConversationRichText.carried(message.textRuns, from: message.text, to: text))
             self?.exitEditMode()
         }
         overlay.onCancel = { [weak self] in self?.exitEditMode() }
