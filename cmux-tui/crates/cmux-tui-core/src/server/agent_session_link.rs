@@ -112,6 +112,17 @@ impl AcpmuxLink {
         result
     }
 
+    /// Sends a request whose reply is not waited for (it is read and
+    /// dropped), so it holds no in-flight slot.
+    pub(super) fn send_ignoring_reply(&self, method: &str, params: Value) -> Result<(), LinkError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LinkError::Closed);
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.write(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
+            .map_err(|_| LinkError::Closed)
+    }
+
     /// Sends a notification (no reply).
     pub(super) fn notify(&self, method: &str, params: Value) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {

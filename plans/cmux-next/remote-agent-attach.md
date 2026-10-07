@@ -30,7 +30,8 @@ runs unchanged.
 Daemon verbs (cmux-tui/spec/commands.md "Agent session attach"): `agent-session-attach`,
 `agent-session-events`, `agent-session-prompt`, `agent-session-cancel`,
 `agent-session-permission`, `agent-session-detach`; events `agent-session-record`,
-`agent-session-permission`, `agent-session-closed`. Each names a store tab by `surface`.
+`agent-session-permission`, `agent-session-changed` (status and queue of that session only),
+`agent-session-closed`. Each names a store tab by `surface`.
 
 ## Backpressure and reconnect
 
@@ -41,8 +42,12 @@ from its bounded broadcast) ends it with `lagged`. Queued records of an ended at
 dropped, but the client always holds a gap-free prefix of the log, so it reconnects and replays
 with `after_seq` = its newest seq (the page's existing `fetchMissedEvents`). The wire closes on
 `agent-session-closed` or a dropped daemon connection; the page asks for a fresh handshake and a
-fresh wire. Bounds: 8 attachments per connection, 64 per daemon, 8 worker calls and 16 acpmux
-calls in flight per attachment, pages of 500 records, prompts of 64 KiB, acpmux lines of 8 MiB.
+fresh wire (the ended attachment's daemon connection closes). Notifications that reach the
+daemon before acpmux's attach reply (a running turn) wait in a bounded buffer of 256 and go out
+after the reply; the reader never blocks. Bounds: 8 attachments per connection, 64 per daemon, 8
+worker calls and 16 acpmux calls in flight per attachment (a prompt holds none: its end-of-turn
+reply is not waited for), pages of 500 records and 16 MiB, prompts of 64 KiB, acpmux lines of
+8 MiB.
 On the SSH/server carrier every `agent-session-*` line uses the bulk lane in both directions
 (cmux-remote `mux_lanes.rs`), so a record never overtakes the attach reply.
 
@@ -63,8 +68,13 @@ clients are refused. Policy tests: `agent_session_attach_tests.rs`.
   reads are not reachable: the daemon has no verb for them and the wire refuses them.
 - Access to unowned objects: every verb names a tab of this daemon's store; the tab must be an
   `agent_session` tab with a bound session, and the session comes from the store record, never
-  from the client. The attach must find that session in this machine's acpmux. Records of other
-  sessions on the same acpmux link are dropped. A closed or rebound tab ends its attachment.
+  from the client. The attach must find that session in this machine's acpmux. Records,
+  permission requests and status changes of other sessions on the same acpmux link are dropped
+  (the link watches all sessions only to get this session's status). A closed tab, or one whose
+  record now names another session, ends its attachment at its next record or call. Limit: the
+  daemon has no install id, so it cannot check the record's `host`; a record naming a session of
+  another machine reaches this machine's acpmux only when a session with that id or name exists
+  here.
   The app does not bind or rewrite the remote record (no `bind-conversation-tab-session` from a
   remote tab).
 - Local-state exposure: the client sees the tab's acpmux page and records (the chat it asked

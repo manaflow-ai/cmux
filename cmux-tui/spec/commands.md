@@ -7164,7 +7164,7 @@ prompts, cancels and permission answers through the daemon, which is a local
 client of this machine's acpmux unix socket (`ACPMUX_SOCKET`, else the home
 `cmux acp` uses). An app on another machine reaches it through the SSH or
 server carrier; no acpmux port is opened. The daemon advertises the
-capability only when it has an acpmux socket. WebSocket clients and the
+capability only while that socket exists. WebSocket clients and the
 remote relay (`cmux link`) are refused. These commands bypass the ordered
 surface queue.
 
@@ -7184,24 +7184,27 @@ flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 `{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
-`kinds` at most 8 acpmux record kinds or categories). On an attached tab it
-only pages. Live records then arrive as
+`kinds` at most 8 acpmux record kinds or categories; at most 16 MiB of
+records, the rest left for the next page with `hasMore`). On an attached tab
+it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
-`eventStream` form) and permission requests as
-`{event:"agent-session-permission", surface, request}`. The attachment ends
-with `{event:"agent-session-closed", surface, reason}`: `detached` (the tab
-closed or lost its session), `lagged` (acpmux dropped records),
-`overflow` (the client did not read its stream), `acpmux_closed`, or
-`too_large` (an acpmux line over 8 MiB). Records queued for it may be dropped,
-but what the client received is a gap-free prefix of the log, so it attaches
-again with `after_seq` set to the newest seq it holds. A record never
-overtakes the attach reply.
+`eventStream` form), permission requests as
+`{event:"agent-session-permission", surface, request}`, and the session's
+status and queue changes as `{event:"agent-session-changed", surface, change}`
+(acpmux `session_changed` of that session only). The attachment ends with
+`{event:"agent-session-closed", surface, reason}`: `detached` (the tab closed
+or now shows another session), `lagged` (acpmux dropped records), `overflow`
+(the client did not read its stream), `acpmux_closed`, or `too_large` (an
+acpmux line over 8 MiB). The close is a control message and can arrive before
+records still queued, which may be dropped; what the client received is
+always a gap-free prefix of the log, so it attaches again with `after_seq` set
+to the newest seq it holds. A record never overtakes the attach reply.
 
 ### agent-session-events
 
 `{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?}`
 pages the log of an attached tab, as acpmux's `_acpmux/events`
-(`{events, more}`), with the same bounds.
+(`{events, hasMore, lastSeq}`), with the same bounds.
 
 ### agent-session-prompt
 
@@ -7218,8 +7221,8 @@ single ACP text content block and answers once acpmux recorded it:
 
 `{id, cmd:"agent-session-permission", surface, permission_id, option_id}`
 answers a permission request acpmux announced on this attachment (pending at
-attach or sent as `agent-session-permission`), once. The daemon never answers
-a request by itself.
+attach or sent as `agent-session-permission`), once (a failed answer can be
+sent again). The daemon never answers a request by itself.
 
 ### agent-session-detach
 

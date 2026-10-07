@@ -62,15 +62,25 @@ impl FakeAcpmux {
     }
 
     /// The next frame the daemon sent to acpmux.
+    /// The next frame the daemon sent to acpmux (its session watch skipped).
     fn frame(&self) -> Value {
-        self.frames.recv_timeout(WAIT).expect("a frame to acpmux")
+        loop {
+            let frame = self.frames.recv_timeout(WAIT).expect("a frame to acpmux");
+            if frame["method"] != json!("_acpmux/watch") {
+                return frame;
+            }
+        }
     }
 
     fn no_frame(&self) {
-        assert!(
-            self.frames.recv_timeout(Duration::from_millis(200)).is_err(),
-            "the daemon must not reach acpmux"
-        );
+        let deadline = Instant::now() + Duration::from_millis(200);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match self.frames.recv_timeout(left) {
+                Ok(frame) if frame["method"] == json!("_acpmux/watch") => continue,
+                Ok(frame) => panic!("the daemon must not reach acpmux: {frame}"),
+                Err(_) => return,
+            }
+        }
     }
 
     fn no_connection(&self) {
@@ -114,14 +124,22 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
-            "_acpmux/attach" => Some(json!({
-                "session": {"sessionId": SESSION, "name": "sub", "status": "running",
-                            "pending": [{"permissionId": "perm_attach", "options": []}]},
-                "events": [{"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}],
-                "hasMore": false,
-                "lastSeq": 1,
-            })),
-            "_acpmux/events" => Some(json!({"events": [], "more": false})),
+            "_acpmux/attach" => {
+                // A running turn: acpmux subscribes first, so a live record
+                // can reach the daemon before the attach reply.
+                let early = json!({"jsonrpc":"2.0","method":"_acpmux/event","params":{
+                    "sessionId": SESSION, "seq": 2, "dir": "in", "kind": "agent_message", "msg": {}}});
+                writeln!(writer, "{early}").unwrap();
+                Some(json!({
+                    "session": {"sessionId": SESSION, "name": "sub", "status": "running",
+                                "pending": [{"permissionId": "perm_attach", "options": []}]},
+                    "events": [{"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}],
+                    "hasMore": false,
+                    "lastSeq": 1,
+                }))
+            }
+            "_acpmux/watch" => Some(json!({"sessions": [{"sessionId": "acp_unrelated"}]})),
+            "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
             "_acpmux/permission_respond" => Some(json!({})),
             "session/prompt" => {
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
@@ -420,15 +438,67 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(sent["params"]["eventStream"], json!(true));
     assert_eq!(sent["params"]["kinds"], json!(["transcript"]));
 
+    // The record acpmux sent before its reply follows the reply.
+    let early = client.event(WAIT).expect("the early record");
+    assert_eq!(early["event"], json!("agent-session-record"));
+    assert_eq!(early["record"]["seq"], json!(2));
+
     fake.notify("_acpmux/event", json!({"sessionId":"acp_other","seq":9,"kind":"agent_message"}));
+    fake.notify("_acpmux/session_changed", json!({"sessionId":"acp_other","kind":"status"}));
+    fake.notify("_acpmux/event", json!({"sessionId":SESSION,"seq":3,"kind":"agent_message"}));
     fake.notify(
-        "_acpmux/event",
-        json!({"sessionId":SESSION,"seq":2,"kind":"agent_message","msg":{}}),
+        "_acpmux/session_changed",
+        json!({"sessionId":SESSION,"kind":"status","session":{"status":"idle"}}),
     );
     let event = client.event(WAIT).expect("a live record");
     assert_eq!(event["event"], json!("agent-session-record"));
     assert_eq!(event["surface"], json!(surface));
-    assert_eq!(event["record"]["seq"], json!(2), "a record of another session is not forwarded");
+    assert_eq!(event["record"]["seq"], json!(3), "a record of another session is not forwarded");
+    let changed = client.event(WAIT).expect("the session's status change");
+    assert_eq!(changed["event"], json!("agent-session-changed"));
+    assert_eq!(changed["change"]["session"]["status"], json!("idle"));
+    assert!(client.event(Duration::from_millis(200)).is_none(), "nothing of other sessions");
+}
+
+#[test]
+fn a_rebound_tab_ends_its_attachment_at_the_next_record() {
+    let mut fake = FakeAcpmux::start("rebound");
+    let mux = mux_with(&fake, "asa-rebound");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "rebound");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = client.event(WAIT).expect("the early record");
+    run(
+        &mux,
+        json!({"cmd":"bind-conversation-tab-session","surface":surface,
+               "session":"acp_session_2","expected_session":SESSION}),
+    );
+    fake.notify("_acpmux/event", json!({"sessionId":SESSION,"seq":3,"kind":"agent_message"}));
+    let closed = client.event(WAIT).expect("a close");
+    assert_eq!(
+        closed,
+        json!({"event":"agent-session-closed","surface":surface,"reason":"detached"})
+    );
+}
+
+#[test]
+fn pages_are_bounded_in_bytes_keeping_the_records_next_to_the_cursor() {
+    use super::agent_session_attach::{MAX_PAGE_BYTES, bound_page};
+    let big = "x".repeat(MAX_PAGE_BYTES / 3);
+    let events: Vec<Value> = (1..=5).map(|seq| json!({"seq": seq, "text": big})).collect();
+    let page = json!({"events": events, "hasMore": false});
+    let seqs = |page: &Value| {
+        page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["seq"].as_u64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let newest = bound_page(page.clone(), true);
+    assert_eq!(seqs(&newest), vec![4, 5]);
+    assert_eq!(newest["hasMore"], json!(true));
+    assert_eq!(seqs(&bound_page(page, false)), vec![1, 2]);
 }
 
 #[test]
@@ -456,6 +526,7 @@ fn lag_and_acpmux_exit_end_the_attachment_with_a_reason() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "lag");
     assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = client.event(WAIT).expect("the early record");
     fake.notify("_acpmux/lagged", json!({"dropped": 3}));
     let closed = client.event(WAIT).expect("a close");
     assert_eq!(closed, json!({"event":"agent-session-closed","surface":surface,"reason":"lagged"}));
@@ -463,6 +534,7 @@ fn lag_and_acpmux_exit_end_the_attachment_with_a_reason() {
     let mut fake2 = FakeAcpmux::start("lag2");
     mux.set_acpmux_socket(Some(fake2.socket.clone()));
     assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = client.event(WAIT).expect("the early record");
     fake2.hang_up();
     let closed = client.event(WAIT).expect("a close");
     assert_eq!(closed["reason"], json!("acpmux_closed"));
@@ -535,6 +607,7 @@ fn permission_answers_only_announced_requests_once_and_never_by_itself() {
                               "permission_id":permission,"option_id":"allow"}))
     };
     assert_code(&answer(&mut client, "perm_never_asked"), "agent_session.unknown_permission");
+    let _ = client.event(WAIT).expect("the early record");
     fake.notify(
         "_acpmux/permission_pending",
         json!({"sessionId":SESSION,"permissionId":"perm_live",
@@ -608,7 +681,10 @@ fn a_closed_tab_ends_its_attachment() {
     let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
                                       "prompt_id":"p1","text":"hi"}));
     assert_code(&reply, "agent_session.unknown_tab");
-    let closed = client.event(WAIT).expect("a close");
+    let mut closed = client.event(WAIT).expect("a close");
+    if closed["event"] == json!("agent-session-record") {
+        closed = client.event(WAIT).expect("a close");
+    }
     assert_eq!(closed["reason"], json!("detached"));
     fake.no_frame();
 }
