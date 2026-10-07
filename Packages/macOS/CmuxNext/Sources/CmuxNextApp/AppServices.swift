@@ -149,7 +149,7 @@ final class AppServices {
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
-    /// Repaints on `appearance.borders` changes (`observeBorders`).
+    /// Repaints on `appearance.borders` changes.
     var borderObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder

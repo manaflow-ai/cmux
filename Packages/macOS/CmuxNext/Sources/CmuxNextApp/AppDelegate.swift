@@ -143,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
-        services.observeBorders()
+        services.borderObservation = BordersObserver().task
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
         AgentTabImport.start(services)
