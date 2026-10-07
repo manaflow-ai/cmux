@@ -11,7 +11,6 @@ import Foundation
 /// process), so it never keeps a laptop awake.
 extension DaemonConnection {
     func scheduleHeartbeat(_ transport: LineTransport, serial: UInt64) {
-        if transport.path.isEmpty || !transport.path.isEmpty { return } // RED: no heartbeat yet
         heartbeat.schedule(after: configuration.bridgeHeartbeat) { [weak self] in
             await self?.heartbeatTick(transport, serial: serial)
         }
