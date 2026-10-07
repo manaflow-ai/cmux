@@ -1,10 +1,12 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import "./markdownField.css";
 import {
   Editor,
   defaultValueCtx,
   editorViewCtx,
   editorViewOptionsCtx,
+  remarkCtx,
   remarkStringifyOptionsCtx,
   rootCtx,
 } from "@milkdown/kit/core";
@@ -18,6 +20,7 @@ import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
@@ -49,6 +52,9 @@ export type MarkdownFieldHandle = {
   pasteText(text: string): void;
   /// Replaces the prompt without reporting it as the user's edit (a new tab adopted, a chat sent).
   reset(markdown?: string): void;
+  /// `markdown` (the field's value) as the agent gets it: the characters the user typed, with
+  /// markdown syntax only where the field formatted it (`**bold**`, a code span, a list).
+  agentText(markdown: string): string;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -104,6 +110,46 @@ function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
   return tail && !markdown.endsWith(tail) ? markdown + tail : markdown;
 }
 
+type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] };
+
+/** A link that GFM made from a bare URL in the text: its text is the URL as written. */
+const bareLinkText = (node: MdNode) => {
+  const only = node.children?.length === 1 ? node.children[0] : undefined;
+  const value = only?.type === "text" ? only.value : undefined;
+  if (value === undefined || !node.url) return undefined;
+  return [value, `http://${value}`, `mailto:${value}`].includes(node.url) ? value : undefined;
+};
+
+/** Text, and links GFM made from bare URLs, as raw nodes: the serializer writes them unescaped.
+ * A line break (a pasted or Shift-Return newline inside a paragraph) is the newline it was, not
+ * markdown's `\\` hard break. */
+function asWritten(node: MdNode): MdNode {
+  if (node.type === "text") return { type: "html", value: node.value ?? "" };
+  if (node.type === "break") return { type: "html", value: "\n" };
+  if (node.type === "link") {
+    const bare = bareLinkText(node);
+    if (bare !== undefined) return { type: "html", value: bare };
+  }
+  if (!node.children) return node;
+  // One raw node per run: the serializer turns a newline before a raw node into a space.
+  const children: MdNode[] = [];
+  for (const child of node.children.map(asWritten)) {
+    const last = children.at(-1);
+    if (child.type === "html" && last?.type === "html")
+      children[children.length - 1] = { ...last, value: `${last.value}${child.value}` };
+    else children.push(child);
+  }
+  return { ...node, children };
+}
+
+/** The field's markdown with its text as the user typed it. The field's value escapes text
+ * (`\\[`, `http\\:`, `\\*`) so that reading it back gives the same text, not a link or
+ * emphasis. The agent gets the typed characters; formatted nodes keep their markdown syntax. */
+function typedText(remark: RemarkParser, markdown: string): string {
+  const tree = remark.runSync(remark.parse(markdown), markdown) as unknown as MdNode;
+  return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
+}
+
 /** The caret's offset inside the first paragraph, else past its end. */
 function caretOf(view: EditorView): number {
   const { selection, doc } = view.state;
@@ -156,6 +202,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
 ) {
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
+  const remark = useRef<RemarkParser | undefined>(undefined);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
   const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput });
@@ -279,6 +326,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
+        remark.current = made.ctx.get(remarkCtx);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
@@ -289,6 +337,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
       void editor.current?.destroy();
       editor.current = undefined;
       view.current = undefined;
+      remark.current = undefined;
     };
   }, []);
 
@@ -407,6 +456,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           showPlaceholder(markdown);
           if (editor.current) setDocument(markdown);
         },
+        // Before the editor exists nothing was typed: the value is what came in.
+        agentText: (markdown) => (remark.current ? typedText(remark.current, markdown) : markdown),
       }),
     [],
   );

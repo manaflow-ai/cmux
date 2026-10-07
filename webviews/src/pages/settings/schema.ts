@@ -38,6 +38,8 @@ export type SchemaRow = {
   help: LocalizedText | null;
   kind: SettingKind;
   choices?: Choice[];
+  /** A string_list of `choices` in an order the user picks. */
+  ordered?: boolean;
   range?: NumberRange;
   default: unknown;
   default_label: LocalizedText | null;

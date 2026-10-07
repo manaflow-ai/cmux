@@ -40,6 +40,16 @@ fn serve(
                         );
                         continue;
                     }
+                    // The real daemon (server.rs workspace_mutation) refuses
+                    // one of origin and mutation_id without the other.
+                    if req.get("origin").is_some() != req.get("mutation_id").is_some() {
+                        let _ = writeln!(
+                            out,
+                            "{}",
+                            json!({"id": req["id"], "ok": false, "error": {"code": "invalid_params", "message": "origin and mutation_id must be provided together"}})
+                        );
+                        continue;
+                    }
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => {
                             json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities,
@@ -107,7 +117,12 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
         "agent-session-tabs-v1",
     ]);
     let key = w
-        .open("sess-1", "a1 · summarize", Path::new("/Users/x/fun/repo"))
+        .open(
+            &optchat_chief::workspaces::new_key(),
+            "sess-1",
+            "a1 · summarize",
+            Path::new("/Users/x/fun/repo"),
+        )
         .unwrap();
     let created = commands(&requests, "create-workspace");
     assert_eq!(created.len(), 1);
@@ -133,7 +148,14 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
 #[test]
 fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
     let (w, requests, _dir) = workspaces(vec!["workspace-registry-v1", "conversation-tabs-v1"]);
-    let err = w.open("sess-1", "a1 · x", Path::new("/tmp")).unwrap_err();
+    let err = w
+        .open(
+            &optchat_chief::workspaces::new_key(),
+            "sess-1",
+            "a1 · x",
+            Path::new("/tmp"),
+        )
+        .unwrap_err();
     assert!(err.contains("agent-session-tabs-v1"), "{err}");
     assert!(
         commands(&requests, "create-workspace").is_empty(),

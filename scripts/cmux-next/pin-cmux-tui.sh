@@ -88,8 +88,11 @@
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
-#          default 24; never waits)
+#          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
+#          paths, skips a commit whose copy of any of them differs from the tip's)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
+#        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
+#        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
 #          ready|deferred|superseded|failed, tree_key= and tree_reason= to GITHUB_OUTPUT)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
@@ -244,6 +247,96 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
   return 0
 }
 
+# The GitHub token for dispatch: GH_TOKEN, else the authenticated gh CLI.
+github_token() {
+  if [[ -n "${GH_TOKEN:-}" ]]; then printf '%s\n' "$GH_TOKEN"; return 0; fi
+  command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null
+}
+
+# github_api <method> <repository path> [json body]: one REST call with GH_TOKEN.
+github_api() {
+  local method="$1" path="$2" body="${3:-}"
+  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" \
+    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" ${body:+-d "$body"} \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/$path"
+}
+
+# Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
+# commit has tree <key>, or nothing. A commit missing locally is fetched once
+# (depth 1, best effort); one it cannot read does not count.
+active_publisher_for_key() {
+  local key="$1" body candidate
+  body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || return 0
+  while read -r candidate; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
+    git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
+      || git -C "$repo_root" fetch -q --no-tags --depth=1 origin "$candidate" 2>/dev/null || continue
+    if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
+  done < <(python3 -c '
+import json, sys
+try:
+    runs = json.loads(sys.stdin.read()).get("workflow_runs", [])
+except Exception:
+    runs = []
+for run in runs:
+    if run.get("status") != "completed":
+        print(run.get("head_sha", ""))
+' <<<"$body")
+}
+
+# ensure_tree_publisher <key> <sha>: with CMUX_TUI_TREE_DISPATCH=1, starts at
+# most one cmux-tui artifacts run for <sha> when tree <key> is not published and
+# no active run will publish it. cmux-tui-artifacts.yml coalesces branch pushes
+# (only the tip's tree is published), so a build of an older commit with a
+# changed cmux-tui tree has no publisher otherwise. It points
+# refs/heads/cmux-tui-pin-<sha12> at <sha> (a publishing ref) and dispatches the
+# workflow there; a workflow_dispatch run has concurrency group sha-<sha>,
+# which the per-branch push group never cancels. Never fails the caller: a
+# missing token or an API error prints a warning and the bounded wait goes on.
+# Sets tree_publisher_sha to the commit whose runs will publish the key.
+ensure_tree_publisher() {
+  local key="$1" sha="$2" token pin state ref_body current
+  tree_publisher_sha=""
+  [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]] || return 0
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "warning: no commit to publish tree $key; not dispatching" >&2; return 0; }
+  token="$(github_token)" || token=""
+  [[ -n "$token" ]] || { echo "warning: CMUX_TUI_TREE_DISPATCH=1 needs GH_TOKEN or an authenticated gh; not dispatching tree $key" >&2; return 0; }
+  GH_TOKEN="$token"
+  state="$(artifacts_runs_state "$sha")"
+  if [[ "$state" == active ]]; then
+    echo "cmux-tui tree $key: an artifacts run for $sha is active; not dispatching" >&2
+    tree_publisher_sha="$sha"; return 0
+  fi
+  current="$(active_publisher_for_key "$key")"
+  if [[ -n "$current" ]]; then
+    echo "cmux-tui tree $key: active artifacts run for $current has the same tree; not dispatching" >&2
+    tree_publisher_sha="$current"; return 0
+  fi
+  pin="cmux-tui-pin-${sha:0:12}"
+  if ! github_api POST git/refs "{\"ref\":\"refs/heads/$pin\",\"sha\":\"$sha\"}" >/dev/null 2>&1; then
+    # 422: the ref exists already; it must point at <sha>.
+    ref_body="$(github_api GET "git/ref/heads/$pin" 2>/dev/null)" || ref_body=""
+    if [[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' <<<"$ref_body" 2>/dev/null)" != "$sha" ]]; then
+      echo "warning: could not point refs/heads/$pin at $sha (push $sha first; the token needs contents: write); not dispatching tree $key" >&2
+      return 0
+    fi
+  fi
+  # A ref created with a personal token starts a push run on the pin branch.
+  sleep "${CMUX_TUI_TREE_DISPATCH_SETTLE_SECONDS:-15}"
+  if [[ "$(artifacts_runs_state "$sha")" == active ]]; then
+    echo "cmux-tui tree $key: the $pin push started an artifacts run; not dispatching" >&2
+    tree_publisher_sha="$sha"; return 0
+  fi
+  if github_api POST actions/workflows/cmux-tui-artifacts.yml/dispatches "{\"ref\":\"$pin\"}" >/dev/null 2>&1; then
+    echo "cmux-tui tree $key: dispatched cmux-tui-artifacts.yml on $pin for $sha" >&2
+    tree_publisher_sha="$sha"
+  else
+    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); tree $key has no publisher" >&2
+  fi
+  return 0
+}
+
 # Exits 1 with the reason when no cmux-tui artifacts run will publish tree <key>.
 fail_unpublishable_tree() {
   local key="$1" sha="$2" state="$3" elapsed="$4"
@@ -294,12 +387,25 @@ wait_for_tree() {
     fi
   fi
   started="$(date +%s)"
+  local dispatched=false dispatch_sha
   # The query string bypasses a cached 404 at the CDN edge.
   until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null \
     || { [[ -n "$legacy_url" ]] \
       && curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$legacy_url?t=$(date +%s)" 2>/dev/null \
       && published_key="$legacy" && sha_url="$legacy_url"; }; do
     elapsed=$(( $(date +%s) - started ))
+    if [[ "$dispatched" == false && "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]]; then
+      dispatched=true
+      dispatch_sha="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
+      if [[ -z "$dispatch_sha" && "$(tree_key HEAD 2>/dev/null)" == "$key" ]]; then
+        dispatch_sha="$(git -C "$repo_root" rev-parse HEAD)"
+      fi
+      ensure_tree_publisher "$key" "$dispatch_sha"
+      # Fail fast on the runs of the commit that will publish the key.
+      if [[ -z "$publisher" && -n "$tree_publisher_sha" && -n "${GH_TOKEN:-}" ]]; then
+        publisher="$tree_publisher_sha"
+      fi
+    fi
     if [[ -n "$publisher" ]] && (( elapsed >= next_check )); then
       next_check=$(( elapsed + check_seconds ))
       state="$(artifacts_runs_state "$publisher")"
@@ -698,6 +804,7 @@ resolve_tree_commit() {
 # (default 24) behind the tip, or none in the window, fails: never ship stale.
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
   limit=$((10#$limit))
@@ -707,6 +814,18 @@ resolve_newest_published_tree() {
   tip="$(git rev-parse HEAD)"
   tip_time="$(git log -1 --format=%ct HEAD)"
   tip_key="$(tree_key HEAD 2>/dev/null || true)"
+  # Never waits, but starts the tip's publisher when nothing publishes it, so
+  # the next nightly can build the tip (CMUX_TUI_TREE_DISPATCH=1).
+  if [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 && -n "$tip_key" ]] && ! tree_published "$tip_key"; then
+    ensure_tree_publisher "$tip_key" "$tip"
+  fi
+  # The nightly runs the TIP's workflow but checks out the resolved commit, so
+  # that commit must carry the tip's copy of these paths (the workflow file):
+  # otherwise the workflow calls scripts the build commit does not have.
+  read -r -a same_paths <<<"${CMUX_TUI_TREE_SAME_PATHS:-}"
+  for same_path in ${same_paths[@]+"${same_paths[@]}"}; do
+    tip_blobs+=("$(git rev-parse -q --verify "HEAD:$same_path" 2>/dev/null || echo missing)")
+  done
   # A depth-1 CI checkout holds no window; deepen once (best effort).
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
     git fetch -q --deepen="$limit" origin 2>/dev/null \
@@ -725,6 +844,16 @@ resolve_newest_published_tree() {
     if (( tip_time - rev_time > max_age * 3600 )); then
       echo "error: no published cmux-tui tree within ${max_age} h of the tip ${tip:0:12}: the newest candidate left, ${rev:0:12}, is ${behind_hours} h behind the tip (bound ${max_age} h, ${behind} commits). The nightly does not ship a stale build; publish a newer cmux-tui tree (pin-cmux-tui.sh --help)." >&2
       exit 1
+    fi
+    skewed=""
+    for ((i = 0; i < ${#tip_blobs[@]}; i++)); do
+      if [[ "$(git rev-parse -q --verify "$rev:${same_paths[$i]}" 2>/dev/null || echo missing)" != "${tip_blobs[$i]}" ]]; then
+        skewed="${same_paths[$i]}"; break
+      fi
+    done
+    if [[ -n "$skewed" ]]; then
+      echo "commit ${rev:0:12}: $skewed differs from the tip ${tip:0:12}; the tip's workflow cannot build it, skipping" >&2
+      skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
     key="$(tree_key "$rev" 2>/dev/null)" || { behind=$((behind + 1)); continue; }
     if [[ "$seen" == *" $key "* ]]; then behind=$((behind + 1)); continue; fi
@@ -758,7 +887,7 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
-  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
   exit 1
 }
 

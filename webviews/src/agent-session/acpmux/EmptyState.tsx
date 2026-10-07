@@ -34,8 +34,7 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
 }
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
-/// a small prompt glyph and one line naming the session's project. No buttons:
-/// the composer starts the chat (Lawrence 2026-10-06, "remove what doesn't need to be there").
+/// a small prompt glyph and one line naming the session's project.
 export function EmptyState({ project }: { project?: string }) {
   const t = useT();
   const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");

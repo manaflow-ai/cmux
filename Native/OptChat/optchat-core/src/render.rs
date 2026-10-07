@@ -11,6 +11,10 @@ pub struct RenderedView {
     /// Byte offsets into `text` where a cached piece ends: the last line end
     /// before each of `MARKS` characters; marks past the end are skipped (section 8).
     pub marks: Vec<usize>,
+    /// The view's parts, one per line, oldest first: the tree node each line
+    /// shows. With the stored node texts they give `text` back
+    /// (`render_parts`), so a host can record a turn's view by its parts.
+    pub parts: Vec<NodeId>,
 }
 
 fn flatten(text: &str) -> String {
@@ -19,14 +23,31 @@ fn flatten(text: &str) -> String {
 
 /// `<chat>`, one `id+n|text` line per part (newlines shown as spaces), `</chat>`.
 pub fn render_view(memory: &Memory, store: &dyn Store) -> RenderedView {
+    render_parts(memory.view(), store)
+}
+
+/// The view whose parts are `parts`, rendered as `render_view` does: a past
+/// view (a turn's, recorded by its parts) comes back byte for byte, since
+/// nodes are never rewritten.
+pub fn render_parts(parts: &[NodeId], store: &dyn Store) -> RenderedView {
     let mut text = String::from("<chat>\n");
-    for part in memory.view() {
-        let body = store.node(*part).unwrap_or_else(|| PLACEHOLDER.to_string());
-        text.push_str(&format!("{}|{}\n", part.name(), flatten(&body)));
+    for part in parts {
+        text.push_str(&view_line(*part, store.node(*part).as_deref()));
+        text.push('\n');
     }
     text.push_str("</chat>");
     let marks = cache_marks(&text);
-    RenderedView { text, marks }
+    RenderedView {
+        text,
+        marks,
+        parts: parts.to_vec(),
+    }
+}
+
+/// One view line, `id+n|text` (newlines shown as spaces); an unbuilt part
+/// shows the placeholder.
+pub fn view_line(part: NodeId, body: Option<&str>) -> String {
+    format!("{}|{}", part.name(), flatten(body.unwrap_or(PLACEHOLDER)))
 }
 
 /// Where to cut `text` into cached pieces (section 8): byte offsets just after
