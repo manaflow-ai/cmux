@@ -15762,6 +15762,10 @@ mod personal_tests;
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
 
+#[cfg(all(test, unix))]
+#[path = "server/new_terminal_cwd_tests.rs"]
+mod new_terminal_cwd_tests;
+
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
