@@ -243,14 +243,32 @@ On `feat-cmux-next-browser-wait` (browser group 1):
   its temporary directory and returns `path`, as the old app did, with `png_base64` only
   under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
 
+On `feat-cmux-next-browser-storage` (browser group 3):
+
+- `browser.page.cookies.get|set|clear` and `cmux browser <tab_…|page> cookies
+  [get|set NAME VALUE|clear]`: the old CLI's fields (`hostOnly`, `httpOnly`,
+  `session_only`, `expires` in Unix seconds) and filters. `get` matches `name`, `value`,
+  `path`, `secure` and `expires` exactly and `domain` as a substring. `set` takes one
+  cookie or `cookies: […]`, its domain from `domain`, else `url`'s host, else the tab's
+  page; HttpOnly goes through a parsed `Set-Cookie` header on WebKit (the old #10530).
+  `clear` takes a scope (`all` is refused: it would empty the user's profile store with no undo, as the browser REPL's `cookies.clear` refuses it on a persistent profile): `url` clears what a request there carries
+  (RFC 6265 domain, path, secure and expiry), `domain` that domain and its subdomains. A
+  filter of the wrong type, or a url without a host, is `invalid_params`, never ignored.
+  A hibernated tab is `unavailable`: its engine store is reached through its page. Cookies come from the tab's
+  profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or
+  Chromium's `Network` domain).
+- `browser.page.storage.get|set|clear` and `cmux browser … storage [local|session] [get
+  [KEY]|set KEY VALUE|clear]` (`type` or the old `storage` param), run in the page;
+  storage the page cannot reach is `invalid_state`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser cookies, storage, tab verbs, the remaining input verbs and downloads have no
-   new-CLI equivalent yet (the compat layer had partial ones). Waits and screenshots are
+4. Browser tab verbs, the remaining input verbs and downloads have no new-CLI equivalent
+   yet (the compat layer had partial ones). Waits, screenshots, cookies and storage are
    done (above). Workspace status/log/progress are done. A screenshot of an app tab no
    window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably

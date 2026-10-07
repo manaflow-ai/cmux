@@ -37,6 +37,7 @@ import Testing
         #expect(refusal(.screenshot(.viewport), shown)?.code == "forbidden")
         #expect(refusal(.screenshot(.fullPage), shown)?.code == "forbidden")
         #expect(refusal(.state, shown) == nil, "state reads no page content")
+        #expect(refusal(.cookies(.list), shown) == nil, "cookies come from the profile's store, not the page")
         #expect(refusal(.evaluate("1"), page()) == nil)
     }
 

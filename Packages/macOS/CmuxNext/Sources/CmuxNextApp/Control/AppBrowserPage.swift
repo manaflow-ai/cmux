@@ -59,6 +59,8 @@ enum AppBrowserPage {
             }
         case .screenshot(let capture):
             return try await screenshot(page, tabID: tabID, capture)
+        case .cookies(let request):
+            return try await cookies(page, request)
         }
         return [:]
     }

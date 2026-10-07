@@ -1,10 +1,11 @@
 public import CoreGraphics
 
 /// What page automation needs beyond ``BrowserTab``: an awaited async
-/// script (`browser.page.wait`) and the pixels of the whole document
-/// (`browser.page.screenshot --full-page`). Each engine's way lives in its
-/// own type (`WebKitPageAutomation`, `CEFFullPageCapture`), so the tab
-/// types and the protocol do not grow.
+/// script (`browser.page.wait`), the pixels of the whole document
+/// (`browser.page.screenshot --full-page`) and the profile's cookies
+/// (`browser.page.cookies.*`). Each engine's way lives in its own type
+/// (`WebKitPageAutomation`, `CEFFullPageCapture`, `WebKitCookieJar`,
+/// `CEFCookieJar`), so the tab types and the protocol do not grow.
 @MainActor
 public struct BrowserPageAutomation {
     let tab: any BrowserTab
@@ -29,6 +30,34 @@ public struct BrowserPageAutomation {
         case let webKit as WebKitTab: return try await WebKitPageAutomation(tab: webKit).fullPageSnapshot()
         case let cef as CEFTab: return try await CEFFullPageCapture(tab: cef).image()
         default: throw BrowserTabError.snapshotUnavailable
+        }
+    }
+
+    /// Every cookie of the tab's profile. A tab with no engine store (a
+    /// hibernated or still-starting one) throws `unsupported("cookies")`.
+    public func cookies() async throws -> [BrowserCookie] {
+        switch tab {
+        case let webKit as WebKitTab: return try await WebKitCookieJar(tab: webKit).cookies()
+        case let cef as CEFTab: return try await CEFCookieJar(tab: cef).cookies()
+        default: throw BrowserTabError.unsupported("cookies")
+        }
+    }
+
+    /// Stores `cookie` in the tab's profile.
+    public func setCookie(_ cookie: BrowserCookie) async throws {
+        switch tab {
+        case let webKit as WebKitTab: try await WebKitCookieJar(tab: webKit).setCookie(cookie)
+        case let cef as CEFTab: try await CEFCookieJar(tab: cef).setCookie(cookie)
+        default: throw BrowserTabError.unsupported("cookies")
+        }
+    }
+
+    /// Deletes the cookies with each one's name, domain and path.
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
+        switch tab {
+        case let webKit as WebKitTab: try await WebKitCookieJar(tab: webKit).deleteCookies(cookies)
+        case let cef as CEFTab: try await CEFCookieJar(tab: cef).deleteCookies(cookies)
+        default: throw BrowserTabError.unsupported("cookies")
         }
     }
 }
