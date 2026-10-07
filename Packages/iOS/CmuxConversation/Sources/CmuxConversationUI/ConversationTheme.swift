@@ -27,11 +27,17 @@ enum ConversationTheme {
         return .systemFont(ofSize: pointSize, weight: weight)
     }
 
-    /// Composer text: 17 pt at Large, following Dynamic Type.
-    static var bodyFont: UIFont { font(17) }
+    /// Composer text: the bubble font, so a sent draft's glyphs fly into
+    /// the bubble unchanged.
+    static var bodyFont: UIFont { bubbleFont }
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
-    /// Composer line pitch (measured 24 pt at Large).
-    static var lineHeight: CGFloat { ceil(scaled(24)) }
+    /// Composer line pitch: Messages steps the field by the bubble's line
+    /// height (measured 20 pt per line at Large, same as a bubble line).
+    static var lineHeight: CGFloat { bubbleFont.lineHeight }
+    /// Text inset above and below in the composer field: the one-line field
+    /// is 40.3 pt at Large, 47.7 at XXXL, 59.7 at AX2 (measured), i.e. the
+    /// line plus about 10 pt on each side at every size.
+    static let composerTextPadding: CGFloat = 10
 
     // Bubble metrics follow ChatKit's CKUIBehavior on iOS 26.3 and scale
     // with Dynamic Type the way Messages does.
@@ -118,8 +124,8 @@ enum ConversationTheme {
     static let composerSideInset: CGFloat = 27
     static let plusButtonSize: CGFloat = 40
     static let composerFieldGap: CGFloat = 13
-    /// One line plus 9 pt above and below (42 pt at Large).
-    static var composerMinHeight: CGFloat { lineHeight + 18 }
+    /// One line plus `composerTextPadding` above and below (40.3 pt at Large).
+    static var composerMinHeight: CGFloat { lineHeight + 2 * composerTextPadding }
 
     // MARK: Colors
 

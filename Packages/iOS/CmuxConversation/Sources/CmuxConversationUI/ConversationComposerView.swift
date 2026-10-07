@@ -90,7 +90,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         didSet { if oldValue != keyboardProgress { setNeedsLayout() } }
     }
     static let keyboardSideInsetReduction: CGFloat = 12
-    private let verticalPadding: CGFloat = 9
+    private let verticalPadding = ConversationTheme.composerTextPadding
     private let fieldTextInset: CGFloat = 14.5
     private let sendSize = CGSize(width: 37, height: 28)
 
