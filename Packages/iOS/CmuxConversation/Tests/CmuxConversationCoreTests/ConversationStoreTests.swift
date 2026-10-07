@@ -323,9 +323,11 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
         message.text = text
         message.editedAt = Date()
+        message.editCount = lock.withLock { _editCounts[messageID, default: 0] += 1; return _editCounts[messageID]! }
         return message
     }
 
+    private var _editCounts: [String: Int] = [:]
     private var _failNextUnsend = false
     var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
 
@@ -438,6 +440,26 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         #expect(store.message(id: "m7")?.editedAt != nil)
         let old = backend.makeMessage(seq: 3, sender: "me")
         #expect(!store.canEdit(old))
+    }
+
+    @Test func aMessageCanBeEditedFiveTimes() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        for round in 1...5 {
+            let current = try #require(store.message(id: "m7"))
+            #expect(store.canEdit(current))
+            store.edit(messageID: "m7", text: "version \(round)")
+            try await waitUntil { store.message(id: "m7")?.editCount == round }
+        }
+        let done = try #require(store.message(id: "m7"))
+        #expect(!store.canEdit(done))
+        store.edit(messageID: "m7", text: "version 6")
+        #expect(store.message(id: "m7")?.text == "version 5")
     }
 }
 

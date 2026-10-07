@@ -551,21 +551,25 @@ public final class ConversationStore {
         }
     }
 
-    /// Messages lets you edit your own message for 15 minutes after sending.
+    /// Messages lets you edit your own message for 15 minutes after sending,
+    /// up to five times.
     public static let editWindow: TimeInterval = 15 * 60
+    public static let maxEdits = 5
 
     public func canEdit(_ message: ConversationMessage, now: Date = Date()) -> Bool {
         message.senderID == meID && message.seq != nil && message.attachments.isEmpty && !message.isUnsent
-            && now.timeIntervalSince(message.sentAt) < Self.editWindow
+            && message.editCount < Self.maxEdits && now.timeIntervalSince(message.sentAt) < Self.editWindow
     }
 
     /// Applies the edit at once; reverts if the backend refuses it.
     public func edit(messageID: String, text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed else { return }
+        guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed,
+              canEdit(messages[index]) else { return }
         let original = messages[index]
         messages[index].text = trimmed
         messages[index].editedAt = Date()
+        messages[index].editCount += 1
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }

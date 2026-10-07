@@ -321,6 +321,7 @@ enum WireDecoding {
             replyToID: raw["replyToId"] as? String,
             replyCount: raw["replyCount"] as? Int ?? 0,
             editedAt: date(raw["editedAt"]),
+            editCount: raw["editCount"] as? Int ?? 0,
             unsentAt: date(raw["unsentAt"]),
             reactions: reactions,
             attachments: attachments,

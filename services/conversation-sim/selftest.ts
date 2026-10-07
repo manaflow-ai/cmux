@@ -176,7 +176,7 @@ async function main() {
   const unreacted = await c.call("react", { messageId: mid, reaction: null });
   check(!unreacted.message.reactions.some((r: any) => r.participantId === "aziz"), "react null removes my reaction");
   const edited = await c.call("edit", { messageId: mid, text: "edited text" });
-  check(edited.message.text === "edited text" && edited.message.editedAt > 0, "edit sets text and editedAt");
+  check(edited.message.text === "edited text" && edited.message.editedAt > 0 && edited.message.editCount === 1, "edit sets text, editedAt and editCount");
   const badEdit = await c.raw("edit", { messageId: newest.messages.find((m: any) => m.senderId !== "aziz").id, text: "x" });
   check(badEdit.error?.code === -32602, "editing someone else's message is rejected");
   const unsent = await c.call("unsend", { messageId: mid });
