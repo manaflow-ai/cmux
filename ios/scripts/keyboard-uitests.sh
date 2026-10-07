@@ -23,8 +23,10 @@ mkdir -p "$out"
 common=(-workspace ios/cmux.xcworkspace -scheme cmux-ios -configuration Debug
   -destination "id=$udid" -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO)
 
-if ! xcodebuild "${common[@]}" build-for-testing >"$out/build.log" 2>&1; then
-  grep -E "error:" "$out/build.log" | sort -u | head -40
+# Keep compiling the other modules after an error, so one build reports
+# every module's errors rather than only the first failing one's.
+if ! xcodebuild "${common[@]}" -IDEBuildingContinueBuildingAfterErrors=YES build-for-testing >"$out/build.log" 2>&1; then
+  grep -E "error:" "$out/build.log" | sort -u | head -200
   exit 1
 fi
 

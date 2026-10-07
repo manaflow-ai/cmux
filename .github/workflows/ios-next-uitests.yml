@@ -226,7 +226,7 @@ jobs:
               echo "### build-for-testing failed"
               echo
               echo '```'
-              grep -E "error:" "$NX_ARTIFACTS/build.log" | sort -u | head -40
+              grep -E "error:" "$NX_ARTIFACTS/build.log" | sort -u | head -200
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
