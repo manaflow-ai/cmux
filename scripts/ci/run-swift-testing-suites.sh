@@ -35,6 +35,13 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# The cmux-next web bundles are build output (cx-vn5) that the package reads at
+# test time: without them AgentPaneView.init returns nil and the pane suites crash.
+case "$(cd "$package_path" && pwd -P)" in
+  */Packages/macOS/CmuxNext)
+    (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
+    ;;
+esac
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
 swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
