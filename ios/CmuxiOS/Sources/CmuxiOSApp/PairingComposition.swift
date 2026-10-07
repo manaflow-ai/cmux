@@ -9,15 +9,36 @@ import Foundation
 /// Builds lane B6's real `DeviceRegistry` (plans/cmux-next/ios-next/b6-pairing.md):
 /// the account's `/v1/wire/user` socket for the trust store and pairing ops,
 /// and one HostDO socket per Mac for presence, all as this install.
+///
+/// One runtime per account, shared: the device registry (rebuilt whenever
+/// the feature seams are) and the link directory (D1) read the same trust
+/// store mirror. `cache` owns its lifetime; the account change resets it.
 struct PairingComposition {
     let base: URL
     let identity: InstallIdentity
     let bundleID: String
     let appVersion: String
+    let cache = PairingRuntimeCache()
 
     func registry() -> any DeviceRegistry {
         let composition = self
-        return ControlPlaneDeviceRegistry { try await composition.runtime() }
+        return ControlPlaneDeviceRegistry {
+            var runtime = try await composition.sharedRuntime()
+            // The cache stops it on sign-out; a rebuilt registry must not.
+            runtime.stop = {}
+            return runtime
+        }
+    }
+
+    /// The account's runtime, made once per account.
+    func sharedRuntime() async throws -> PairingRuntime {
+        let composition = self
+        return try await cache.runtime { try await composition.runtime() }
+    }
+
+    /// The control-plane client for `path` as this install (link signaling).
+    func controlClient(path: String, install: String) -> ControlPlaneClient {
+        client(path: path, query: nil, install: install)
     }
 
     private func runtime() async throws -> PairingRuntime {

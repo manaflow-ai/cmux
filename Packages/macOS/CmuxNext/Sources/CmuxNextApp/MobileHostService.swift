@@ -19,10 +19,14 @@ final class MobileHostService {
     /// Where usable phone connections are reported (`mobile.rpc.ready` on
     /// the control socket's event stream); set once the socket starts.
     let readiness = MobileReadinessRelay()
+    /// The cmux.mobile/1 phone link host, run next to the irx host for the
+    /// same account when `MobileLinkSetting.enabled` (d1-terminal-ux.md).
+    let link = MobileLinkService()
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's
     /// display name is read off the main actor first (`MacName`).
     func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
+        link.start(launch: launch, daemon: daemon)
         generation += 1
         let current = generation
         let previous = host
@@ -49,6 +53,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        link.stop()
         generation += 1
         starting?.cancel()
         starting = nil

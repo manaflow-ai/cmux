@@ -8,10 +8,11 @@ import CmuxLinkWebRTCUnderlay
 import Foundation
 import Testing
 
+extension LiveWebRTCTests {
 /// B3's V2 carrier (WireGuard inside WebRTC) on B2's real loopback WebRTC
 /// `wg` data channel: the A3 conformance suite through
 /// `WireGuardConformanceHarness`, plus the underlay promises themselves.
-@Suite("WireGuard over real WebRTC", .serialized)
+@Suite("WireGuard over real WebRTC")
 struct WireGuardOverWebRTCTests {
     @Test("conformance", arguments: ConformanceCase.allCases)
     func conformance(_ testCase: ConformanceCase) async throws {
@@ -75,6 +76,7 @@ struct WireGuardOverWebRTCTests {
         await acceptor.stop()
         listener.stop()
     }
+}
 }
 
 /// B2's datagram dialer and listener over an in-memory relay and loopback

@@ -1,8 +1,9 @@
 public import CmuxiOSFeatureKit
 import Foundation
 
-/// The trusted Macs of the account's device registry (lane B6). Device ids
-/// are host ids (the Mac's install enrolled as its host).
+/// The trusted Macs of the account's device registry (lane B6), by host id:
+/// the real registry's record ids name installs (`install:…`), so a Mac's
+/// `hostID` wins; mock records use the host id as their id.
 public struct DeviceRegistryHostDirectory: WorkspaceHostDirectory {
     public let registry: any DeviceRegistry
 
@@ -30,6 +31,6 @@ public struct DeviceRegistryHostDirectory: WorkspaceHostDirectory {
     public static func hosts(in devices: [DeviceRecord]) -> [WorkspaceHostDescriptor] {
         devices
             .filter { $0.platform == .mac && $0.trust == .trusted && !$0.isThisDevice }
-            .map { WorkspaceHostDescriptor(id: HostID($0.id), name: $0.name, kind: .mac) }
+            .map { WorkspaceHostDescriptor(id: HostID($0.hostID ?? $0.id), name: $0.name, kind: .mac) }
     }
 }

@@ -114,6 +114,11 @@ Each lane is one agent, one branch `feat-cmux-next-ios-<id>` off `feat-cmux-next
 
 - **D1 `terminal-ux`**: end-to-end terminal on a real carrier: workspace to terminal navigation, key
   bar, gestures, selection and copy, links, hardware keyboard. Needs C1, C5, one of B2/B3/B4.
+- **D1b `mac-integration`**: everything lanes left for the cmux-next Mac app: the
+  `MobileLinkHostAccount` seam (host id, install, token minter, signers), TURN credentials on the
+  host socket, B6 `wg` cert publish, `team=` signaling for other accounts, one control-plane socket
+  per Mac shared by C5/C8/D1, and the app adapters C2 (`BrowserPageHost`), C4
+  (`MobileFileRootsProvider`), C8 (`MobileTaskRunner` over acpmux). Needs D1.
 - **D2 `bakeoff`**: V1 vs V2 vs V3: latency, throughput, roam and reconnect, battery, cold connect.
   Writes the decision and the path policy. Needs B2, B3, B4.
 - **D3 `dogfood`**: tagged Mac+iOS pair, UI tests per feature, performance runs on device,
@@ -156,6 +161,8 @@ graph TD
   B6 --> C10
   B6 --> C11[C11 settings]
   C1 --> D1[D1 terminal-ux]
+  D1 --> D1b[D1b mac-integration]
+  D1b --> D3
   C5 --> D1
   B2 --> D2[D2 bakeoff]
   B3 --> D2

@@ -9,6 +9,9 @@ public actor WireGuardLinkTransport: LinkTransport {
     public nonisolated let events: AsyncStream<TransportEvent>
     /// The peer's authenticated WireGuard key.
     public nonisolated let remoteKey: WireGuardPublicKey
+    /// The WireGuard static key the handshake proved; on the host also the
+    /// install the authorizer resolved it to (B5 `CarrierAttestation`).
+    public nonisolated let peerIdentity: LinkPeerIdentity?
 
     let eventSink: AsyncStream<TransportEvent>.Continuation
     let role: TransportRole
@@ -69,7 +72,8 @@ public actor WireGuardLinkTransport: LinkTransport {
         localAddress: OverlayAddress,
         remoteAddress: OverlayAddress,
         configuration: WireGuardLinkConfiguration,
-        clock: LinkClock
+        clock: LinkClock,
+        peerInstall: String? = nil
     ) {
         self.tunnel = tunnel
         self.role = role
@@ -78,6 +82,8 @@ public actor WireGuardLinkTransport: LinkTransport {
         self.configuration = configuration
         self.clock = clock
         remoteKey = tunnel.peer
+        peerIdentity = LinkPeerIdentity(carrier: .webrtcWireGuard, keyKind: .x25519,
+                                        publicKey: tunnel.peer.rawRepresentation, install: peerInstall)
         capabilities = TransportCapabilities(maxFrameBytes: configuration.maxFrameBytes, carriesBulk: true, carriesMedia: false)
         retransmit = RetransmitTimer(
             minimum: configuration.minimumRetransmitTimeout, maximum: configuration.maximumRetransmitTimeout

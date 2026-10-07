@@ -21,6 +21,8 @@ import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import CmuxiOSTerminalLink
+import CmuxiOSViewers
+import CmuxiOSViewersCore
 import CmuxiOSWorkspaces
 import CmuxiOSWorkspacesCore
 import Foundation
@@ -80,23 +82,34 @@ final class AppContainer {
     /// notification preferences on this device.
     var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?
     private(set) lazy var notificationPreferences = NotificationPreferencesStore(sink: notificationPreferencesSinkFactory?())
-    /// B5/D1 fill this with the live path badge per device once they hold a
-    /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
+    /// The live path badge per device from the account's links (D1); nil
+    /// (no API origin) serves mock badges while devices are mocked.
     var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
-    /// Lane C1: workspace terminals of real Macs open over each Mac's
-    /// `cmux.mobile/1` session (`.host` over `CmuxLink`). B2/B4 replace the
-    /// directory with one that holds a `MobileLinkClient` per reachable Mac;
-    /// until then a terminal says "No connection to this Mac". Mock
-    /// workspaces keep A2's mock host (ShellComposition).
-    var linkDirectory: any MobileLinkDirectory = UnavailableMobileLinkDirectory()
-    var terminalSources: (any WorkspaceTerminalSourceFactory)? {
-        LinkWorkspaceTerminalSourceFactory(directory: linkDirectory)
-    }
+    /// D1 (d1-terminal-ux.md): the signed-in account's one `MobileLinkClient`
+    /// per Mac over B4 direct, B2 WebRTC and (DEV) B3, shared by terminals,
+    /// files and the browser stream. Bound on sign-in, closed on sign-out.
+    let accountLinks: AccountLinkDirectory
+    /// B6's runtime shared by the device registry and the links (nil without an API origin).
+    private let pairing: PairingComposition?
+    /// DEV switches of the link layer (V2 carrier, echo prediction).
+    let linkDev = LinkDevOptions()
+    var linkDirectory: any MobileLinkDirectory { accountLinks }
+    /// Workspace terminals of real Macs over each Mac's `cmux.mobile/1`
+    /// session. Mock workspaces keep A2's mock host (ShellComposition).
+    private(set) lazy var linkTerminalSources = LinkWorkspaceTerminalSourceFactory(
+        directory: accountLinks, options: LinkWorkspaceTerminalSourceFactory.defaultOptions(prediction: linkDev.prediction))
+    var terminalSources: (any WorkspaceTerminalSourceFactory)? { linkTerminalSources }
+    /// The browser seam's tab records follow the resolved workspace source.
+    private let browserTabs: CurrentWorkspaceTabs
+    /// The user's saved direct addresses (C9/B4), joined into link routes.
+    private let localHosts: LocalHostsStore
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// Lane C4: pickers, uploads and the transfer list over the account's
     /// files seam; one per seam set so its background handling lives as long.
     private var files: FilesFeature?
+    /// Lane C13: changes, file browser and viewers over the account's seams.
+    private var viewers: ViewersFeature?
     /// C1/D1 fill this with the terminal channel's paste; nil skips the paste.
     var terminalPathPasterFactory: (@Sendable () -> any TerminalPathPaster)?
     /// C8 fills this with the composer's attachment intake; nil keeps uploads in the inbox.
@@ -162,10 +175,9 @@ final class AppContainer {
         let sshDirectory = Self.sshDirectory()
         sshDevice = SSHDeviceState(directory: sshDirectory)
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
+        self.localHosts = localHosts
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
-        // Lane C2: nil until D1 provides the per-Mac MobileLinkClient (as for files).
-        factories.browser = BrowserComposition.realSource(clients: nil, directory: nil)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
@@ -180,12 +192,30 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let madePairing = base.flatMap { base in
+            madeIdentity.map {
+                PairingComposition(base: base, identity: $0, bundleID: Bundle.main.bundleIdentifier ?? "", appVersion: version)
+            }
+        }
+        pairing = madePairing
+        // D1: one link client per Mac for terminals (C1), files (C4) and the browser (C2).
+        let madeLinks = AccountLinkDirectory()
+        accountLinks = madeLinks
+        let tabs = CurrentWorkspaceTabs()
+        browserTabs = tabs
+        let links = LinkClientProvider(directory: madeLinks)
+        if madePairing != nil {
+            factories.browser = BrowserComposition.realSource(clients: links, directory: tabs)
+        }
+        // C12: the team's Cloud machines over CloudDO.
         let coordinator = gate.coordinator
         let withCloud = CloudComposition.adding(to: factories, base: base, identity: madeIdentity,
                                                 sessionToken: { @MainActor in try await coordinator.accessToken() })
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
-            to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity), base: base, identity: madeIdentity,
-            cloudHosts: flagStore.isEnabled(.cloudWorkspaces)))
+            to: Self.addingFeed(to: withCloud, base: base, identity: madeIdentity, pairing: madePairing),
+            base: base, identity: madeIdentity, cloudHosts: flagStore.isEnabled(.cloudWorkspaces)),
+            connector: madePairing == nil ? nil : links)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -244,21 +274,24 @@ final class AppContainer {
             return self.featureSources(for: account).feed
         }
         activities.resume()
+        if madePairing != nil {
+            linkDiagnosticsFactory = { AccountLinkDiagnostics(directory: madeLinks) }
+            let terminals = linkTerminalSources.openTerminals
+            terminalPathPasterFactory = { LinkTerminalPathPaster(terminals: terminals) }
+        }
     }
 
     /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
     /// authenticated as this install. Without an API origin the slot stays
     /// empty and the DEV screen shows the seam on its mock.
     private static func addingFeed(to factories: RealFeatureFactories, base: URL?,
-                                   identity: InstallIdentity?) -> RealFeatureFactories {
+                                   identity: InstallIdentity?, pairing: PairingComposition?) -> RealFeatureFactories {
         var factories = factories
         if let base, let identity {
             let device = UIDevice.current.name
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             // B6: the account's trust store, pairing and Mac presence (one registry per account build).
-            let pairing = PairingComposition(base: base, identity: identity, bundleID: Bundle.main.bundleIdentifier ?? "",
-                                             appVersion: version ?? "0")
-            factories.devices = { pairing.registry() }
+            if let pairing { factories.devices = { pairing.registry() } }
             factories.feed = {
                 CloudFeedSource(apiBaseURL: base, device: device, clientVersion: version) {
                     try await identity.token(for: nil)
@@ -310,21 +343,16 @@ final class AppContainer {
         return factories
     }
 
-    /// C4: the real `FileTransfer` once a lane can dial a Mac over CmuxLink
-    /// (`fileHostConnector()`); until then the files seam stays on its mock.
-    private static func addingFiles(to factories: RealFeatureFactories) -> RealFeatureFactories {
-        guard let connector = fileHostConnector() else { return factories }
+    /// C4: the real `FileTransfer` over the account's link clients (D1);
+    /// without an API origin the files seam stays on its mock.
+    private static func addingFiles(to factories: RealFeatureFactories,
+                                    connector: (any FileHostConnector)?) -> RealFeatureFactories {
+        guard let connector else { return factories }
         var factories = factories
         // One instance per process: one journal per file, whatever rebuilds the seams.
         let transfer = LinkFileTransfer(connector: connector, journalURL: LinkFileTransfer.defaultJournalURL)
         factories.files = { transfer }
         return factories
-    }
-
-    /// B2/B4 with D1 return their per-host `CmuxLink` owner and B6's signer
-    /// here. Nil: no carrier dials Macs from the app yet.
-    private static func fileHostConnector() -> (any FileHostConnector)? {
-        nil
     }
 
     /// The account's files feature (built with its seams).
@@ -333,6 +361,27 @@ final class AppContainer {
         let made = FilesFeature(transfer: sources.files, paster: terminalPathPasterFactory?(),
                                 attachments: fileAttachmentSinkFactory?())
         files = made
+        return made
+    }
+
+    /// The account's viewers (c13-viewers.md): real Macs read over the
+    /// account's link clients (D1), the same ones files use; without an API
+    /// origin they say "No connection to this Mac". Mock workspaces read the
+    /// canned repository. Downloads finished in the transfer list open in
+    /// its router instead of QuickLook.
+    func viewersFeature(for sources: FeatureSources, real: Bool) -> ViewersFeature {
+        if let viewers { return viewers }
+        let source: any ViewerContentSource
+        if !real {
+            source = MockViewerContentSource()
+        } else if pairing != nil {
+            source = LinkViewerContentSource(connector: LinkClientProvider(directory: accountLinks), transfer: sources.files)
+        } else {
+            source = UnavailableViewerContentSource()
+        }
+        let made = ViewersFeature(source: source)
+        filesFeature(for: sources).viewer = made.router
+        viewers = made
         return made
     }
 
@@ -447,7 +496,9 @@ final class AppContainer {
         // Demo mode resolves every seam to its mock (canned fixtures).
         let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
+        browserTabs.set(made.workspaces)
         files = nil
+        viewers = nil
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
     }
@@ -457,6 +508,7 @@ final class AppContainer {
         features = nil
         featuresAccount = nil
         files = nil
+        viewers = nil
     }
 
     func setMockOffline(_ offline: Bool) async {
@@ -468,7 +520,9 @@ final class AppContainer {
     /// is false while onboarding will prime the notifications prompt.
     func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
         diagnostics.info("auth", "signed in")
+        let switched = signedInAccount.map { $0.userID != account.userID } ?? false
         signedInAccount = account
+        startLinks(resetting: switched)
         startRemoteConfig()
         let coordinator = auth.coordinator
         let identity = self.identity
@@ -508,6 +562,21 @@ final class AppContainer {
         home = nil
         homeAccount = nil
         dropFeatureSources()
+        accountLinks.stop()
+        if let pairing { Task { await pairing.cache.reset() } }
+    }
+
+    /// Binds the account's links (D1): routes from B6's trust store, Bonjour
+    /// and saved direct addresses; an account switch drops the old runtime first.
+    private func startLinks(resetting: Bool) {
+        guard let pairing else { return }
+        let composition = LinkComposition(pairing: pairing, bundleID: Bundle.main.bundleIdentifier ?? "",
+                                          appVersion: pairing.appVersion, dev: linkDev)
+        let reset: Task<Void, Never>? = resetting ? Task { await pairing.cache.reset() } : nil
+        accountLinks.start(bootstrap: {
+            await reset?.value
+            return try await composition.bootstrap()
+        }, saved: SavedDirectEndpoints.stream(from: localHosts))
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }

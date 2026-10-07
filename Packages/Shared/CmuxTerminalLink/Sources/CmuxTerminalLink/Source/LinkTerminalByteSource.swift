@@ -14,7 +14,8 @@ public import Foundation
 public final class LinkTerminalByteSource: TerminalByteSource {
     public let terminalID: String
     public let options: TerminalLinkOptions
-    private let connection: LinkTerminalConnection
+    let client: MobileLinkClient
+    let connection: LinkTerminalConnection
 
     /// - Parameters:
     ///   - client: the phone's session with the Mac that owns `terminal`.
@@ -24,6 +25,7 @@ public final class LinkTerminalByteSource: TerminalByteSource {
                 describe: @escaping @Sendable (TerminalLinkFailure) -> String = { $0.defaultText }) {
         terminalID = terminal
         self.options = options
+        self.client = client
         connection = LinkTerminalConnection(terminal: terminal, client: client, options: options, clock: clock,
                                             describe: describe)
     }

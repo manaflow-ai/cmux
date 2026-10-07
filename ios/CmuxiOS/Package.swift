@@ -35,6 +35,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxMobileLink"),
         .package(path: "../../Packages/Shared/CmuxTerminalLink"),
         .package(path: "../../Packages/Shared/CmuxPairing"),
+        .package(path: "../../Packages/Shared/CmuxMobileConnect"),
+        .package(path: "../../Packages/Shared/CmuxLinkDirect"),
+        .package(path: "../../Packages/Shared/CmuxLinkWebRTC"),
         .package(path: "../../Packages/Shared/CmuxMobileFiles"),
         .package(path: "../../Packages/Shared/CmuxMobileHost"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -62,6 +65,8 @@ let package = Package(
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSFiles",
+                "CmuxiOSViewers",
+                "CmuxiOSViewersCore",
                 "CmuxiOSFilesCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
@@ -81,12 +86,19 @@ let package = Package(
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSSearch",
+                "CmuxiOSSearchCore",
                 "CmuxiOSCloud",
                 "CmuxiOSCloudCore",
                 "CmuxiOSTerminalLink",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxMobileConnect", package: "CmuxMobileConnect"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+                .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 "CmuxiOSComposer",
@@ -263,6 +275,37 @@ let package = Package(
         .target(
             name: "CmuxiOSFiles",
             dependencies: ["CmuxiOSFilesCore", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C13 (plans/cmux-next/ios-next/c13-viewers.md): diff parsing
+        // and layout, the changed-file tree, syntax highlighting, Markdown
+        // blocks, file kinds, the `ViewerContentSource` seam (real over C4's
+        // `FileHostConnector`, mock, unavailable) and the screen models. No
+        // UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSViewersCore",
+            dependencies: [
+                "CmuxiOSFeatureKit", "CmuxiOSFilesCore",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSViewersCoreTests",
+            dependencies: [
+                "CmuxiOSViewersCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The changes and diff screens, the text/Markdown/image/PDF viewers
+        // (the `FileViewerHook` that replaces C4's QuickLook default) and
+        // the workspace file browser.
+        .target(
+            name: "CmuxiOSViewers",
+            dependencies: ["CmuxiOSViewersCore", "CmuxiOSFiles", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -504,6 +547,10 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSTerminal",
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
+                .product(name: "CmuxMobileConnect", package: "CmuxMobileConnect"),
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
                 .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxTerminalLink", package: "CmuxTerminalLink"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
@@ -554,6 +601,28 @@ let package = Package(
                 "CmuxiOSTerminal",
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
             ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C15 (plans/cmux-next/ios-next/c15-search.md): universal
+        // search over the C5/C6/C9 mirrors (read-only providers), ranking,
+        // recents and the debounced session. No UIKit, so its tests also run
+        // on macOS.
+        .target(
+            name: "CmuxiOSSearchCore",
+            dependencies: ["CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSearchCoreTests",
+            dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The search screen (tab root and Cmd-K sheet).
+        .target(
+            name: "CmuxiOSSearch",
+            dependencies: ["CmuxiOSSearchCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

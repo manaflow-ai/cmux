@@ -33,4 +33,9 @@ import Testing
         #expect(hosts.map(\.id) == [MockFixtures.studio, MockFixtures.mini])
         #expect(hosts.allSatisfy { $0.kind == .mac })
     }
+
+    @Test func registryRecordsAreAddressedByHostID() {
+        let mac = DeviceRecord(id: "install:inst_m1", name: "Studio", platform: .mac, trust: .trusted, hostID: "host_a1")
+        #expect(DeviceRegistryHostDirectory.hosts(in: [mac]).map(\.id) == [HostID("host_a1")])
+    }
 }

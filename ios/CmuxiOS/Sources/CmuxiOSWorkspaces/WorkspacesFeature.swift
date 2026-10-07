@@ -1,6 +1,7 @@
 public import CmuxiOSFeatureKit
 public import CmuxiOSWorkspacesCore
 import CmuxiOSTerminal
+public import CmuxTerminalRenderCore
 public import UIKit
 
 /// Lane C5's entry point: the Workspaces tab over a `WorkspaceSource`, the
@@ -13,20 +14,26 @@ public final class WorkspacesFeature {
     let terminalSources: any WorkspaceTerminalSourceFactory
     /// Screens for non-terminal surfaces (C2: a Mac browser tab).
     let surfaces: SurfaceScreenFactories
+    /// The device's terminal look (C11) for every host terminal it opens.
+    let appearance: (any TerminalAppearanceProviding)?
     let isMock: Bool
     private let store: WorkspaceViewPreferencesStore
     /// Client view state: filter, sort, grouping, hidden and ordered Macs.
     private(set) var preferences: WorkspaceViewPreferences
     /// The list re-renders when the machines sheet changes preferences.
     var onPreferencesChange: (() -> Void)?
+    /// Lane C13: Changes and Files rows in the workspace detail; nil hides them.
+    public var viewers: (any WorkspaceViewerOpening)?
     private weak var navigation: UINavigationController?
 
     public init(source: any WorkspaceSource, terminalSources: any WorkspaceTerminalSourceFactory,
                 surfaces: SurfaceScreenFactories = SurfaceScreenFactories(),
+                appearance: (any TerminalAppearanceProviding)? = nil,
                 preferences: WorkspaceViewPreferencesStore = WorkspaceViewPreferencesStore(), isMock: Bool = false) {
         self.source = source
         self.terminalSources = terminalSources
         self.surfaces = surfaces
+        self.appearance = appearance
         self.isMock = isMock
         store = preferences
         self.preferences = preferences.load()
@@ -88,9 +95,11 @@ public final class WorkspacesFeature {
 
     func openTerminal(_ target: WorkspaceTerminalTarget, from presenter: UIViewController) {
         let source = terminalSources.makeSource(for: target)
-        let screen = TerminalViewController(source: source, title: target.title)
+        let screen = TerminalViewController(source: source, title: target.title, appearance: appearance)
         screen.hidesBottomBarWhenPushed = true
         screen.navigationItem.largeTitleDisplayMode = .never
+        // The title bar holds the terminal's title, badge and menu: a bare back chevron.
+        presenter.navigationItem.backButtonDisplayMode = .minimal
         presenter.navigationController?.pushViewController(screen, animated: true)
     }
 
@@ -98,6 +107,12 @@ public final class WorkspacesFeature {
     func openBrowser(_ tab: BrowserTabInfo, hostID: HostID, from presenter: UIViewController) {
         guard let screen = surfaces.browser?(tab, hostID) else { return }
         screen.navigationItem.largeTitleDisplayMode = .never
+        presenter.navigationController?.pushViewController(screen, animated: true)
+    }
+
+    func openViewer(_ target: WorkspaceViewerTarget, changes: Bool, from presenter: UIViewController) {
+        guard let viewers else { return }
+        let screen = changes ? viewers.changesScreen(for: target) : viewers.filesScreen(for: target)
         presenter.navigationController?.pushViewController(screen, animated: true)
     }
 
