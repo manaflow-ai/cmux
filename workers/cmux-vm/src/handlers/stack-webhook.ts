@@ -5,7 +5,12 @@
  * Stack calls it.
  *
  * `team_membership.deleted` revokes the removed user's devices in that team
- * (revokeMemberDevices). Every other event is acknowledged and ignored.
+ * (revokeMemberDevices); `user.deleted` revokes the user's devices in every
+ * tenant (revokeDeletedUser). Every other event is acknowledged and ignored.
+ * A message is judged by the time it FIRST reached the Worker
+ * (stack_webhook_events, migration 0008), the same on every retry, so a retry
+ * that arrives after the user was added back and enrolled a new device never
+ * revokes that device.
  * Answers: 503 while the secret is not configured or a store or the provider
  * fails (Stack retries), 401 for a bad, stale or missing signature, 400 for a
  * signed body of the wrong shape, 200 otherwise. A message processed to the
@@ -15,7 +20,7 @@ import { Clock, Effect, Option, type Redacted, Schema } from "effect";
 import { verifyWebhookSignature } from "../auth/webhook-signature.ts";
 import { WebhookDeliveryStore } from "../db/identity.ts";
 import { TenantId, UserId } from "../lib/ids.ts";
-import { revokeMemberDevices } from "./mesh.ts";
+import { revokeDeletedUser, revokeMemberDevices } from "./mesh.ts";
 
 export const STACK_WEBHOOK_PATH = "/v1/webhooks/stack";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
@@ -24,6 +29,29 @@ const reply = (status: number, body: Record<string, unknown>) => Response.json(b
 
 const Envelope = Schema.Struct({ type: Schema.String, data: Schema.Unknown });
 const MembershipDeleted = Schema.Struct({ team_id: TenantId, user_id: UserId });
+/** Stack's `user.deleted` data: the user and the teams it was in. */
+const UserDeleted = Schema.Struct({ id: UserId, teams: Schema.optionalWith(Schema.Array(Schema.Struct({ id: TenantId })), { default: () => [] }) });
+
+type RevocationEvent =
+  | { readonly kind: "membership"; readonly tenantId: TenantId; readonly userId: UserId }
+  | { readonly kind: "user"; readonly tenantId: null; readonly userId: UserId; readonly teams: ReadonlyArray<TenantId> };
+
+const decodeEvent = (type: string, data: unknown): Option.Option<RevocationEvent> => {
+  if (type === "team_membership.deleted") {
+    return Option.map(Schema.decodeUnknownOption(MembershipDeleted)(data), (event): RevocationEvent => ({
+      kind: "membership",
+      tenantId: event.team_id,
+      userId: event.user_id,
+    }));
+  }
+  return Option.map(Schema.decodeUnknownOption(UserDeleted)(data), (event): RevocationEvent => ({
+    kind: "user",
+    tenantId: null,
+    userId: event.id,
+    teams: event.teams.map((team) => team.id),
+  }));
+};
+const ACTED_ON = new Set(["team_membership.deleted", "user.deleted"]);
 
 export const handleStackWebhook = (request: Request, secret: Redacted.Redacted<string> | undefined) =>
   Effect.gen(function* () {
@@ -43,17 +71,24 @@ export const handleStackWebhook = (request: Request, secret: Redacted.Redacted<s
     }
     const envelope = Schema.decodeUnknownOption(Schema.parseJson(Envelope))(body);
     if (Option.isNone(envelope)) return reply(400, { _tag: "BadRequest", message: "Malformed webhook body" });
-    if (envelope.value.type !== "team_membership.deleted") return reply(200, { ok: true, ignored: envelope.value.type });
-    const data = Schema.decodeUnknownOption(MembershipDeleted)(envelope.value.data);
-    if (Option.isNone(data)) return reply(400, { _tag: "BadRequest", message: "Malformed team_membership.deleted data" });
+    const type = envelope.value.type;
+    if (!ACTED_ON.has(type)) return reply(200, { ok: true, ignored: type });
+    const decoded = decodeEvent(type, envelope.value.data);
+    if (Option.isNone(decoded)) return reply(400, { _tag: "BadRequest", message: `Malformed ${type} data` });
+    const event = decoded.value;
     const deliveries = yield* WebhookDeliveryStore;
     const seen = yield* deliveries.processed(check.messageId).pipe(Effect.orElseSucceed(() => false));
     if (seen) return reply(200, { ok: true, duplicate: true });
-    const result = yield* Effect.either(revokeMemberDevices(data.value.team_id, data.value.user_id));
+    const firstSeen = yield* Effect.either(deliveries.firstSeen(check.messageId, new Date(nowMs)));
+    if (firstSeen._tag === "Left") return reply(503, { _tag: "ServiceUnavailable", message: "Revocation did not finish; retry" });
+    const eventAt = firstSeen.right;
+    const result = yield* Effect.either(
+      event.kind === "membership" ? revokeMemberDevices(event.tenantId, event.userId, eventAt) : revokeDeletedUser(event.userId, event.teams, eventAt),
+    );
     if (result._tag === "Left") return reply(503, { _tag: "ServiceUnavailable", message: "Revocation did not finish; retry" });
     const at = new Date(yield* Clock.currentTimeMillis);
     const recorded = yield* Effect.either(
-      deliveries.record({ messageId: check.messageId, eventType: envelope.value.type, tenantId: data.value.team_id, userId: data.value.user_id, processedAt: at }),
+      deliveries.record({ messageId: check.messageId, eventType: type, tenantId: event.tenantId, userId: event.userId, processedAt: at }),
     );
     // The revocation is done; an unrecorded delivery only means a retry repeats the (idempotent) work.
     if (recorded._tag === "Left") yield* Effect.logWarning("cmux-vm stack webhook delivery not recorded");

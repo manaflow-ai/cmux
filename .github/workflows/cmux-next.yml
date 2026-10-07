@@ -47,6 +47,7 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      - tests/fixtures/cua-helper-signatures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -121,6 +122,7 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      - tests/fixtures/cua-helper-signatures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -364,6 +366,7 @@ jobs:
           # the base tree, else its own pull_request_target runs.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -425,6 +428,7 @@ jobs:
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -637,6 +641,7 @@ jobs:
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
+          bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
@@ -1107,6 +1112,9 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
+          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
+          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
@@ -1314,6 +1322,9 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # The PR comment. The App mint refused contents plus pull-requests (run 37590228478), so the
+      # App token asks only for contents (its push starts CI) and the comment uses this token.
+      pull-requests: write
     steps:
       - name: Mint the autofix token
         id: app-token
@@ -1322,7 +1333,6 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-contents: write
-          permission-pull-requests: write
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1341,6 +1351,7 @@ jobs:
           BRANCH: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -1380,7 +1391,7 @@ jobs:
             echo "The branch moved during the autofix; its own run checks the generated files." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          GH_TOKEN="$APP_TOKEN" gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
           echo "Pushed $(git rev-parse HEAD) to $BRANCH." | tee -a "$GITHUB_STEP_SUMMARY"
 
   release-compile:
@@ -1550,6 +1561,9 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
+          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
+          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
