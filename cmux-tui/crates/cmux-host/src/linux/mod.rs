@@ -644,16 +644,18 @@ impl Platform for LinuxPlatform {
     }
 }
 
-/// The session host's remote entry from `/etc/cmux/host.json`. A refused
-/// config falls back to the default (loopback, enrolled auth) and is
-/// logged; the trusted-carrier mode logs its warning line.
+/// The session host's remote entry from `/etc/cmux/host.json`. The file
+/// counts only when it is a regular file owned by the agent's user (root in
+/// production) and not writable by group or others. A refused file falls
+/// back to the default (loopback, enrolled auth) and is logged; the
+/// trusted-carrier mode logs its warning line.
 fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntry {
     use crate::remote_entry::{DEFAULT_BIND, Facts, HOST_CONFIG_FILE, RemoteEntry, parse};
-    let text = fs::read_to_string(paths.at(HOST_CONFIG_FILE)).ok();
     let bound_instance =
         fs::read_to_string(paths.at(BOUND_INSTANCE_FILE)).is_ok_and(|id| !id.trim().is_empty());
-    let entry =
-        parse(text.as_deref(), Facts { linux: true, bound_instance }).unwrap_or_else(|why| {
+    let entry = host_config_text(&paths.at(HOST_CONFIG_FILE))
+        .and_then(|text| parse(text.as_deref(), Facts { linux: true, bound_instance }))
+        .unwrap_or_else(|why| {
             eprintln!(
                 "cmux-host: host.json refused ({why}); remote entry {DEFAULT_BIND}, enrolled auth"
             );
@@ -663,4 +665,22 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
         eprintln!("{warning}");
     }
     entry
+}
+
+/// The host config's text: `None` when absent, an error when the file may
+/// not be trusted or cannot be read.
+fn host_config_text(file: &std::path::Path) -> Result<Option<String>, String> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = match fs::symlink_metadata(file) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("cannot stat host.json: {e}")),
+        Ok(meta) => meta,
+    };
+    if !meta.file_type().is_file() {
+        return Err("host.json is not a regular file".to_owned());
+    }
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    crate::remote_entry::file_is_trusted(meta.uid(), meta.mode(), euid)?;
+    fs::read_to_string(file).map(Some).map_err(|e| format!("cannot read host.json: {e}"))
 }

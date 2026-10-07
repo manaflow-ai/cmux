@@ -96,6 +96,22 @@ impl RemoteEntry {
     }
 }
 
+/// Whether the host config file may be trusted: owned by the agent's own
+/// user (root in production) and not writable by group or others.
+/// Otherwise any process that can write the file could turn on the
+/// trusted carrier.
+pub fn file_is_trusted(owner_uid: u32, mode: u32, agent_euid: u32) -> Result<(), String> {
+    if owner_uid != agent_euid {
+        return Err(format!(
+            "host.json is owned by uid {owner_uid}, not by the agent's uid {agent_euid}"
+        ));
+    }
+    if mode & 0o022 != 0 {
+        return Err(format!("host.json mode {:o} is writable by group or others", mode & 0o7777));
+    }
+    Ok(())
+}
+
 /// The entry for `text` (the host config, `None` when absent), or why the
 /// config is refused.
 pub fn parse(text: Option<&str>, facts: Facts) -> Result<RemoteEntry, String> {
