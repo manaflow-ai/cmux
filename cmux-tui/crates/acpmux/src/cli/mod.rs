@@ -4,11 +4,15 @@
 //! `orchestrate` holds the commands other agents and scripts call; `handoff`
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
+pub mod chats;
 pub mod command;
 pub mod entry;
 pub mod errors;
 pub mod handoff;
 pub mod harness;
+pub mod harness_folder;
+pub mod harness_run;
+pub mod harness_secret;
 pub mod hosts;
 pub mod orchestrate;
 pub mod output;

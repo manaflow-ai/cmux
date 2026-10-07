@@ -662,11 +662,13 @@ export class AcpmuxDirectClient {
       // The failure's code (`validation.invalid`, ...) and details ride along for callers that
       // tell failures apart.
       if (message.error) {
-        const data = message.error.data as { code?: unknown; details?: unknown } | undefined;
+        const data = message.error.data as { code?: unknown; details?: unknown; reason?: unknown } | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
             code: data?.code ?? message.error.code,
             ...(data?.details === undefined ? {} : { details: data.details }),
+            // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
+            ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
           }),
         );
       } else request.resolve(message.result);
@@ -787,12 +789,19 @@ export class AcpmuxDirectClient {
 
   /// Whether the user trusts `cwd` (folderTrust.ts).
   trustGet(cwd: string): Promise<unknown> {
-    return this.request("acp.trust.get", { cwd });
+    return this.request("acp.trust.get", {
+      cwd,
+      ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
+    });
   }
 
   /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
   trustSet(cwd: string, level: string): Promise<unknown> {
-    return this.request("acp.trust.set", { cwd, level });
+    return this.request("acp.trust.set", {
+      cwd,
+      level,
+      ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
+    });
   }
 
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
@@ -1388,6 +1397,15 @@ export class AcpmuxDirectClient {
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
+      // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`): the
+      // prompt never went, so it leaves no bubble, and the pane puts it back in the composer.
+      if (isTrustRefusal(error)) {
+        this.rows.delete(rowId);
+        this.optimisticPromptRows.delete(promptId);
+        this.optimisticPromptTexts.delete(promptId);
+        this.emit();
+        throw error;
+      }
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
@@ -1697,6 +1715,12 @@ export class AcpmuxDirectClient {
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
+/// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
+export function isTrustRefusal(error: unknown): boolean {
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  return reason === "trust.pending" || reason === "trust.untrusted";
+}
+
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
   for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
   return undefined;

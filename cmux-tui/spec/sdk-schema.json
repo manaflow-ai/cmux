@@ -15478,6 +15478,15 @@
       "presence": "optional",
       "nullable": false,
       "default": true
+     },
+     "after": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false

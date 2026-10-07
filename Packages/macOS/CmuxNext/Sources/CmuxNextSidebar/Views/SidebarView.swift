@@ -56,9 +56,8 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    /// "Update Ready", trailing the footer's line while an update is staged
-    /// (`SidebarModel.updatePill`).
-    let updatePillView = SidebarUpdatePillView()
+    /// The staged update card above the footer (`SidebarModel.updateCard`).
+    let updateCardView = SidebarUpdateCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -203,8 +202,7 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
-        updatePillView.onPress = { [weak self] in self?.model.send(.installUpdate) }
-        addSubview(updatePillView)
+        installUpdateCard()
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -251,14 +249,15 @@ public final class SidebarView: NSView {
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         let footerHeight: CGFloat = SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards()
-        // From the bottom up (R112/R114): the Settings band, the dots, the cards.
-        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)
+        let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
+        // From the bottom up (R112/R114): the Settings band, the dots, the
+        // staged update card (UPDATE-CARD), the cards.
+        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - cardsHeight, width: b.width, height: cardsHeight)
+        placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
         placeSpaces(top: y, height: spacesHeight)
-        placeUpdatePill()
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
@@ -311,7 +310,7 @@ public final class SidebarView: NSView {
         var metrics: SidebarLayoutMetrics
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
-        var updatePill: SidebarUpdatePill?
+        var updateCard: SidebarUpdateCard?
     }
 
     private func observe() {
@@ -335,7 +334,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updatePill: model.updatePill
+                    updateCard: model.updateCard
                 )
             }) {
                 self?.render(state)
@@ -355,8 +354,7 @@ public final class SidebarView: NSView {
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
-            || lastState?.preferences.showCounts != state.preferences.showCounts
-            || lastState?.preferences.showWorkspaceDirectory != state.preferences.showWorkspaceDirectory
+            || lastState?.preferences.workspaceRow != state.preferences.workspaceRow
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
@@ -370,8 +368,8 @@ public final class SidebarView: NSView {
                 list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
         }
-        if lastState?.updatePill != state.updatePill {
-            updatePillView.configure(state.updatePill)
+        if lastState?.updateCard != state.updateCard {
+            updateCardView.configure(state.updateCard)
             needsLayout = true
         }
         if chromeChanged || profilesChanged { needsLayout = true }

@@ -169,6 +169,12 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // The workspace key is chosen first, so the session starts knowing
+        // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
+        let key = self
+            .workspaces
+            .as_ref()
+            .map(|_| crate::workspaces::new_key());
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: cwd.to_owned(),
@@ -188,6 +194,10 @@ impl Spawner {
                 }
                 t
             },
+            env: key
+                .iter()
+                .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
+                .collect(),
         };
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -225,7 +235,8 @@ impl Spawner {
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
         let name = crate::workspaces::name(id, task);
-        match workspaces.open(&session, &name, cwd) {
+        let key = key.unwrap_or_else(crate::workspaces::new_key);
+        match workspaces.open(&key, &session, &name, cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 self.trace.emit(
