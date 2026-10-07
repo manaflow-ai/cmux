@@ -48,6 +48,7 @@ final class WorkspaceDetailViewController: UIViewController, UICollectionViewDel
         view.addSubview(collectionView)
         dataSource = makeDataSource()
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), menu: nil)
+        navigationItem.rightBarButtonItem?.accessibilityLabel = WorkspacesText.workspaceActions
         render()
     }
 
