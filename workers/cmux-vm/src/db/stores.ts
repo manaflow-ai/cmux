@@ -14,6 +14,35 @@ export interface OwnedResource {
   readonly upstreamId: UpstreamId;
   readonly createdBy: string;
   readonly createdAt: Date;
+  readonly displayName: string | null;
+  readonly labels: Readonly<Record<string, string>>;
+}
+
+/** Keyset position for paging newest first: the last row of the previous page. */
+export interface PagePosition {
+  readonly createdAt: Date;
+  readonly cmuxId: string;
+}
+
+export interface ListPageOptions {
+  readonly limit: number;
+  readonly after: PagePosition | null;
+  /** When set, only these public ids (a key's resource allowlist). */
+  readonly only: ReadonlySet<string> | null;
+  /** When set, only resources carrying every one of these labels. */
+  readonly labels: Readonly<Record<string, string>> | null;
+}
+
+/** One audit row: never command text, file contents or secrets. */
+export interface AuditEntry {
+  readonly tenantId: TenantId;
+  /** `user:<id>` or `key:<id>`. */
+  readonly actor: string;
+  readonly action: string;
+  readonly cmuxId: string | null;
+  /** "ok" or the public error tag the caller received. */
+  readonly outcome: string;
+  readonly at: Date;
 }
 
 export interface ApiKeyRecord {
@@ -27,6 +56,16 @@ export interface OwnershipStoreService {
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
+  /** The tenant's live resources of this kind, newest first. */
+  readonly listPage: (tenantId: TenantId, kind: ResourceKind, options: ListPageOptions) => Effect.Effect<ReadonlyArray<OwnedResource>, StoreError>;
+  /** How many live resources of this kind the tenant has. */
+  readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
+  /** Marks the tenant's resource deleted; later reads do not find it. */
+  readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
+}
+
+export interface AuditStoreService {
+  readonly append: (entry: AuditEntry) => Effect.Effect<void, StoreError>;
 }
 
 export interface ApiKeyStoreService {
@@ -36,6 +75,7 @@ export interface ApiKeyStoreService {
 
 export class OwnershipStore extends Context.Tag("cmux-vm/OwnershipStore")<OwnershipStore, OwnershipStoreService>() {}
 export class ApiKeyStore extends Context.Tag("cmux-vm/ApiKeyStore")<ApiKeyStore, ApiKeyStoreService>() {}
+export class AuditStore extends Context.Tag("cmux-vm/AuditStore")<AuditStore, AuditStoreService>() {}
 
 const words = Schema.NullOr(Schema.String).pipe(
   Schema.transform(Schema.NullOr(Schema.Array(Schema.String)), {
@@ -52,6 +92,23 @@ const ResourceRow = Schema.Struct({
   upstream_id: UpstreamId,
   created_by: Schema.String,
   created_at: Schema.Union(Schema.DateFromSelf, Schema.Date),
+  display_name: Schema.NullOr(Schema.String),
+  labels: Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String })),
+});
+
+const CountRow = Schema.Struct({ live: Schema.Union(Schema.Number, Schema.NumberFromString) });
+
+const RESOURCE_COLUMNS = "tenant_id, kind, cmux_id, upstream_id, created_by, created_at, display_name, labels::text AS labels";
+
+const toOwned = (row: typeof ResourceRow.Type): OwnedResource => ({
+  tenantId: row.tenant_id,
+  kind: row.kind,
+  cmuxId: row.cmux_id,
+  upstreamId: row.upstream_id,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  displayName: row.display_name,
+  labels: row.labels,
 });
 
 const ApiKeyRow = Schema.Struct({
@@ -64,7 +121,7 @@ const ApiKeyRow = Schema.Struct({
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
 
-export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, SqlClient> = Layer.effectContext(
+export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore, never, SqlClient> = Layer.effectContext(
   Effect.gen(function* () {
     const sql = yield* SqlClient;
 
@@ -73,7 +130,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
         sql
           .query(
             "ownership.find",
-            `SELECT tenant_id, kind, cmux_id, upstream_id, created_by, created_at
+            `SELECT ${RESOURCE_COLUMNS}
                FROM cmux_vm_resources
               WHERE cmux_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL
               LIMIT 1`,
@@ -81,16 +138,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
           )
           .pipe(
             Effect.flatMap(decodeRows(ResourceRow, "ownership.find")),
-            Effect.map((rows) =>
-              Option.map(Option.fromNullable(rows[0]), (row) => ({
-                tenantId: row.tenant_id,
-                kind: row.kind,
-                cmuxId: row.cmux_id,
-                upstreamId: row.upstream_id,
-                createdBy: row.created_by,
-                createdAt: row.created_at,
-              })),
-            ),
+            Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
           ),
       record: (resource) => {
         const params: ReadonlyArray<SqlParam> = [
@@ -100,16 +148,75 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
           resource.upstreamId,
           resource.createdBy,
           resource.createdAt.toISOString(),
+          resource.displayName,
+          JSON.stringify(resource.labels),
         ];
         return sql
           .query(
             "ownership.record",
-            `INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
+            `INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
             params,
           )
           .pipe(Effect.asVoid);
       },
+      listPage: (tenantId, kind, options) => {
+        const params: ReadonlyArray<SqlParam> = [
+          tenantId,
+          kind,
+          options.after === null ? null : options.after.createdAt.toISOString(),
+          options.after === null ? null : options.after.cmuxId,
+          options.only === null ? null : [...options.only].join(" "),
+          options.limit,
+          options.labels === null ? null : JSON.stringify(options.labels),
+        ];
+        return sql
+          .query(
+            "ownership.list",
+            `SELECT ${RESOURCE_COLUMNS}
+               FROM cmux_vm_resources
+              WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL
+                AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
+                AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
+                AND ($7::jsonb IS NULL OR labels @> $7::jsonb)
+              ORDER BY created_at DESC, cmux_id DESC
+              LIMIT $6`,
+            params,
+          )
+          .pipe(Effect.flatMap(decodeRows(ResourceRow, "ownership.list")), Effect.map((rows) => rows.map(toOwned)));
+      },
+      countLive: (tenantId, kind) =>
+        sql
+          .query(
+            "ownership.count",
+            `SELECT count(*)::int AS live FROM cmux_vm_resources WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL`,
+            [tenantId, kind],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(CountRow, "ownership.count")),
+            Effect.map((rows) => rows[0]?.live ?? 0),
+          ),
+      markDeleted: (tenantId, kind, cmuxId, at) =>
+        sql
+          .query(
+            "ownership.delete",
+            `UPDATE cmux_vm_resources SET deleted_at = $4::timestamptz
+              WHERE tenant_id = $1 AND kind = $2 AND cmux_id = $3 AND deleted_at IS NULL`,
+            [tenantId, kind, cmuxId, at.toISOString()],
+          )
+          .pipe(Effect.asVoid),
+    };
+
+    const audit: AuditStoreService = {
+      append: (entry) =>
+        sql
+          .query(
+            "audit.append",
+            `INSERT INTO cmux_vm_audit_log (tenant_id, actor, action, cmux_id, outcome, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
+            [entry.tenantId, entry.actor, entry.action, entry.cmuxId, entry.outcome, entry.at.toISOString()],
+          )
+          .pipe(Effect.asVoid),
     };
 
     const apiKeys: ApiKeyStoreService = {
@@ -141,6 +248,6 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
           ),
     };
 
-    return Context.make(OwnershipStore, ownership).pipe(Context.add(ApiKeyStore, apiKeys));
+    return Context.make(OwnershipStore, ownership).pipe(Context.add(ApiKeyStore, apiKeys), Context.add(AuditStore, audit));
   }),
 );
