@@ -101,7 +101,8 @@ test("every header tool is there from the first frame; Changes waits for an edit
   ]);
   const changes = buttons[0]!;
   expect(changes.disabled).toBe(true);
-  expect(changes.textContent).toContain("+0");
+  expect(changes.textContent).not.toContain("+0");
+  expect(changes.textContent).not.toContain("-0");
   expect(buttons[1]!.title).toBe("Terminal (⌘D)");
   expect(buttons[2]!.title).toBe("Browser (⌥⌘D)");
   await act(async () => buttons[1]!.click());
@@ -116,8 +117,10 @@ test("Changes shows the last turn's counts and toggles the changes view", async 
   const changes = container.querySelector<HTMLButtonElement>(".acpmux-header-changes")!;
   expect(changes.disabled).toBe(false);
   expect(changes.getAttribute("aria-pressed")).toBe("true");
-  expect(changes.textContent).toContain("+85");
-  expect(changes.textContent).toContain("14");
+  expect(changes.textContent).not.toContain("+85");
+  expect(changes.textContent).not.toContain("-14");
+  expect(changes.getAttribute("aria-label")).toBe("Changes: +85 -14");
+  expect(changes.title).toBe("Changes");
   await act(async () => changes.click());
   expect(ran).toEqual(["changes"]);
   await unmount();

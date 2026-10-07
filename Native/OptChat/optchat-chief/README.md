@@ -1121,7 +1121,9 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 
 `deploy/brain/install.sh` installs three user LaunchAgents
 (`ai.manaflow.chief-brain.{daemon,acpmux,host}`) under `~/.cmux/brains/chief` with
-pinned binaries; `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all from one
+build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
+`deploy/brain/rollback.sh` removes them and keeps the memory and key.
 
 ## Tests
 

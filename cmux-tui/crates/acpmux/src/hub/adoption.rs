@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::adopt::AdoptRequest;
+use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
 pub(super) enum Adoption {
@@ -16,6 +17,26 @@ pub(super) enum Adoption {
 }
 
 impl Hub {
+    /// Resolve the recorded folder for a prospective adoption before a session
+    /// is created. The folder-trust gate uses this to block harness startup.
+    pub(crate) async fn adopted_cwd_for_trust(
+        &self,
+        family: &str,
+        agent_session_id: &str,
+    ) -> Result<Option<String>, RpcError> {
+        if family.is_empty() {
+            return Ok(None);
+        }
+        let homes = self.harness_homes.lock().unwrap().clone();
+        let family = family.to_owned();
+        let id = agent_session_id.to_owned();
+        let found = tokio::task::spawn_blocking(move || crate::adopt::find(&family, &id, &homes))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(RpcError::invalid_params)?;
+        Ok(found.cwd.map(|cwd| cwd.to_string_lossy().into_owned()))
+    }
+
     /// Checks `adopt` against the resolved harness and its store. No adopt
     /// resolves to `Found(None)`.
     pub(super) async fn adoption(
@@ -23,6 +44,7 @@ impl Hub {
         adopt: Option<&AdoptRequest>,
         agent: &str,
         family: &str,
+        env: &[&BTreeMap<String, String>],
     ) -> Result<Adoption, RpcError> {
         let Some(a) = adopt else { return Ok(Adoption::Found(None)) };
         if let Some(asked) = &a.harness
@@ -36,8 +58,9 @@ impl Hub {
         if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
             return Ok(Adoption::Existing(existing));
         }
-        // The store walk and the record read are file I/O.
-        let homes = self.harness_homes.lock().unwrap().clone();
+        // The store the resuming harness reads: its spawn env's home, else
+        // the daemon's. The store walk and the record read are file I/O.
+        let homes = self.harness_homes.lock().unwrap().with_env(env);
         let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
         let found = tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
             .await

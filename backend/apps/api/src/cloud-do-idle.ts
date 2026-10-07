@@ -1,5 +1,5 @@
 import { CloudCore } from "./cloud-do-core.ts"
-import { BACKSTOP_IDLE_SECONDS, idleFromReport, reportsActivity, SilentRetry, silentSince, type ReportedActivity } from "./cloud-idle.ts"
+import { BACKSTOP_IDLE_SECONDS, idleFromReport, reportsActivity, SilentRetry, silentSince, StaleAlerts, type ReportedActivity } from "./cloud-idle.ts"
 import { TABLE_MACHINE, type MachineRow } from "./domains/cloud.ts"
 
 /**
@@ -61,6 +61,26 @@ export abstract class CloudIdle extends CloudCore {
       const r = this.submitSystem("cloud.machine.idle_pause", { machine, reason: "no_report" }, `silent-pause:${machine}:${engine.currentSeq}`)
       this.silentRetry.tried(machine, now)
       if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
+    }
+  }
+
+
+  private readonly staleAlerts = new StaleAlerts(this.sqlStore)
+
+  /**
+   * After the cost backstop ran: a machine still running or provisioning with no applied report
+   * for 24 h means its pause failed or never happened (provider refusals, a limit, a bug). One
+   * error-level event per machine per hour, ids and times only, so the alert path sees it.
+   */
+  protected alertStale(now: number): void {
+    const engine = this.boundEngine
+    if (!engine) return
+    const stale = this.silentMachines(now)
+    for (const machine of this.staleAlerts.due(stale, now)) {
+      const row = engine.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+      if (!row) continue
+      const since = silentSince(row, this.vmStatus.lastActivityAt(machine))
+      console.error(JSON.stringify({ level: "error", event: "cloud.machine.stale_running", stream: engine.stream, team: engine.currentState.team, machine, status: row.status, silent_since: since, silent_hours: Math.floor((now - since) / 360_000) / 10, next_pause_try_at: this.silentRetryAt(machine) }))
     }
   }
 
