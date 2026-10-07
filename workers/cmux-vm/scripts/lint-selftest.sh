@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Proves the gdp-ts preset is active: oxlint must reject the forged proofs in
-# lint-fixtures/ with each gdp-ts rule. Run after `bun run lint:prepare`.
+# Proves the lint boundaries are active: oxlint must reject the fixtures in
+# lint-fixtures/ with each gdp-ts rule, the upstream import boundary and the
+# fetch boundary. Run after `bun run lint:prepare`.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 output="$(bunx oxlint lint-fixtures 2>&1)"
@@ -10,11 +11,19 @@ if [ "$status" -eq 0 ]; then
   echo "$output" >&2
   exit 1
 fi
-for rule in no-define-proof no-proof-assertion no-type-assertion no-any; do
-  if ! grep -qF "gdp-ts($rule)" <<<"$output"; then
-    echo "lint self-test: gdp-ts($rule) did not fire" >&2
+expected=(
+  "gdp-ts(no-define-proof)"
+  "gdp-ts(no-proof-assertion)"
+  "gdp-ts(no-type-assertion)"
+  "gdp-ts(no-any)"
+  "eslint(no-restricted-imports)"
+  "eslint(no-restricted-globals)"
+)
+for rule in "${expected[@]}"; do
+  if ! grep -qF "$rule" <<<"$output"; then
+    echo "lint self-test: $rule did not fire" >&2
     echo "$output" >&2
     exit 1
   fi
 done
-echo "lint self-test: gdp-ts rules no-define-proof, no-proof-assertion, no-type-assertion, no-any all fired"
+echo "lint self-test: all fired: ${expected[*]}"

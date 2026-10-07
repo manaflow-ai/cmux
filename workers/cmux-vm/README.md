@@ -29,7 +29,7 @@ not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.
 | `src/auth/` | session JWT (JWKS), team membership, API keys, middleware |
 | `src/db/` | Hyperdrive Postgres client and the ownership/API key stores |
 | `src/upstream/` | provider client (proof-gated) |
-| `migrations/` | SQL for `cmux_vm_resources` and `cmux_vm_api_keys` (additive) |
+| `migrations/` | SQL for schema `cmux_vm`: `cmux_vm.resources` and `cmux_vm.api_keys` (additive) |
 | `upstream/` | pinned provider OpenAPI document and SDK type surface (`PINNED.json`) |
 
 ## Checks
@@ -42,5 +42,6 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 Migrations are applied by an operator with `psql -f migrations/<file>.sql`,
 staging branch first; the Worker never runs DDL. Deploys run only from CI,
-gated by the repository variable `CMUX_VM_DEPLOY_ENABLED`; the workflow header
+gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or
+update the environment's Hyperdrive config before deploying; the workflow header
 lists the GitHub environments and the secrets each needs.

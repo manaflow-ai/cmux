@@ -62,6 +62,31 @@ describe("tenant isolation", () => {
   });
 });
 
+describe("team header", () => {
+  it("is ignored for API keys: the key's own tenant always applies", async () => {
+    const own = h.addVm(TENANT_A);
+    const other = h.addVm(TENANT_B);
+    const keyA = await h.addKey(TENANT_A, ["vm:read"]);
+    const asB = { ...bearer(keyA), "x-cmux-team-id": TENANT_B };
+
+    expect((await h.request(`/v1/vms/${own.vmId}`, asB)).status).toBe(200);
+    expect((await h.request(`/v1/vms/${other.vmId}`, asB)).status).toBe(404);
+    expect(h.upstreamRequests.map((request) => new URL(request.url).pathname)).toEqual([`/v5/vms/${own.upstreamId}`]);
+  });
+
+  it("must name a team the session user belongs to", async () => {
+    const theirs = h.addVm(TENANT_B);
+    h.addMember(TENANT_A, "user_alice");
+    const token = await h.sessionToken("user_alice");
+
+    const response = await h.request(`/v1/vms/${theirs.vmId}`, { ...bearer(token), "x-cmux-team-id": TENANT_B });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ _tag: "Forbidden", message: "You are not a member of this team" });
+    expect(h.upstreamRequests).toHaveLength(0);
+  });
+});
+
 describe("scopes", () => {
   it("refuses a key without vm:read with 403 and does not reach upstream", async () => {
     const { vmId } = h.addVm(TENANT_A);
