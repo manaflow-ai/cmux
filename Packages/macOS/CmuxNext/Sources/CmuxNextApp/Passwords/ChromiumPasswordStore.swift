@@ -18,6 +18,11 @@ final class ChromiumPasswordStore: PasswordStore {
         self.engine = engine
     }
 
+    /// Not wired yet (red step of the API 18 binding).
+    init(core: @escaping () -> (any ChromiumPasswordCore)?) {
+        self.engine = { nil }
+    }
+
     func capabilities() async -> PasswordStoreCapabilities {
         let passkeys = await engine()?.canManagePasskeys() ?? false
         return PasswordStoreCapabilities(passwords: false, passkeys: passkeys, exceptions: false, export: false)
