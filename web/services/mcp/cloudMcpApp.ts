@@ -88,7 +88,7 @@ const APP_SCRIPT = String.raw`
     if (data.view === "machine" && data.machine) { upsertMachine(data.machine); state.route = "/machines/" + data.machine.id; }
     if (data.view === "terminal" && data.terminal_id) {
       state.route = "/machines/" + data.machine_id + "/terminals/" + data.terminal_id;
-      state.terminal = { machineId: data.machine_id, terminalId: data.terminal_id, text: typeof data.text === "string" ? data.text : "" };
+      state.terminal = { machineId: data.machine_id, terminalId: data.terminal_id, text: data.source ? textOf(result) : "" };
     }
     render();
     if (data.view === "terminal") startPolling();
@@ -157,7 +157,7 @@ const APP_SCRIPT = String.raw`
     try {
       const result = await request("tools/call", { name: "read_terminal", arguments: { machine_id: t.machineId, terminal_id: t.terminalId } });
       if (state.terminal !== t) return;
-      if (result && !result.isError) { t.text = (result.structuredContent && result.structuredContent.text) || textOf(result); render(); }
+      if (result && !result.isError) { t.text = textOf(result); render(); }
     } catch {}
   }
 

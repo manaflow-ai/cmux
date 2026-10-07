@@ -164,7 +164,7 @@ describe("cloud MCP tool arguments", () => {
     ]);
     const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt });
     expect(result.isError).toBeUndefined();
-    expect(result.structuredContent).toEqual({ machine_id: "vm-a", agent: "claude", workspace_id: WORKSPACE, terminal_id: TERMINAL });
+    expect(result.structuredContent).toEqual({ view: "terminal", machine_id: "vm-a", agent: "claude", workspace_id: WORKSPACE, terminal_id: TERMINAL });
     expect(await shellWords(calls[0].args)).toEqual(["--session", "cloud", "--json", "workspace", "create", "--name", "claude (via MCP)", "--empty"]);
     expect(await shellWords(calls[1].args)).toEqual([
       "--session", "cloud", "--json", "workspace", WORKSPACE, "run", "--on-exit", "keep", "--",
@@ -223,7 +223,7 @@ describe("cloud MCP tool arguments", () => {
     const { gateway } = fakeGateway([ok({ text: "hello", rows: 24 })]);
     const result = await callCloudMcpTool(gateway, "read_terminal", { machine_id: "vm-a", terminal_id: TERMINAL });
     expect(result.content).toEqual([{ type: "text", text: "hello" }]);
-    expect(result.structuredContent).toEqual({ machine_id: "vm-a", terminal_id: TERMINAL, source: "screen" });
+    expect(result.structuredContent).toEqual({ view: "terminal", machine_id: "vm-a", terminal_id: TERMINAL, source: "screen" });
   });
 
   test("a failed guest command is a tool error, not a thrown request", async () => {
@@ -372,7 +372,7 @@ describe("cloud MCP scoping", () => {
   test("list_machines returns only the caller's scope", async () => {
     const { listed, gatewayFor } = harness();
     const owner = await callCloudMcpTool(gatewayFor({ userId: OWNER }), "list_machines", {});
-    expect(owner.structuredContent).toEqual({ machines: [{ id: "vm-personal", name: null, status: "running" }] });
+    expect(owner.structuredContent).toEqual({ view: "machines", machines: [{ id: "vm-personal", name: null, status: "running" }] });
     const stranger = await callCloudMcpTool(gatewayFor({ userId: "user-stranger" }), "list_machines", {});
     expect(stranger.structuredContent).toEqual({ machines: [] });
     expect(listed).toEqual([

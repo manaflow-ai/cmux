@@ -407,13 +407,13 @@ async function readTerminal(gateway: CloudMcpGateway, args: JsonObject): Promise
   if (source === "screen") {
     const screen = await runCmuxTuiJson(gateway, machineId, ["terminal", terminalId, "screen", "read"]) as JsonObject | null;
     const text = typeof screen?.text === "string" ? screen.text : "";
-    return toolSuccess({ view: "terminal", machine_id: machineId, terminal_id: terminalId, source, text }, text);
+    return toolSuccess({ view: "terminal", machine_id: machineId, terminal_id: terminalId, source }, text);
   }
   const output = await runCmuxTuiJson(gateway, machineId, [
     "terminal", terminalId, "output", "read", "--max-bytes", String(MAX_OUTPUT_BYTES),
   ]) as JsonObject | null;
   const text = typeof output?.text === "string" ? output.text : "";
-  return toolSuccess({ view: "terminal", machine_id: machineId, terminal_id: terminalId, source, complete: output?.complete === true, text }, text);
+  return toolSuccess({ view: "terminal", machine_id: machineId, terminal_id: terminalId, source, complete: output?.complete === true }, text);
 }
 
 async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<ToolResult> {
