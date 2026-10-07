@@ -99,3 +99,24 @@ test("a matrix reuses its browser while isolating and closing every case context
     expect(closedBrowsers).toBe(1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("allocation failure waits for late VM ids before finally cleanup", async () => {
+  const { createAllVms } = await import("./runner");
+  const late = Promise.withResolvers<void>();
+  const recorded: string[] = []; const paused: string[] = [];
+  const run = (async () => {
+    try {
+      await createAllVms(2, async (shard) => {
+        if (shard === 0) throw new Error("allocation refused");
+        await late.promise;
+        recorded.push("vm-late");
+      });
+    } catch { /* The allocation failure is expected; cleanup must still see the late success. */ }
+    finally { paused.push(...recorded); }
+  })();
+  // Let the rejected allocation settle while its sibling is still in flight.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  late.resolve();
+  await run;
+  expect(paused).toEqual(["vm-late"]);
+});

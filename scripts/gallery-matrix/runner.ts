@@ -246,6 +246,11 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }
 
+/** Finish VM allocation before its caller cleans up the recorded IDs. */
+export async function createAllVms<T>(count: number, create: (shard: number) => Promise<T>): Promise<T[]> {
+  return Promise.all(Array.from({ length: count }, (_, shard) => create(shard)));
+}
+
 async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
   // The key is read from its file and only ever sent to the Freestyle API; never printed or logged.
@@ -268,12 +273,12 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
   process.once("SIGINT", onSignal); process.once("SIGTERM", onSignal);
   const pauseExact = async (id: string) => { await (vms.find((entry) => entry.id === id)?.vm ?? client.vms.ref(id)).pause(); };
   try {
-    await Promise.all(Array.from({ length: args.vmCount }, async (_, shard) => {
+    await createAllVms(args.vmCount, async (shard) => {
       const created = await client.vms.create({ snapshotId: args.snapshot, displayName: `${runId}-${shard}`, idleTimeoutSeconds: FREESTYLE_IDLE_SECONDS, metadata: { cmux: "gallery-matrix", runId }, firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] } });
       const entry = { id: created.vmId, vm: created.vm, shard };
       vms.push(entry); ledger.vmIds.push(created.vmId); writeLedger(ledgerPath, ledger);
       console.error(`freestyle: created ${created.vmId} (shard ${shard}, run ${runId})`);
-    }));
+    });
     const remoteRoot = `/tmp/${runId}`;
     const source = readFileSync(new URL(import.meta.url), "utf8");
     const packageJson = readFileSync(new URL("./package.json", import.meta.url), "utf8");
