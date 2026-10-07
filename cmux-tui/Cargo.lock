@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-chat-index",
  "cmux-local-auth",
  "cmux-unix-socket",
  "crossterm",
@@ -16,6 +17,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libc",
+ "notify",
  "pulldown-cmark",
  "ratatui",
  "regex",
@@ -821,6 +823,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chat-index"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
@@ -865,6 +877,7 @@ dependencies = [
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "icu_normalizer",
  "proptest",
  "rusqlite",

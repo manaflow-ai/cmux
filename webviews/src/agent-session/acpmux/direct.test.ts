@@ -1417,6 +1417,24 @@ describe("direct client session state", () => {
     expect(rows[0]!.failed).toBeFalsy();
   });
 
+  /// acpmux refuses a prompt while the folder's trust question is open (`trust_gate.rs`): the
+  /// prompt never went, so it leaves no bubble, and the failure names the reason so the pane can
+  /// put the prompt back in the composer.
+  test("a prompt acpmux refuses for folder trust leaves no bubble and names the reason", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("before trust").catch((error: { reason?: unknown }) => error.reason);
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32602,
+      message: "trust.pending: answer the trust question for /work first",
+      data: { reason: "trust.pending", cwd: "/work" },
+    });
+    expect(await sending).toBe("trust.pending");
+    expect(latest().rows.some((row) => row.text === "before trust")).toBe(false);
+    expect(latest().connection).toBe("connected");
+  });
+
   /// Any other failure names its reason on the bubble.
   test("a prompt that fails for another reason names it on its bubble", async () => {
     const client = await connect();
