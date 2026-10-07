@@ -172,9 +172,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar remove-section",
                 destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 100)])
             ),
-            // Leo (2026-10-06): Projects and Recents hide from their headers'
+            // Leo (2026-10-06): Projects and Chats hide from their headers'
             // menus and come back from the sidebar's menu or Settings
-            // (`sidebar.showProjects`, `sidebar.showRecents`; scripts set those).
+            // (`sidebar.showProjects`, `sidebar.showChats`; scripts set those).
             ActionDescriptor(
                 id: "sidebar.section.hide", title: t("action.sidebar.section.hide", "Hide Section"),
                 keywords: ["sidebar", "section", "hide", "recents"], category: .sidebar, symbol: "eye.slash",

@@ -3,9 +3,11 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import os
 
-/// Projects and Recents hide from their headers' menus and come back from the
-/// sidebar's menu or Settings (`sidebar.showProjects`, `sidebar.showRecents`;
-/// Leo 2026-10-06). Each is a setting, so the choice follows cmux.json.
+/// Projects hides from its header's menu and comes back from the sidebar's
+/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). Chats, the
+/// section under the workspaces, hides from its header by turning off its one
+/// setting, `sidebar.showChats` (SIDEBAR-NO-RECENTS); Show Chats in Settings
+/// brings it back. Each is a setting, so the choice follows cmux.json.
 enum SidebarHiddenSections {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
@@ -28,19 +30,24 @@ enum SidebarHiddenSections {
         return target.id == SidebarLayoutDocument.recentsSectionID.rawValue
     }
 
+    /// The setting Hide Section turns off.
+    static let hidePath = SidebarSectionsSetting.showChatsPath
+    /// The settings Show Hidden Sections turns back on: Projects; Chats is opt in.
+    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath]
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
-        registry.bind("sidebar.section.hide", unavailable: { settings().showRecents ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
+        registry.bind("sidebar.section.hide", unavailable: { settings().showChats ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
             guard hidesRecents(invocation.target) else { throw ActionFailure(message: SidebarSectionStrings.notHideable) }
-            try write([(SidebarSectionsSetting.showRecentsPath, false)], invocation, context)
+            try write([(hidePath, false)], invocation, context)
         }
         registry.bind("sidebar.projects.hide", unavailable: { settings().showProjects ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
             try write([(SidebarSectionsSetting.showProjectsPath, false)], invocation, context)
         }
         registry.bind("sidebar.sections.showHidden", unavailable: {
-            settings().showProjects && settings().showRecents ? SidebarSectionStrings.noneHidden : nil
+            settings().showProjects ? SidebarSectionStrings.noneHidden : nil
         }) { invocation in
-            try write([(SidebarSectionsSetting.showProjectsPath, true), (SidebarSectionsSetting.showRecentsPath, true)], invocation, context)
+            try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
     }
 
