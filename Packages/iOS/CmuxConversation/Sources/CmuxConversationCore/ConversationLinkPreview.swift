@@ -83,8 +83,40 @@ public struct ConversationLinkSplit: Sendable, Hashable {
 
     public static func split(text: String, preview: ConversationLinkPreview?) -> ConversationLinkSplit? {
         guard let preview else { return nil }
+        // Row building splits every loaded message with a card on each
+        // update; link detection dominates that pass, and the answer only
+        // depends on the text and the card's URL.
+        return splitCache.value(for: SplitKey(text: text, url: preview.url)) {
+            computeSplit(text: text, url: preview.url)
+        }
+    }
+
+    private struct SplitKey: Hashable {
+        var text: String
+        var url: URL
+    }
+
+    private final class SplitCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [SplitKey: ConversationLinkSplit?] = [:]
+
+        func value(for key: SplitKey, compute: () -> ConversationLinkSplit?) -> ConversationLinkSplit? {
+            if let cached = lock.withLock({ entries[key] }) { return cached }
+            let value = compute()
+            lock.withLock {
+                // Bounded: a reader paging far back would otherwise grow it forever.
+                if entries.count >= 4096 { entries.removeAll(keepingCapacity: true) }
+                entries[key] = .some(value)
+            }
+            return value
+        }
+    }
+
+    private static let splitCache = SplitCache()
+
+    private static func computeSplit(text: String, url: URL) -> ConversationLinkSplit? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let range = urlRange(in: trimmed, matching: preview.url),
+        guard let range = urlRange(in: trimmed, matching: url),
               let trimmedStart = text.range(of: trimmed)?.lowerBound else { return nil }
         let leading = text.utf16.distance(from: text.startIndex, to: trimmedStart)
         func whitespacePrefix(_ part: Substring) -> Int {
