@@ -3,13 +3,14 @@
 // few lines. The changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { useEffect, useMemo, useState } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
-import { FileDiff } from "@pierre/diffs/react";
+import { FileDiff, WorkerPoolContext } from "@pierre/diffs/react";
 import { editPatch, type TurnFile } from "../diff";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
+import { paneHighlightPool } from "./highlightPool";
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () =>
@@ -60,6 +61,8 @@ export function EditDiff({ file }: { file: TurnFile }) {
   // edit keeps its parsed diff and does not paint again.
   const patchText = patches.join("\0");
   const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
+  const language = highlighted ? getFiletypeFromFileName(file.displayPath) : "text";
+  const workerPool = paneHighlightPool("none", language);
   const diffs = useMemo(
     () =>
       patchText.split("\0").map((patch) => {
@@ -95,11 +98,9 @@ export function EditDiff({ file }: { file: TurnFile }) {
       <div className="cv-edit-diff__body">
         {file.edits.map((edit, index) =>
           edit.hunks.length ? (
-            <FileDiff
-              key={edit.toolId + index}
-              fileDiff={diffs[index]!}
-              options={edit.numbered ? options.numbered : options.fragment}
-            />
+            <WorkerPoolContext.Provider key={edit.toolId + index} value={workerPool}>
+              <FileDiff fileDiff={diffs[index]!} options={edit.numbered ? options.numbered : options.fragment} />
+            </WorkerPoolContext.Provider>
           ) : (
             <div key={edit.toolId + index} className="cv-edit-diff__empty">
               {t("changes.noLineChanges")}

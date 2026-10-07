@@ -2,7 +2,7 @@
  * Smoke test for a cmux VM image snapshot (plans/cmux-next/vm-image.md 4.11).
  *
  * Usage (from web/):
- *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5]
+ *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
@@ -26,7 +26,8 @@ import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/wo
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
 import { GUEST_DIR, TMP_LEFTOVERS } from "./bake";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
-import { CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { browserRoleProbe } from "./browser-probe";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -68,7 +69,7 @@ export function secretScanCommand(): string {
 /** One login-shell run per command name as the work user; prints `name exit path :: output`. */
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const invoke = p.versionArgs.length > 0 ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
       // type -P: the path lookup, not an alias or function the login shell defines.
@@ -82,7 +83,7 @@ export function programChecksCommand(lock: InputsLock): string {
 export function programProblems(lock: InputsLock, stdout: string): string[] {
   const problems: string[] = [];
   const lines = new Map(stdout.trim().split("\n").map((line) => [line.split(" ")[0], line] as const));
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const line = lines.get(command);
       if (!line) {
@@ -226,7 +227,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -258,6 +259,12 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     if (options.agentProbe) {
       const probe = await agentBindProbe(kept[1].vm);
       check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
+    }
+    if (options.browserProbe) {
+      // After the roles-off checks: the probe installs the browser role on this clone.
+      const browser = await browserRoleProbe(kept[1].vm, { lockPath: options.lockPath });
+      report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
+      for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
     }
     await idlePhase(kept[0].vm, report, options.idleSeconds);
     if (options.resizeProbe) {
@@ -291,6 +298,7 @@ export async function main(argv = process.argv): Promise<number> {
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
     agentProbe: argv.includes("--agent-probe"),
     resizeProbe: argv.includes("--resize-probe"),
+    browserProbe: argv.includes("--browser-probe"),
   });
   return report.passed ? 0 : 1;
 }

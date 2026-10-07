@@ -8,88 +8,33 @@ use super::resolve::{Draft, Resolved, draft_meta};
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
-    /// Refresh the configured catalog while keeping all session processes alive.
-    pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
-        let path =
-            self.config.read().await.path.clone().ok_or_else(|| {
-                RpcError::invalid_params("this daemon has no config file to reload")
-            })?;
-        // Disk reads and PATH discovery run outside the async executor. An
-        // invalid/missing file never replaces the last accepted configuration.
-        let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
-            crate::config::Config::load_from(&path)
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
-        let (harnesses, default_harness, retained) = {
-            let mut current = self.config.write().await;
-            let mut retained = Vec::new();
-            for session in self.sessions.lock().unwrap().values() {
-                let name = session.meta().harness;
-                if !next.harnesses.contains_key(&name)
-                    && let Some(old) = current.harnesses.get(&name)
-                {
-                    next.harnesses.insert(name.clone(), old.clone());
-                    // Do not resurrect a deleted profile in config.json on
-                    // the next preset/default save.
-                    next.discovered.insert(name.clone());
-                    retained.push(name);
-                }
-            }
-            // Only unchanged launchers inherit a startup validation failure.
-            next.unavailable = current
-                .unavailable
-                .iter()
-                .filter(|(n, _)| current.harnesses.get(*n) == next.harnesses.get(*n))
-                .map(|(n, reason)| (n.clone(), reason.clone()))
-                .collect();
-            // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
-                .lock()
-                .unwrap()
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
-            current.harnesses = next.harnesses;
-            current.default_harness = next.default_harness;
-            current.defaults = next.defaults;
-            current.presets = next.presets;
-            current.discovered = next.discovered;
-            current.auto_fallback = next.auto_fallback;
-            current.auto_default = next.auto_default;
-            current.auto_prefer = next.auto_prefer;
-            current.unavailable = next.unavailable;
-            current.pool = next.pool;
-            current.web_roots = next.web_roots;
-            current.web_asking_modes = next.web_asking_modes;
-            self.refresh_web_modes(&current);
-            (
-                current.harnesses.keys().cloned().collect::<Vec<_>>(),
-                current.default_harness.clone(),
-                retained,
-            )
-        };
-        // Pooled sessions started under the old catalog are never served.
-        self.drain_pool();
-        self.probe_models_with(true, false).await;
-        Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
-            "retainedProfiles": retained, "modelProbePending": true}))
-    }
-
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
+        let NewRequest {
+            harness,
+            preset,
+            name,
+            cwd,
+            policy,
+            model,
+            effort,
+            adopt,
+            remote,
+            env: session_env,
+        } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote)?
+            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
         let agent = agent.as_str();
+        if profile.kind == crate::config::HarnessKind::Terminal {
+            return Err(terminal_harness_refusal(agent));
+        }
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
         let model = model.or(defaults.model);
@@ -100,11 +45,21 @@ impl Hub {
             || defaults.env.values().any(|v| v.contains("${model}"));
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+        let env = [&defaults.env, &profile.env];
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
             Adoption::Found(recorded) => recorded,
         };
         let cwd = session_cwd(cwd, recorded, &family)?;
+        // A folder profile runs only in chats whose folder is inside its folder (H4).
+        if let Some(root) = &folder_root
+            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+        {
+            return Err(RpcError::invalid_params(format!(
+                "harness {agent} is a folder profile of {}; the chat folder must be inside it",
+                root.display()
+            )));
+        }
         let mut meta = draft_meta(Draft {
             id: String::new(),
             agent,
@@ -118,11 +73,15 @@ impl Hub {
             policy,
             remote,
         });
+        meta.session_env = session_env;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
+        // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None => self.pool_claim(&meta, &profile, &defaults.env).await,
-            Some(_) => None,
+            None if meta.session_env.is_empty() => {
+                self.pool_claim(&meta, &profile, &defaults.env).await
+            }
+            _ => None,
         };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
@@ -252,6 +211,7 @@ impl Hub {
                 crate::config::HarnessKind::Acp => {
                     ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
                 }
+                crate::config::HarnessKind::Terminal => {}
             }
             if ids.contains(&spec)
                 || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
@@ -285,6 +245,7 @@ impl Hub {
                     .flatten()
                     .map(|(id, _)| id.clone()),
             ),
+            crate::config::HarnessKind::Terminal => {}
         }
         ids.dedup();
         ids
@@ -331,6 +292,7 @@ impl Hub {
             }
         }
 
+        self.record_launch_roots(session, profile).await;
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
@@ -380,6 +342,7 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            let plan = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -550,10 +513,7 @@ impl Hub {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
-                    .request(
-                        method::SESSION_LOAD,
-                        json!({"sessionId": sid, "cwd": meta.cwd, "mcpServers": []}),
-                    )
+                    .request(method::SESSION_LOAD, self.acp_params(&meta, profile, Some(&sid)))
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 match res {
@@ -574,9 +534,8 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res = child
-                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": []}))
-                .await?;
+            let res =
+                child.request(method::SESSION_NEW, self.acp_params(&meta, profile, None)).await?;
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -727,7 +686,7 @@ impl Hub {
         self.probe_models_with(true, true).await;
     }
 
-    async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
+    pub(super) async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
@@ -818,10 +777,14 @@ impl Hub {
         let known = self.known_models.lock().unwrap().clone();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
+            // A terminal harness has no models and no ACP session.
+            if profile.kind == crate::config::HarnessKind::Terminal {
+                continue;
+            }
             let mut models: Vec<Value> = profile
                 .models
                 .iter()
-                .map(|m| json!({"id": m.id(), "name": m.name(), "declared": true}))
+                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
                 .collect();
             let reported: Vec<Value> = match profile.kind {
                 crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
@@ -832,6 +795,7 @@ impl Hub {
                     .get(name)
                     .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
                     .unwrap_or_default(),
+                crate::config::HarnessKind::Terminal => Vec::new(),
             };
             for r in reported {
                 if !models.iter().any(|m| m["id"] == r["id"]) {
@@ -881,13 +845,13 @@ impl Hub {
             return Ok(child.clone());
         }
         self.wait_startup().await;
-        let agent = session.meta().harness;
+        let meta = session.meta();
+        let agent = meta.harness.clone();
         let (profile, defaults) = {
             let cfg = self.config.read().await;
-            let profile = cfg
-                .profile(&agent)
-                .cloned()
-                .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
+            let profile =
+                super::resolve::session_profile(&cfg, &agent, &meta.cwd, meta.remote_origin)
+                    .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
@@ -908,6 +872,34 @@ fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> S
 }
 
 /// Whether the harness takes its model on the command line or in env.
+/// A declared model as `_acpmux/models` lists it: id, name, `declared`, and
+/// the catalog fields its profile file gave (shortName, family, efforts…).
+pub fn declared_model_json(
+    model: &crate::config::DeclaredModel,
+    meta: Option<&crate::config::ProfileMeta>,
+) -> Value {
+    let mut v = json!({"id": model.id(), "name": model.name(), "declared": true});
+    if let Some(detail) = meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id()))
+        && let (Some(out), Ok(Value::Object(extra))) =
+            (v.as_object_mut(), serde_json::to_value(detail))
+    {
+        for (k, x) in extra {
+            if k != "id" && k != "name" {
+                out.insert(k, x);
+            }
+        }
+    }
+    v
+}
+
+/// `session/new` for a terminal harness: it runs in a terminal tab.
+pub fn terminal_harness_refusal(name: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "harness.terminal: {name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
+    ))
+    .with_data(json!({"reason": "harness.terminal", "harness": name}))
+}
+
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
     profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
@@ -930,4 +922,6 @@ pub struct NewRequest {
     pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
+    /// Per-session env (`session_env.rs`), already checked by the caller.
+    pub env: std::collections::BTreeMap<String, String>,
 }
