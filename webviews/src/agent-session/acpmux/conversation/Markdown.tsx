@@ -17,6 +17,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
+import "../../../markdown-task-checkbox.css";
 
 export type Align = "left" | "center" | "right" | null;
 

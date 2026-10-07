@@ -3590,6 +3590,7 @@ class SetColumnDockRequest:
     dock: bool
     edge: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[str, None, MissingType] = field(default=MISSING)
+    permanent: Union[bool, None, MissingType] = field(default=MISSING)
     transaction: Union[int, None, MissingType] = field(default=MISSING)
 
 
