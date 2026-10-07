@@ -5,6 +5,7 @@ Regression tests for Resources/bin/claude wrapper hook injection.
 
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import os
@@ -22,6 +23,39 @@ from node_runtime import ensure_node_on_path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+_RETAINED_SETTINGS_FIXTURES: list[Path] = []
+
+
+def _cleanup_retained_settings_fixtures() -> None:
+    for root in _RETAINED_SETTINGS_FIXTURES:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+atexit.register(_cleanup_retained_settings_fixtures)
+
+
+def retain_settings_artifact_for_assertions(home: Path, real_argv: list[str]) -> list[str]:
+    """Keep durable wrapper output readable after run_wrapper tears down its sandbox."""
+    if "--settings" not in real_argv:
+        return real_argv
+    index = real_argv.index("--settings")
+    if index + 1 >= len(real_argv):
+        return real_argv
+    source = Path(real_argv[index + 1])
+    durable_root = home / ".cmuxterm" / "claude-settings"
+    if not source.is_file() or source.parent != durable_root:
+        return real_argv
+    fixture_root = Path(tempfile.mkdtemp(prefix="cmux-claude-wrapper-settings-fixture-"))
+    fixture_dir = fixture_root / ".cmuxterm" / "claude-settings"
+    fixture_dir.mkdir(parents=True)
+    fixture_root.joinpath(".cmuxterm").chmod(0o700)
+    fixture_dir.chmod(0o700)
+    target = fixture_dir / source.name
+    shutil.copy2(source, target)
+    _RETAINED_SETTINGS_FIXTURES.append(fixture_root)
+    retained = list(real_argv)
+    retained[index + 1] = str(target)
+    return retained
 
 
 def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
@@ -453,12 +487,13 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        real_argv = retain_settings_artifact_for_assertions(Path(env["HOME"]), read_lines(real_args_log))
         stderr = proc.stderr.strip()
         if timed_out:
             stderr = f"timed out after {process_timeout}s: {stderr}".strip()
         return (
             proc.returncode,
-            read_lines(real_args_log),
+            real_argv,
             read_lines(cmux_log),
             stderr,
             claudecode_value,
@@ -1515,6 +1550,19 @@ def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
                 and settings_path.parent.parent.name == ".cmuxterm"
                 and not str(settings_path).startswith(str(session_tmpdir) + os.sep),
                 f"{label} settings purge: path must be durable and outside TMPDIR, got {settings_path}",
+                failures,
+            )
+            if settings_path.is_file():
+                expect(
+                    settings_path.stat().st_mode & 0o777 == 0o600
+                    and settings_path.parent.stat().st_mode & 0o777 == 0o700
+                    and settings_path.parent.parent.stat().st_mode & 0o777 == 0o700,
+                    f"{label} settings purge: durable settings cache must remain private, got {settings_path}",
+                    failures,
+                )
+            expect(
+                not list(session_tmpdir.glob("cmux-claude-settings*")),
+                f"{label} settings purge: temporary settings files were not cleaned up",
                 failures,
             )
 
