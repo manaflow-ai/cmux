@@ -20,6 +20,13 @@ struct ConversationLabView: UIViewControllerRepresentable {
         )
         let navigation = UINavigationController(rootViewController: controller)
         navigation.setNavigationBarHidden(true, animated: false)
+        // The lab has no conversation list, so Back opens New Message (the
+        // list's compose button in Messages); its first send replaces the
+        // shown conversation.
+        controller.onBack = { [weak navigation] in
+            guard let navigation else { return }
+            _ = ConversationComposeViewController.presentForSimulator(over: navigation, backend: backend)
+        }
         return navigation
     }
 

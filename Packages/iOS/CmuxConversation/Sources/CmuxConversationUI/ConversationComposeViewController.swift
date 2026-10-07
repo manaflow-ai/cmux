@@ -540,6 +540,8 @@ extension ConversationComposeViewController {
                     : "iMessage"
             )
             let controller = ConversationViewController(store: store, options: options)
+            // Keep the host's Back behavior (the lab opens New Message again).
+            controller.onBack = (navigation.viewControllers.first as? ConversationViewController)?.onBack
             navigation.setViewControllers([controller], animated: false)
             store.sendWhenConnected(message)
             navigation.dismiss(animated: true)
