@@ -285,8 +285,10 @@ struct SSHTuiMigrationTests {
 
     @Test("A restore carries the live fallback agent into SSH child environments")
     func restoredConfigurationUsesLiveFallbackAgent() throws {
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
         let saved = "/tmp/cmux-test-saved-agent.sock"
-        let current = "/tmp/cmux-test-current-agent.sock"
+        let current = listener.path
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "alice@example.invalid",
