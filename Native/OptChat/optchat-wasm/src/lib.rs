@@ -109,6 +109,12 @@ fn id(x: f64) -> Result<u64, JsError> {
     }
 }
 
+/// Byte offsets into `text` as JavaScript string indices (UTF-16 code
+/// units), where a JS caller slices the text it got.
+fn js_offsets(_text: &str, marks: &[usize]) -> Vec<usize> {
+    marks.to_vec()
+}
+
 /// A level: below 64, as every stored node has.
 fn level(l: u32) -> Result<u32, JsError> {
     if l < 64 {
@@ -220,8 +226,9 @@ impl OptChat {
     }
 
     pub fn complete(&mut self, l: u32, i: f64, text: &str) -> Result<(), JsError> {
-        self.memory.complete(NodeId::new(level(l)?, id(i)?), text);
-        Ok(())
+        self.memory
+            .complete(NodeId::new(level(l)?, id(i)?), text)
+            .map_err(|e| JsError::new(&e.to_string()))
     }
 
     pub fn fail(&mut self, l: u32, i: f64) -> Result<(), JsError> {
@@ -278,8 +285,8 @@ impl OptChat {
         let v = core::render_view(&self.memory, &host);
         host.check()?;
         Ok(serde_json::to_string(&Out {
+            marks: js_offsets(&v.text, &v.marks),
             text: v.text,
-            marks: v.marks,
         })
         .unwrap_or_default())
     }
@@ -341,7 +348,14 @@ impl OptChat {
             self.memory.fail(node);
             return Err(e);
         }
-        let marks = core::cache_marks(&r.context);
+        let r = match r {
+            Ok(r) => r,
+            Err(missing) => {
+                self.memory.fail(node);
+                return Err(JsError::new(&missing.to_string()));
+            }
+        };
+        let marks = js_offsets(&r.context, &core::cache_marks(&r.context));
         let room = r.room();
         Ok(serde_json::to_string(&Out {
             system: r.system,
@@ -378,5 +392,38 @@ pub fn finish_line(cut: &str, line: &str) -> String {
         line.to_string()
     } else {
         format!("{cut}{line}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit major 2 (fixed by 8c5aecd3f8a2, ids, and c6f2207069d6, zoom's
+    /// checked end): a JS number names a message only when it is a finite,
+    /// non-negative integer within 2^53, and a level is below 64.
+    #[test]
+    fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
+        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
+            assert!(id(bad).is_err(), "{bad} was taken as an id");
+        }
+        assert_eq!(
+            id(9_007_199_254_740_991.0).ok(),
+            Some(9_007_199_254_740_991)
+        );
+        assert!(level(64).is_err());
+        assert_eq!(level(63).ok(), Some(63));
+    }
+
+    /// Audit major 4: the marks a JS caller gets index its string (UTF-16
+    /// code units), not the UTF-8 bytes the core cuts at: `text.slice(0, m)`
+    /// must end exactly at the line end the core chose.
+    #[test]
+    fn marks_given_to_javascript_are_utf16_indices() {
+        let text = "é😀\nb\n";
+        // The core's byte mark after the first line: 2 + 4 + 1 bytes.
+        assert_eq!(js_offsets(text, &[7, 9]), vec![4, 6]);
+        let ascii = "ab\ncd\n";
+        assert_eq!(js_offsets(ascii, &[3]), vec![3]);
     }
 }

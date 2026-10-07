@@ -156,6 +156,24 @@ fn flatten(text: &str) -> String {
     text.replace('\n', " ")
 }
 
+/// A node the call needs is built but its text is not in the store: the
+/// request would show the model an empty or shortened line, and the node it
+/// writes would be wrong for good. The host must not call the model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MissingNode(pub NodeId);
+
+impl std::fmt::Display for MissingNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "node {} is built but its text is missing from the store",
+            self.0.name()
+        )
+    }
+}
+
+impl std::error::Error for MissingNode {}
+
 /// The call that builds `node`. No ids anywhere: the model copies them
 /// into its output when it sees them (section 4.2).
 pub fn compact_request(
@@ -163,7 +181,7 @@ pub fn compact_request(
     store: &dyn Store,
     node: NodeId,
     system: String,
-) -> CompactRequest {
+) -> Result<CompactRequest, MissingNode> {
     let upto = if node.l == 0 {
         node.start()
     } else {
@@ -212,13 +230,13 @@ pub fn compact_request(
             flatten(&store.node(b).unwrap_or_default())
         ),
     };
-    CompactRequest {
+    Ok(CompactRequest {
         node,
         system,
         context,
         step,
         cut,
-    }
+    })
 }
 
 /// The first and last `keep / 2` characters of `text` around a mark.
