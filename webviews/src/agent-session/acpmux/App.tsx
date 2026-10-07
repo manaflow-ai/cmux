@@ -22,7 +22,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
 } from "./model";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, isTrustRefusal } from "./direct";
+import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -58,6 +58,7 @@ import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -90,6 +91,9 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { SUBAGENTS } from "./subagents/subagentFold";
+import { SUBAGENT_ROW, withSubagentRows } from "./subagents/subagentRows";
+import { SubagentGroupHeader, SubagentListRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -323,6 +327,23 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
+const SubagentGroupRow = memo(
+  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const SubagentRow = memo(
+  function SubagentRow({ row }: RowProps) {
+    return <SubagentListRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
@@ -348,6 +369,8 @@ const defaultRegistry: NativeRegistry = {
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
   [MOVE_ROW]: MoveRow,
+  [SUBAGENTS]: SubagentGroupRow,
+  [SUBAGENT_ROW]: SubagentRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -790,6 +813,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
+      // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
+      onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -839,7 +864,16 @@ function AcpmuxPane() {
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
-  const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog);
+  /// A chat acpmux would not start because its folder harness needs the user's Enable or the
+  /// folder's Trust answer first (`harness.needs_enable` / `harness.needs_trust`).
+  const [blockedHarness, setBlockedHarness] = useState<HarnessBlock | undefined>();
+  // The chat's folder on this Mac, whose own harness profiles the catalog then lists too; while a
+  // folder harness waits for Enable or Trust (a new chat without a session), that harness's folder.
+  const catalogCwd =
+    clientSnapshot.summary?.hostKind !== "cloud" && !clientSnapshot.summary?.host
+      ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
+      : undefined;
+  const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
   const snapshot = useMemo(
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
@@ -940,7 +974,10 @@ function AcpmuxPane() {
         )
       : snapshot.rows;
     return withMoveRows(
-      withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns),
+      withShellRows(
+        withSubagentRows(turnView(rows, expanded, { working: snapshot.isWorking }), expanded),
+        chatShellRuns,
+      ),
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
@@ -1378,6 +1415,10 @@ function AcpmuxPane() {
     const startedSessions = new Set<string>();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
+    /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
+    const heldPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -1517,6 +1558,9 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // The send's own gesture is kept for this prompt now, before the Trust click, whose
+              // gesture goes to the trust answer (heldPrompt.ts).
+              void heldPrompt.hold();
               if (!inComposer) restorePrompt(text, attachments);
               trustRefused.current?.(error, () => composerHandle.current?.send());
             }
@@ -1531,10 +1575,16 @@ function AcpmuxPane() {
               refused(error, (error as { handedBack?: unknown }).handedBack === true),
             );
           }
-          const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
+          // A prompt acpmux held goes with the gesture its first send kept.
+          const kept = heldPrompt.take();
+          const sessionId = await client.ensureSession().catch((error: unknown) => {
+            // A folder harness that waits for Enable or Trust says so on its own card.
+            setBlockedHarness(harnessBlock(error));
+            return refused(error, Boolean(accepted));
+          });
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, undefined, accepted)
+            .send(text, attachments, kept?.promptId, accepted, kept?.ticket)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
@@ -1589,6 +1639,23 @@ function AcpmuxPane() {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // Enables a folder profile, then starts the chat on it. The request goes out before any
+          // await, inside the click or key handler that called this: the host's confirmation
+          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing.
+          "chat.harness.enable": ({ folder, id }) =>
+            client.harnessEnable(String(folder), String(id)).then(
+              async (result) => {
+                setBlockedHarness(undefined);
+                await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+                void harnessSwitch.switchTo(String(id));
+                return result;
+              },
+              (error: unknown) => {
+                if ((error as { code?: unknown } | null)?.code !== "transport.harness_not_confirmed")
+                  client.notice(errorMessage(error) || String(error));
+                return undefined;
+              },
+            ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
           "chat.history": () => client.loadOlder(),
@@ -1623,7 +1690,11 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            const sessionId = await client.startSession(harness, cwd);
+            const sessionId = await client.startSession(harness, cwd).catch((error: unknown) => {
+              setBlockedHarness(harnessBlock(error));
+              throw error;
+            });
+            setBlockedHarness(undefined);
             if (sessionId) startedSessions.add(sessionId);
             return sessionId;
           },
@@ -1952,10 +2023,40 @@ function AcpmuxPane() {
       )}
     </>
   );
+  // A failed start of a folder harness says what it waits for, in place of the switch's Retry
+  // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
+  const block =
+    blockedHarness &&
+    (snapshot.switching?.phase === "failed"
+      ? snapshot.switching.harness === blockedHarness.harness
+      : !snapshot.sessionId)
+      ? blockedHarness
+      : undefined;
+  const blockedName = block ? (catalog.find((entry) => entry.id === block.harness)?.name ?? block.harness) : undefined;
+  const harnessCard = block && (
+    <HostError
+      message={t(block.reason === "needs-enable" ? "harness.needsEnable" : "harness.needsTrust", {
+        agent: blockedName ?? block.harness,
+        folder: block.folder,
+      })}
+      hint={null}
+      {...(block.reason === "needs-enable"
+        ? {
+            action: t("harness.enable"),
+            onRetry: () =>
+              void callNative("chat.harness.enable", { folder: block.folder, id: block.harness }).catch(
+                () => undefined,
+              ),
+          }
+        : {})}
+    />
+  );
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
-      <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      {harnessCard ?? (
+        <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      )}
       {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
@@ -1989,10 +2090,19 @@ function AcpmuxPane() {
             if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
             return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
           };
+          // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+          // swaps it when the chat's session starts) puts the prompt in the one shown now.
+          const holder = composerHandle.current;
           const turn = send();
           turn.then(() => promptLanded.current(), cancelOpenInWindow);
           // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-          return Promise.race([taken, turn.then(() => true as const)]);
+          const held = Promise.race([taken, turn.then(() => true as const)]);
+          held.catch(() => {
+            if (composerHandle.current === holder) return;
+            if (composerHandle.current) composerHandle.current.restore(text, attachments);
+            else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          });
+          return held;
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
@@ -2118,6 +2228,7 @@ function AcpmuxPane() {
               }}
               onShowAll={showAllChats}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (

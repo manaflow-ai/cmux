@@ -89,13 +89,18 @@ public protocol OnboardingServices: AnyObject {
     // Lifecycle
     /// The window closed; `completed` is false when the user skipped.
     func onboardingDidEnd(completed: Bool)
-    /// The first run is at `step` (shown, or moved to): the App keeps it, so
-    /// a relaunch or a rebuilt window resumes there.
-    func onboardingDidReach(_ step: OnboardingModel.Step)
+    /// The first run is at `step`: the App keeps it, so a relaunch or a
+    /// rebuilt window resumes there. `interacted` is false when the window
+    /// only showed the step (opened or resumed), true when the person moved to it.
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool)
+    /// The first-run window closed without Skip or Done. `notNow` is true
+    /// when the person closed it (the close button), false when the App did.
+    func onboardingDidLeave(notNow: Bool)
 }
 
 public extension OnboardingServices {
-    func onboardingDidReach(_ step: OnboardingModel.Step) {}
+    func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {}
+    func onboardingDidLeave(notNow: Bool) {}
     var canRunFirstTask: Bool { false }
     var firstTaskFolder: FirstTaskFolder { .live() }
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }

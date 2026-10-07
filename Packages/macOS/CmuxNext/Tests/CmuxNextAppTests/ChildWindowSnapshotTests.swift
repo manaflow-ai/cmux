@@ -12,6 +12,13 @@ import WebKit
 /// window over a gray window stands in for the page: the pixel at the
 /// child's center must be red in both snapshot paths (the window server
 /// image alone, and the AppKit base drawn under painted WebKit pages).
+///
+/// Each test owns its windows. The composited tests need window server
+/// images of them (`.requiresWindowServerImages`). On a host whose window
+/// server gives none (the glaeda CI minis), the snapshot cannot include the
+/// child window, and the other two tests check that the result says so:
+/// `child_windows` 0 and `child_windows_failed` 1, not a claim of a child
+/// window that the image leaves out.
 @MainActor
 @Suite(.serialized)
 struct ChildWindowSnapshotTests {
@@ -79,7 +86,7 @@ struct ChildWindowSnapshotTests {
         (NSTemporaryDirectory() as NSString).appendingPathComponent("child-snapshot-\(UUID().uuidString).png")
     }
 
-    @Test(.requiresGUISession) func theWindowServerImageIncludesAChildWindow() throws {
+    @Test(.requiresGUISession, .requiresWindowServerImages) func theWindowServerImageIncludesAChildWindow() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let fixture = fixture(webView: false)
         defer { fixture.close() }
@@ -89,9 +96,10 @@ struct ChildWindowSnapshotTests {
         let pixel = try centerPixel(result, window: fixture.window)
         #expect(isRed(pixel), "the child window is missing from the snapshot: \(pixel)")
         #expect(result["child_windows"]?.intValue == 1, "\(result)")
+        #expect(result["child_windows_failed"]?.intValue == 0, "\(result)")
     }
 
-    @Test(.requiresGUISession) func theAppKitBaseUnderWebKitPagesIncludesAChildWindow() async throws {
+    @Test(.requiresGUISession, .requiresWindowServerImages) func theAppKitBaseUnderWebKitPagesIncludesAChildWindow() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let fixture = fixture(webView: true)
         defer { fixture.close() }
@@ -101,5 +109,32 @@ struct ChildWindowSnapshotTests {
         let pixel = try centerPixel(result, window: fixture.window)
         #expect(isRed(pixel), "the child window is missing from the snapshot: \(pixel)")
         #expect(result["child_windows"]?.intValue == 1, "\(result)")
+        #expect(result["child_windows_failed"]?.intValue == 0, "\(result)")
+    }
+
+    @Test(.requiresGUISession, .lacksWindowServerImages) func withoutWindowServerImagesTheSnapshotSaysTheChildWindowIsMissing() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let fixture = fixture(webView: false)
+        defer { fixture.close() }
+        let result = DebugWindowSnapshot.capture(["window": .string(String(fixture.window.windowNumber)), "path": .string(path())],
+                                                 services: services)
+        #expect(result["method"]?.stringValue == "appkit", "\(result)")
+        let pixel = try centerPixel(result, window: fixture.window)
+        #expect(!isRed(pixel), "AppKit drawing cannot include the child window: \(pixel)")
+        #expect(result["child_windows"]?.intValue == 0, "\(result)")
+        #expect(result["child_windows_failed"]?.intValue == 1, "\(result)")
+    }
+
+    @Test(.requiresGUISession, .lacksWindowServerImages) func withoutWindowServerImagesThePageSnapshotSaysTheChildWindowIsMissing() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let fixture = fixture(webView: true)
+        defer { fixture.close() }
+        let result = await DebugWindowSnapshot.captureAsync(["window": .string(String(fixture.window.windowNumber)), "path": .string(path())],
+                                                            services: services)
+        #expect(result["webviews"]?.intValue == 1, "\(result)")
+        let pixel = try centerPixel(result, window: fixture.window)
+        #expect(!isRed(pixel), "the window server gave no image of the child window: \(pixel)")
+        #expect(result["child_windows"]?.intValue == 0, "\(result)")
+        #expect(result["child_windows_failed"]?.intValue == 1, "\(result)")
     }
 }
