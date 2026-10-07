@@ -72,6 +72,9 @@ struct CLIVersionSkewMessageTests {
         #expect(CLIVersionSkew.versionOrder(cliShortVersion: "0.65.0", cliBuild: nil, peerVersion: "0.65.0", peerBuild: "109") == .orderedSame)
         #expect(CLIVersionSkew.versionOrder(cliShortVersion: "0.65.0", cliBuild: "abc", peerVersion: "0.65.0", peerBuild: "abd") == .orderedSame)
         #expect(CLIVersionSkew.versionOrder(cliShortVersion: "0.64.0", cliBuild: "200", peerVersion: "0.65.0", peerBuild: "100") == .orderedAscending)
+        // A suffixed build is not a number; it must not decide the order.
+        #expect(CLIVersionSkew.versionOrder(cliShortVersion: "0.65.0", cliBuild: "108-dev", peerVersion: "0.65.0", peerBuild: "109") == .orderedSame)
+        #expect(CLIVersionSkew.versionOrder(cliShortVersion: "0.65.0", cliBuild: "108", peerVersion: "0.65.0", peerBuild: "109 beta") == .orderedSame)
     }
 
     @Test("Same version and build keeps the original error")
