@@ -275,6 +275,11 @@ let package = Package(
         // and the cancellable importer. No UI, nothing main-actor.
         .target(
             name: "CmuxNextBrowserImport",
+            // browser-sources.json: the one browser source registry (decision
+            // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
+            resources: [
+                .copy("Resources/browser-sources.json"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
