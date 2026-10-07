@@ -104,14 +104,14 @@ export function RenderCard({
           </button>
         ) : (
           tall && (
-          <button
-            type="button"
-            className="acpmux-review-changes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? t("render.collapse") : t("render.expand")}
-          </button>
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? t("render.collapse") : t("render.expand")}
+            </button>
           )
         )}
       </div>

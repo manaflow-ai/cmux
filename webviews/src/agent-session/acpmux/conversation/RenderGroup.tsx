@@ -13,14 +13,21 @@ export function RenderGroup({ calls }: { calls: readonly RenderCall[] }) {
   if (shown)
     return (
       <div className="acpmux-render-group is-focused">
-        <button type="button" className="acpmux-review-changes acpmux-render-group-back" onClick={() => setFocused(null)}>
+        <button
+          type="button"
+          className="acpmux-review-changes acpmux-render-group-back"
+          onClick={() => setFocused(null)}
+        >
           {t("render.showAll")}
         </button>
         <RenderCard call={shown} startExpanded />
       </div>
     );
   return (
-    <div className="acpmux-render-group" style={{ gridTemplateColumns: `repeat(${Math.min(calls.length, 3)}, minmax(0, 1fr))` }}>
+    <div
+      className="acpmux-render-group"
+      style={{ gridTemplateColumns: `repeat(${Math.min(calls.length, 3)}, minmax(0, 1fr))` }}
+    >
       {calls.map((call, index) => (
         <RenderCard key={index} call={call} compact onExpand={() => setFocused(index)} />
       ))}

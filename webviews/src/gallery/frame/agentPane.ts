@@ -41,7 +41,14 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
         // The snapshot follows the answer, as the app's transport sends it: in a task after the
         // pane has read the answer (a new chat or New Tab page resets its snapshot right then).
         setTimeout(deliver, 0);
-        return answer({ protocolVersion: 1, transport: "preview", machineName: "This Mac", ...state.ready });
+        return answer({
+          protocolVersion: 1,
+          transport: "preview",
+          machineName: "This Mac",
+          // Render cards frame the file the app serves at cmux-agent://render/frame, beside this page.
+          renderFrame: new URL("render-frame.html", location.href).href,
+          ...state.ready,
+        });
       case "project.list":
       case "file.search":
         return answer([]);

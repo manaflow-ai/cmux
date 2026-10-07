@@ -661,7 +661,7 @@ function replyWithImages(session: MockSession): string {
 }
 
 /// A small app screen in `theme`: a sidebar, a title and a few settings rows.
-function screenMock(theme: "light" | "dark", title: string): string {
+export function screenMock(theme: "light" | "dark", title: string): string {
   const [bg, side, line, text, muted, accent] =
     theme === "light"
       ? ["#ffffff", "#f3f3f5", "#e4e4e8", "#1d1d1f", "#86868b", "#0a84ff"]

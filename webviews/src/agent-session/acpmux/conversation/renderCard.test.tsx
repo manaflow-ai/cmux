@@ -37,7 +37,10 @@ describe("render calls", () => {
 
   test("reads which option the agent recommends", () => {
     expect(renderCall(tool("render", { html: "<p>x</p>", recommended: true }))?.recommended).toBe(true);
-    expect(renderCall(tool("render", { html: "<p>x</p>", recommended: "yes" }))).toEqual({ html: "<p>x</p>", title: undefined });
+    expect(renderCall(tool("render", { html: "<p>x</p>", recommended: "yes" }))).toEqual({
+      html: "<p>x</p>",
+      title: undefined,
+    });
   });
 
   test("options sit side by side with the recommended one marked and each one expandable", () => {

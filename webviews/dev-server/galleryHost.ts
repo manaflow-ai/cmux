@@ -2,6 +2,8 @@
 //   /gallery/            the shell: every entry and state, with the controls
 //   /gallery/frame.html  one stage: one state of one entry under the controls (the shell's iframes,
 //                        the matrix runner's screenshots)
+//   /gallery/render-frame.html  the render cards' frame (acpmux/renderFrame.html, the bytes the app
+//                        serves at cmux-agent://render/frame), beside frame.html in the build too
 // Virtual modules, for `bun run dev` and the static build (vite.config.gallery.ts) alike:
 //   virtual:cmux-gallery/themes            every Ghostty theme the app ships (Resources/ghostty/themes)
 //   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at
@@ -25,6 +27,9 @@ const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/Cmu
 const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
 const galleryDir = path.join(webviewsRoot, "src/gallery");
+const RENDER_FRAME = path.join(SESSION, "acpmux/renderFrame.html");
+/** The render frame's file name beside frame.html; frame/agentPane.ts names it to the pane. */
+export const RENDER_FRAME_NAME = "render-frame.html";
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
 const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
@@ -164,6 +169,9 @@ export function galleryModules(): Plugin {
         server.ws.send({ type: "full-reload" });
       });
     },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: RENDER_FRAME_NAME, source: fs.readFileSync(RENDER_FRAME) });
+    },
     handleHotUpdate({ file, server, modules }) {
       // A save of any pane stylesheet updates the combined sheet in place.
       if (!agentPaneStylesheets().includes(file)) return undefined;
@@ -175,7 +183,7 @@ export function galleryModules(): Plugin {
   };
 }
 
-/** /gallery/ and /gallery/frame.html in the dev server. */
+/** /gallery/, /gallery/frame.html and the render frame in the dev server. */
 export function galleryHost(): Plugin {
   return {
     name: "cmux-dev-gallery",
@@ -187,6 +195,13 @@ export function galleryHost(): Plugin {
           response.statusCode = 302;
           response.setHeader("Location", `/gallery/${url.search}`);
           return response.end();
+        }
+        if (url.pathname === `/gallery/${RENDER_FRAME_NAME}`) {
+          // The file as it ships: its own policy (meta), no dev transform.
+          response.statusCode = 200;
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          return response.end(fs.readFileSync(RENDER_FRAME));
         }
         const page = /^\/gallery\/(index\.html|frame\.html)?$/.exec(url.pathname);
         if (!page) return next();
