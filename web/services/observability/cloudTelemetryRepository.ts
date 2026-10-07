@@ -89,13 +89,22 @@ export async function finishCloudDiagnostics(lease: CloudDiagnosticsLease, deliv
   await cloudDb().execute(cloudDiagnosticsFinishStatement(lease, delivered));
 }
 
-/** The acknowledgement for one claimed lease; exported so tests can inspect its plan. */
+/**
+ * The acknowledgement for one claimed lease; exported so tests can inspect its plan.
+ * `lease_id` has no index, and the delivered history holds millions of rows, so
+ * the claimed primary keys select the rows. The lease check still stops a stale
+ * worker from acknowledging rows that another drain has reclaimed.
+ */
 export function cloudDiagnosticsFinishStatement(lease: CloudDiagnosticsLease, delivered: boolean): SQL {
   const assignment = delivered
     ? sql`delivered_at = now(), lease_id = null`
     : sql`lease_id = null,
       next_attempt_at = now() + least(3600, 30 * power(2, least(attempts, 7))) * interval '1 second'`;
-  return sql`update cloud_diagnostic_events set ${assignment} where lease_id = ${lease.leaseId}::uuid`;
+  const keys = sql.join(lease.rows.map((row) => sql`(${row.userId}, ${row.eventId}::uuid)`), sql`, `);
+  return sql`
+    update cloud_diagnostic_events set ${assignment}
+    where (user_id, event_id) in (${keys}) and lease_id = ${lease.leaseId}::uuid
+  `;
 }
 
 /** Bounded retention. Return lost records so a full queue cannot disappear silently. */
