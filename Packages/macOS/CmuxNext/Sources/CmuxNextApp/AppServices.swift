@@ -122,7 +122,9 @@ final class AppServices {
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) var configActions: ConfigActionsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
-    private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry)
+    private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry, showHideEnabled: { [weak self] in
+        self?.settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyFallback
+    })
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()

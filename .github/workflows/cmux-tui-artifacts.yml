@@ -78,18 +78,18 @@ on:
         type: string
 
 concurrency:
-  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*),
-  # per PR, and per commit for a manual dispatch. cancel-in-progress stays
-  # false: a group then holds one running run and one pending run, and a newer
-  # push replaces only the pending one. A started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload, and a queued run for an older
-  # branch head is superseded: only the newest head's tree matters, and the
-  # macOS runners are scarce (2026-10-06: 30 runs queued behind ~3 macos-15
-  # slots when every commit had its own group). A superseded commit needs no
-  # tree (pin-cmux-tui.sh says so); publish one on purpose with a dispatch or a
-  # cmux-tui-pin-* push. Main stays serialized because each main run also
-  # updates latest/.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  # One group per feat-cmux-next push, per pushed branch otherwise (main, each
+  # cmux-tui-pin-*), per PR, and per commit for a manual dispatch.
+  # cancel-in-progress stays false, so a started run is never cancelled and no
+  # publish of immutable objects stops mid-upload. A shared group keeps one
+  # pending run that a newer run replaces, and that starved feat-cmux-next
+  # (2026-10-07 01:31-02:11: 13 of 14 base runs replaced before their
+  # preflight, so base trees went unpublished and every PR's same-tree wait
+  # timed out at 45 min). So every feat-cmux-next push runs: tree-preflight
+  # skips a complete tree, and tree-owner-wait and the per-run job groups keep
+  # one builder per tree key, so the macOS work is per tree, not per push.
+  # Main stays serialized because each main run also updates latest/.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
@@ -423,7 +423,7 @@ jobs:
       # Post-merge publication is off the PR critical path, so its two macOS
       # Rust legs run on the background lane (free GitHub-hosted capacity)
       # unless a dispatch names a runner. See docs/ci-runners.md.
-      macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
 
   # The daemon tests the cmux-next app relies on (Rust tests named
@@ -440,7 +440,7 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
-    runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1144,7 +1144,11 @@ jobs:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
+      # actions: write dispatches cmux-next's same-tree mode and removes the
+      # wait markers; pull-requests: read checks a waiting pull request's head.
+      actions: write
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1250,6 +1254,16 @@ jobs:
             verify_tree "$LEGACY_KEY"
           fi
 
+      # cmux-next runs that probed this tree before it was published left a
+      # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
+      # waited). Start them now: cmux-next.yml same-tree mode.
+      - name: Start the cmux-next tree jobs that waited for this tree
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
   # its opaque arm64 binary and uses the base checkout's uploader. The merge
@@ -1266,7 +1280,11 @@ jobs:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
       cancel-in-progress: false
     permissions:
+      # actions: write and pull-requests: read: see publish-tree. The notify
+      # script comes from the base checkout, like the uploader.
+      actions: write
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1359,3 +1377,45 @@ jobs:
             --uploader "$uploader" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
+
+      # cmux-next runs that probed this tree before it was published left a
+      # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
+      # waited). Start them now: cmux-next.yml same-tree mode.
+      - name: Start the cmux-next tree jobs that waited for this tree
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
+  # A run that took the build and ended without publishing its tree (a failed
+  # build, daemon test or publish) tells the cmux-next runs waiting for that
+  # key: same-tree mode with same_tree_state=failed reports it in red at once.
+  # The markers stay, so a later publication of the key (a takeover run, a
+  # cmux-tui-pin-* push) still starts their tree jobs.
+  notify-unpublished-tree:
+    name: report an unpublished cmux-tui tree to cmux-next
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
+    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      # The base branch's script on a pull_request_target run, the pushed one otherwise.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Report the unpublished tree to the cmux-next runs that wait for it
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state failed \
+            --reason "the cmux-tui artifacts run $RUN_URL ended without publishing tree $KEY (build, daemon tests or publish failed); re-run it, and its publish starts the tree jobs"

@@ -26,6 +26,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.globalHotKey" : {
+      "default" : false,
+      "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
+      "title" : "Global Hot Key",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
