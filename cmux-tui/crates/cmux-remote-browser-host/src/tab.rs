@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
     Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect, RefuseReason,
-    SessionState,
+    SessionState, SurfaceKind,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -26,6 +26,26 @@ pub trait Presentation {
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool;
     /// Answers the JS dialog with the fork's token (`text` for a prompt).
     fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool;
+    /// The viewer's window is active or not (page popups open only in an
+    /// active widget; `cmux_rp_set_active`).
+    fn set_active(&mut self, browser: i32, active: bool) -> bool;
+    /// Captures popup surface `surface` (its frames name the surface).
+    fn surface_capture(&mut self, surface: u32) -> bool;
+    /// Closes popup surface `surface`; the fork then reports it hidden.
+    fn surface_close(&mut self, surface: u32);
+}
+
+/// What the host does for a popup surface (RP7) besides the shim calls.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SurfaceOut {
+    /// Send to the viewers.
+    Control(Control),
+    /// Encode `surface`'s frames on `stream` (`width` x `height` pixels)
+    /// with an encoder of their own. Comes before the `rb.surface.show`
+    /// that names the stream.
+    AddStream { surface: u32, stream: u16, width: u32, height: u32 },
+    /// Stop encoding `stream` and give its held frame back.
+    RemoveStream { stream: u16 },
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -417,6 +437,30 @@ impl HostTab {
     /// Keys and buttons a viewer holds down now.
     pub fn held(&self) -> (usize, usize) {
         (self.held_keys.len(), self.held_buttons.len())
+    }
+
+    /// The fork opened (`visible`) or moved popup surface `surface` at
+    /// `anchor` (page DIP), or closed it.
+    pub fn surface_changed(
+        &mut self,
+        _surface: u32,
+        _kind: SurfaceKind,
+        _visible: bool,
+        _anchor: Rect,
+        _p: &mut dyn Presentation,
+    ) -> Vec<SurfaceOut> {
+        Vec::new()
+    }
+
+    /// A captured frame of `surface` with its pixel size: the first one
+    /// (or one of a new size) gives the surface a stream and shows it.
+    pub fn surface_frame(&mut self, _surface: u32, _width: u32, _height: u32) -> Vec<SurfaceOut> {
+        Vec::new()
+    }
+
+    /// The stream that carries `surface`, once it is shown.
+    pub fn surface_stream(&self, _surface: u32) -> Option<u16> {
+        None
     }
 
     /// The anchor of a `<select>` popup in the page (helper for the shim's

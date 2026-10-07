@@ -11,7 +11,9 @@
 //! engine wants a frame and none was captured yet.
 
 use cmux_rd_core::flow::Rect;
-use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, EngineStats, MediaEngine, Output};
+use cmux_rd_engine::{
+    EncodeRequest, Encoded, EngineConfig, EngineStats, MediaEngine, Output, StreamError,
+};
 use cmux_rd_proto::InputEvent as RdInput;
 use cmux_remote_browser::proto::InputEvent;
 
@@ -111,6 +113,34 @@ impl<E: FrameEncoder> Pump<E> {
         };
         self.serve(req, now_us, &mut out);
         out
+    }
+
+    /// Adds popup stream `stream` (`width` x `height` pixels) with its own
+    /// encoder; its first frame is a keyframe of the whole stream.
+    pub fn add_stream(
+        &mut self,
+        _stream: u16,
+        _width: u32,
+        _height: u32,
+        _encoder: E,
+    ) -> Result<(), StreamError> {
+        Ok(())
+    }
+
+    /// Removes popup stream `stream` and gives its held frame back.
+    pub fn remove_stream(&mut self, _stream: u16) {}
+
+    /// A captured frame of `stream` ([`Self::frame`] for another stream).
+    /// A frame of an unknown stream is dropped (its lease goes back).
+    pub fn frame_on(
+        &mut self,
+        _stream: u16,
+        _frame: E::Frame,
+        _damage: Rect,
+        _t_capture_us: u64,
+        _now_us: u64,
+    ) -> PumpOut {
+        PumpOut::default()
     }
 
     /// One datagram from the viewer. `may_inject` is the input gate.

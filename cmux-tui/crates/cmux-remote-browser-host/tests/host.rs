@@ -3,11 +3,11 @@
 
 use cmux_remote_browser::proto::{
     Control, Dialog, DialogKind, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, PointerKind,
-    Rect, ScreenInfo, SessionState, ViewerCaps,
+    Rect, ScreenInfo, SessionState, SurfaceKind, ViewerCaps,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall};
 use cmux_remote_browser::session::ScreenSize;
-use cmux_remote_browser_host::tab::{HostTab, Presentation};
+use cmux_remote_browser_host::tab::{HostTab, Presentation, SurfaceOut};
 
 #[derive(Default)]
 struct Fake {
@@ -16,6 +16,8 @@ struct Fake {
     refuse_capture: bool,
     /// Every input call, as sent.
     sent: Vec<RpCall>,
+    /// Activation and popup surface calls (kept apart from `calls`).
+    ui: Vec<String>,
 }
 
 impl Presentation for Fake {
@@ -56,6 +58,17 @@ impl Presentation for Fake {
         self.calls.push(format!("dialog_result {fork_token} {accept} {text:?}"));
         true
     }
+    fn set_active(&mut self, browser: i32, active: bool) -> bool {
+        self.ui.push(format!("set_active {browser} {active}"));
+        true
+    }
+    fn surface_capture(&mut self, surface: u32) -> bool {
+        self.ui.push(format!("surface_capture {surface}"));
+        true
+    }
+    fn surface_close(&mut self, surface: u32) {
+        self.ui.push(format!("surface_close {surface}"));
+    }
 }
 
 fn screen(w: u32, h: u32, scale: f64) -> ScreenInfo {
@@ -89,6 +102,7 @@ fn live_tab(fake: &mut Fake) -> HostTab {
     tab.tab_created(7, fake);
     tab.first_frame(fake);
     fake.calls.clear();
+    fake.ui.clear();
     tab
 }
 
@@ -486,4 +500,130 @@ fn a_key_repeat_holds_one_key_and_a_viewer_closing_releases_what_it_held() {
     fake.sent.clear();
     tab.control("v1", &Control::Close, &mut fake);
     assert_eq!(fake.sent, vec![key_up("KeyW", "w")]);
+}
+
+fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+    Rect { x, y, width, height }
+}
+
+fn show(surface: u32, stream: u16, anchor: Rect, width: u32, height: u32) -> SurfaceOut {
+    SurfaceOut::Control(Control::SurfaceShow {
+        surface,
+        stream,
+        kind: SurfaceKind::PagePopup,
+        anchor,
+        width,
+        height,
+    })
+}
+
+#[test]
+fn a_page_popup_gets_its_own_stream_on_its_first_frame_and_goes_with_its_widget() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let at = rect(10.0, 20.0, 200.0, 150.0);
+    let out = tab.surface_changed(5, SurfaceKind::PagePopup, true, at, &mut fake);
+    assert!(out.is_empty(), "nothing to show before the surface has pixels: {out:?}");
+    assert_eq!(fake.ui, vec!["surface_capture 5"]);
+    // The first frame gives it a stream; the stream exists before the show.
+    let out = tab.surface_frame(5, 400, 300);
+    assert_eq!(
+        out,
+        vec![
+            SurfaceOut::AddStream { surface: 5, stream: 1, width: 400, height: 300 },
+            show(5, 1, at, 400, 300),
+        ]
+    );
+    assert_eq!(tab.surface_stream(5), Some(1));
+    assert!(tab.surface_frame(5, 400, 300).is_empty(), "same size: same stream");
+    // Pointer input to the surface goes to the surface.
+    assert_eq!(tab.input(&pointer(5, PointerKind::Down, 30.0, 40.0, 0), &mut fake), Ok(true));
+    assert!(matches!(fake.sent.last(), Some(RpCall::SurfaceMouse { surface: 5, kind: 1, .. })));
+    // The widget moved.
+    let moved = rect(12.0, 22.0, 200.0, 150.0);
+    let out = tab.surface_changed(5, SurfaceKind::PagePopup, true, moved, &mut fake);
+    assert_eq!(
+        out,
+        vec![SurfaceOut::Control(Control::SurfaceUpdate {
+            surface: 5,
+            anchor: moved,
+            width: 400,
+            height: 300
+        })]
+    );
+    // The page closed it: hide, drop the stream, forget its held button.
+    let out = tab.surface_changed(5, SurfaceKind::PagePopup, false, moved, &mut fake);
+    assert_eq!(
+        out,
+        vec![
+            SurfaceOut::Control(Control::SurfaceHide { surface: 5 }),
+            SurfaceOut::RemoveStream { stream: 1 },
+        ]
+    );
+    assert_eq!(tab.surface_stream(5), None);
+    assert_eq!(tab.held(), (0, 0), "a gone surface holds no button");
+    fake.sent.clear();
+    assert_eq!(tab.input(&pointer(5, PointerKind::Up, 30.0, 40.0, 0), &mut fake), Ok(false));
+    assert!(fake.sent.is_empty(), "input to a gone surface is dropped");
+    assert!(tab.surface_frame(5, 400, 300).is_empty(), "a late frame of a gone surface");
+}
+
+#[test]
+fn a_popup_that_changes_size_moves_to_a_new_stream_and_each_popup_has_its_own() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let at = rect(0.0, 0.0, 100.0, 50.0);
+    tab.surface_changed(5, SurfaceKind::PagePopup, true, at, &mut fake);
+    tab.surface_frame(5, 200, 100);
+    let out = tab.surface_frame(5, 200, 160);
+    assert_eq!(
+        out,
+        vec![
+            SurfaceOut::Control(Control::SurfaceHide { surface: 5 }),
+            SurfaceOut::RemoveStream { stream: 1 },
+            SurfaceOut::AddStream { surface: 5, stream: 2, width: 200, height: 160 },
+            show(5, 2, at, 200, 160),
+        ]
+    );
+    tab.surface_changed(6, SurfaceKind::PagePopup, true, at, &mut fake);
+    let out = tab.surface_frame(6, 64, 64);
+    let add = SurfaceOut::AddStream { surface: 6, stream: 3, width: 64, height: 64 };
+    assert_eq!(out.first(), Some(&add));
+}
+
+#[test]
+fn the_tab_is_active_while_captured_and_a_hidden_tab_closes_its_popups() {
+    let mut fake = Fake::default();
+    let mut tab = HostTab::new(1, 41, "https://example.com/");
+    tab.control("v1", &open("v1", screen(1200, 800, 2.0)), &mut fake);
+    tab.tab_created(7, &mut fake);
+    assert_eq!(fake.ui, vec!["set_active 7 true"], "page popups open only in an active tab");
+    tab.first_frame(&mut fake);
+    tab.surface_changed(5, SurfaceKind::PagePopup, true, rect(0.0, 0.0, 10.0, 10.0), &mut fake);
+    fake.ui.clear();
+    tab.control("v1", &Control::Visibility { visible: false }, &mut fake);
+    assert_eq!(fake.ui, vec!["surface_close 5", "set_active 7 false"]);
+}
+
+#[test]
+fn release_all_releases_a_button_held_on_a_popup_surface() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.surface_changed(5, SurfaceKind::PagePopup, true, rect(0.0, 0.0, 10.0, 10.0), &mut fake);
+    tab.surface_frame(5, 20, 20);
+    tab.input(&pointer(5, PointerKind::Down, 3.0, 4.0, 0), &mut fake).expect("valid");
+    fake.sent.clear();
+    tab.release_all(&mut fake);
+    assert_eq!(
+        fake.sent,
+        vec![RpCall::SurfaceMouse {
+            surface: 5,
+            kind: 2,
+            x: 3.0,
+            y: 4.0,
+            button: 0,
+            click_count: 1,
+            modifiers: 0
+        }]
+    );
 }

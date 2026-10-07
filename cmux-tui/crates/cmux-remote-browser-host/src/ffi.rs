@@ -282,6 +282,16 @@ impl Presentation for ShimPresentation {
         unsafe { rb_shim_dialog_result(fork_token, c_int::from(accept), ptr) == 1 }
     }
 
+    fn set_active(&mut self, _browser: i32, _active: bool) -> bool {
+        false
+    }
+
+    fn surface_capture(&mut self, _surface: u32) -> bool {
+        false
+    }
+
+    fn surface_close(&mut self, _surface: u32) {}
+
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {
         match indices {
             // SAFETY: a null array with a negative count cancels.
