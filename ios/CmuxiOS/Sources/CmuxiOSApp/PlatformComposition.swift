@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxiOSFeatureKit
 import CmuxiOSPlatform
 import CmuxiOSPlatformUI
 import CmuxiOSShell
@@ -20,6 +21,11 @@ enum PlatformComposition {
                 AnyView(DiagnosticsView(model: diagnosticsModel(container: container)))
             },
         ]
+        if container.flags.isEnabled(.billing) {
+            links.append(ShellSettingsLink(id: "plans", title: plansTitle, systemImage: "creditcard") {
+                AnyView(PlansView(model: PlansModel(store: container.makeBillingStore())))
+            })
+        }
         if container.isDemo {
             links.append(ShellSettingsLink(id: "demo", title: demoTitle, systemImage: "theatermasks") {
                 AnyView(DemoContentView())
@@ -107,6 +113,20 @@ enum PlatformComposition {
 
     private static var whatsNewTitle: String {
         String(localized: "platform.settings.whatsNew", defaultValue: "What's New", bundle: .module)
+    }
+
+    /// DEV preview of the Keep Mac Awake rows over the mock Macs.
+    static func keepAwakePreview(container: AppContainer) -> UIViewController {
+        let macs = MockFixtures.hosts().compactMap { host -> (id: HostID, name: String)? in
+            if case .pairedMac = host.kind { return (host.id, host.name) }
+            return nil
+        }
+        let model = KeepAwakeModel(control: container.makeKeepAwakeControl())
+        return UIHostingController(rootView: NavigationStack { KeepAwakeSection(macs: macs, model: model) })
+    }
+
+    private static var plansTitle: String {
+        String(localized: "platform.settings.plans", defaultValue: "Plans", bundle: .module)
     }
 
     private static var demoTitle: String {

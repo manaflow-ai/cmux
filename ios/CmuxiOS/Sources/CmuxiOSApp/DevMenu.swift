@@ -59,6 +59,10 @@ enum DevMenu {
                 presenter?.present(gate, animated: true)
             }
         })
+        // DEBUG-only: Keep Mac Awake rows over the mock Macs (C16 stub).
+        sheet.addAction(UIAlertAction(title: "Keep Mac Awake (mock)", style: .default) { [weak presenter] _ in
+            presenter?.present(PlatformComposition.keepAwakePreview(container: container), animated: true)
+        })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
             let lab = UINavigationController(rootViewController: UIHostingController(rootView: NetLabView()))

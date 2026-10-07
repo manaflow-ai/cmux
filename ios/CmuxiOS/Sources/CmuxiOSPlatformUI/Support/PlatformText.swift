@@ -114,4 +114,39 @@ enum PlatformText {
                defaultValue: "This account shows sample Macs, workspaces and feed items. Nothing you do here reaches a real Mac.",
                bundle: .module)
     }
+
+    // MARK: Keep Mac Awake
+    static var keepAwakeTitle: String {
+        String(localized: "platform.keepAwake.title", defaultValue: "Keep Mac Awake", bundle: .module)
+    }
+    static func keepAwakeOn(_ mac: String) -> String {
+        String(format: String(localized: "platform.keepAwake.on", defaultValue: "%@ stays awake while cmux runs.", bundle: .module), mac)
+    }
+    static func keepAwakeOff(_ mac: String) -> String {
+        String(format: String(localized: "platform.keepAwake.off", defaultValue: "%@ sleeps on its normal schedule.", bundle: .module), mac)
+    }
+    static func keepAwakeUnsupported(_ mac: String) -> String {
+        String(format: String(localized: "platform.keepAwake.unsupported",
+                              defaultValue: "Update cmux on %@ to use this.", bundle: .module), mac)
+    }
+    static var keepAwakeChecking: String {
+        String(localized: "platform.keepAwake.checking", defaultValue: "Checking…", bundle: .module)
+    }
+    static var keepAwakeOffline: String {
+        String(localized: "platform.keepAwake.offline", defaultValue: "Connect to this Mac to change this.", bundle: .module)
+    }
+
+    // MARK: Plans
+    static var plansTitle: String {
+        String(localized: "platform.plans.title", defaultValue: "Plans", bundle: .module)
+    }
+    static var plansCurrent: String {
+        String(localized: "platform.plans.current", defaultValue: "Current Plan", bundle: .module)
+    }
+    static var plansRestore: String {
+        String(localized: "platform.plans.restore", defaultValue: "Restore Purchases", bundle: .module)
+    }
+    static var plansUnavailable: String {
+        String(localized: "platform.plans.unavailable", defaultValue: "The store is not available right now.", bundle: .module)
+    }
 }

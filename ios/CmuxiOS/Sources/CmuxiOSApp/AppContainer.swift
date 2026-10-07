@@ -42,6 +42,10 @@ final class AppContainer {
     var onDemoChange: (() -> Void)?
     /// B5 fills this from capability negotiation; nil keeps the mock.
     var macCapabilitiesFactory: (@Sendable () -> any MacCapabilitiesSource)?
+    /// B5 fills this with the Mac's power assertion; nil keeps the mock.
+    var keepAwakeFactory: (@Sendable () -> any KeepAwakeControl)?
+    /// The StoreKit store once plans are decided (C12); nil keeps the mock.
+    var billingFactory: (@Sendable () -> any BillingStore)?
     private var featuresDemo = false
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
@@ -189,6 +193,14 @@ final class AppContainer {
 
     func makeMacCapabilitiesSource() -> any MacCapabilitiesSource {
         macCapabilitiesFactory?() ?? MockMacCapabilitiesSource()
+    }
+
+    func makeKeepAwakeControl() -> any KeepAwakeControl {
+        keepAwakeFactory?() ?? MockKeepAwakeControl()
+    }
+
+    func makeBillingStore() -> any BillingStore {
+        billingFactory?() ?? MockBillingStore()
     }
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
