@@ -161,8 +161,13 @@ fn tunnel_from_raw(raw: RawTunnel) -> Result<TunnelConfig, ConfigError> {
             text.parse().map_err(|_| ConfigError(format!("meshAddress is not IPv4: {text:?}")))?,
         ),
     };
-    let allowed_ips =
-        raw.allowed_ips.iter().map(|entry| entry.parse()).collect::<Result<Vec<Cidr>, _>>()?;
+    // IPv4 only inside the tunnel: the mesh's IPv6 range is listed too and skipped here.
+    let allowed_ips = raw
+        .allowed_ips
+        .iter()
+        .filter(|entry| !entry.contains(':'))
+        .map(|entry| entry.parse())
+        .collect::<Result<Vec<Cidr>, _>>()?;
     if allowed_ips.is_empty() {
         return Err(ConfigError("allowedIps is empty".into()));
     }

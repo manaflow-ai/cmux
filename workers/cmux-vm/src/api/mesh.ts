@@ -206,7 +206,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(DeviceList)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("List a mesh's devices", "mesh:read", EXPERIMENT)),
+      .annotateContext(describe("List a mesh's devices", "mesh:read", `A tenant admin sees every device; any other principal only the devices it enrolled. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("getDevice", "/v1/devices/:deviceId")
@@ -215,7 +215,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(Device)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Get a device", "mesh:read", EXPERIMENT)),
+      .annotateContext(describe("Get a device", "mesh:read", `Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.del("deleteDevice", "/v1/devices/:deviceId")
@@ -224,7 +224,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Remove a device and its tunnel", "mesh:join", `Access ends within a second. ${EXPERIMENT}`)),
+      .annotateContext(describe("Remove a device and its tunnel", "mesh:join", `Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("getDevicePeers", "/v1/devices/:deviceId/peers")
@@ -233,7 +233,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(PeerMap)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("What this device may reach", "mesh:join", `Compiled from the current ACL. ${EXPERIMENT}`)),
+      .annotateContext(describe("What this device may reach", "mesh:join", `Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("getTunnel", "/v1/tunnels/:tunnelId")
@@ -242,7 +242,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(TunnelConfig)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. ${EXPERIMENT}`)),
+      .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")
