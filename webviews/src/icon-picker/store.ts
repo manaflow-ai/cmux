@@ -66,6 +66,26 @@ export interface PickerStoreOptions {
   readonly now?: () => number;
 }
 
+/** The jump bar's glyph for each emoji group (Unicode emoji-test group ids). */
+const GROUP_GLYPHS: Readonly<Record<string, string>> = {
+  recent: "🕘",
+  "smileys-emotion": "😀",
+  "people-body": "👋",
+  "animals-nature": "🐻",
+  "food-drink": "🍔",
+  "travel-places": "🚗",
+  activities: "⚽",
+  objects: "💡",
+  symbols: "🔣",
+  flags: "🏁",
+};
+/** The jump bar's SF Symbol for the Symbols tab's own sections. */
+const SECTION_SYMBOLS: Readonly<Record<string, string>> = {
+  recent: "clock",
+  allSymbols: "square.grid.2x2",
+  "symbolCategory.other": "ellipsis.circle",
+};
+
 export const CELL_SIZE = 44;
 export const HEADER_SIZE = 28;
 
@@ -76,6 +96,8 @@ export class PickerStore {
   private symbols: readonly SymbolItem[] = [];
   /** Shown system categories (sections), in the system's order. */
   private symbolCategories: readonly SymbolCategory[] = [];
+  /** Section id -> the category's SF Symbol (jump bar). */
+  private categoryIcons = new Map<string, string>();
   /** Indices of names in no shown category (the last section). */
   private uncategorized: readonly number[] = [];
   private multicolor: ReadonlySet<number> = new Set();
@@ -83,7 +105,7 @@ export class PickerStore {
   private prefs: PickerPrefs = EMPTY_PREFS;
   private prefsVersion = 0;
   private columns = 9;
-  private cache?: { key: string; layout: GridLayout<PickerCell> };
+  private cache?: { key: string; layout: GridLayout<PickerCell>; jumps: readonly JumpTarget[] };
 
   constructor(private readonly options: PickerStoreOptions) {
     this.load(options.symbols ?? [], options.maxEmojiVersion);
@@ -123,6 +145,9 @@ export class PickerStore {
       .filter((category) => !HIDDEN_SYMBOL_CATEGORIES.has(category.key))
       .map((category) => ({ ...category, members: valid(category.members) }))
       .filter((category) => category.members.length > 0);
+    this.categoryIcons = new Map(
+      this.symbolCategories.map((category) => [`symbolCategory.${category.key}`, category.icon]),
+    );
     const placed = new Set(this.symbolCategories.flatMap((category) => category.members));
     this.uncategorized = this.symbolCategories.length
       ? [...Array(count).keys()].filter((index) => !placed.has(index))
@@ -203,13 +228,23 @@ export class PickerStore {
   }
 
   /** Activates section `id`'s first cell; returns its header offset (null when absent). */
-  jump(_id: string): number | null {
-    return null;
+  jump(id: string): number | null {
+    const section = this.snapshot.layout.sections.find((anchor) => anchor.id === id);
+    if (!section) return null;
+    this.setActive(section.first);
+    return section.top;
   }
 
   /** Jumps to the section `step` after (or before) the active cell's section. */
-  jumpBy(_step: 1 | -1): number | null {
-    return null;
+  jumpBy(step: 1 | -1): number | null {
+    const { sections } = this.snapshot.layout;
+    if (sections.length === 0) return null;
+    let current = 0;
+    for (let index = 0; index < sections.length; index++) {
+      if (sections[index].first <= this.snapshot.active) current = index;
+    }
+    const target = sections[Math.min(sections.length - 1, Math.max(0, current + step))];
+    return this.jump(target.id);
   }
 
   private update(change: Partial<Omit<PickerSnapshot, "layout" | "jumps">>) {
@@ -223,11 +258,22 @@ export class PickerStore {
     if (this.cache?.key !== key) {
       const sections =
         state.tab === "symbol" ? this.symbolSections(state.query) : this.emojiSections(state.query, state.tone);
-      this.cache = { key, layout: layoutGrid(sections, this.columns, { cell: CELL_SIZE, header: HEADER_SIZE }) };
+      const layout = layoutGrid(sections, this.columns, { cell: CELL_SIZE, header: HEADER_SIZE });
+      this.cache = { key, layout, jumps: this.jumpTargets(state.tab, layout) };
     }
-    const layout = this.cache.layout;
+    const { layout, jumps } = this.cache;
     const active = layout.items.length === 0 ? -1 : Math.min(Math.max(0, state.active), layout.items.length - 1);
-    return { tab: state.tab, query: state.query, tone: state.tone, active, reveal: state.reveal, layout, jumps: [] };
+    return { tab: state.tab, query: state.query, tone: state.tone, active, reveal: state.reveal, layout, jumps };
+  }
+
+  /** One target per titled section; search results (an untitled section) have none. */
+  private jumpTargets(tab: PickerTab, layout: GridLayout<PickerCell>): JumpTarget[] {
+    return layout.sections.map(({ id, title, first }) => {
+      if (tab === "symbol")
+        return { id, label: title, symbol: this.categoryIcons.get(id) ?? SECTION_SYMBOLS[id] ?? "circle" };
+      // A group a newer table adds shows its first emoji.
+      return { id, label: title, glyph: GROUP_GLYPHS[id] ?? layout.items[first]?.emoji ?? "•" };
+    });
   }
 
   private emojiCell(record: EmojiRecord, tone: SkinTone): PickerCell {

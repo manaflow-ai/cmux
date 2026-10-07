@@ -25,9 +25,7 @@ const saved: Record<string, unknown> = {};
 // have loaded it before any DOM existed (no onChange for typing). Load a fresh copy once a DOM
 // exists, as settings/testing.tsx does.
 function freshCreateRoot(): typeof import("react-dom/client").createRoot {
-  const path = fileURLToPath(
-    new URL("./cjs/react-dom-client.development.js", import.meta.resolve("react-dom/client")),
-  );
+  const path = fileURLToPath(new URL("./cjs/react-dom-client.development.js", import.meta.resolve("react-dom/client")));
   delete require.cache[path];
   return (require(path) as typeof import("react-dom/client")).createRoot;
 }
@@ -55,9 +53,7 @@ beforeEach(async () => {
       freshCreateRoot(),
     );
   });
-  await act(async () =>
-    host.open({ id: "s1", canClear: true, assets: true, symbols: MOCK_SYMBOLS }),
-  );
+  await act(async () => host.open({ id: "s1", canClear: true, assets: true, symbols: MOCK_SYMBOLS }));
 });
 
 afterEach(() => {
@@ -68,21 +64,15 @@ const doc = () => dom.window.document;
 const search = () => doc().querySelector<HTMLInputElement>(".icon-picker-search")!;
 const press = (key: string, mods: Partial<KeyboardEventInit> = {}) =>
   act(() => {
-    search().dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...mods }),
-    );
+    search().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...mods }));
   });
 const type = (text: string) =>
   act(() => {
-    const setter = Object.getOwnPropertyDescriptor(
-      dom.window.HTMLInputElement.prototype,
-      "value",
-    )!.set!;
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     setter.call(search(), text);
     search().dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-const activeLabel = () =>
-  doc().querySelector(".icon-cell[data-active] [aria-label]")?.getAttribute("aria-label");
+const activeLabel = () => doc().querySelector(".icon-cell[data-active] [aria-label]")?.getAttribute("aria-label");
 
 test("opens on the emoji tab with search focused and a virtualized grid", () => {
   expect(doc().activeElement).toBe(search());
@@ -187,9 +177,7 @@ test("the category bar names each group and jumps the grid to its header", async
   // One tab stop: the current section's button; arrows move between the others.
   expect(buttons.filter((button) => button.tabIndex === 0).length).toBe(1);
   await act(() => buttons.find((button) => button.getAttribute("aria-label") === "Flags")!.click());
-  const flags = picker.store
-    .getSnapshot()
-    .layout.sections.find((section) => section.id === "flags")!;
+  const flags = picker.store.getSnapshot().layout.sections.find((section) => section.id === "flags")!;
   expect(doc().querySelector<HTMLElement>(".icon-grid-scroll")!.scrollTop).toBe(flags.top);
   expect(picker.store.getSnapshot().active).toBe(flags.first);
   await type("cat");

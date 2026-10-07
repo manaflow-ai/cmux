@@ -325,3 +325,56 @@
 .icon-asset-error {
   color: var(--page-text);
 }
+
+/* The category jump bar: one row of small buttons, scrolled sideways when the categories do not
+   fit (about 30 SF Symbol categories). The current section reads like the selected tab. */
+.icon-jump-bar {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+
+.icon-jump-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.icon-jump {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  padding: 0;
+}
+
+.icon-jump:hover {
+  background: var(--page-hover);
+}
+
+.icon-jump[aria-current="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.icon-jump:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: -2px;
+}
+
+.icon-jump-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.icon-jump-symbol {
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+}
