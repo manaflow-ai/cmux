@@ -76,6 +76,7 @@ extension AgentPaneTransport {
                 facts.foreignSource = true
                 facts.handoffId = params["handoffId"] as? String
             }
+            facts.harnessEnable = method == "_acpmux/harness_enable"
         }
         if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
             let value = requested.value ?? configValueText(frame)

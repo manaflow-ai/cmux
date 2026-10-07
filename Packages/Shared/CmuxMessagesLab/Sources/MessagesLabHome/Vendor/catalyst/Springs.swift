@@ -304,11 +304,16 @@ enum Animate {
         layer.add(a, forKey: "sampled.\(keyPath).\(serial)")
     }
 
+    /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
+    /// the A/B bench of the one-animation form; animations per send).
+    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
+
     /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
     /// where the render server did not hold a backward fill for a start that lay ahead. A layer
     /// with no superlayer (a mask, a detached layer) counts as paused: the two-animation form is
     /// right in both trees.
     static func inPausedTree(_ layer: CALayer) -> Bool {
+        if twoAnimationForm { return true }
         var l = layer
         while let up = l.superlayer {
             if l.speed == 0 { return true }

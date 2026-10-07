@@ -9,6 +9,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
+    /// Set while the App closes the window itself (`closeForRebuild`).
+    private var closingForRebuild = false
 
     /// `variant` forces one screen design (the gallery's full-size preview).
     public init(model: OnboardingModel, variant: (any OnboardingScreenVariant.Type)? = nil) {
@@ -56,8 +58,15 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         model.stepDidAppear()
     }
 
+    /// Closes the window for the App (a rebuild for another step), which is
+    /// not the person's "not now".
+    public func closeForRebuild() {
+        closingForRebuild = true
+        close()
+    }
+
     public func windowWillClose(_ notification: Notification) {
-        model.leave()
+        model.leave(notNow: !closingForRebuild)
         onClose?()
     }
 }

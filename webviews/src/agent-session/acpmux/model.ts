@@ -173,6 +173,15 @@ export type AcpmuxSnapshot = {
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
+    /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
+     * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
+     * (`diagnostic`: its first problem). Global harnesses have none. */
+    folder?: {
+      folder: string;
+      path?: string;
+      state: "enabled" | "needs-enable" | "needs-trust" | "error";
+      diagnostic?: string;
+    };
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
