@@ -66,6 +66,16 @@ nonisolated enum AcpmuxStatusClient {
                               asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
     }
 
+    /// `_acpmux/harness_enable {folder, id}` without sha256 (unix socket): the Enable harness
+    /// prompt. Writes nothing. Nil when the daemon refuses (no trusted answer, an invalid file, no
+    /// such profile) or cannot answer.
+    @concurrent static func harnessEnablePrompt(socketPath: String, folder: String, id: String,
+                                                deadline: Duration = .seconds(5)) async -> AgentPaneHarnessEnablePrompt? {
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/harness_enable",
+                                           params: ["folder": folder, "id": id], deadline: deadline) else { return nil }
+        return AgentPaneHarnessEnablePrompt(result: result)
+    }
+
     private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                              deadline: Duration) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)

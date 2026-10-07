@@ -135,9 +135,16 @@ public final class MockOnboardingServices: OnboardingServices {
 
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
-    /// Each first-run step the model reported, in order.
+    /// Each first-run step the model reported, in order, and whether the person moved there.
     public private(set) var reached: [OnboardingModel.Step] = []
-    public func onboardingDidReach(_ step: OnboardingModel.Step) { reached.append(step) }
+    public private(set) var reachedInteracted: [Bool] = []
+    public func onboardingDidReach(_ step: OnboardingModel.Step, interacted: Bool) {
+        reached.append(step)
+        reachedInteracted.append(interacted)
+    }
+    /// How the first-run window last closed without Skip or Done (nil: it did not).
+    public private(set) var leftNotNow: Bool?
+    public func onboardingDidLeave(notNow: Bool) { leftNotNow = notNow }
 
     /// Sample data for the gallery: four browsers, the given themes and accounts view.
     public static func gallerySample(themes: [ThemeChoice], accountsView: NSView?) -> MockOnboardingServices {

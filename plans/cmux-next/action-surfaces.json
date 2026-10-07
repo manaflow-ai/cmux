@@ -2707,6 +2707,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace toggle-top",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.toggleTop",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Workspace to Top\/Remove from Top",
+      "title_key" : "action.workspace.toggleTop",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace move-to-bottom",
       "context_menu" : "offered",
       "context_menus" : [
@@ -7547,6 +7573,58 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "tab set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "Set Tab Icon…",
+      "title_key" : "action.tab.setIcon",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "Remove Tab Icon",
+      "title_key" : "action.tab.clearIcon",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "tab show-resources",
       "context_menu" : "offered",
@@ -8318,7 +8396,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Save Tab Group",
+      "title" : "Pin Group",
       "title_key" : "action.tabGroup.save",
       "title_table" : "ActionCatalog"
     },
@@ -8344,7 +8422,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Unsave Tab Group",
+      "title" : "Unpin Group",
       "title_key" : "action.tabGroup.unsave",
       "title_table" : "ActionCatalog"
     },
@@ -16076,6 +16154,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-add-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.addHarness",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Harness…",
+      "title_key" : "action.palette.addHarness",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",
@@ -18381,6 +18485,32 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action remote-open-browser-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.openBrowserTab",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Open Remote Browser Tab",
+      "title_key" : "action.remote.openBrowserTab",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "settings reload-configuration",
       "context_menu" : "noObject",
@@ -18995,6 +19125,32 @@
       },
       "title" : "Onboarding…",
       "title_key" : "action.palette.onboarding",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings continue-setup",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "onboarding.continueSetup",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Continue Setup…",
+      "title_key" : "action.onboarding.continueSetup",
       "title_table" : "ActionCatalog"
     },
     {
@@ -28694,7 +28850,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "terminal.clearTheme",
+              "id" : "tab.setIcon",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -28707,7 +28863,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "terminal.keep",
+              "id" : "terminal.clearTheme",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -28719,12 +28875,21 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 8
+              "enabled_when" : "can_perform",
+              "id" : "tab.clearIcon",
+              "kind" : "action",
+              "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.toggleFullWidthTab",
+              "id" : "terminal.keep",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -28741,9 +28906,26 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "hibernateTab",
+              "id" : "palette.toggleFullWidthTab",
               "kind" : "action",
               "order" : 11,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 12
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "hibernateTab",
+              "kind" : "action",
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28756,7 +28938,7 @@
               "enabled_when" : "can_perform",
               "id" : "wakeTab",
               "kind" : "action",
-              "order" : 12,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28769,7 +28951,7 @@
               "enabled_when" : "can_perform",
               "id" : "disconnectRemoteTab",
               "kind" : "action",
-              "order" : 13,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -28780,13 +28962,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 14
+              "order" : 16
             },
             {
               "enabled_when" : "can_perform",
               "id" : "tab.showResources",
               "kind" : "action",
-              "order" : 15,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -31013,7 +31195,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.moveToSpace",
+              "id" : "workspace.toggleTop",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -31026,7 +31208,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateToSpace",
+              "id" : "workspace.moveToSpace",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -31039,9 +31221,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.mergeInto",
+              "id" : "workspace.duplicateToSpace",
               "kind" : "action",
               "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.mergeInto",
+              "kind" : "action",
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
