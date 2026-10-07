@@ -49,9 +49,15 @@ pub enum TerminalDeviceKind {
 }
 
 impl TerminalDeviceKind {
-    /// Phones and tablets defer to a Mac or TUI of the same user.
+    /// Phones and tablets defer to a desktop of the same user.
     pub fn is_handheld(self) -> bool {
         matches!(self, Self::Iphone | Self::Ipad)
+    }
+
+    /// A Mac, a TUI, or the desktop app on Linux or Windows: a handheld of
+    /// the same user defers to it.
+    pub fn is_desktop(self) -> bool {
+        matches!(self, Self::Mac | Self::Tui | Self::Linux | Self::Windows)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -463,12 +469,12 @@ impl TerminalSizingEngine {
         else {
             return true;
         };
-        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // Defer only to a desktop of the same user that itself counts: a
         // viewer-only or viewport-less Mac leaves the phone in charge.
         !self.entries.iter().any(|other| {
             let other = &other.participant;
             other.user_id.as_ref() == Some(user)
-                && matches!(other.device_kind, TerminalDeviceKind::Mac | TerminalDeviceKind::Tui)
+                && other.device_kind.is_desktop()
                 && other.viewport.is_some()
                 && other.counts_override != Some(false)
         })
@@ -763,5 +769,8 @@ mod tests {
         // A Linux or Windows client is a desktop, not a handheld.
         assert!(!TerminalDeviceKind::parse("linux").is_handheld());
         assert!(!TerminalDeviceKind::parse("windows").is_handheld());
+        assert!(TerminalDeviceKind::parse("linux").is_desktop());
+        assert!(TerminalDeviceKind::parse("windows").is_desktop());
+        assert!(!TerminalDeviceKind::parse("quantum").is_desktop());
     }
 }

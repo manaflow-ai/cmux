@@ -68,10 +68,10 @@ A participant **counts toward size** when it is attached, has a viewport, and:
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
 - otherwise, in `smallest` and `largest`, every attached participant counts.
 - otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
-  while a `mac` or `tui` participant of the same `user_id` is attached and
-  itself counts (it has a viewport and is not viewer-only). With two Macs of
-  one user, the phone defers while either counts. Every other participant
-  counts.
+  while a desktop participant (`mac`, `tui`, `linux` or `windows`) of the same
+  `user_id` is attached and itself counts (it has a viewport and is not
+  viewer-only). With two Macs of one user, the phone defers while either
+  counts. Every other participant counts.
 
 The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 `<user_id or "anon:" + id>/<device_kind>` for a device without an id, so a
@@ -374,8 +374,9 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
 - `device_kind` `linux` and `windows` name the GPUI desktop app on Linux and
   Windows. They reach only connections that send `open-device-kinds-v1` (they
   read a kind they do not know as `unknown`); other connections get `unknown`.
-  The Swift reducer reads them as `unknown`, and a phone does not defer to
-  them (only to a Mac or TUI of the same user).
+  A phone defers to them as to a Mac or TUI of the same user (Rust and Swift
+  reducers, fixture "phone defers to a counting linux or windows desktop of
+  the same user").
 - `attach-surface` responses gain `participant` (the host id of this view).
 - A relay sub-view (a phone behind a Mac) has no byte stream:
   `resize-attached-view {surface, view: "mobile:<client_id>", identity:
