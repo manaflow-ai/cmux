@@ -3,7 +3,8 @@
 One entry is one file, `<Name>.gallery.ts` (or `.tsx`), next to the page or component it shows. Its
 default export is the entry. The gallery finds every such file under `webviews/src` by itself
 (`src/gallery/registry.ts` in the browser, `scripts/gallery/entries.ts` in tests). There is no list
-to edit.
+to edit. Each file loads on its own: if yours does not compile, throws or exports nothing, the
+gallery shows an error card for it alone and every other entry keeps working.
 
 ## The entry
 
@@ -22,15 +23,17 @@ to edit.
 
 The host decides how the real code receives the data:
 
-| helper              | host                                                            | a variant is                                                              |
-| ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `agentPaneEntry`    | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot` |
-| `markdownPageEntry` | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                            |
-| `diffPageEntry`     | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`        |
-| `componentEntry`    | one React component under `UiProvider` and the page base styles | `{ props }`, plus `load: () => import(...)`                               |
-| `nativeEntry`       | the native gallery only (CmuxNextGallery)                       | `{ fixture }`: a repo path of a Swift model's JSON                        |
+| helper               | host                                                            | a variant is                                                              |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `agentPaneEntry`     | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot` |
+| `markdownPageEntry`  | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                            |
+| `diffPageEntry`      | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`        |
+| `settingsPageEntry`  | the settings page on its real mock provider through cmuxPage    | `{ section, focus?, options?, host?, accounts?, steps? }`                 |
+| `passwordsPageEntry` | the passwords page on its real mock provider through cmuxPage   | `{ data, loading?, authenticate?, failure?, steps? }`                     |
+| `componentEntry`     | one React component under `UiProvider` and the page base styles | `{ props }`, plus `load: () => import(...)`                               |
+| `nativeEntry`        | the native gallery only (CmuxNextGallery)                       | `{ fixture }`: a repo path of a Swift model's JSON                        |
 
-For another page (settings, cloud, history and the rest), add a host in `src/gallery/frame/pages.ts`
+For another page (cloud, history and the rest), add a host in `src/gallery/frame/pages.ts`
 on the same pattern: `installMockHost(ops, streams)` from the page's ops, then `import` the page's
 real `main.tsx`. Then add its helper and variant type to `format.ts`.
 
@@ -146,6 +149,19 @@ numbers) for each case; click a cell for each step's details. A failing play fai
 checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
 live line for the person who opens it.
 
+## Settings and passwords
+
+`pages.settings` and `pages.passwords` fill the full content area (`one` in window mode).
+Their width presets exercise narrow and wide standalone panes. Settings variants include every
+section and a focused, customized state for each control group below the initial viewport.
+`steps` open the real controls through DOM events; the host waits for the requested elements
+and fails the stage if an expected form never appears. They do not replace the page components.
+
+Passwords fixtures contain metadata only. This branch has no React import or conflict-review
+screen and no vault-lock screen. The `locked` variant shows the page's authentication-failure
+notice. Reveal, delete confirmation, and export warning/authentication/save panels are native;
+the mock provider exercises their page outcomes without drawing substitute sheets.
+
 ## Coverage
 
 `test/gallery-coverage.test.ts` fails when an exported component or a `PageDescriptor` has no entry
@@ -165,9 +181,32 @@ chat). Do not write those entries yourself.
 
 ## Seeing it
 
-- Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it).
-- Shared: `scripts/gallery-deploy.sh` in hq publishes a build at
+- Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.
+- Dev: `bun run dev`, then `http://127.0.0.1:4200/gallery/` (`CMUX_WEBVIEWS_DEV_PORT` moves it), or
+  `bun run gallery:dev` for the gallery alone at `http://127.0.0.1:4210/gallery/`.
+- Live, with hot reload (tailnet): `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`
+  follows `feat-cmux-next` within about 20 s of a push. A save shows in the open page by itself.
+- Your branch before it lands: `scripts/gallery-live.sh up <branch>` in hq serves the pushed branch
+  at `.../18796/wt/<name>/` (it prints the URL) and follows its pushes; it stops after 2 h with no
+  requests. At most 6 run at once; `scripts/gallery-live.sh down <name>` stops one.
+- Static (the stable fallback): `scripts/gallery-deploy.sh` in hq publishes a build at
   `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/latest/`.
 - Screenshots: `bun scripts/gallery/manifest.ts --entries <your id>` writes a manifest, and
   `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on Freestyle VMs. Never run a
   browser on a developer laptop.
+
+## Viewer picks
+
+An entry opts into tracker comments with
+`pick: { beadId: "cx-czd", recommendedId: "a" }`. In **All variants**, the gallery
+uses `ui/variant-pick/VariantPick` for side-by-side previews, one Recommended
+badge, and Pick buttons. Arrow keys move between buttons; Return records the
+choice. The optional note is limited to 500 characters. Other gallery views keep
+their existing stage behavior. Entries without a related bead remain read-only.
+
+`ui.variant-pick` demonstrates gallery, thread, and five-option layouts. Picks
+inside its fixture previews are local, including its play step. Only the outer
+gallery comparison writes a real comment to `cx-czd` through `/api/pick`.
+The gallery cannot confirm a pick until the lead installs the reviewed endpoint.
+The feed sink is a no-op pending Leo's integration; no feed post is claimed.
+See `src/ui/variant-pick/README.md` for the common API and in-thread adapter.

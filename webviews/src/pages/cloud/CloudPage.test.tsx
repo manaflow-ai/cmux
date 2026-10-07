@@ -10,6 +10,7 @@ import { machineTitle } from "./model";
 import { AccountOps, ACTION_RUN, CloudOps } from "./ops";
 import { CloudStore } from "./store";
 import type { MachineLayout } from "./model";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
 
 const saved: Record<string, unknown> = {};
 let dom: JSDOM;
@@ -19,19 +20,35 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://localhost/cloud/",
   });
-  for (const name of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const name of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved[name] = (globalThis as any)[name];
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  (globalThis as any).Node = dom.window.Node;
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(Date.now());
+    return 0;
+  };
+  (globalThis as any).cancelAnimationFrame = () => undefined;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
   Object.assign(dom.window.HTMLElement.prototype, { attachEvent: () => undefined, detachEvent: () => undefined });
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [name, value] of Object.entries(saved)) (globalThis as any)[name] = value;
 });
 
@@ -39,7 +56,12 @@ async function render(provider: MockCloudProvider | null, { language = "en", lay
   let keys = 0;
   const store = new CloudStore(provider, { newKey: () => `k${++keys}`, layout });
   await act(async () => {
-    root.render(<CloudPage store={store} strings={createStrings(table, [language])} />);
+    const strings = createStrings(table, [language]);
+    root.render(
+      <UiProvider container={dom.window.document.getElementById("root")} dir={languageDirection(strings.language)}>
+        <CloudPage store={store} strings={strings} />
+      </UiProvider>,
+    );
   });
   await act(async () => {
     await store.start();
@@ -174,7 +196,7 @@ describe("CloudPage", () => {
     // The create sheet's fields ignore chords too.
     await act(async () => $(".cloud-create-button")!.click());
     for (const chord of chords)
-      for (const name of ["Enter", "Escape"]) await act(async () => key($(".cloud-create-name")!, name, chord));
+      for (const name of ["Enter", "Escape"]) await act(async () => key(dom.window.document.body, name, chord));
     expect(provider.calls.filter((call) => call.op === CloudOps.machineCreate)).toEqual([]);
     expect(store.getSnapshot().create).toBeDefined();
   });

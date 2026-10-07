@@ -77,35 +77,7 @@ impl Family {
 /// command). A daemon from before that field: derived here the same way,
 /// from `kind` and the command's words, never from the harness's name.
 pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
-    let Some(profile) = answer.get("harnesses").and_then(|h| h.get(harness)) else {
-        return Err(format!("acpmux has no harness named {harness}"));
-    };
-    if let Some(family) = profile.get("family").and_then(Value::as_str) {
-        return Ok(Family::from_name(family));
-    }
-    if profile.get("kind").and_then(Value::as_str) == Some("claude-stdio") {
-        return Ok(Family::Claude);
-    }
-    let words: Vec<String> = profile
-        .get("argv")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(|w| {
-            std::path::Path::new(w)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_lowercase())
-                .unwrap_or_default()
-        })
-        .collect();
-    // acpmux's own order (config.rs derive_family): codex before claude.
-    for (needle, family) in [("codex", Family::Codex), ("claude", Family::Claude)] {
-        if words.iter().any(|w| w.contains(needle)) {
-            return Ok(family);
-        }
-    }
-    Ok(Family::Other)
+    cmux_chief::policy::harness::family(answer, harness).map(|f| Family::from_name(&f))
 }
 
 /// `_acpmux/harnesses` from the daemon at `socket` (started when it does not

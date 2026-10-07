@@ -7,7 +7,7 @@
 import type { AcpmuxEvent, SessionSummary } from "../src/core/acp.ts";
 import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
 import { Core, type Effect, type Input } from "../src/core/core.ts";
-import { CORPUS_FORMAT, type Corpus, corpusRules, type SelectionCase, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
+import { CORPUS_FORMAT, type Corpus, corpusRules, type PolicyCase, type PolicyFunction, policyResult, type SelectionCase, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
 import { PARENT_TAG } from "../src/core/rules.ts";
 import { type ChildRecord, type HostStateData, loadState } from "../src/core/state.ts";
 
@@ -289,6 +289,58 @@ function wakeCases(): CorpusCase[] {
     cases.push(c.end());
   }
 
+  return cases;
+}
+
+/** The owner's paired device (`remote_<install>`, person user_local) and a stranger's. */
+const DEVICE: Participant = { id: "remote_inst_1", kind: "human", display_name: "Me (iPhone)", person: USER_LOCAL };
+const FOREIGN: Participant = { id: "remote_inst_9", kind: "human", display_name: "Bo (iPhone)", person: "user_bo" };
+const relayed = (install: string) => ({ origin: { kind: "remote" as const, install } });
+
+/**
+ * The remote-origin gate (server-remote-conversations.md section 6; optchat-chief
+ * src/wake.rs): a message relayed from the owner's own paired device wakes the
+ * Chief by the conversation rule (persons counted); anything not stamped by the
+ * owner as relayed from exactly that author, or from another person's device,
+ * never does.
+ */
+function remoteWakeCases(): CorpusCase[] {
+  const cases: CorpusCase[] = [];
+  {
+    const conv = summary("conv_a", [ME, MUX, DEVICE]);
+    const c = new CaseBuilder("wake remote: the owner's paired device wakes the Chief when the owner stamped it relayed; an unstamped, mismatched or foreign device message does not");
+    boot(c, [conv]);
+    const relayedMessage = msg("conv_a", 1, DEVICE.id, "status?", relayed("inst_1"));
+    c.step(live(relayedMessage), ["persist", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").text === "[conversation conv_a from Me (iPhone)] status?", "the device's name in the prompt"),
+    );
+    c.step({ kind: "prompt_settled", prompt_id: relayedMessage.id }, ["conversation_op"]);
+    c.step(live(msg("conv_a", 2, DEVICE.id, "not stamped")), ["conversation_op"], (e) =>
+      c.check(opKey(c, e) === "cursor:agent_mux:2", "unstamped: cursor only"),
+    );
+    c.step(live(msg("conv_a", 3, USER_LOCAL, "stamped for another author", relayed("inst_1"))), ["conversation_op"]);
+    c.step(live(msg("conv_a", 4, FOREIGN.id, "not a participant", relayed("inst_9"))), ["conversation_op"]);
+    c.step(live(msg("conv_a", 5, DEVICE.id, "retracted", { ...relayed("inst_1"), retracted_at: ISO })), ["conversation_op"]);
+    cases.push(c.end());
+  }
+  {
+    const conv = summary("conv_g", [ME, ANA, MUX, DEVICE, FOREIGN]);
+    const c = new CaseBuilder("wake remote group: a relayed device message in a group needs a mention, like the person's own; another person's device never wakes it");
+    boot(c, [conv]);
+    c.step(live(msg("conv_g", 1, DEVICE.id, "hi all", relayed("inst_1"))), ["conversation_op"]);
+    const mention = msg("conv_g", 2, DEVICE.id, "@mux status?", {
+      ...relayed("inst_1"),
+      parts: [{ type: "text", text: "@mux status?", runs: [{ start: 0, length: 4, mention: AGENT_MUX }] }],
+    });
+    c.step(live(mention), ["persist", "prompt"], (e) => c.check(c.get(e, "prompt").prompt_id === mention.id, "a mention wakes it"));
+    c.step({ kind: "prompt_settled", prompt_id: mention.id }, ["conversation_op"]);
+    const foreign = msg("conv_g", 3, FOREIGN.id, "@mux run this", {
+      ...relayed("inst_9"),
+      parts: [{ type: "text", text: "@mux run this", runs: [{ start: 0, length: 4, mention: AGENT_MUX }] }],
+    });
+    c.step(live(foreign), ["conversation_op"]);
+    cases.push(c.end());
+  }
   return cases;
 }
 
@@ -1809,8 +1861,68 @@ function selectionCases(): SelectionCase[] {
   ];
 }
 
+/**
+ * Approval policy and harness routing (policy.ts, cmux_chief::policy): each
+ * case states its expected result; the generator records it after checking it.
+ */
+function policyCases(): PolicyCase[] {
+  const cases: PolicyCase[] = [];
+  const add = (name: string, fn: PolicyFunction, args: Record<string, unknown>, want: unknown) => {
+    const result = plain(policyResult(fn, args));
+    if (JSON.stringify(result) !== JSON.stringify(want)) throw new Error(`${name}: want ${JSON.stringify(want)} got ${JSON.stringify(result)}`);
+    cases.push({ name, fn, args, result });
+  };
+  add("remote.autoApprove defaults to true with no settings", "remote_auto_approve", { settings: null }, true);
+  add("remote.autoApprove defaults to true when the key is missing", "remote_auto_approve", { settings: { remote: {} } }, true);
+  add("remote.autoApprove false is kept", "remote_auto_approve", { settings: { remote: { autoApprove: false } } }, false);
+  add("remote.autoApprove that is not a bool is the default", "remote_auto_approve", { settings: { remote: { autoApprove: "no" } } }, true);
+  add("a local turn runs with the configured policy", "turn_policy", { remote: false, auto_approve: false, configured: "approve-all" }, "approve-all");
+  add("a remote turn with remote.autoApprove on runs with the configured policy", "turn_policy", { remote: true, auto_approve: true, configured: "approve-all" }, "approve-all");
+  add("a remote turn with remote.autoApprove off asks", "turn_policy", { remote: true, auto_approve: false, configured: "approve-all" }, "ask");
+  const floor = { auto_approve: false, turn_ask: false, ask_child_live: false, ask_subagent_live: false };
+  add("no spawn floor outside an ask turn", "spawn_floor", floor, null);
+  add("an ask turn's children ask", "spawn_floor", { ...floor, turn_ask: true }, "ask");
+  add("a live ask child keeps the floor", "spawn_floor", { ...floor, ask_child_live: true }, "ask");
+  add("a live ask subagent keeps the floor", "spawn_floor", { ...floor, ask_subagent_live: true }, "ask");
+  add("remote.autoApprove on lifts the floor", "spawn_floor", { auto_approve: true, turn_ask: true, ask_child_live: true, ask_subagent_live: true }, null);
+
+  const sr = { kind: "claude-stdio", argv: ["/Users/me/bin/sr", "claude", "proxy"], family: "claude" };
+  const acp = { kind: "acp", argv: ["/opt/homebrew/bin/claude-code-acp"], family: "claude", description: "imported from ~/.acpx" };
+  const direct = { kind: "claude-stdio", argv: ["/Users/me/.local/bin/claude"], family: "claude" };
+  const viaUrl = { kind: "claude-stdio", argv: ["claude"], family: "claude", env: { ANTHROPIC_BASE_URL: "http://100.89.225.106:31415/" } };
+  const codex = { kind: "acp", argv: ["/usr/local/bin/codex-acp"] };
+  add("claude-sr routes to the claude-stdio profile that runs sr claude proxy", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "claude-sr": sr } } }, {
+    admitted: { profile: "claude-sr", kind: "claude-stdio", argv0: "/Users/me/bin/sr", family: "claude" },
+  });
+  add("claude-sr refuses an external ACP adapter under its name", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "claude-sr": acp } } }, {
+    refused:
+      "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude-sr asks for one running `sr claude proxy`; acpmux has none: acpmux's claude-sr is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\"",
+  });
+  add("claude-sr prefers a real sr claude proxy over a claude profile pointed at the team subrouter", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "z-url": viaUrl, mine: sr } } }, {
+    admitted: { profile: "mine", kind: "claude-stdio", argv0: "/Users/me/bin/sr", family: "claude" },
+  });
+  add("claude-sr takes a claude profile pointed at the team subrouter when no sr runs", "harness_admit", { requested: "claude-sr", answer: { harnesses: { "z-url": viaUrl } } }, {
+    admitted: { profile: "z-url", kind: "claude-stdio", argv0: "claude", family: "claude" },
+  });
+  add("claude routes to the direct claude login", "harness_admit", { requested: "claude", answer: { harnesses: { claude: direct, "claude-sr": sr } } }, {
+    admitted: { profile: "claude", kind: "claude-stdio", argv0: "/Users/me/.local/bin/claude", family: "claude" },
+  });
+  add("an unavailable profile is not routed to", "harness_admit", { requested: "claude", answer: { harnesses: { claude: { ...direct, unavailable: "not signed in" } } } }, {
+    refused:
+      "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux's claude is kind claude-stdio (/Users/me/.local/bin/claude)",
+  });
+  add("a codex profile is admitted as acpmux reports it, its family from the command", "harness_admit", { requested: "codex", answer: { harnesses: { codex } } }, {
+    admitted: { profile: "codex", kind: "acp", argv0: "/usr/local/bin/codex-acp", family: "codex" },
+  });
+  add("a Claude-family profile that is not claude-stdio is refused", "harness_admit", { requested: "my-claude", answer: { harnesses: { "my-claude": acp } } }, {
+    refused: "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux's my-claude is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\"",
+  });
+  add("an unknown profile is refused", "harness_admit", { requested: "gemini", answer: { harnesses: {} } }, { refused: "acpmux has no harness named gemini" });
+  return cases;
+}
+
 export async function buildCorpus(): Promise<Corpus> {
-  const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
+  const cases = [...wakeCases(), ...remoteWakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
   for (const c of cases) {
     if (names.has(c.name)) throw new Error(`duplicate case ${c.name}`);
@@ -1818,5 +1930,5 @@ export async function buildCorpus(): Promise<Corpus> {
   }
   const memory = await memoryCases();
   checkMemory(memory);
-  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), selection: selectionCases(), cases, memory };
+  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), selection: selectionCases(), policy: policyCases(), cases, memory };
 }
