@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
@@ -80,6 +81,23 @@ import Testing
         try await Self.waitUntil("the window shows the new workspace") {
             fixture.window.state.workspaceID.map { $0 != TopologyDaemon.firstKey } == true
         }
+    }
+
+    /// Cursor review (#18137): the tree can list the new workspace's chat
+    /// before new-conversation-tab replies, and a pane showing it builds the
+    /// view then. That view still starts from the chat's seed (the focused
+    /// tab's folder and draft).
+    @Test func aChatShownBeforeTheReplyStartsFromItsSeed() async throws {
+        let project = FileManager.default.temporaryDirectory.appendingPathComponent("first-chat-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: project) }
+        let fixture = try AgentTabFixture(tree: [AgentTabFixture.tab(100, "tab_first", AgentSessionRef(host: AgentTabFixture.host))])
+        let workspace = try #require(fixture.daemon.workspaces.first).handle
+        fixture.tabs.seedFirstChat(AgentPaneSeed(cwd: project), in: workspace)
+
+        let view = try #require(fixture.tabs.view(for: "tab_first"))
+        let handshake = try #require(await view.model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(handshake["cwd"] as? String == project)
     }
 
     @Test func aScriptsNewAgentChatStillOpensATabInThePane() async throws {
