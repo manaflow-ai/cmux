@@ -33,8 +33,24 @@ fn paired() -> Summary {
     s
 }
 
+/// A Chief with approvals turned on from the Mac (`remote.autoApprove`
+/// false): remote-origin turns ask, and the spawn floor applies.
 fn harness(script: Script) -> Harness {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"remote": {"autoApprove": false}}"#,
+    )
+    .unwrap();
+    harness_in(dir, script)
+}
+
+/// A Chief with the default settings (no settings file).
+fn harness_default(script: Script) -> Harness {
+    harness_in(tempfile::tempdir().unwrap(), script)
+}
+
+fn harness_in(dir: tempfile::TempDir, script: Script) -> Harness {
     let owner = Arc::new(std::sync::Mutex::new(Owner {
         summary: Some(paired()),
         ..Owner::default()
@@ -461,4 +477,23 @@ fn a_subagent_spawned_during_a_remote_turn_asks_too() {
     h.agents.release();
     h.settle();
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
+}
+
+/// Lawrence, 2026-10-06: "i dont want stuff to require my approval". By
+/// default (`remote.autoApprove` true) a turn from the owner's own paired
+/// device runs with the configured policy, and nothing it spawns gets the
+/// ask floor.
+#[test]
+fn by_default_a_remote_turn_needs_no_approval_and_spawns_without_a_floor() {
+    let mut h = harness_default(started());
+    h.agents.hold(true);
+    deliver(&mut h, true, "clean up the build directory");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "approve-all");
+    assert_eq!(h.brain.spawn_policy(), None, "no ask floor by default");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
 }
