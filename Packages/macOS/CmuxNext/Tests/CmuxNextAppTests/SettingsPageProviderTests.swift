@@ -124,6 +124,26 @@ import Testing
         }
     }
 
+    /// The Theme section's preview: every published theme's colors, as the page's GhosttyTheme.
+    @Test func themeColorsAnswerEveryThemeAsThePageReadsIt() async throws {
+        let (provider, _, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.theme.colors", params: [:], context: context)
+        }
+        let nord = try #require(ThemeFileColors(name: "Nord", themeFile: "background = #2e3440\nforeground = #d8dee9\npalette = 4=#81a1c1\ncursor-color = #eceff4\n"))
+        provider.themeColors = { [nord] }
+        let answer = try await provider.call("cmux.settings.theme.colors", params: [:], context: context)
+        let theme = try #require(answer["themes"]?.arrayValue?.first)
+        #expect(theme["name"] == .string("Nord"))
+        #expect(theme["background"] == .string("#2e3440"))
+        #expect(theme["palette"]?.arrayValue?.count == 16)
+        #expect(theme["palette"]?.arrayValue?[4] == .string("#81a1c1"))
+        #expect(theme["palette"]?.arrayValue?[0] == .null)
+        #expect(theme["cursorColor"] == .string("#eceff4"))
+        #expect(theme["selectionBackground"] == nil)
+    }
+
     /// R82 commit 4: the theme picker's write goes to the host closure; an unknown level is
     /// invalid params; wallpaper thumbnails answer only catalog ids.
     @Test func themeWritesAndThumbnailsAreBounded() async throws {

@@ -217,6 +217,9 @@ MODEL_BY_PATH = {
     'commands/cloud-inbox-list/request': models.CloudInboxListRequest,
     'commands/cloud-inbox-subscribe/request': models.CloudInboxSubscribeRequest,
     'commands/cloud-inbox-unsubscribe/request': models.CloudInboxUnsubscribeRequest,
+    'commands/cloud-mux-ack/request': models.CloudMuxAckRequest,
+    'commands/cloud-mux-subscribe/request': models.CloudMuxSubscribeRequest,
+    'commands/cloud-mux-unsubscribe/request': models.CloudMuxUnsubscribeRequest,
     'commands/cloud-session-clear/request': models.CloudSessionClearRequest,
     'commands/cloud-session-set/request': models.CloudSessionSetRequest,
     'commands/cloud-session-status/request': models.CloudSessionStatusRequest,
@@ -450,6 +453,8 @@ MODEL_BY_PATH = {
     'events/cloud-conversation-resynced/payload': models.CloudConversationResyncedEvent,
     'events/cloud-inbox-changed/payload': models.CloudInboxChangedEvent,
     'events/cloud-inbox-reset/payload': models.CloudInboxResetEvent,
+    'events/cloud-mux-resynced/payload': models.CloudMuxResyncedEvent,
+    'events/cloud-mux-wake/payload': models.CloudMuxWakeEvent,
     'events/cloud-session-needed/payload': models.CloudSessionNeededEvent,
     'events/cloud-subscription-state/payload': models.CloudSubscriptionStateEvent,
     'events/colors-changed/payload': models.ColorsChangedEvent,
@@ -611,7 +616,10 @@ def _decode(expression: Mapping[str, Any], value: Any, path: str) -> Any:
         return value
     if kind == "enum":
         if value not in expression["values"]:
-            raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            # A string value this SDK does not know decodes as the fallback.
+            if "fallback" not in expression or not isinstance(value, str):
+                raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            value = expression["fallback"]
         enum_type = ENUM_BY_PATH.get(path)
         return enum_type(value) if enum_type is not None else value
     if kind == "ref":

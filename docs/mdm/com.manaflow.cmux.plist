@@ -462,6 +462,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.</string>
+			<key>pfm_name</key>
+			<string>computerUse.enabled</string>
+			<key>pfm_title</key>
+			<string>Computer Use</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -871,6 +883,18 @@
 			<string>appearance.theme</string>
 			<key>pfm_title</key>
 			<string>Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>followTerminal</string>
+			<key>pfm_description</key>
+			<string>Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.</string>
+			<key>pfm_name</key>
+			<string>appearance.appTheme</string>
+			<key>pfm_title</key>
+			<string>App Theme</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -1954,6 +1978,18 @@
 			<string>Minimal Mode</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
+			<key>pfm_name</key>
+			<string>sidebar.cards.tips</string>
+			<key>pfm_title</key>
+			<string>Show Tips</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

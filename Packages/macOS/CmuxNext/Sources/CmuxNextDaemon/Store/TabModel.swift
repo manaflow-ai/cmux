@@ -44,6 +44,9 @@ public final class TabModel: Identifiable {
     /// Browser page zoom or terminal font scale saved on the tab record;
     /// nil = 1 (daemon state resources).
     public internal(set) var zoom: Double?
+    /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
+    /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
+    public internal(set) var userIcon: String?
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -144,6 +147,7 @@ public final class TabModel: Identifiable {
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
+        if userIcon != record.icon { userIcon = record.icon }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }

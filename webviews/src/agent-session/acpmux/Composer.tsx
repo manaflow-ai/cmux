@@ -95,6 +95,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
   /// The folder a started chat moved to (shell/chatMoves.ts).
@@ -138,6 +140,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onConnect,
   localName,
   movedTo,
   onMove,
@@ -744,6 +747,7 @@ export function Composer({
       <ComposerContext
         projectChoices={projectChoices}
         onBrowseProject={onBrowseProject}
+        onConnect={onConnect}
         summary={snapshot.summary}
         sessions={snapshot.sessions}
         peers={snapshot.peers}
