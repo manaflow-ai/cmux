@@ -1,7 +1,7 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `8240bc92e2` (B2, C3, C12, C14,
-D1b, E3, E4, E5 and F1 are in this ancestry). Plan: [PLAN.md](PLAN.md) D3. No tagged build,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `d0678348d5` (B1 rate limits, B2, C3,
+C12, C14, D1b, E3, E4, E5 and F1 are in this ancestry). Plan: [PLAN.md](PLAN.md) D3. No tagged build,
 simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
 the matrix below separates implementation evidence from the still-pending live-pair gate.
 
@@ -92,7 +92,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.14 | Push coordinator, readiness, repair, Allow Push, DEBUG diagnostics | C7, C11 | done |
 | 1.15 | Hosts with jump host, key, idle timeout, TOFU, changed-key prompt | C9 | done |
 | 1.15 | Keys: Secure Enclave, Ed25519, copy, install with password | C9 | done (import UI missing; stores support it) |
-| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (E3 discovery/attach is landed; tmux control mode and SSH target lifecycle remain) |
+| 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (tmux control-mode hydration and safe attach are landed for single-pane matching-grid windows; multi-pane/history/parser-state parity and lifecycle mutations remain) |
 | 1.15 | SFTP browser | C4, C9, E5 | done (browse, view, upload, download, New Folder, Rename, Delete) |
 | 1.15 | SOCKS proxy and local port forward | C14 | done (credentialed generic SOCKS route is wired into `WebRoute`; loopback uses the route tunnel, non-loopback is default-deny with an explicit direct-backend seam; live device/reconnect verification pending) |
 | 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
@@ -123,8 +123,9 @@ count under their main status. “Done” means implementation and package/stati
 device-unverified unless the row says otherwise.)
 
 Open implementation gaps, grouped by owner:
-- C9: tmux control mode is still missing from the SSH workspace projection; E3 supplies discovery
-  and safe attach for tmux, screen and cmux-tui, but not create/rename/kill or control-mode tabs.
+- C9: tmux control-mode discovery, epoch validation, hydration and live output are landed for
+  single-pane matching-grid windows. Multi-pane geometry, history, complete parser-state restore,
+  and SSH create/rename/kill remain explicit gaps; E3 still supplies the screen and cmux-tui paths.
 - C14: local port forwarding, simulator/browser seams and the credentialed generic SOCKS route are
   landed. `CmuxMobileTunnel` is now a direct `CmuxiOSWebCore` dependency; `WebRoute.startSocks` keeps
   loopback routing on the authenticated machine tunnel and requires an explicit direct backend for
@@ -336,7 +337,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
-not a test result for current HEAD `8240bc92e2`.
+not a test result for current HEAD `d0678348d5`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -359,13 +360,16 @@ not a test result for current HEAD `8240bc92e2`.
 | **Total** | **460** | **16/16 packages, 0 failures** |
 
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
-scratch packages), TS vitest (no `node_modules`), Rust (no cargo on this Mac).
+scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
+(no cargo on this Mac). The current-head backend slice has `26` focused Vitest tests and a clean
+TypeScript typecheck at `d0678348d5`.
 
-Current-head evidence is static only: Swift syntax parsing, scoped iOS package-convention lint,
+Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
 `git diff --check`, `check-concurrency.sh`, `check-crash-safety.sh`, and `check-theme-scope.sh`
 pass for the follow-up changes. Native Swift tests, the tagged iOS/Mac build, UI tests, and live
 network/device journeys remain blocked by the unavailable dedicated build host/fleet slot; do not
-read the historical 460-test total as current-head verification.
+read the historical 460-test total or the agent-reported package test runs as current-head device
+verification.
 
 ## 6. Runbook: tagged pair `nxd3`
 

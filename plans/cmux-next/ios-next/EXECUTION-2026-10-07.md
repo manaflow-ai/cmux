@@ -26,11 +26,13 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `8240bc92e2` reports 83 of 98 parity rows done, with one
-implementation gap (tmux control-mode workspaces), six seam-only rows (including generic
-SOCKS routing), four mocked platform rows, and four intentional drops. The C14 browser,
-simulator and local-forward implementations, D1b host wiring, and E3/E4/E5 parity slices are
-landed; carrier/device evidence and the explicitly mocked or seam-only owners remain open.
+The refreshed D3 matrix at HEAD `d0678348d5` reports 84 of 98 parity rows done, with one
+implementation gap (the remaining tmux workspace parity), five seam-only rows, four mocked
+platform rows, and four intentional drops. B1 now rate-limits TURN and pending-snapshot repair
+traffic by authenticated identity. C14's credentialed generic SOCKS route is wired to `WebRoute`,
+and C9 has a bounded tmux control-mode hydration path for safe single-pane attachment; carrier,
+device, multi-pane/history, lifecycle, and other explicitly mocked or seam-only evidence remain
+open.
 The existing A0/A1/A2/A3 and B1-B6 contracts are present, and the V1 WebRTC, V2
 WebRTC-over-WireGuard, and V3 direct-address implementations remain separate behind `CmuxLink`.
 
@@ -39,8 +41,8 @@ The active wave is intentionally independent:
 | Workstream | Depends on | First deliverable | Verification gate |
 | --- | --- | --- | --- |
 | Product/design research and scope reconciliation | current PLAN + D3 evidence | research note with user journeys, invariants, and ranked gaps | every selected gap has an acceptance row and owner |
-| C14 browser parity | A0, A3, B5 seams | landed browser session, simulator stream, direct-host route and local port-forward seams | tagged WKWebView/SSH/direct-host and simulator verification; generic SOCKS remains a seam |
-| C9 SSH workspace parity | A1, A2, existing SSH host seam | landed deterministic tmux/screen/cmux-tui discovery and safe attach | tagged SSH verification; tmux control mode and target lifecycle remain |
+| C14 browser parity | A0, A3, B5 seams | landed browser session, simulator stream, direct-host route, local port-forward, and credentialed generic SOCKS route | tagged WKWebView/SSH/direct-host and simulator verification |
+| C9 SSH workspace parity | A1, A2, existing SSH host seam | landed deterministic tmux/screen/cmux-tui discovery, epoch-checked tmux control attach, and safe hydration for a single-pane window | tagged SSH verification; multi-pane/history/parser-state parity and target lifecycle remain |
 | Integration and verification | completed slices | merged docs/code plus updated D3 rows | focused tests, static guards, tagged pair/device evidence |
 
 ## Completed in this wave
@@ -57,6 +59,12 @@ The active wave is intentionally independent:
 - `8240bc92e2` bounds `CmuxLink` channels, pending sessions, incoming channels and media tracks;
   overflow refuses or closes the resource, and focused tests cover the local channel cap and stalled
   incoming resource queues. Full package execution remains a fleet/build-host gate.
+- `8017210242` adds identity-keyed B1 limits for TURN credential mints and pending snapshot forwards;
+  the backend's focused Vitest suite (26 tests) and TypeScript typecheck pass.
+- `0a9575efc3` adds bounded, epoch-checked tmux control-mode discovery, snapshot hydration and
+  live pane output; native tests and live SSH verification remain a build-host/device gate.
+- `d0678348d5` wires a credentialed generic SOCKS route through `WebRoute`; syntax and static checks
+  pass, while native package tests, WKWebView and live reconnect verification remain pending.
 
 The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
 so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain

@@ -253,7 +253,7 @@ export class HostControl {
 
   /** After a held socket passes the install check again: a fresh snapshot of each stream it follows. */
   private resync(ws: WebSocket, a: ControlAttachment) {
-    for (const stream of a.streams ?? []) this.subscribe(ws, a, { t: "snapshot.request", stream })
+    for (const stream of a.streams ?? []) void this.subscribe(ws, a, { t: "snapshot.request", stream })
   }
 
   private reject(ws: WebSocket, key: string, stream: string, e: ErrorBody) {
