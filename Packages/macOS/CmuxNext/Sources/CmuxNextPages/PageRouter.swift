@@ -139,7 +139,11 @@ public final class PageRouter {
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
+        // A provider may send its current state from inside `subscribe` (the icon picker's open
+        // session). Those events wait until the reply that names `sub` reaches the page.
+        let early = PageEarlyEvents()
         let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+            if early.hold(data) { return }
             self?.deliver(sub: sub, data)
         }
         guard !closed else {
@@ -147,6 +151,10 @@ public final class PageRouter {
             throw PageError.closed
         }
         subscriptions[sub] = subscription
+        // task-owner: one flush after the reply; ends with the router
+        Task { @MainActor [weak self] in
+            for data in early.release() { self?.deliver(sub: sub, data) }
+        }
         return sub
     }
 
@@ -283,5 +291,25 @@ final class PageCallInFlight {
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(with: result)
+    }
+}
+
+/// Events a provider sends before its subscription is registered and answered: held in order,
+/// then released once, after which events go straight to the page.
+@MainActor
+final class PageEarlyEvents {
+    private var held: [JSONValue]? = []
+
+    /// Holds `data` while the subscription is not released yet; false once it is.
+    func hold(_ data: JSONValue) -> Bool {
+        guard held != nil else { return false }
+        held?.append(data)
+        return true
+    }
+
+    /// The held events, oldest first; later events are not held.
+    func release() -> [JSONValue] {
+        defer { held = nil }
+        return held ?? []
     }
 }
