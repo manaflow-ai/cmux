@@ -1284,6 +1284,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-socket",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-terminal-iface",

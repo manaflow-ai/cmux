@@ -6390,6 +6390,18 @@ impl Drop for PendingServer {
 /// Prepare the daemon-owned runtime directory without accepting a symlink or
 /// an existing directory controlled by another user. The final metadata check
 /// also confirms that tightening permissions did not change the object type.
+/// Windows: an owner-only directory (protected DACL, our token user as
+/// owner); a wider existing one is refused (cmux-local-socket).
+#[cfg(windows)]
+fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    cmux_local_socket::private_directory(dir)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
 fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
     match std::fs::symlink_metadata(dir) {
         Ok(metadata) => {
@@ -6494,6 +6506,16 @@ pub fn connect_session_socket(
     #[cfg(unix)]
     if let Some(dir) = path.parent() {
         verify_private_socket_directory(dir)?;
+    }
+    #[cfg(windows)]
+    if let Some(dir) = path.parent() {
+        let me = cmux_local_socket::win::current_identity()?;
+        if !cmux_local_socket::win::directory_is_owner_only(dir, &me.user_sid)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("runtime socket directory is not owner-only: {}", dir.display()),
+            ));
+        }
     }
     transport::connect_same_user(path)
 }

@@ -25,7 +25,8 @@ mod windows;
 
 #[cfg(windows)]
 pub use windows::{
-    Listener, Stream, connect, connect_same_user, connect_with_deadline, listen, peer_pid,
+    Listener, Stream, connect, connect_same_user, connect_with_deadline, listen, listen_explicit,
+    peer_pid, private_directory,
 };
 
 #[cfg(windows)]

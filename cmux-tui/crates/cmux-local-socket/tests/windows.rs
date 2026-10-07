@@ -245,3 +245,23 @@ fn wait_child(process: HANDLE) -> u32 {
         code
     }
 }
+
+/// `private_directory` makes an owner-only directory once and accepts it
+/// again; `listen_explicit` binds in a directory it does not change.
+#[test]
+fn private_directory_then_explicit_listen() {
+    let dir = scratch("explicit");
+    cmux_local_socket::private_directory(&dir).unwrap();
+    cmux_local_socket::private_directory(&dir).unwrap();
+    assert!(win::directory_is_owner_only(&dir, &me()).unwrap());
+    let shared = scratch("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    let path = shared.join("s.sock");
+    let listener = cmux_local_socket::listen_explicit(&path).unwrap();
+    assert!(!win::directory_is_owner_only(&shared, &me()).unwrap(), "left as it was");
+    assert_eq!(win::owner_of(&path).unwrap(), me());
+    let _client = connect_same_user(&path).unwrap();
+    let _server = listener.accept().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&shared);
+}

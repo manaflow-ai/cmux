@@ -294,14 +294,29 @@ pub struct Listener {
     user_sid: String,
 }
 
-/// Binds `path` in an owner-only directory and makes our token user the
-/// socket file's owner.
+/// Binds `path` in an owner-only directory (made, or checked: a wider one
+/// is refused) and makes our token user the socket file's owner.
 pub fn listen(path: &Path) -> io::Result<Listener> {
-    let me = current_identity()?;
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, format!("socket path {} has no directory", path.display()))
     })?;
-    ensure_private_directory(dir, &me.user_sid)?;
+    private_directory(dir)?;
+    listen_explicit(path)
+}
+
+/// Makes `dir` owner-only (protected DACL granting only our token user, our
+/// user as owner), or checks an existing one; refuses a wider one. For a
+/// daemon that prepares its runtime directory before taking a lock in it.
+pub fn private_directory(dir: &Path) -> io::Result<()> {
+    let me = current_identity()?;
+    ensure_private_directory(dir, &me.user_sid)
+}
+
+/// Binds `path` where the caller chose it (an explicit socket path: its
+/// directory is the caller's and is not changed or checked), makes our token
+/// user the socket file's owner, and checks every peer as [`listen`] does.
+pub fn listen_explicit(path: &Path) -> io::Result<Listener> {
+    let me = current_identity()?;
     let inner = uds_windows::UnixListener::bind(path)?;
     set_owner(path, &me.user_sid)?;
     Ok(Listener { inner, user_sid: me.user_sid })

@@ -52,5 +52,6 @@ rustls.workspace = true
 tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+cmux-local-socket.workspace = true
 uds_windows.workspace = true
 windows-sys.workspace = true

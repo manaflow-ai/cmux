@@ -36,8 +36,9 @@ pub fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
 }
 
 /// Connect and refuse a listener that runs as another user before the
-/// caller writes anything. Windows sockets report no peer credentials, so
-/// there this is a plain connect.
+/// caller writes anything. Windows sockets report no listener credentials:
+/// there the socket file must be owned by our token user
+/// (cmux-local-socket).
 pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
     imp::connect_same_user(path)
 }
@@ -125,33 +126,37 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
+    //! The shared local-socket transport (cmux-local-socket): every peer is
+    //! checked (our user, not sandboxed), the socket file is owned by our
+    //! token user, and `connect_same_user` refuses a socket file another
+    //! user owns. The runtime directory is made owner-only by
+    //! `server::prepare_runtime_socket_directory`.
     use std::io;
     use std::path::Path;
     use std::time::Duration;
 
     use super::Stream;
-    use uds_windows::{UnixListener, UnixStream};
+    use uds_windows::UnixStream;
 
     pub(super) struct Listener {
-        inner: UnixListener,
+        inner: cmux_local_socket::Listener,
     }
 
     pub(super) fn listen(path: &Path) -> io::Result<Listener> {
-        UnixListener::bind(path).map(|inner| Listener { inner })
+        cmux_local_socket::listen_explicit(path).map(|inner| Listener { inner })
     }
 
     pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
-        Ok(Box::new(UnixStream::connect(path)?))
+        Ok(Box::new(cmux_local_socket::connect(path)?))
     }
 
     pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
-        connect(path)
+        Ok(Box::new(cmux_local_socket::connect_same_user(path)?))
     }
 
     impl Listener {
         pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
-            let (stream, _) = self.inner.accept()?;
-            Ok(Box::new(stream))
+            Ok(Box::new(self.inner.accept()?))
         }
     }
 
