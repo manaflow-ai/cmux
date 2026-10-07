@@ -21,6 +21,18 @@ import Testing
         #expect(changes.contains(.prepended))
     }
 
+    @Test func defaultPagesMatchMessagesLoadMoreCount() async throws {
+        // Messages loads history 50 messages at a time on iPhone.
+        let backend = ScriptedBackend(total: 200)
+        let store = ConversationStore(backend: backend)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(151...200))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 100 }
+        #expect(store.messages.first?.seq == 101)
+    }
+
     @Test func olderFetchFailureRetriesThenSucceeds() async throws {
         let backend = ScriptedBackend(total: 100)
         backend.failNextHistory = 2
