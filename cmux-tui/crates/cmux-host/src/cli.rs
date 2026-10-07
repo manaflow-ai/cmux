@@ -396,6 +396,16 @@ mod tests {
         }
     }
 
+    /// The units pass --mode now; CMUX_SERVER_MODE still works for one
+    /// release (an old unit) and logs a deprecation line; --mode wins.
+    #[test]
+    fn the_mode_environment_variable_is_a_deprecated_fallback() {
+        assert_eq!(env_mode_deprecation(Some(InstallMode::User), Some("system")), None);
+        assert_eq!(env_mode_deprecation(None, None), None);
+        let line = env_mode_deprecation(None, Some("system")).unwrap();
+        assert!(line.contains("CMUX_SERVER_MODE") && line.contains("--mode"), "{line}");
+    }
+
     #[test]
     fn status_without_agent_is_not_found() {
         let dir = tempfile::tempdir().unwrap();

@@ -41,8 +41,7 @@ After=network-online.target
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart=\"/home/ana/.local/share/cmux/current/bin/cmux\" host run
-Environment=CMUX_SERVER_MODE=user
+ExecStart=\"/home/ana/.local/share/cmux/current/bin/cmux\" host run --mode user
 Restart=always
 RestartSec=2
 # The session host keeps its terminal hosts across a restart: stop only the
@@ -73,8 +72,7 @@ Type=notify
 NotifyAccess=main
 User=cmux
 Group=cmux
-ExecStart=\"/opt/cmux/current/bin/cmux\" host run
-Environment=CMUX_SERVER_MODE=system
+ExecStart=\"/opt/cmux/current/bin/cmux\" host run --mode system
 Restart=always
 RestartSec=2
 KillMode=process
@@ -322,7 +320,7 @@ fn windows_service_argv_golden() {
             "create",
             "cmux-server",
             "binPath=",
-            r#""C:\Program Files\cmux\current\bin\cmux.exe" host run"#,
+            r#""C:\Program Files\cmux\current\bin\cmux.exe" host run --mode system"#,
             "start=",
             "auto",
             "obj=",
@@ -356,7 +354,7 @@ fn scheduled_task_xml_golden_parts() {
     assert!(xml.contains("    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"));
     assert!(xml.contains("    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\n"));
     assert!(xml.contains(
-        "      <Command>C:\\Users\\ana\\AppData\\Local\\cmux\\current\\bin\\cmux.exe</Command>\n      <Arguments>host run</Arguments>\n"
+        "      <Command>C:\\Users\\ana\\AppData\\Local\\cmux\\current\\bin\\cmux.exe</Command>\n      <Arguments>host run --mode user</Arguments>\n"
     ));
     assert_eq!(scheduled_task_xml(&l, "ana<x>"), Err(UnitError::BadUser));
     assert_eq!(scheduled_task_xml(&l, r"\ana"), Err(UnitError::BadUser));
