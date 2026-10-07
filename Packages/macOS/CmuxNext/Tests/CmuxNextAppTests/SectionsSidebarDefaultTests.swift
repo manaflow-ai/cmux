@@ -21,8 +21,9 @@ import Testing
         let shown = SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")),
                                                                      section: SidebarLayoutDocument.topSectionID, index: 99))
         #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter"])
-        // SIDEBAR-FOOTER-MINIMAL: the footer is the avatar, then the gear.
-        #expect(bottom == ["itm_account", "itm_settings"])
+        // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the footer is the
+        // profile control alone (Settings is in its menu).
+        #expect(bottom == ["itm_account"])
     }
 
     @Test func aWindowShowsTheSectionsInTheSidebarAtTheLeadingEdge() async throws {
@@ -41,8 +42,8 @@ import Testing
         for id in ["itm_new_workspace", "itm_import_sync"] {
             #expect(view.aboveRegion.itemView(LayoutItemID(id)) == nil, "\(id) is not in the top band by default")
         }
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_settings")) == nil, "no gear by default")
+        #expect(view.footerRegion.itemView(LayoutItemID("itm_account")) != nil)
     }
 
     /// A layout the rail default migrated is moved back by ordinary layout

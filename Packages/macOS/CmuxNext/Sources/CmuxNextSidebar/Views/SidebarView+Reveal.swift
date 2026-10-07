@@ -27,6 +27,7 @@ extension SidebarView {
             if changed { newButton.animator().alphaValue = alpha }
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = below
+            footerRegion.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
     }

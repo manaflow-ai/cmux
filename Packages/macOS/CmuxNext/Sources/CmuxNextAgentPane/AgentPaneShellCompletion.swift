@@ -109,8 +109,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
                 .appending(path: "cmux-next", directoryHint: .isDirectory)
             if let caches { try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true) }
             let dump = caches?.appending(path: "zcompdump-shell-mode").path ?? "\(home)/.zcompdump-cmux-shell-mode"
-            // Do not load the user's login files: completion runs in a disposable shell and
-            // receives its startup directory through ZDOTDIR/HOME.
+            // Completion is an async result; login startup must not select or delay the test shell.
             return ([shell, "-d", "-c", Self.zshDriver, "zsh", line, shell],
                     ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump,
                      "ZDOTDIR": home, "HOME": home, "HISTFILE": "\(home)/history"])

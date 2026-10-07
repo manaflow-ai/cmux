@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import CmuxNextAgentPane
 
@@ -28,14 +29,29 @@ struct ShellCompletionFixture {
 
     var cwd: String { directory.path }
 
+    var environment: [String: String] {
+        ["HOME": cwd, "ZDOTDIR": cwd, "HISTFILE": "\(cwd)/history",
+         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "TERM": "xterm"]
+    }
+
     var completion: AgentPaneShellCompletion {
         AgentPaneShellCompletion(
             shell: "/bin/\(shell)",
-            environment: ["HOME": cwd, "ZDOTDIR": cwd, "HISTFILE": "\(cwd)/history",
-                          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "TERM": "xterm"],
+            environment: environment,
             home: cwd,
             timeout: .seconds(60)
         )
+    }
+
+    /// Await the actual reply (stdout EOF and shell exit resume CompletionProcess's continuation).
+    /// The 60-second deadline can only fail the test; it never supplies a successful result.
+    func complete(_ line: String) async throws -> AgentPaneShellCompletion.Result {
+        do {
+            return try await completion.complete(line, cwd: cwd)
+        } catch AgentPaneShellCompletion.Failure.timedOut {
+            Issue.record("\(shell) completion for '\(line)' did not reply within the 60-second safety limit")
+            throw AgentPaneShellCompletion.Failure.timedOut
+        }
     }
 
     func remove() { try? FileManager.default.removeItem(at: directory) }

@@ -223,7 +223,9 @@ describe("acpmux composer pickers", () => {
     expect(mode.getAttribute("aria-expanded")).toBe("true");
     expect(doc.querySelector("[role=menu]")!.textContent).toContain("Ask for approval");
     expect(doc.querySelector("[role=menu]")!.textContent).toContain("Full access");
-    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) => row.textContent?.includes("Full access"));
+    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+      row.textContent?.includes("Full access"),
+    );
     full?.focus();
     await key(full!, "Enter");
     expect(calls).toEqual(["mode bypassPermissions"]);
