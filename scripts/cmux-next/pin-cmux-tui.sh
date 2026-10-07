@@ -88,7 +88,8 @@
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
-#          default 24; never waits)
+#          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
+#          paths, skips a commit whose copy of any of them differs from the tip's)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
 #          ready|deferred|superseded|failed, tree_key= and tree_reason= to GITHUB_OUTPUT)
@@ -698,6 +699,7 @@ resolve_tree_commit() {
 # (default 24) behind the tip, or none in the window, fails: never ship stale.
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
   limit=$((10#$limit))
@@ -707,6 +709,13 @@ resolve_newest_published_tree() {
   tip="$(git rev-parse HEAD)"
   tip_time="$(git log -1 --format=%ct HEAD)"
   tip_key="$(tree_key HEAD 2>/dev/null || true)"
+  # The nightly runs the TIP's workflow but checks out the resolved commit, so
+  # that commit must carry the tip's copy of these paths (the workflow file):
+  # otherwise the workflow calls scripts the build commit does not have.
+  read -r -a same_paths <<<"${CMUX_TUI_TREE_SAME_PATHS:-}"
+  for same_path in ${same_paths[@]+"${same_paths[@]}"}; do
+    tip_blobs+=("$(git rev-parse -q --verify "HEAD:$same_path" 2>/dev/null || echo missing)")
+  done
   # A depth-1 CI checkout holds no window; deepen once (best effort).
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
     git fetch -q --deepen="$limit" origin 2>/dev/null \
@@ -725,6 +734,16 @@ resolve_newest_published_tree() {
     if (( tip_time - rev_time > max_age * 3600 )); then
       echo "error: no published cmux-tui tree within ${max_age} h of the tip ${tip:0:12}: the newest candidate left, ${rev:0:12}, is ${behind_hours} h behind the tip (bound ${max_age} h, ${behind} commits). The nightly does not ship a stale build; publish a newer cmux-tui tree (pin-cmux-tui.sh --help)." >&2
       exit 1
+    fi
+    skewed=""
+    for ((i = 0; i < ${#tip_blobs[@]}; i++)); do
+      if [[ "$(git rev-parse -q --verify "$rev:${same_paths[$i]}" 2>/dev/null || echo missing)" != "${tip_blobs[$i]}" ]]; then
+        skewed="${same_paths[$i]}"; break
+      fi
+    done
+    if [[ -n "$skewed" ]]; then
+      echo "commit ${rev:0:12}: $skewed differs from the tip ${tip:0:12}; the tip's workflow cannot build it, skipping" >&2
+      skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
     key="$(tree_key "$rev" 2>/dev/null)" || { behind=$((behind + 1)); continue; }
     if [[ "$seen" == *" $key "* ]]; then behind=$((behind + 1)); continue; fi
@@ -758,7 +777,7 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
-  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
   exit 1
 }
 

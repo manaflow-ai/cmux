@@ -2,7 +2,7 @@
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool,.acpmux-header-changes{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool{width:26px}
-.acpmux-header-changes{width:26px;margin-right:4px;box-shadow:inset 0 0 0 .5px var(--agent-border)}
+.acpmux-header-changes{width:26px;margin-inline-end:4px;box-shadow:inset 0 0 0 .5px var(--agent-border)}
 .acpmux-header-changes:disabled,.acpmux-header-tool:disabled{color:var(--agent-muted)}
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open],.acpmux-header-changes:not(:disabled):hover,.acpmux-header-changes[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:not(:disabled):active,.acpmux-header-changes:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}

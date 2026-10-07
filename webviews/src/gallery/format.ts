@@ -158,6 +158,7 @@ export type ChangelogPageVariant = VariantBase & {
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
 export type IconPickerPageVariant = VariantBase & {
   session: PickerSession;
+  assetState?: "loading" | "error";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";
