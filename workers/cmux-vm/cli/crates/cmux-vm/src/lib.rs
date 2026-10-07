@@ -1,21 +1,302 @@
-//! The `cmux-vm` command-line client.
+//! The `cmux-vm` command-line client for the cmux VM API.
+//!
+//! Every verb calls one operation of the generated [`cmux_vm_client::Client`].
+//! [`run`] takes its environment as a lookup function so tests can drive it
+//! without touching the process environment.
 
 pub mod exit;
 
+mod config;
+mod error;
+mod output;
+
+use std::ffi::OsString;
 use std::io::Write;
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+use cmux_vm_client::{ByteStream, Client, types};
+use serde_json::{Value, json};
+
+use crate::config::Settings;
+use crate::error::CliError;
+
+const EXIT_CODES_HELP: &str = "\
+Configuration:
+  CMUX_VM_API_KEY    API key (or \"apiKey\" in the config file)
+  CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.com
+  CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
+  CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+
+Exit codes:
+  0  success
+  1  unexpected error (undocumented HTTP status or unreadable response)
+  2  usage error
+  3  network error (the API could not be reached)
+  10 bad request (400)          11 not authenticated (401, or no API key)
+  12 payment required (402)     13 forbidden, missing scope (403)
+  14 not found (404)            15 conflict (409)
+  16 quota or rate limit (429)  17 not available yet (501)
+  18 service unavailable (503)";
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "cmux-vm",
+    version,
+    about = "Manage cmux VMs",
+    after_help = EXIT_CODES_HELP
+)]
+struct Cli {
+    /// Print the API response as JSON; errors go to stderr as JSON.
+    #[arg(long, global = true)]
+    json: bool,
+
+    /// API base URL [env: CMUX_VM_BASE_URL]
+    #[arg(long, global = true, value_name = "URL")]
+    base_url: Option<String>,
+
+    /// Team id sent as x-cmux-team-id [env: CMUX_VM_TEAM_ID]
+    #[arg(long, global = true, value_name = "TEAM_ID")]
+    team: Option<String>,
+
+    /// Config file [env: CMUX_VM_CONFIG]
+    #[arg(long, global = true, value_name = "PATH")]
+    config: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Create a VM
+    Create(CreateArgs),
+    /// Show a VM
+    Get(VmArg),
+    /// List the team's VMs
+    List(ListArgs),
+    /// Start a stopped VM
+    Start(VmArg),
+    /// Stop a running VM
+    Stop(VmArg),
+    /// Pause a running VM, keeping its memory
+    Pause(VmArg),
+    /// Resume a paused VM
+    Resume(VmArg),
+    /// Fork a VM into a new VM with the same memory and disk
+    Fork(ForkArgs),
+    /// Delete a VM permanently
+    Delete(VmArg),
+}
+
+#[derive(Args, Debug)]
+struct VmArg {
+    /// VM id (vm_...)
+    vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct CreateArgs {
+    /// Display name
+    #[arg(long)]
+    name: Option<String>,
+    /// Boot from this snapshot (snap_...)
+    #[arg(long, value_name = "SNAPSHOT_ID")]
+    snapshot: Option<String>,
+    /// Seconds without network activity before the VM pauses; -1 never pauses
+    #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
+    idle_timeout: Option<i64>,
+    /// Reuse this key when retrying, so the VM is created only once
+    #[arg(long, value_name = "KEY")]
+    idempotency_key: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ForkArgs {
+    /// VM id to fork (vm_...)
+    vm_id: String,
+    /// Display name of the new VM
+    #[arg(long)]
+    name: Option<String>,
+    /// Seconds without network activity before the new VM pauses; -1 never pauses
+    #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
+    idle_timeout: Option<i64>,
+    /// Reuse this key when retrying, so the fork happens only once
+    #[arg(long, value_name = "KEY")]
+    idempotency_key: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ListArgs {
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's next cursor
+    #[arg(long)]
+    cursor: Option<String>,
+    /// Only VMs in this state (starting, running, pausing, paused, stopped, unknown)
+    #[arg(long)]
+    state: Option<String>,
+}
 
 /// Runs the CLI with `args` (including the program name), reading
 /// configuration through `env`, and returns the process exit code.
 pub async fn run<I, T>(
-    _args: I,
-    _env: &dyn Fn(&str) -> Option<String>,
-    _stdout: &mut dyn Write,
+    args: I,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
-    let _ = writeln!(stderr, "cmux-vm: not implemented");
-    exit::UNEXPECTED
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(e) => {
+            let code = if e.use_stderr() {
+                exit::USAGE
+            } else {
+                exit::OK
+            };
+            let rendered = e.render().to_string();
+            let _ = if e.use_stderr() {
+                stderr.write_all(rendered.as_bytes())
+            } else {
+                stdout.write_all(rendered.as_bytes())
+            };
+            return code;
+        }
+    };
+    let json = cli.json;
+    match execute(cli, env, stdout).await {
+        Ok(()) => exit::OK,
+        Err(error) => {
+            error.report(json, stderr);
+            error.exit_code()
+        }
+    }
+}
+
+async fn execute(
+    cli: Cli,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut dyn Write,
+) -> Result<(), CliError> {
+    let settings = Settings::resolve(
+        cli.base_url.as_deref(),
+        cli.team.as_deref(),
+        cli.config.as_deref(),
+        env,
+    )?;
+    let client = cmux_vm_client::authenticated_client(
+        &settings.base_url,
+        &settings.api_key,
+        settings.team_id.as_deref(),
+        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+    )
+    .map_err(|e| CliError::usage(e.to_string()))?;
+    let out = output::Printer::new(cli.json, stdout);
+    dispatch(&client, cli.command, out).await
+}
+
+async fn dispatch(
+    client: &Client,
+    command: Command,
+    mut out: output::Printer<'_>,
+) -> Result<(), CliError> {
+    match command {
+        Command::Create(args) => {
+            let body: types::CreateVmRequest = request_body(json!({
+                "displayName": args.name,
+                "snapshotId": args.snapshot,
+                "idleTimeoutSeconds": args.idle_timeout,
+            }))?;
+            let key = parse_opt::<types::VmsCreateVmIdempotencyKey>(
+                "--idempotency-key",
+                args.idempotency_key,
+            )?;
+            let vm = call(client.vms_create_vm(key.as_ref(), None, &body)).await?;
+            out.vm(&vm)
+        }
+        Command::Get(VmArg { vm_id }) => {
+            let vm = call(client.vms_get_vm(&vm_id, None)).await?;
+            out.vm(&vm)
+        }
+        Command::List(args) => {
+            let cursor = parse_opt::<types::VmsListVmsCursor>("--cursor", args.cursor)?;
+            let state = parse_opt::<types::VmsListVmsState>("--state", args.state)?;
+            let limit = args.limit.map(|n| n.to_string());
+            let page =
+                call(client.vms_list_vms(cursor.as_ref(), limit.as_deref(), state, None)).await?;
+            out.vm_list(&page)
+        }
+        Command::Start(VmArg { vm_id }) => {
+            let vm = call(client.vms_start_vm(&vm_id, None)).await?;
+            out.vm(&vm)
+        }
+        Command::Stop(VmArg { vm_id }) => {
+            let vm = call(client.vms_stop_vm(&vm_id, None)).await?;
+            out.vm(&vm)
+        }
+        Command::Pause(VmArg { vm_id }) => {
+            let vm = call(client.vms_pause_vm(&vm_id, None)).await?;
+            out.vm(&vm)
+        }
+        Command::Resume(VmArg { vm_id }) => {
+            let vm = call(client.vms_resume_vm(&vm_id, None)).await?;
+            out.vm(&vm)
+        }
+        Command::Fork(args) => {
+            let body: types::ForkVmRequest = request_body(json!({
+                "displayName": args.name,
+                "idleTimeoutSeconds": args.idle_timeout,
+            }))?;
+            let key = parse_opt::<types::VmsForkVmIdempotencyKey>(
+                "--idempotency-key",
+                args.idempotency_key,
+            )?;
+            let vm = call(client.vms_fork_vm(&args.vm_id, key.as_ref(), None, &body)).await?;
+            out.vm(&vm)
+        }
+        Command::Delete(VmArg { vm_id }) => {
+            call(client.vms_delete_vm(&vm_id, None)).await?;
+            out.deleted(&vm_id)
+        }
+    }
+}
+
+/// Awaits one API call and maps its failure to a [`CliError`].
+async fn call<T>(
+    request: impl std::future::Future<
+        Output = Result<cmux_vm_client::ResponseValue<T>, cmux_vm_client::Error<ByteStream>>,
+    >,
+) -> Result<T, CliError> {
+    match request.await {
+        Ok(response) => Ok(response.into_inner()),
+        Err(error) => Err(CliError::from_api(error).await),
+    }
+}
+
+/// Builds a generated request type from JSON, dropping unset fields. Going
+/// through serde keeps the CLI independent of the generated field types and
+/// applies their validation (lengths, patterns) before any request is sent.
+fn request_body<T: serde::de::DeserializeOwned>(mut body: Value) -> Result<T, CliError> {
+    if let Value::Object(fields) = &mut body {
+        fields.retain(|_, v| !v.is_null());
+    }
+    serde_json::from_value(body).map_err(|e| CliError::usage(format!("invalid argument: {e}")))
+}
+
+fn parse_opt<T>(flag: &str, value: Option<String>) -> Result<Option<T>, CliError>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    value
+        .map(|v| {
+            v.parse::<T>()
+                .map_err(|e| CliError::usage(format!("invalid {flag} {v:?}: {e}")))
+        })
+        .transpose()
 }
