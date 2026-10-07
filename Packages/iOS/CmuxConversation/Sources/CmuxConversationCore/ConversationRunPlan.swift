@@ -63,7 +63,9 @@ public struct ConversationRunPlan: Sendable, Equatable {
             } else {
                 status = .none
             }
-            entries.append(Entry(showsTimestamp: showsTimestamp, isFirstInRun: firstInRun, isLastInRun: lastInRun, status: status))
+            // A status row under a bubble ends its visual run (Messages keeps
+            // the tail there until the status moves to a newer message).
+            entries.append(Entry(showsTimestamp: showsTimestamp, isFirstInRun: firstInRun, isLastInRun: lastInRun || status != .none, status: status))
         }
         self.entries = entries
     }

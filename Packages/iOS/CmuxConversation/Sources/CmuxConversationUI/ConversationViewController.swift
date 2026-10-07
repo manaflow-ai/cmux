@@ -709,7 +709,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
-            cell.contentView.alpha = flyingRowIDs.contains(model.rowID) ? 0 : 1
+            cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
             cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)

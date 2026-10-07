@@ -387,7 +387,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.resetFormatting()
         hideTextEffects()
         updatePlaceholder()
-        updateSendButton(animated: true)
+        // Messages swaps send for the mic in the send frame; the flying
+        // bubble starts translucent over the cleared field.
+        updateSendButton(animated: false)
         let previous = fieldHeight
         let width = max(1, fieldGlass.bounds.width - fieldTextInset - sendSize.width - 10)
         _ = width

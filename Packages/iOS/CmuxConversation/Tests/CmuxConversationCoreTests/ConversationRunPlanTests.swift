@@ -108,4 +108,20 @@ extension ConversationRunPlanTests {
         ], meID: "me")
         #expect(plan.entries.map(\.showsTimestamp) == [true, false, true, false])
     }
+
+    /// Messages: a status row under a bubble ends its visual run, so the
+    /// previous bubble keeps its tail while a newer send is in flight and
+    /// hands it off only when the status moves (on delivery).
+    @Test func aBubbleCarryingStatusKeepsItsTailUntilTheStatusMoves() {
+        let inFlight = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0, delivery: .delivered),
+            message(nil, "me", minute: 0.1, delivery: .sending),
+        ], meID: "me")
+        #expect(inFlight.entries.map(\.isLastInRun) == [true, true])
+        let delivered = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0, delivery: .delivered),
+            message(2, "me", minute: 0.1, delivery: .delivered),
+        ], meID: "me")
+        #expect(delivered.entries.map(\.isLastInRun) == [false, true])
+    }
 }
