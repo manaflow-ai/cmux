@@ -77,6 +77,13 @@ public final class FeedStore {
     /// receipt. Returns the outcome (also reported through `onOutcome`).
     @discardableResult
     public func send(_ intent: FeedIntent) async -> FeedIntentOutcome {
+        // An empty batch is a no-op; the owner's schema refuses it.
+        switch intent {
+        case .read(let ids), .seen(let ids), .archive(let ids):
+            if ids.isEmpty { return .committed(intent) }
+        default:
+            break
+        }
         let key = IntentKey()
         guard isLive else {
             return finish(.notSent(intent, offline: true))
@@ -132,8 +139,11 @@ public final class FeedStore {
         seenFlush = nil
         let ids = seenBatch
         seenBatch = []
-        guard !ids.isEmpty else { return }
-        Task { await send(.seen(itemIDs: ids)) }
+        // The owner takes at most 256 ids per op.
+        for start in stride(from: 0, to: ids.count, by: 256) {
+            let chunk = Array(ids[start..<min(start + 256, ids.count)])
+            Task { await send(.seen(itemIDs: chunk)) }
+        }
     }
 
     // MARK: - Drafts

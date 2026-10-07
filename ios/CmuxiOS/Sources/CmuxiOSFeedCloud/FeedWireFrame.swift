@@ -3,12 +3,16 @@ import Foundation
 
 /// One `cmux.wire/1` frame from the feed owner (backend `OwnerFrame`).
 enum FeedWireFrame: Sendable {
-    case welcome(user: String)
+    /// `stream` is the owner's stream name (`welcome.streams[0]`).
+    case welcome(stream: String)
     case snapshot(seq: UInt64, items: [FeedItem], decided: [FeedDecidedKey])
     /// `present` lists every id still held, for ops that can remove items.
     case event(seq: UInt64, items: [FeedItem], present: [String]?)
     case reject(key: String, code: String, message: String)
     case settled(key: String, sequence: UInt64, ok: Bool)
+    /// The socket gate or owner refused a frame without settling it (for
+    /// example `owner.unreachable` while the install check is down).
+    case error(key: String?, code: String, message: String)
     case ignored
 
     static func decode(_ data: Data) -> FeedWireFrame {
@@ -17,7 +21,8 @@ enum FeedWireFrame: Sendable {
         let seq = sequence(o["seq"])
         switch t {
         case "welcome":
-            return ((o["principal"] as? [String: Any])?["user"] as? String).map { .welcome(user: $0) } ?? .ignored
+            if let stream = (o["streams"] as? [String])?.first { return .welcome(stream: stream) }
+            return ((o["principal"] as? [String: Any])?["user"] as? String).map { .welcome(stream: "feed:\($0)") } ?? .ignored
         case "snapshot":
             let state = o["state"] as? [String: Any] ?? [:]
             let items = (state["items"] as? [String: Any] ?? [:]).values
@@ -36,6 +41,9 @@ enum FeedWireFrame: Sendable {
         case "request-settled":
             guard let key = o["idempotency_key"] as? String else { return .ignored }
             return .settled(key: key, sequence: sequence(o["sequence"]), ok: o["ok"] as? Bool ?? false)
+        case "error":
+            return .error(key: o["idempotency_key"] as? String, code: o["code"] as? String ?? "",
+                          message: o["message"] as? String ?? "")
         default:
             return .ignored
         }

@@ -24,6 +24,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var readAt: Date?
     public var seenAt: Date?
     public var archivedAt: Date?
+    /// Set while the user snoozed the item; the owner clears it on wake.
+    public var snoozedUntil: Date?
     public var answer: FeedAnswerRecord?
     public var cancelReason: FeedCancelReason?
     /// Per item, bumped by the owner on every change.
@@ -33,7 +35,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         id: String, kind: FeedItemKind, state: FeedItemState = .open, priority: FeedPriority = .normal,
         hostID: HostID? = nil, workspaceID: WorkspaceSummary.ID? = nil, source: String, agent: String? = nil,
         title: String, body: String = "", createdAt: Date, expiresAt: Date? = nil, readAt: Date? = nil,
-        seenAt: Date? = nil, archivedAt: Date? = nil, answer: FeedAnswerRecord? = nil,
+        seenAt: Date? = nil, archivedAt: Date? = nil, snoozedUntil: Date? = nil, answer: FeedAnswerRecord? = nil,
         cancelReason: FeedCancelReason? = nil, revision: Int = 1
     ) {
         self.id = id
@@ -51,6 +53,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         self.readAt = readAt
         self.seenAt = seenAt
         self.archivedAt = archivedAt
+        self.snoozedUntil = snoozedUntil
         self.answer = answer
         self.cancelReason = cancelReason
         self.revision = revision
@@ -64,4 +67,5 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var needsInput: Bool { isOpenRequest && kind.isAnswerableOnPhone }
     public var isRead: Bool { readAt != nil }
     public var isArchived: Bool { archivedAt != nil }
+    public var isSnoozed: Bool { snoozedUntil != nil }
 }

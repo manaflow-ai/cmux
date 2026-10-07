@@ -65,8 +65,12 @@ only to open requests, open requests are never archived.
 4. `reject {idempotency_key, code}` is held until `request-settled {idempotency_key, sequence, ok}`,
    which answers the waiting `perform`: committed at `sequence`, or refused with the reason
    (`feed.closed` becomes "answered elsewhere").
-5. A socket error ends the session; the source shows offline and reconnects after `Backoff`
-   (500 ms doubling to 30 s, reset on a snapshot). No polling, no timers besides that backoff delay.
+5. An `error` frame with an intent's key (the socket gate refused it, for example
+   `owner.unreachable`) refuses that intent; one without a key while a snapshot is awaited ends the
+   session. A socket error ends the session; the source shows offline and reconnects after a
+   doubling delay on an injected clock (500 ms to 30 s, reset on a snapshot). No polling.
+7. The socket stays open while a screen subscribes or an intent it sent is unsettled, so leaving
+   the tab right after an answer never reports a committed answer as failed.
 6. Every snapshot it yields is coalesced newest-only per subscriber, like `MockSnapshotHub`.
 
 Ops go out as `op` frames with origin `user`; answers use the kind's answer schema (feed.md 3.4). The
@@ -81,6 +85,7 @@ install identity exist, else the seam stays on the mock and DEV shows "not regis
 - Header: segmented filter (Needs input, Unread, All), menu with grouping (none, workspace, agent),
   Mark All Read. Sections: with grouping none, "Needs input" then "Earlier"; otherwise one section per
   workspace or agent, open requests first inside it.
+- Snoozed and archived items never show (snooze itself is not offered on the phone yet).
 - Read: opening an item (tap pushes the detail) reads it; Mark Read swipe; answering reads it. Seen:
   cells that display while the screen is visible are reported in one `feed.seen` per main-actor turn,
   so the owner does not push what the user already saw (feed.md 7.3).
@@ -98,7 +103,8 @@ install identity exist, else the seam stays on the mock and DEV shows "not regis
 
 Covered: Needs Input filter, full text (detail), permission allow/deny with scopes, plan approve and
 revise with feedback, multi-question answers with Other, free-text reply, resolution labels,
-offline state. Gaps: plan "modes" (auto-accept, bypass) have no field in FeedDO's `review` answer;
+offline state. Gaps: a refusal settled from a reconnect snapshot's decided keys carries no reason,
+so it is not labeled "answered elsewhere"; plan "modes" (auto-accept, bypass) have no field in FeedDO's `review` answer;
 the quoted-reply reference and per-terminal reply fallback belong to the terminal path (D1/C7). Banner
 categories and inline push reply stay C7.
 

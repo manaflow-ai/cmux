@@ -146,4 +146,51 @@ import Testing
         second.push(["t": "request-settled", "tx": "t", "idempotency_key": "idem_b", "stream": "feed:usr_1", "sequence": 4, "ok": true])
         #expect(try await b == .committed(key: undecided, revision: 4))
     }
+
+    @Test func gateErrorOnAnOpRefusesItAndOnASnapshotRequestReconnects() async throws {
+        let first = FakeFeedConnection(), second = FakeFeedConnection()
+        let (source, transport) = makeSource([first, second])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = first.outbound.makeAsyncIterator()
+        first.push(OwnerJSON.welcome)
+        first.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let key = IntentKey(rawValue: "idem_e")
+        async let receipt = source.perform(.decline(itemID: "fi_1"), key: key)
+        _ = await nextFrame(&sent, t: "op")
+        first.push(["t": "error", "code": "owner.unreachable", "message": "install check failed", "idempotency_key": "idem_e"])
+        #expect(try await receipt == .refused(key: key, reason: "owner.unreachable: install check failed"))
+
+        first.push(OwnerJSON.event(seq: 3, items: []))
+        _ = await nextFrame(&sent, t: "snapshot.request")
+        first.push(["t": "error", "code": "owner.unreachable", "message": ""])
+        _ = await next(&updates) { if case .offline = $0.connection { true } else { false } }
+        second.push(OwnerJSON.welcome)
+        second.push(OwnerJSON.snapshot(seq: 3, items: [OwnerJSON.item("fi_1")]))
+        let back = try #require(await next(&updates) { $0.connection.isLive })
+        #expect(back.revision == 3)
+        #expect(await transport.requests.count == 2)
+    }
+
+    @Test func leavingTheScreenKeepsTheSocketUntilPendingIntentsSettle() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var sent = socket.outbound.makeAsyncIterator()
+        let key = IntentKey(rawValue: "idem_s")
+        let task: Task<IntentReceipt, any Error>
+        do {
+            var updates = await source.updates().makeAsyncIterator()
+            socket.push(OwnerJSON.welcome)
+            socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+            _ = await next(&updates) { $0.connection.isLive }
+            task = Task { try await source.perform(.read(itemIDs: ["fi_1"]), key: key) }
+            _ = await nextFrame(&sent, t: "op")
+        }
+        // The screen went away (its stream ended) before the settle arrived.
+        for _ in 0..<1000 where await source.subscriberCount > 0 { await Task.yield() }
+        #expect(await source.subscriberCount == 0)
+        socket.push(["t": "request-settled", "tx": "t", "idempotency_key": "idem_s", "stream": "feed:usr_1", "sequence": 2, "ok": true])
+        #expect(try await task.value == .committed(key: key, revision: 2))
+    }
 }

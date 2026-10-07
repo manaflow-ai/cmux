@@ -37,6 +37,7 @@ struct FeedWireDecode {
             readAt: date(o["read_at"]),
             seenAt: date(o["seen_at"]),
             archivedAt: date(o["archived_at"]),
+            snoozedUntil: date(o["snoozed_until"]),
             answer: (o["answer"] as? Object).flatMap { answerRecord($0, kind: kind) },
             cancelReason: ((o["cancel"] as? Object)?["reason"] as? String).map { FeedCancelReason(rawValue: $0) ?? .other },
             revision: (o["revision"] as? Int) ?? 1

@@ -20,6 +20,9 @@ import Testing
         items[4].archivedAt = now // feed4
         #expect(FeedSectionBuilder(filter: .all, grouping: .none).sections(items).flatMap(\.itemIDs).contains("feed4") == false)
         items[4].archivedAt = nil
+        items[0].snoozedUntil = now.addingTimeInterval(3600) // feed1
+        #expect(!FeedSectionBuilder(filter: .needsInput, grouping: .none).sections(items).flatMap(\.itemIDs).contains("feed1"))
+        items[0].snoozedUntil = nil
         let needsInput = FeedSectionBuilder(filter: .needsInput, grouping: .none).sections(items).flatMap(\.itemIDs)
         #expect(!needsInput.contains("feed4"))
         let unread = FeedSectionBuilder(filter: .unread, grouping: .none).sections(items).flatMap(\.itemIDs)

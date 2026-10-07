@@ -10,8 +10,8 @@ public import Foundation
 /// snapshot. Intents go out as `op` frames (origin `user`) and `perform`
 /// returns at their `request-settled`. An intent sent before a disconnect is
 /// settled from the reconnect snapshot's decided keys or resent with its key;
-/// nothing new is sent while disconnected. The socket is open only while
-/// someone subscribes.
+/// nothing new is sent while disconnected. The socket is open while someone
+/// subscribes or an intent it sent is still unsettled.
 public actor CloudFeedSource: FeedSource {
     public typealias TokenProvider = @Sendable () async throws -> String
     private typealias Subscriber = AsyncStream<SourceSnapshot<[FeedItem]>>.Continuation
@@ -32,6 +32,9 @@ public actor CloudFeedSource: FeedSource {
     /// Bumped by every start and stop: a finishing older connection never touches newer state.
     private var generation = 0
     private var outbox: AsyncStream<String>.Continuation?
+    /// The open socket, closed directly on stop (a pending receive does not
+    /// observe task cancellation).
+    private var socket: (any FeedWireConnection)?
     private var stream = ""
     private var backoff: Duration
     /// Set by a new connection: its first snapshot resends undecided intents.
@@ -90,6 +93,9 @@ public actor CloudFeedSource: FeedSource {
         }
     }
 
+    /// Screens currently subscribed (tests).
+    var subscriberCount: Int { subscribers.count }
+
     // MARK: - Connection
 
     private var current: SourceSnapshot<[FeedItem]> {
@@ -104,22 +110,25 @@ public actor CloudFeedSource: FeedSource {
 
     private func unsubscribe(_ id: UUID) {
         subscribers[id] = nil
-        guard subscribers.isEmpty else { return }
-        // Nobody shows the feed: close the socket. Unsettled intents cannot
-        // be confirmed any more; their callers learn so (the next snapshot
-        // shows what the owner decided).
+        stopIfIdle()
+    }
+
+    /// Nobody shows the feed and no intent waits for its settle: close the
+    /// socket. An unsettled intent keeps the connection (and its reconnects)
+    /// until the owner settles it, so a sent answer is never reported as
+    /// failed just because the screen went away.
+    private func stopIfIdle() {
+        guard subscribers.isEmpty, unsettled.isEmpty, runner != nil else { return }
         generation += 1
         runner?.cancel()
         runner = nil
+        socket?.close()
+        socket = nil
         outbox?.finish()
         outbox = nil
         mirror.invalidate()
         connection = .connecting
-        unsettled = []
         rejects = [:]
-        let failed = waiting
-        waiting = [:]
-        for continuation in failed.values { continuation.resume(throwing: CancellationError()) }
     }
 
     private func run(_ generation: Int) async {
@@ -152,6 +161,8 @@ public actor CloudFeedSource: FeedSource {
         let socket = try await transport.connect(request)
         defer { socket.close() }
         guard generation == self.generation else { throw CancellationError() }
+        self.socket = socket
+        defer { if generation == self.generation { self.socket = nil } }
         // One ordered sender per connection: frames leave in the order they were queued.
         let (frames, outbox) = AsyncStream.makeStream(of: String.self)
         self.outbox = outbox
@@ -164,17 +175,20 @@ public actor CloudFeedSource: FeedSource {
         while !Task.isCancelled, generation == self.generation {
             let data = try await socket.receive()
             guard generation == self.generation else { break }
-            handle(FeedWireFrame.decode(data))
+            try handle(FeedWireFrame.decode(data))
         }
         throw CancellationError()
     }
 
     // MARK: - Frames
 
-    private func handle(_ frame: FeedWireFrame) {
+    /// Applies one frame; throws to end the session (reconnect with backoff).
+    /// Closes the socket after it when nobody needs it any more.
+    private func handle(_ frame: FeedWireFrame) throws {
+        defer { stopIfIdle() }
         switch frame {
-        case .welcome(let user):
-            stream = "feed:\(user)"
+        case .welcome(let stream):
+            self.stream = stream
             // No `after_seq`: resumed log events carry no items, so a (re)subscribe takes the snapshot.
             write(["t": "subscribe", "stream": stream, "pending": unsettled.map(\.key)])
         case .snapshot(let seq, let items, let decided):
@@ -209,6 +223,15 @@ public actor CloudFeedSource: FeedSource {
                 ? .committed(key: IntentKey(rawValue: key), revision: sequence)
                 : .refused(key: IntentKey(rawValue: key), reason: rejects[key] ?? "refused")
             settle(key, receipt)
+        case .error(let key, let code, let message):
+            if let key, waiting[key] != nil {
+                // An op the gate refused without a settle: it was not committed.
+                settle(key, .refused(key: IntentKey(rawValue: key), reason: message.isEmpty ? code : "\(code): \(message)"))
+            } else if awaitingSnapshot {
+                // A subscribe or snapshot request was refused: reconnect rather
+                // than sit on a stale mirror that looks live.
+                throw FeedWireError.owner(code: code)
+            }
         case .ignored:
             break
         }
