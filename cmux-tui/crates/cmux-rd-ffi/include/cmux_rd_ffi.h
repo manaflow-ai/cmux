@@ -35,6 +35,8 @@ extern "C" {
 /* Message kinds (the stream carrier's frame types). */
 #define CMUX_RD_MESSAGE_CONTROL 1u
 #define CMUX_RD_MESSAGE_DATAGRAM 2u
+/* A bulk chunk (rd change C5, cap "bulk"): u64 transfer, u64 offset, bytes. */
+#define CMUX_RD_MESSAGE_BULK 3u
 
 /* Frame flags (the datagram header's flags). */
 #define CMUX_RD_FLAG_KEYFRAME 0x01u

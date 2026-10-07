@@ -37,6 +37,8 @@ pub const CMUX_RD_ERR_PANIC: i32 = -6;
 
 /// Frame flag of a lossless tile frame (`CMUX_RD_FLAG_TILE`, rd change C3).
 pub const CMUX_RD_FLAG_TILE: u32 = 0x08;
+/// Message kind of a bulk chunk (`CMUX_RD_MESSAGE_BULK`, rd change C5).
+pub const CMUX_RD_MESSAGE_BULK: u32 = 3;
 pub const CMUX_RD_CARRIER_DATAGRAM: u32 = 0;
 pub const CMUX_RD_CARRIER_STREAM: u32 = 1;
 
