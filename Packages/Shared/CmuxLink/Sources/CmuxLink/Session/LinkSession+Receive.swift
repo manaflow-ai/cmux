@@ -73,25 +73,18 @@ extension LinkSession {
             released += message.payload.count
             count += 1
         }
-        guard count > 0 else { return }
         record.retained.removeFirst(count)
         record.retainedBytes -= released
-        let credit = record.creditWaiters.values
-        record.creditWaiters.removeAll()
-        var flush: [CheckedContinuation<Void, any Error>] = []
-        if record.retained.isEmpty {
-            flush = Array(record.flushWaiters.values)
-            record.flushWaiters.removeAll()
-        }
         channels[id] = record
-        for waiter in credit { waiter.resume() }
-        for waiter in flush { waiter.resume() }
+        releaseCredit(id)
     }
 
     // MARK: - Consumer
 
-    func channelNextEvent(_ id: UInt32) async -> ChannelEvent? {
-        guard var record = channels[id] else { return nil }
+    func channelNextEvent(_ id: UInt32, _ incarnation: UInt64) async -> ChannelEvent? {
+        guard isLive(id, incarnation), var record = channels[id] else {
+            return takeRetired(incarnation)
+        }
         if let event = record.popEvent() {
             channels[id] = record
             consumed(id, event)
@@ -100,19 +93,33 @@ extension LinkSession {
         guard !record.finished, record.consumerWaiter == nil else { return nil }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<ChannelEvent?, Never>) in
-                if Task.isCancelled || channels[id] == nil {
-                    continuation.resume(returning: nil)
+                if Task.isCancelled || !isLive(id, incarnation) {
+                    continuation.resume(returning: takeRetired(incarnation))
                 } else {
                     channels[id]?.consumerWaiter = continuation
                 }
             }
         } onCancel: {
-            Task { await self.cancelConsumer(id) }
+            Task { await self.cancelConsumer(id, incarnation) }
         }
     }
 
-    func cancelConsumer(_ id: UInt32) {
-        guard let waiter = channels[id]?.consumerWaiter else { return }
+    /// The next undelivered event of a retired channel.
+    func takeRetired(_ incarnation: UInt64) -> ChannelEvent? {
+        guard var record = retired[incarnation], let event = record.popEvent() else {
+            retired[incarnation] = nil
+            return nil
+        }
+        if case .closed = event {
+            retired[incarnation] = nil
+        } else {
+            retired[incarnation] = record
+        }
+        return event
+    }
+
+    func cancelConsumer(_ id: UInt32, _ incarnation: UInt64) {
+        guard isLive(id, incarnation), let waiter = channels[id]?.consumerWaiter else { return }
         channels[id]?.consumerWaiter = nil
         waiter.resume(returning: nil)
     }
@@ -149,7 +156,7 @@ extension LinkSession {
         case .closed:
             record.finished = true
             channels[id] = record
-            removeIfDone(id)
+            if record.localClosed && record.remoteClosed { retire(id) }
         }
     }
 

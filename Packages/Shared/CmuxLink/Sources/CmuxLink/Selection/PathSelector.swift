@@ -26,7 +26,10 @@ public struct PathSelector: Sendable {
 
     /// Connects through the best carrier. With `betterThan`, only carriers
     /// that could beat that rank run, and a result that does not beat it is
-    /// closed and reported as a failure.
+    /// closed and reported as a failure. Returns as soon as the decision is
+    /// made: losing attempts are cancelled in the background and any late
+    /// transport is closed, so a carrier slow to honor cancellation never
+    /// delays the winner.
     public func race(to peer: LinkPeer, betterThan threshold: Int? = nil) async throws -> any LinkTransport {
         let eligible = carriers.enumerated().filter { _, carrier in
             guard let threshold else { return true }
@@ -34,26 +37,33 @@ public struct PathSelector: Sendable {
         }
         guard !eligible.isEmpty else { throw LinkError.allCarriersFailed([]) }
 
-        return try await withThrowingTaskGroup(of: Outcome.self) { group in
-            var pending: [Int: Int] = [:]
-            for (index, carrier) in eligible {
-                pending[index] = policy.bestRank(of: carrier)
-                group.addTask {
-                    do {
-                        let transport = try await carrier.connect(to: peer)
-                        return .connected(index, transport, await transport.path)
-                    } catch {
-                        return .failed(index, "\(carrier.kind): \(error)")
-                    }
+        let (outcomes, sink) = AsyncStream<Outcome>.makeStream()
+        var attempts: [Task<Void, Never>] = []
+        var pending: [Int: Int] = [:]
+        for (index, carrier) in eligible {
+            pending[index] = policy.bestRank(of: carrier)
+            attempts.append(Task {
+                do {
+                    let transport = try await carrier.connect(to: peer)
+                    sink.yield(.connected(index, transport, await transport.path))
+                } catch {
+                    sink.yield(.failed(index, "\(carrier.kind): \(error)"))
                 }
-            }
+            })
+        }
+        let started = attempts
+        Task {
+            for attempt in started { await attempt.value }
+            sink.finish()
+        }
+        var deadline: Task<Void, Never>?
 
-            var best: (rank: Int, transport: any LinkTransport)?
-            var failures: [String] = []
-            var deadlineStarted = false
-            var decided = false
-
-            while !decided, let outcome = try await group.next() {
+        var best: (rank: Int, transport: any LinkTransport)?
+        var failures: [String] = []
+        var iterator = outcomes.makeAsyncIterator()
+        var decided = false
+        await withTaskCancellationHandler {
+            while !decided, let outcome = await iterator.next() {
                 switch outcome {
                 case let .connected(index, transport, path):
                     pending[index] = nil
@@ -73,30 +83,38 @@ public struct PathSelector: Sendable {
                 case .deadline:
                     decided = best != nil
                 }
+                if Task.isCancelled { decided = true }
                 guard let current = best else {
                     if pending.isEmpty { decided = true }
                     continue
                 }
-                let couldBeat = pending.values.contains { $0 < current.rank }
-                if !couldBeat {
+                if !pending.values.contains(where: { $0 < current.rank }) {
                     decided = true
-                } else if !deadlineStarted {
-                    deadlineStarted = true
+                } else if deadline == nil {
                     let window = policy.preferenceWindow
-                    group.addTask { [clock] in
+                    deadline = Task { [clock] in
                         try? await clock.sleep(for: window)
-                        return .deadline
+                        sink.yield(.deadline)
                     }
                 }
             }
-
-            group.cancelAll()
-            // Close anything that still connects after the decision.
-            while let late = try await group.next() {
+        } onCancel: {
+            sink.finish()
+        }
+        let lateDeadline = deadline
+        for attempt in attempts { attempt.cancel() }
+        lateDeadline?.cancel()
+        // Close anything that still connects after the decision.
+        Task {
+            while let late = await iterator.next() {
                 if case let .connected(_, transport, _) = late { await transport.close() }
             }
-            guard let winner = best else { throw LinkError.allCarriersFailed(failures) }
-            return winner.transport
         }
+        if Task.isCancelled {
+            if let best { await best.transport.close() }
+            throw CancellationError()
+        }
+        guard let winner = best else { throw LinkError.allCarriersFailed(failures) }
+        return winner.transport
     }
 }

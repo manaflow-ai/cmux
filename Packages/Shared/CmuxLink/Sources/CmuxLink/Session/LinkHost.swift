@@ -66,8 +66,11 @@ public actor LinkHost {
         subscribers.remove(id)
     }
 
-    private func sessionClosed(_ id: UUID) {
-        sessionsByID[id] = nil
+    /// Removes only this session: a replacement under the same id stays.
+    private func sessionClosed(_ session: LinkSession) {
+        if sessionsByID[session.sessionID] === session {
+            sessionsByID[session.sessionID] = nil
+        }
     }
 
     /// One reader per transport: routes the hello, then forwards every
@@ -113,7 +116,7 @@ public actor LinkHost {
             epoch: nextEpoch,
             configuration: configuration,
             clock: clock,
-            onClose: { [weak self] id in await self?.sessionClosed(id) }
+            onClose: { [weak self] session in await self?.sessionClosed(session) }
         )
         nextEpoch &+= 1
         sessionsByID[id] = session

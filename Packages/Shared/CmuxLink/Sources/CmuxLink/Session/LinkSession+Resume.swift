@@ -17,19 +17,16 @@ extension LinkSession {
             record.retainedBytes -= covered.reduce(0) { $0 + $1.payload.count }
             record.retained.removeFirst(covered.count)
             channels[id] = record
+            releaseCredit(id)
         } else if peerRevision > 0 || !sameEpoch && lastSent > 0 {
             let reason: GapReason = sameEpoch ? .retentionExceeded : .newEpoch
             replayAfter = floor - 1
             enqueueChannelControl(id, frame: .gap(channel: id, resumeAfter: replayAfter, reason: reason))
         }
-        guard canCarry(record.descriptor) else { return }
-        for message in record.retained where message.revision > replayAfter {
-            enqueueData(id, revision: message.revision, payload: message.payload)
-        }
-        if let refreshed = channels[id], refreshed.retained.isEmpty, !refreshed.flushWaiters.isEmpty {
-            let flush = refreshed.flushWaiters.values
-            channels[id]?.flushWaiters.removeAll()
-            for waiter in flush { waiter.resume() }
+        let pending = channels[id]?.retained ?? []
+        for message in pending where message.revision > replayAfter {
+            // Head-of-line: a frame the path cannot carry stalls the rest.
+            guard enqueueData(id, revision: message.revision, payload: message.payload) else { break }
         }
     }
 
@@ -37,12 +34,11 @@ extension LinkSession {
     /// Inbound directions report a gap, outbound numbering restarts, and
     /// channels the old host session opened end.
     func resetForNewEpoch() {
+        highestPeerChannelID = 0
         for id in channels.keys.sorted() {
             guard var record = channels[id] else { continue }
             if !record.openedLocally {
-                channels[id] = record
                 endChannel(id, reason: .remote, error: LinkError.channelClosed)
-                removeIfDone(id, force: true)
                 continue
             }
             let hadTraffic = record.lastReceived > 0 || record.nextRevision > 1

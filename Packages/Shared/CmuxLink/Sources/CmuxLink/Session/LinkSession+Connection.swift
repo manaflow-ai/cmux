@@ -7,12 +7,14 @@ extension LinkSession {
 
     func startAttempt() {
         guard case let .dialer(peer, selector) = role, !machine.state.isClosed, connectTask == nil else { return }
+        connectToken += 1
+        let token = connectToken
         connectTask = Task { [weak self] in
             do {
                 let transport = try await selector.race(to: peer)
-                await self?.raceSucceeded(transport)
+                await self?.raceSucceeded(transport, token: token)
             } catch {
-                await self?.attemptFailed("\(error)")
+                await self?.raceFailed("\(error)", token: token)
             }
         }
     }
@@ -23,12 +25,14 @@ extension LinkSession {
         }
         let threshold = selector.policy.rank(of: current.path.kind)
         guard selector.bestReachableRank < threshold else { return }
+        connectToken += 1
+        let token = connectToken
         connectTask = Task { [weak self] in
             do {
                 let transport = try await selector.race(to: peer, betterThan: threshold)
-                await self?.raceSucceeded(transport)
+                await self?.raceSucceeded(transport, token: token)
             } catch {
-                await self?.attemptFailed("upgrade: \(error)")
+                await self?.raceFailed("upgrade: \(error)", token: token)
             }
         }
     }
@@ -49,7 +53,24 @@ extension LinkSession {
         startUpgrade()
     }
 
-    func raceSucceeded(_ transport: any LinkTransport) async {
+    /// Cancels the in-flight race; its completion is ignored.
+    func cancelConnectTask() {
+        connectTask?.cancel()
+        connectTask = nil
+        connectToken += 1
+    }
+
+    func raceFailed(_ message: String, token: UInt64) {
+        guard token == connectToken else { return }
+        connectTask = nil
+        attemptFailed(message)
+    }
+
+    func raceSucceeded(_ transport: any LinkTransport, token: UInt64) async {
+        guard token == connectToken else {
+            closeTransportLater(transport)
+            return
+        }
         connectTask = nil
         guard !machine.state.isClosed, pendingDial == nil else {
             closeTransportLater(transport)
@@ -109,11 +130,18 @@ extension LinkSession {
     }
 
     func attemptFailed(_ message: String) {
-        connectTask = nil
         guard !machine.state.isClosed else { return }
         if current != nil {
             // A failed upgrade keeps the live path.
             scheduleUpgradeIfNeeded()
+            return
+        }
+        if machine.state.isLive {
+            // The old transport died while an upgrade was pending, and the
+            // upgrade failed too: this is a transport loss.
+            attempt = 1
+            apply(.transportLost(attempt: 1))
+            startAttempt()
             return
         }
         attempt += 1
@@ -285,8 +313,12 @@ extension LinkSession {
         guard !machine.state.isClosed else { return }
         switch role {
         case .dialer:
-            connectTask?.cancel()
-            connectTask = nil
+            if pendingDial != nil {
+                // Make-before-break: the peer closed the old transport after
+                // it took the new one. `welcome` or the dial's failure decides.
+                return
+            }
+            cancelConnectTask()
             retryTask?.cancel()
             retryTask = nil
             attempt = 1

@@ -10,6 +10,8 @@ struct ChannelRecord: Sendable {
     }
 
     let id: UInt32
+    /// Session-unique: a reused wire id never reaches an old `LinkChannel`.
+    let incarnation: UInt64
     let descriptor: ChannelDescriptor
     let openedLocally: Bool
     var phase: Phase = .awaiting
@@ -19,6 +21,9 @@ struct ChannelRecord: Sendable {
     var remoteClosed = false
     /// A `close` frame is queued on the current transport.
     var closeQueued = false
+    /// A retained message does not fit the current path: replay and new
+    /// sends wait for a path that carries it (head-of-line, keeps order).
+    var stalled = false
 
     // Outbound.
     var nextRevision: UInt64 = 1
@@ -39,8 +44,9 @@ struct ChannelRecord: Sendable {
     /// The consumer took `.closed`.
     var finished = false
 
-    init(id: UInt32, descriptor: ChannelDescriptor, openedLocally: Bool, cursorEpoch: UInt64, lastReceived: UInt64) {
+    init(id: UInt32, incarnation: UInt64, descriptor: ChannelDescriptor, openedLocally: Bool, cursorEpoch: UInt64, lastReceived: UInt64) {
         self.id = id
+        self.incarnation = incarnation
         self.descriptor = descriptor
         self.openedLocally = openedLocally
         self.cursorEpoch = cursorEpoch
@@ -78,6 +84,12 @@ struct ChannelRecord: Sendable {
         if case let .message(message) = inbox[index] { inboxBytes -= message.payload.count }
         inbox.remove(at: index)
         return true
+    }
+
+    /// Releases retained payloads (the record is closed).
+    mutating func dropRetained() {
+        retained.removeAll()
+        retainedBytes = 0
     }
 
     mutating func clearInbox() {

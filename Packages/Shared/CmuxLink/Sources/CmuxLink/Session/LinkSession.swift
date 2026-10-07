@@ -10,7 +10,7 @@ public import Foundation
 public actor LinkSession: CmuxLink {
     enum Role: Sendable {
         case dialer(peer: LinkPeer, selector: PathSelector)
-        case accepted(onClose: @Sendable (UUID) async -> Void)
+        case accepted(onClose: @Sendable (LinkSession) async -> Void)
     }
 
     struct Attached: Sendable {
@@ -44,6 +44,15 @@ public actor LinkSession: CmuxLink {
     var channels: [UInt32: ChannelRecord] = [:]
     var nextChannelID: UInt32
     var nextWaiterID: UInt64 = 1
+    var nextIncarnation: UInt64 = 1
+    /// Closed records whose consumer has not taken `.closed` yet, by
+    /// incarnation. Their wire id is free for reuse.
+    var retired: [UInt64: ChannelRecord] = [:]
+    /// Highest channel id the peer opened in this epoch; a re-declared id at
+    /// or below it that has no record was closed and is answered with close.
+    var highestPeerChannelID: UInt32 = 0
+    /// Identifies the current connect task; stale completions are ignored.
+    var connectToken: UInt64 = 0
 
     // Pump.
     var outbound = OutboundQueue()
@@ -80,7 +89,7 @@ public actor LinkSession: CmuxLink {
         epoch: UInt64,
         configuration: LinkConfiguration,
         clock: LinkClock,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (LinkSession) async -> Void
     ) {
         self.sessionID = acceptedID
         self.role = .accepted(onClose: onClose)
@@ -243,8 +252,7 @@ public actor LinkSession: CmuxLink {
         channelSubscribers.finish()
         mediaSubscribers.finish()
         if case let .accepted(onClose) = role {
-            let id = sessionID
-            Task { await onClose(id) }
+            Task { await onClose(self) }
         }
     }
 

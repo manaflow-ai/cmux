@@ -85,18 +85,35 @@ so the UI says "needs a direct connection"; nothing queues behind the relay.
 ## 5. Reconnect and resume
 
 The dialer opens a transport and sends `hello(sessionID, epoch?)`. `LinkHost` answers
-`welcome(epoch, resumed)`: a known session resumes, otherwise a new epoch starts. Then every open
-channel is re-declared with the dialer's receive cursor, the host answers with its own, and each side
-replays retained messages above the peer's cursor. A cursor below the sender's retention floor, or
-from another epoch, yields one `gap(from:to:)` event, then delivery continues. Features can also open
-a channel with a cursor saved from an earlier session (`openChannel(_:resumeFrom:)`), which follows
-the same rule. Offline sends are not queued (OWNERSHIP-PRINCIPLES "nothing queues"): while
-`reconnecting`, reliable sends wait for credit as usual only up to the channel budget and fail with
-`LinkError.notConnected` once the session is closed.
+`welcome(epoch, resumed)`: a known session resumes, otherwise a new epoch starts. Then the opener of
+every live channel re-declares it with its receive cursor, the other side answers with its own, and
+each side replays retained messages above the peer's cursor. A cursor is the last revision the
+consumer took, not the last that arrived, so data that arrived but was not consumed keeps holding
+credit across a reconnect (the receiver drops the replayed duplicates). A cursor below the sender's
+retention floor, or from another epoch, yields one `gap` event, then delivery continues.
+
+`openChannel(_:resumeFrom:)` with a saved cursor always opens a new channel, so a non-zero cursor
+yields a gap and the feature resyncs from a snapshot; replay across channels or sessions belongs to
+the owner's revisions (A0). Partial and unreliable sends are not resumed. Offline sends are not
+queued (OWNERSHIP-PRINCIPLES "nothing queues"): while `reconnecting`, reliable sends are retained up
+to the channel budget and replayed on resume; once the session is closed they fail.
+
+Channel close is a handshake: `close`, echoed once. A channel record retires when both sides closed;
+its wire id is then free, undelivered events stay readable through the handle (each record has a
+session-unique incarnation), and a re-declared id at or below the highest id the peer opened in this
+epoch is answered with `close`, never re-delivered. A retained message that does not fit a new path
+(a large frame after falling back to the relay) stalls its channel head-of-line until a capable path,
+instead of failing the transport.
 
 Path upgrade is make-before-break: when the selector finds a better path while connected (after a
 network change or the upgrade retry), the session resumes on the new transport, switches its pump,
-then closes the old one. Retained messages cover anything in flight on the old transport.
+then closes the old one. Retained messages cover anything in flight on the old transport. The host
+closing the old transport during the switch is not a loss: the state stays connected and no new race
+starts unless the upgrade itself fails. Each connect race carries a token; a cancelled race's late
+result is closed and ignored. The selector returns as soon as it decides; losing attempts are
+cancelled and closed in the background, so a slow loser never delays the winner.
+
+A session's send pump holds the session until `close()`; owners must close sessions they drop.
 
 ## 6. Path selection
 

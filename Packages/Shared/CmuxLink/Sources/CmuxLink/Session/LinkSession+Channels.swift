@@ -1,6 +1,6 @@
 import Foundation
 
-/// Channel operations for features and inbound frame handling.
+/// Channel operations for features: open, send, flush, close, lifecycle.
 extension LinkSession {
     // MARK: - Open
 
@@ -8,7 +8,7 @@ extension LinkSession {
         if case let .closed(reason) = machine.state { throw LinkError.closed(reason) }
         let id = nextChannelID
         nextChannelID &+= 2
-        let record = ChannelRecord(
+        let record = makeRecord(
             id: id, descriptor: descriptor, openedLocally: true,
             cursorEpoch: cursor?.epoch ?? epoch, lastReceived: cursor?.revision ?? 0
         )
@@ -16,24 +16,43 @@ extension LinkSession {
         if current != nil, pendingDial == nil, machine.state.isLive {
             enqueueOpen(id)
         }
-        return LinkChannel(id: id, descriptor: descriptor, session: self)
+        return LinkChannel(id: id, incarnation: record.incarnation, descriptor: descriptor, session: self)
     }
 
-    /// Re-declares channels on a fresh transport: locally opened channels
-    /// send `open` with their cursor; closes the peer never echoed are sent
-    /// again; channels the peer opened wait for the peer's `open`.
+    func makeRecord(
+        id: UInt32, descriptor: ChannelDescriptor, openedLocally: Bool, cursorEpoch: UInt64, lastReceived: UInt64
+    ) -> ChannelRecord {
+        let incarnation = nextIncarnation
+        nextIncarnation += 1
+        return ChannelRecord(
+            id: id, incarnation: incarnation, descriptor: descriptor, openedLocally: openedLocally,
+            cursorEpoch: cursorEpoch, lastReceived: lastReceived
+        )
+    }
+
+    /// Whether `id` still names the channel a handle was created for.
+    func isLive(_ id: UInt32, _ incarnation: UInt64) -> Bool {
+        channels[id]?.incarnation == incarnation
+    }
+
+    /// Re-declares channels on a fresh transport. The opener sends `open`
+    /// with its consumed cursor (locally closed channels too, so retained
+    /// data replays before their close); the other side waits for it. A
+    /// non-opener that closed retires: if the opener still holds the
+    /// channel, its `open` is answered with `close`.
     func redeclareChannels() {
         for id in channels.keys.sorted() {
             guard var record = channels[id] else { continue }
             record.phase = .awaiting
             record.closeQueued = false
+            record.stalled = false
             channels[id] = record
             if record.localClosed && record.remoteClosed {
-                removeIfDone(id, force: true)
+                retire(id)
             } else if record.openedLocally && !record.remoteClosed {
-                // Locally closed channels re-declare too, so retained data
-                // replays before their close.
                 enqueueOpen(id)
+            } else if record.localClosed {
+                retire(id)
             }
         }
         wakePump()
@@ -52,7 +71,7 @@ extension LinkSession {
         guard let record = channels[id] else { return }
         enqueueChannelControl(id, frame: .open(
             channel: id, descriptor: record.descriptor,
-            cursorEpoch: record.cursorEpoch, cursorRevision: record.lastReceived
+            cursorEpoch: record.cursorEpoch, cursorRevision: record.lastConsumed
         ))
     }
 
@@ -60,12 +79,12 @@ extension LinkSession {
     /// priority, so carriers that map lanes to separate streams keep them in
     /// order with the channel's reliable data.
     func enqueueChannelControl(_ id: UInt32, frame: LinkFrame) {
-        guard let record = channels[id] else { return }
-        let lane = TransportLane(reliability: .reliableOrdered, priority: record.descriptor.priority)
+        let priority = channels[id]?.descriptor.priority ?? .control
+        let lane = TransportLane(reliability: .reliableOrdered, priority: priority)
         let item = OutboundItem(frame: frame, lane: lane, bytes: 32, enqueuedAt: clock.now)
         switch frame {
         case .close:
-            outbound.enqueue(item, priority: record.descriptor.priority)
+            outbound.enqueue(item, priority: priority)
         default:
             outbound.enqueueControl(item)
         }
@@ -80,16 +99,27 @@ extension LinkSession {
                 finish(.protocolViolation("channel id parity"), notifyPeer: true)
                 return
             }
-            channels[id] = ChannelRecord(
+            guard id > highestPeerChannelID else {
+                // Closed earlier in this epoch: let the opener finish its close.
+                enqueueChannelControl(id, frame: .close(channel: id))
+                return
+            }
+            highestPeerChannelID = id
+            let record = makeRecord(
                 id: id, descriptor: descriptor, openedLocally: false, cursorEpoch: epoch, lastReceived: 0
             )
-            deliverIncoming(LinkChannel(id: id, descriptor: descriptor, session: self))
+            channels[id] = record
+            deliverIncoming(LinkChannel(id: id, incarnation: record.incarnation, descriptor: descriptor, session: self))
         }
-        guard var record = channels[id], !record.remoteClosed else { return }
+        guard var record = channels[id] else { return }
+        guard !record.remoteClosed else {
+            enqueueChannelControl(id, frame: .close(channel: id))
+            return
+        }
         record.phase = .open
         record.everOpened = true
         channels[id] = record
-        enqueueChannelControl(id, frame: .openAck(channel: id, epoch: epoch, revision: record.lastReceived))
+        enqueueChannelControl(id, frame: .openAck(channel: id, epoch: epoch, revision: record.lastConsumed))
         channelBecameOpen(id, peerEpoch: cursorEpoch, peerRevision: cursorRevision)
     }
 
@@ -103,19 +133,19 @@ extension LinkSession {
 
     // MARK: - Send
 
-    func channelSend(_ id: UInt32, _ payload: Data) async throws -> UInt64 {
+    func channelSend(_ id: UInt32, _ incarnation: UInt64, _ payload: Data) async throws -> UInt64 {
         let size = payload.count
         let limit = min(configuration.maxFrameBytes, current?.capabilities.maxFrameBytes ?? .max)
         guard size + LinkFrame.dataOverhead <= limit else {
             throw LinkError.messageTooLarge(size: size, limit: limit - LinkFrame.dataOverhead)
         }
-        try checkSendable(id)
+        try checkSendable(id, incarnation)
         guard let descriptor = channels[id]?.descriptor else { throw LinkError.channelClosed }
         if descriptor.reliability.isReliable {
             while let record = channels[id], record.retainedBytes > 0,
                   record.retainedBytes + size > descriptor.budgetBytes {
                 try await waitForCredit(id)
-                try checkSendable(id)
+                try checkSendable(id, incarnation)
             }
             guard var record = channels[id] else { throw LinkError.channelClosed }
             let revision = record.nextRevision
@@ -123,7 +153,7 @@ extension LinkSession {
             record.retained.append(LinkMessage(revision: revision, payload: payload))
             record.retainedBytes += size
             channels[id] = record
-            if record.phase == .open, current != nil, canCarry(descriptor) {
+            if record.phase == .open, !record.stalled {
                 enqueueData(id, revision: revision, payload: payload)
             }
             return revision
@@ -132,28 +162,37 @@ extension LinkSession {
         let revision = record.nextRevision
         record.nextRevision += 1
         channels[id] = record
-        if record.phase == .open, current != nil, canCarry(descriptor) {
+        if record.phase == .open {
             enqueueData(id, revision: revision, payload: payload)
         }
         return revision
     }
 
-    func checkSendable(_ id: UInt32) throws {
+    func checkSendable(_ id: UInt32, _ incarnation: UInt64) throws {
         if case let .closed(reason) = machine.state { throw LinkError.closed(reason) }
-        guard let record = channels[id], !record.isClosed else { throw LinkError.channelClosed }
+        guard isLive(id, incarnation), let record = channels[id], !record.isClosed else {
+            throw LinkError.channelClosed
+        }
         if let current, record.descriptor.priority == .bulk, !current.capabilities.carriesBulk {
             throw LinkError.unsupportedOnPath(current.path.kind)
         }
     }
 
-    func canCarry(_ descriptor: ChannelDescriptor) -> Bool {
-        guard let current else { return false }
-        return descriptor.priority != .bulk || current.capabilities.carriesBulk
-    }
-
-    func enqueueData(_ id: UInt32, revision: UInt64, payload: Data) {
-        guard var record = channels[id] else { return }
+    /// Queues one data frame on the current transport. Returns false when
+    /// the path cannot carry it (bulk on a control-sized path, or a frame
+    /// above the path's limit after a path change); reliable channels then
+    /// stall until a capable path, so order is kept.
+    @discardableResult
+    func enqueueData(_ id: UInt32, revision: UInt64, payload: Data) -> Bool {
+        guard var record = channels[id], let current else { return false }
         let descriptor = record.descriptor
+        let fits = payload.count + LinkFrame.dataOverhead <= current.capabilities.maxFrameBytes
+        guard fits, descriptor.priority != .bulk || current.capabilities.carriesBulk else {
+            if descriptor.reliability.isReliable {
+                channels[id]?.stalled = true
+            }
+            return false
+        }
         let lane = TransportLane(reliability: descriptor.reliability, priority: descriptor.priority)
         var item = OutboundItem(
             frame: .data(channel: id, revision: revision, payload: payload),
@@ -171,6 +210,7 @@ extension LinkSession {
         }
         outbound.enqueue(item, priority: descriptor.priority)
         wakePump()
+        return true
     }
 
     func waitForCredit(_ id: UInt32) async throws {
@@ -195,9 +235,25 @@ extension LinkSession {
         channels[id]?.creditWaiters.removeValue(forKey: waiter)?.resume(throwing: CancellationError())
     }
 
-    func channelFlush(_ id: UInt32) async throws {
+    /// Wakes senders after retained bytes dropped, and flushers when nothing
+    /// is retained.
+    func releaseCredit(_ id: UInt32) {
+        guard var record = channels[id] else { return }
+        let credit = record.creditWaiters.values
+        record.creditWaiters.removeAll()
+        var flush: [CheckedContinuation<Void, any Error>] = []
+        if record.retained.isEmpty {
+            flush = Array(record.flushWaiters.values)
+            record.flushWaiters.removeAll()
+        }
+        channels[id] = record
+        for waiter in credit { waiter.resume() }
+        for waiter in flush { waiter.resume() }
+    }
+
+    func channelFlush(_ id: UInt32, _ incarnation: UInt64) async throws {
         if case let .closed(reason) = machine.state { throw LinkError.closed(reason) }
-        guard let record = channels[id], !record.retained.isEmpty else { return }
+        guard isLive(id, incarnation), let record = channels[id], !record.retained.isEmpty else { return }
         let waiter = nextWaiterID
         nextWaiterID += 1
         try await withTaskCancellationHandler {
@@ -217,30 +273,31 @@ extension LinkSession {
         channels[id]?.flushWaiters.removeValue(forKey: waiter)?.resume(throwing: CancellationError())
     }
 
-    func channelCursor(_ id: UInt32, stream: String) -> StreamCursor {
-        let record = channels[id]
+    func channelCursor(_ id: UInt32, _ incarnation: UInt64, stream: String) -> StreamCursor {
+        let record = isLive(id, incarnation) ? channels[id] : retired[incarnation]
         return StreamCursor(stream: stream, epoch: record?.cursorEpoch ?? epoch, revision: record?.lastConsumed ?? 0)
     }
 
     // MARK: - Close
 
-    func channelClose(_ id: UInt32) {
-        guard var record = channels[id], !record.localClosed else { return }
+    func channelClose(_ id: UInt32, _ incarnation: UInt64) {
+        guard isLive(id, incarnation), var record = channels[id], !record.localClosed else { return }
         record.localClosed = true
         channels[id] = record
+        failWaiters(id, error: LinkError.channelClosed)
         if record.remoteClosed {
-            removeIfDone(id)
+            retire(id)
             return
         }
-        failWaiters(id, error: LinkError.channelClosed)
         channels[id]?.clearInbox()
         deliver(id, .closed(.local))
         if record.phase == .open, current != nil {
             // FIFO behind this channel's queued data at its priority.
             channels[id]?.closeQueued = true
             enqueueChannelControl(id, frame: .close(channel: id))
-        } else if !record.openedLocally && !record.everOpened {
-            removeIfDone(id, force: true)
+        } else if !record.openedLocally {
+            // The opener's next `open` is answered with close.
+            retire(id)
         }
         // Otherwise the close follows the next open handshake.
     }
@@ -250,17 +307,19 @@ extension LinkSession {
         if record.localClosed {
             record.remoteClosed = true
             channels[id] = record
-            removeIfDone(id, force: true)
+            retire(id)
             return
         }
         record.remoteClosed = true
+        record.localClosed = true
         channels[id] = record
         failWaiters(id, error: LinkError.channelClosed)
         deliver(id, .closed(.remote))
         enqueueChannelControl(id, frame: .close(channel: id))
+        retire(id)
     }
 
-    /// Ends a channel when the session closes.
+    /// Ends a channel when the session closes or its epoch is gone.
     func endChannel(_ id: UInt32, reason: ChannelCloseReason, error: any Error) {
         guard var record = channels[id] else { return }
         let wasClosed = record.isClosed
@@ -269,10 +328,7 @@ extension LinkSession {
         channels[id] = record
         failWaiters(id, error: error)
         if !wasClosed { deliver(id, .closed(reason)) }
-        if let waiter = channels[id]?.consumerWaiter, channels[id]?.hasPendingEvents == false {
-            channels[id]?.consumerWaiter = nil
-            waiter.resume(returning: nil)
-        }
+        retire(id)
     }
 
     func failWaiters(_ id: UInt32, error: any Error) {
@@ -286,15 +342,22 @@ extension LinkSession {
         for waiter in flush { waiter.resume(throwing: error) }
     }
 
-    /// Drops a record once both sides closed and the consumer took `.closed`.
-    func removeIfDone(_ id: UInt32, force: Bool = false) {
-        guard let record = channels[id] else { return }
-        guard force || (record.localClosed && record.remoteClosed) else { return }
-        guard record.finished || !record.hasPendingEvents else { return }
-        if let waiter = record.consumerWaiter {
-            channels[id]?.consumerWaiter = nil
-            waiter.resume(returning: nil)
+    /// Frees the wire id. Undelivered events (ending in `.closed`) stay
+    /// readable through the channel's incarnation; retained payloads go.
+    func retire(_ id: UInt32) {
+        guard var record = channels.removeValue(forKey: id) else { return }
+        let credit = record.creditWaiters.values
+        let flush = record.flushWaiters.values
+        record.creditWaiters.removeAll()
+        record.flushWaiters.removeAll()
+        record.dropRetained()
+        for waiter in credit { waiter.resume(throwing: LinkError.channelClosed) }
+        for waiter in flush { waiter.resume(throwing: LinkError.channelClosed) }
+        if record.finished { return }
+        guard record.hasPendingEvents else {
+            if let waiter = record.consumerWaiter { waiter.resume(returning: nil) }
+            return
         }
-        channels[id] = nil
+        retired[record.incarnation] = record
     }
 }
