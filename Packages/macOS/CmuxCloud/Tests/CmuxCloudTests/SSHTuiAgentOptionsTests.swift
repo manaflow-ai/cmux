@@ -1,10 +1,40 @@
 import CmuxCloud
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
 @Suite("SSH carrier agent option precedence")
 struct SSHTuiAgentOptionsTests {
+    @Test("A restored cmux carrier keeps its saved route socket with an agent")
+    func restoredCmuxCarrierKeepsSavedControlPath() throws {
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        let savedPath = socketDirectory + "/" + String(repeating: "b", count: 40)
+        var snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "example.invalid",
+            sshOptions: ["ControlPath=\(savedPath)"],
+            agentSocketPath: "/tmp/cmux-saved-agent.sock",
+            preserveAfterTerminalExit: true
+        )
+        snapshot.sshSessionOwner = "cmux-tui"
+        var configuration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid", port: nil, identityFile: nil,
+            sshOptions: ["ControlPath=\(savedPath)"],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil,
+            agentSocketPath: "/tmp/cmux-saved-agent.sock",
+            preserveAfterTerminalExit: true
+        )
+        configuration.restoredSSHSession = snapshot
+
+        let connection = SSHTuiConnection(
+            configuration: configuration,
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/cmux-saved-agent.sock"]
+        )
+        #expect(connection.authenticationArguments.contains("ControlPath=\(savedPath)"))
+    }
+
     @Test("A forwarded socket preserves the user's IdentityAgent", arguments: [false, true])
     func forwardedSocketPreservesIdentityAgent(explicitOption: Bool) throws {
         let connection = connection(
