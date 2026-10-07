@@ -78,7 +78,7 @@ enum BrowserProfileHandlers {
             ?? BrowserProfileAppStrings.defaultName(profiles.ordered.count + 1)
         let used = Set(profiles.ordered.compactMap(\.color))
         let color = invocation["color"]?.stringValue
-            ?? GroupColor.allCases.first { !used.contains($0.rawValue) && $0 != .grey }?.rawValue
+            ?? GroupColor.automatic(used: used)?.rawValue
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         try profiles.createProfileNow(name: name, color: color, icon: icon)
     }

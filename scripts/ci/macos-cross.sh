@@ -178,10 +178,18 @@ cmd_parity_vt() {
   fi
   for t in "${TARGETS[@]}"; do
     local lib="$XC_ROOT/vt/libghostty-vt-$t.a" ref="$XC_ROOT/ref/cmux-tui-$t"
+    [[ -s "$ref" && -s "$lib" ]] || { echo "FAIL libghostty-vt-$t: missing $ref or $lib"; status=1; continue; }
+    [[ $("$nm" --just-symbol-name "$ref" | grep -cE '^_ghostty_') -gt 0 ]] \
+      || { echo "FAIL libghostty-vt-$t: the Mac daemon $ref has no _ghostty_ symbols"; status=1; continue; }
     # Every libghostty-vt entry point the Mac-built daemon contains must exist in the Linux archive.
     comm -13 <("$nm" -g --defined-only --just-symbol-name "$lib" 2>/dev/null | grep -E '^_ghostty_' | sort -u) \
              <("$nm" --just-symbol-name "$ref" | grep -E '^_ghostty_' | sort -u) > "$XC_ROOT/vt/missing-$t.txt"
-    local minos; minos=$("$LLVM_BIN/llvm-objdump" --macho --private-headers "$lib" 2>/dev/null | awk '/ minos /{print $2}' | sort -u | tr '\n' ' ')
+    local minos; minos=$("$LLVM_BIN/llvm-objdump" --macho --private-headers "$lib" 2>/dev/null \
+      | awk '/cmd LC_BUILD_VERSION|cmd LC_VERSION_MIN_MACOSX/{c=1} c&&/^ *(minos|version) /{print $2; c=0}' | sort -u | tr '\n' ' ')
+    # The archive's objects must carry the daemon's deployment target, not Zig's default.
+    if [[ "$minos" != "${MIN_OS[$t]} " ]]; then
+      echo "FAIL libghostty-vt-$t: member minimum macOS is '$minos', the daemon links at ${MIN_OS[$t]}"; status=1
+    fi
     if [[ -s "$XC_ROOT/vt/missing-$t.txt" ]]; then
       echo "FAIL libghostty-vt-$t: $(wc -l < "$XC_ROOT/vt/missing-$t.txt") API symbols of the Mac daemon missing: $(head -5 "$XC_ROOT/vt/missing-$t.txt" | tr '\n' ' ')"; status=1
     else

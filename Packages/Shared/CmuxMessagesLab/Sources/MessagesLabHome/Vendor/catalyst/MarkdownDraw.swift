@@ -21,11 +21,30 @@ struct MDPalette {
     var checkMark: UIColor
     var tokens: [MDToken: UIColor]
 
+    /// Relative luminance of any colour: converted to device RGB first (else grey, else light
+    /// text, the dark bubble), HDR components clamped to 0...1. Never reads components of an
+    /// unconverted colour.
+    static func luminance(_ c: UIColor) -> CGFloat {
+        #if canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard c.getRed(&r, green: &g, blue: &b, alpha: &a) else { return 0.9 }
+        func k(_ v: CGFloat) -> CGFloat { min(1, max(0, v)) }
+        return 0.2126 * k(r) + 0.7152 * k(g) + 0.0722 * k(b)
+        #else
+        if let rgb = c.usingColorSpace(.deviceRGB) {
+            func k(_ v: CGFloat) -> CGFloat { min(1, max(0, v)) }
+            return 0.2126 * k(rgb.redComponent) + 0.7152 * k(rgb.greenComponent) + 0.0722 * k(rgb.blueComponent)
+        }
+        if let gray = c.usingColorSpace(.genericGray) { return min(1, max(0, gray.whiteComponent)) }
+        return 0.9
+        #endif
+    }
+
     static func make(outgoing: Bool) -> MDPalette {
         let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        var white: CGFloat = 0, alpha: CGFloat = 0
-        text.getWhite(&white, alpha: &alpha)
-        let darkBubble = white > 0.5
+        // getWhite is valid only for a grey colour: a host theme's sRGB (or HDR sRGB) text
+        // colour threw an NSException on the render queue. Luminance after converting.
+        let darkBubble = MDPalette.luminance(text) > 0.5
         func t(_ a: CGFloat) -> UIColor { text.withAlphaComponent(a) }
         let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         var tokens: [MDToken: UIColor] = [:]

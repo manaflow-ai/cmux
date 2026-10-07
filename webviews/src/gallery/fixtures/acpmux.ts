@@ -79,9 +79,15 @@ export function session(fields: Partial<AcpmuxSessionEntry> & { sessionId: strin
 /** A connected snapshot of one chat: `rows`, with its session in the list. */
 export function chat(
   rows: AcpmuxRow[],
-  fields: Partial<AcpmuxSnapshot> & { title?: string; harness?: string; model?: string } = {},
+  fields: Partial<AcpmuxSnapshot> & { title?: string; harness?: string; model?: string; branch?: string } = {},
 ): AcpmuxSnapshot {
-  const { title = "Add retries to the fetch helper", harness = "claude", model = "claude-opus-5-5", ...rest } = fields;
+  const {
+    title = "Add retries to the fetch helper",
+    harness = "claude",
+    model = "claude-opus-5-5",
+    branch = "main",
+    ...rest
+  } = fields;
   return {
     type: "snapshot",
     protocolVersion: 1,
@@ -96,7 +102,7 @@ export function chat(
       cwd: CWD,
       host: "This Mac",
       hostKind: "local",
-      branch: "main",
+      branch,
       turnCount: rows.filter((candidate) => candidate.kind === "user").length,
       usage: { used: 48_000, size: 200_000 },
       promptCapabilities: { image: true },

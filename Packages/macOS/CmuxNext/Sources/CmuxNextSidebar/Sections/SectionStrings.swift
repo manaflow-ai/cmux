@@ -12,6 +12,7 @@ enum SectionStrings {
     static var newTerminal: String { String(localized: "sidebar.builtin.newTerminal", defaultValue: "New Terminal Tab", bundle: .module) }
     static var newBrowser: String { String(localized: "sidebar.builtin.newBrowser", defaultValue: "New Browser Tab", bundle: .module) }
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .module) }
+    static var searchChats: String { String(localized: "sidebar.builtin.searchChats", defaultValue: "Search Chats", bundle: .module) }
     /// Short tile captions (a tiles section's items, Safari's favorites).
     static var appStoreCaption: String { String(localized: "sidebar.builtin.appStore.caption", defaultValue: "Apps", bundle: .module) }
     /// The rail's button for items that do not fit.

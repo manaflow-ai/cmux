@@ -143,6 +143,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = CE7A00000000000000000006 /* Build configuration list for PBXNativeTarget "cmux-next" */;
 			buildPhases = (
+				CE7A00000000000000000040 /* Verify web bundles */,
 				CE7A00000000000000000009 /* Sources */,
 				CE7A0000000000000000000A /* Frameworks */,
 				CE7A0000000000000000000B /* Resources */,
@@ -409,6 +410,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
+		};
+		CE7A00000000000000000040 /* Verify web bundles */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Verify web bundles";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

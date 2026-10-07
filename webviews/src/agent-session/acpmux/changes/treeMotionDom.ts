@@ -1,8 +1,9 @@
 // Applies the changes tree's disclosure motion (treeMotion.ts) to a Pierre file tree. Pierre owns
 // the rows (a Preact render in an open shadow root, rows reused by slot) and swaps a folder's rows
 // in or out at once; this layer watches that and draws the motion over the final layout:
-//   1. a click or a key on the tree records a snapshot (each rendered row's place on screen and a
-//      copy of it), before Pierre handles the event;
+//   1. a snapshot holds each rendered row's layout place and a copy of it: taken in the frame after
+//      any change of rows while nothing moves, and by every plan (no event listeners: a click, a
+//      key, or a reveal from the diff all reach the tree the same way, through Pierre);
 //   2. when Pierre's mutation lands (a MutationObserver, before the next paint), the folder whose
 //      aria-expanded changed starts (or reverses) its motion; rows that left the DOM but must stay
 //      visible become ghosts (their copies, in a layer of the scrolled list);
@@ -29,7 +30,7 @@ type Snapshot = {
   time: number;
   /** The list's height: what the toggle changes it by is the folder's block height. */
   height: number;
-  /** Each rendered row (and ghost): its path, place on screen in list coordinates, copy. */
+  /** Each rendered row (and ghost): its path, layout place in list coordinates, copy. */
   rows: Map<string, { top: number; height: number; expanded: string | null; copy: HTMLElement }>;
 };
 
@@ -37,9 +38,6 @@ type Ghost = { path: string; top: number; height: number; element: HTMLElement }
 
 const ROWS = '[data-type="item"]:not([data-item-parked]):not([data-file-tree-sticky-row])';
 const CHEVRON = '[data-icon-name="file-tree-icon-chevron"]';
-const INTENT_KEYS = new Set(["ArrowLeft", "ArrowRight", "Enter", " "]);
-/** A snapshot this old no longer describes the screen the toggle changed. */
-const SNAPSHOT_TTL_MS = 1000;
 
 const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -57,6 +55,7 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   let layer: HTMLElement | null = null;
   let animations: Animation[] = [];
   let generation = 0;
+  let snapshotFrame = 0;
 
   const list = () => shadow?.querySelector<HTMLElement>('[data-file-tree-virtualized-list="true"]') ?? null;
   const scroller = () => shadow?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ?? null;
@@ -78,33 +77,54 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
     return true;
   };
 
-  const take = (): Snapshot | null => {
-    const listElement = list();
-    if (!listElement) return null;
-    const origin = listElement.getBoundingClientRect().top;
-    const rows: Snapshot["rows"] = new Map();
-    for (const row of [...liveRows(), ...ghosts.map((ghost) => ghost.element)]) {
-      const path = row.dataset.itemPath;
-      if (!path) continue;
-      const rect = row.getBoundingClientRect();
-      // A ghost is a picture of the row (in an aria-hidden layer): not a tree item, not focusable,
-      // no duplicate id. aria-expanded stays: the chevron's angle is styled from it.
-      const copy = row.cloneNode(true) as HTMLElement;
-      for (const attribute of ["role", "id", "tabindex"]) copy.removeAttribute(attribute);
-      rows.set(path, {
-        top: rect.top - origin,
-        height: rect.height,
-        expanded: row.getAttribute("aria-expanded"),
-        copy,
-      });
-    }
-    return { time: performance.now(), height: listHeight(listElement), rows };
+  /** A ghost is a picture of the row (in an aria-hidden layer): not a tree item, not focusable, no
+   * duplicate id. aria-expanded stays: the chevron's angle is styled from it. */
+  const copyOf = (row: HTMLElement) => {
+    const copy = row.cloneNode(true) as HTMLElement;
+    for (const attribute of ["role", "id", "tabindex"]) copy.removeAttribute(attribute);
+    return copy;
   };
 
-  const onIntent = (event: Event) => {
-    if (!connect()) return;
-    if (event instanceof KeyboardEvent && !INTENT_KEYS.has(event.key)) return;
-    snapshot = take();
+  /** The snapshot of rows at their layout places (`rows` read with no motion applied). */
+  const record = (
+    listElement: HTMLElement,
+    rows: { element: HTMLElement; path: string; top: number; height: number }[],
+  ) => {
+    const map: Snapshot["rows"] = new Map();
+    for (const row of rows)
+      map.set(row.path, {
+        top: row.top,
+        height: row.height,
+        expanded: row.element.getAttribute("aria-expanded"),
+        copy: copyOf(row.element),
+      });
+    for (const ghost of ghosts)
+      map.set(ghost.path, {
+        top: ghost.top,
+        height: ghost.height,
+        expanded: ghost.element.getAttribute("aria-expanded"),
+        copy: ghost.element,
+      });
+    snapshot = { time: performance.now(), height: listHeight(listElement), rows: map };
+  };
+
+  /** Reads the rows when nothing moves (one frame after a change), for the next toggle. */
+  const scheduleSnapshot = () => {
+    if (snapshotFrame) return;
+    snapshotFrame = requestAnimationFrame(() => {
+      snapshotFrame = 0;
+      connect();
+      const listElement = list();
+      if (!listElement || folders.length) return;
+      const origin = listElement.getBoundingClientRect().top;
+      record(
+        listElement,
+        liveRows().map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { element, path: element.dataset.itemPath ?? "", top: rect.top - origin, height: rect.height };
+        }),
+      );
+    });
   };
 
   const stop = () => {
@@ -123,6 +143,7 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
     folders = [];
     layer?.remove();
     layer = null;
+    scheduleSnapshot();
   };
 
   const ghostLayer = (listElement: HTMLElement) => {
@@ -156,6 +177,7 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
       const before = snapshot;
       if (folderRow && before) {
         const previous = folders.find((folder) => folder.path === toggled.path);
+        const shownBefore = folders;
         const height = Math.abs(listHeight(listElement) - before.height);
         const room = viewportBottom - (folderRow.top + folderRow.height);
         const next = startFolder(
@@ -181,10 +203,11 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
           const leaves = toggled.open ? rel === "following" : rel === "descendant" || rel === "following";
           if (!leaves && !ghosts.some((ghost) => ghost.path === path)) continue;
           const existing = ghosts.find((ghost) => ghost.path === path);
-          const placed = { path, top: row.top, height: row.height };
-          // A ghost's layout top: the place it shows now, less its offset now.
-          const offset = rowVisual(placed, folders, motion, now).y;
-          kept.push({ path, top: row.top - offset, height: row.height, element: existing?.element ?? row.copy });
+          // Where it shows now (its layout place under the motions before this toggle), and its
+          // layout top under the new motions: that place less its offset now.
+          const shown = row.top + rowVisual({ path, top: row.top, height: row.height }, shownBefore, motion, now).y;
+          const offset = rowVisual({ path, top: shown, height: row.height }, folders, motion, now).y;
+          kept.push({ path, top: shown - offset, height: row.height, element: existing?.element ?? row.copy });
         }
         for (const ghost of ghosts)
           if (!kept.includes(ghost) && !kept.some((one) => one.element === ghost.element)) ghost.element.remove();
@@ -200,6 +223,8 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
       performance.measure("cmux-motion:tree-plan", "cmux-motion:tree-plan-start");
       return;
     }
+    // The next toggle starts from this plan's layout.
+    record(listElement, live);
     const times = sampleTimes(folders, now);
     const duration = times[times.length - 1]! - now;
     const timing = { duration, easing: "linear", fill: "both" as const };
@@ -253,32 +278,26 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
     )
       return;
     const motion = effectiveArm(arm, reducedMotion());
-    const before = snapshot && performance.now() - snapshot.time < SNAPSHOT_TTL_MS ? snapshot : null;
-    const changed = before ? toggledFolder(before, liveRows()) : undefined;
-    if (changed === "many") {
-      snapshot = null;
-      return finish();
-    }
+    const changed = snapshot ? toggledFolder(snapshot, liveRows()) : undefined;
+    if (changed === "many") return finish();
     if (changed) {
       if (motion.kind === "snap") {
         finish();
         snap(motion, changed);
       } else plan(motion, changed);
-      snapshot = null;
       return;
     }
     // A scroll or a re-render while a motion runs: the same curves over the new rows.
     if (folders.length) plan(motion);
+    else scheduleSnapshot();
   }
 
-  container.addEventListener("pointerdown", onIntent, true);
-  container.addEventListener("keydown", onIntent, true);
   connect();
+  scheduleSnapshot();
   return () => {
-    container.removeEventListener("pointerdown", onIntent, true);
-    container.removeEventListener("keydown", onIntent, true);
     observer?.disconnect();
     finish();
+    if (snapshotFrame) cancelAnimationFrame(snapshotFrame);
   };
 }
 

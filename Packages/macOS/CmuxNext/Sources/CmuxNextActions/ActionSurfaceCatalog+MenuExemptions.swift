@@ -22,6 +22,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .noObject: [
+            "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
@@ -45,7 +46,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
-            "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
+            "palette.welcomeChecklist", "onboarding.continueSetup", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
             "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -56,7 +57,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export", "agentActivity.open",
+            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
@@ -119,7 +120,10 @@ nonisolated extension ActionSurfaceCatalog {
             "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [
-            "space.move", "browser.extension.move", "bookmark.move",
+            "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+        ],
+        .minimalMenu: [
+            "space.newWindow", "space.newWorkspace", "space.clearIcon", "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",

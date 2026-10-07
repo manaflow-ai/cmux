@@ -4,6 +4,7 @@ import Foundation
 public struct UpdateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "update-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var name: String?
     public var color: FieldUpdate<String>
@@ -44,6 +45,7 @@ public struct UpdateProfileRequest: DaemonRequest {
 public struct MoveProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "move-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var index: Int
     public init(profile: ProfileID, index: Int) {
@@ -71,6 +73,7 @@ public struct DeleteProfileRequest: DaemonRequest {
         }
     }
     public static let command = "delete-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var profile: ProfileID
     public var moveTo: ProfileID?
     public init(profile: ProfileID, moveTo: ProfileID? = nil) {

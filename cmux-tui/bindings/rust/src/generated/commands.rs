@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
+// cmux-tui mux protocol 12, IR a12acc481313eced97f8c489168cac258fd1b9c8b5b4fde33476bcaeaaf0e11b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2560,6 +2560,8 @@ pub struct SetColumnDockRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub role: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
@@ -4261,6 +4263,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.role.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "dock-column-role-v1")?;
+        }
         self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 

@@ -20,6 +20,8 @@ import { generateApiKey, hashApiKey, SessionVerifier, TeamMembership } from "../
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
+import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
+import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { SnapshotStore } from "../../src/db/snapshots.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
@@ -139,6 +141,9 @@ const services = Layer.mergeAll(
   Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(upstreamConfig)),
   Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(upstreamConfig)),
   makeMemoryMeshStore().layer,
+  // Mesh M4 services (unused by this run).
+  makeMemoryMembershipCache().layer,
+  makeMemoryWebhookDeliveryStore().layer,
   Layer.succeed(UpstreamMesh, makeUpstreamMesh(upstreamConfig)),
   meshConfigLayer({ experiment: true, tenantIds: [TENANT] }),
 );

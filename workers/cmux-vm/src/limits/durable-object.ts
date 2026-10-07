@@ -46,4 +46,12 @@ export class TenantLimitsObject extends DurableObject {
   abandon(key: string, nowMs: number): Promise<void> {
     return this.ledger.abandon(key, nowMs);
   }
+
+  lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> {
+    return this.ledger.lock(key, holder, leaseMs, nowMs);
+  }
+
+  unlock(key: string, holder: string): Promise<void> {
+    return this.ledger.unlock(key, holder);
+  }
 }
