@@ -52,7 +52,7 @@ describe("gallery themes", () => {
     }
   });
 
-  test("Ghostty's default theme derives the values CmuxTheme documents", () => {
+  test("Ghostty's default theme derives the values CmuxTheme documents", async () => {
     const tokens = deriveTokens(GHOSTTY_DEFAULT);
     expect(tokens.isDark).toBe(true);
     expect(css(tokens.hoverFill)).toBe("rgba(255, 255, 255, 0.06)");
@@ -73,6 +73,11 @@ describe("gallery themes", () => {
         "--cmux-text-tertiary",
       ].sort(),
     );
+    // With the app theme (the stage passes it, as WebTheme does), every --cmux-app-* token too.
+    const { APP_THEME_TOKENS, deriveAppTheme } = await import("../src/theme/appTheme");
+    const withApp = webThemePayload(tokens, deriveAppTheme(readShippedThemes()[0]!));
+    for (const spec of Object.values(APP_THEME_TOKENS))
+      expect(withApp.variables[spec.variable]).toMatch(/^#[0-9a-f]{6}$/);
     const pane = agentPaneTheme(tokens, true);
     expect((pane.palette as string[]).length).toBe(16);
     expect(pane.motion).toEqual({ hover: 0.08, focus: 0.1, fadeIn: 0.1, fadeOut: 0.08 });

@@ -138,6 +138,12 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.appTheme" : {
+      "default" : "followTerminal",
+      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "title" : "App Theme",
+      "type" : "string"
+    },
     "appearance.backdropArt" : {
       "default" : "none",
       "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
@@ -670,6 +676,12 @@
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "computerUse.enabled" : {
+      "default" : false,
+      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "title" : "Computer Use",
       "type" : "boolean"
     },
     "diff.diffIndicators" : {
@@ -1428,6 +1440,12 @@
       "minimum" : 0.1,
       "title" : "Bottom Sections Height",
       "type" : "number"
+    },
+    "sidebar.cards.tips" : {
+      "default" : true,
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
+      "type" : "boolean"
     },
     "sidebar.cmd9" : {
       "default" : "last",
