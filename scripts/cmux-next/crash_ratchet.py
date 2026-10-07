@@ -9,7 +9,8 @@ may never gain a hit of a class; fixing hits is free (run
 reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
 (Rust), on the line or the comment line above, does not count.
 
-  Swift (Packages/macOS/CmuxNext/Sources):
+  Swift (Packages/macOS/CmuxNext/Sources, and the Sources of every root in
+  mobile-scan-roots.txt next to this script, keyed by target):
     force_unwrap      `x!` (a nil value traps)
     as_bang           `as!` (a failed cast traps)
     fatal_error       fatalError( outside a required init(coder:) or init(rootView:)
@@ -66,8 +67,21 @@ def allowed(lines, index):
     return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
 
 
+def swift_sources(repo):
+    yield os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
+    with open(os.path.join(HERE, "mobile-scan-roots.txt"), encoding="utf-8") as handle:
+        for raw in handle:
+            entry = raw.strip()
+            if entry and not entry.startswith("#"):
+                yield os.path.join(repo, entry, "Sources")
+
+
 def scan_swift(repo, counts):
-    sources = os.path.join(repo, "Packages/macOS/CmuxNext/Sources")
+    for sources in swift_sources(repo):
+        scan_swift_sources(sources, counts)
+
+
+def scan_swift_sources(sources, counts):
     for dirpath, _, files in os.walk(sources):
         for name in sorted(files):
             if not name.endswith(".swift"):

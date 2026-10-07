@@ -65,9 +65,11 @@
   "as_bang": {
    "CmuxNextApp": 3,
    "CmuxNextCloud": 1,
-   "CmuxNextSettings": 4
+   "CmuxNextSettings": 4,
+   "CmuxiOSViewers": 3
   },
   "assume_isolated": {
+   "CmuxHomeUI": 12,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
    "CmuxNextApp": 33,
@@ -84,12 +86,25 @@
    "CmuxNextTabs": 7,
    "CmuxNextTasks": 3,
    "CmuxNextTerminal": 16,
-   "CmuxNextWakeups": 1
+   "CmuxNextWakeups": 1,
+   "CmuxiOSCrashReporting": 1,
+   "CmuxiOSFiles": 2,
+   "CmuxiOSPairing": 1,
+   "CmuxiOSPush": 3,
+   "CmuxiOSTerminal": 5,
+   "CmuxiOSViewers": 1,
+   "CmuxiOSWeb": 3
   },
   "fatal_error": {
    "CmuxNextApp": 1
   },
   "force_unwrap": {
+   "CmuxBrowserStream": 2,
+   "CmuxHomeUI": 1,
+   "CmuxLinkDirect": 1,
+   "CmuxLinkWG": 1,
+   "CmuxMobileHost": 6,
+   "CmuxMobileSSH": 4,
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
@@ -114,21 +129,52 @@
    "CmuxNextSettings": 10,
    "CmuxNextSidebar": 8,
    "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 1
+   "CmuxNextTerminal": 1,
+   "CmuxPairing": 2,
+   "CmuxRemoteDesktop": 1,
+   "CmuxiOSApp": 6,
+   "CmuxiOSBrowser": 4,
+   "CmuxiOSFeed": 1,
+   "CmuxiOSOnboarding": 1,
+   "CmuxiOSPlatformUI": 1,
+   "CmuxiOSRemoteDesktop": 5,
+   "CmuxiOSSSH": 1,
+   "CmuxiOSSearch": 1,
+   "CmuxiOSSearchCore": 1,
+   "CmuxiOSShell": 5,
+   "CmuxiOSViewers": 11,
+   "CmuxiOSViewersCore": 4,
+   "CmuxiOSWeb": 2,
+   "CmuxiOSWorkspaces": 3
   },
   "iuo": {
    "CmuxNextApp": 27,
    "CmuxNextBrowser": 8,
    "CmuxNextOnboarding": 17,
-   "CmuxNextSidebar": 5
+   "CmuxNextSidebar": 5,
+   "CmuxiOSBrowser": 2,
+   "CmuxiOSFeed": 2,
+   "CmuxiOSSSH": 2,
+   "CmuxiOSSearch": 2,
+   "CmuxiOSShell": 2,
+   "CmuxiOSViewers": 10,
+   "CmuxiOSWorkspaces": 4
   },
   "precondition": {
+   "CmuxLinkWG": 1,
+   "CmuxLinkWebRTC": 1,
+   "CmuxMobileSSH": 1,
    "CmuxNextBrowserImport": 2,
    "CmuxNextSettings": 2,
    "CmuxNextSidebar": 1,
-   "CmuxNextWakeups": 1
+   "CmuxNextWakeups": 1,
+   "CmuxPairing": 1,
+   "CmuxiOSTerminal": 1
   },
   "unchecked": {
+   "CmuxLinkWebRTC": 11,
+   "CmuxMobileHost": 4,
+   "CmuxMobileSSH": 8,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
    "CmuxNextApp": 5,
@@ -146,7 +192,15 @@
    "CmuxNextServerHelper": 6,
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 7,
-   "CmuxNextTerminal": 7
+   "CmuxNextTerminal": 7,
+   "CmuxiOSApp": 1,
+   "CmuxiOSAuth": 1,
+   "CmuxiOSBrowser": 2,
+   "CmuxiOSPairing": 1,
+   "CmuxiOSPlatform": 2,
+   "CmuxiOSTerminal": 5,
+   "CmuxiOSWebCore": 1,
+   "CmuxiOSWorkspacesCore": 1
   },
   "unowned": {
    "CmuxNextApp": 72,
@@ -155,7 +209,8 @@
    "CmuxNextPalette": 4,
    "CmuxNextSidebar": 2,
    "CmuxNextTerminal": 1,
-   "CmuxNextWakeups": 1
+   "CmuxNextWakeups": 1,
+   "CmuxiOSViewersCore": 1
   }
  }
 }
