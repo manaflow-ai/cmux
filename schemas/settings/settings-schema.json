@@ -706,6 +706,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
+        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.cmdWClosesPinnedTabs",
+      "keywords" : [
+        "pin",
+        "pinned",
+        "close",
+        "cmd-w",
+        "tab",
+        "keep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "cmdWClosesPinnedTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs",
+        "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
@@ -7210,6 +7258,100 @@
       "title" : {
         "key" : "settings.statusIndicator.color",
         "text" : "Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs.help",
+        "text" : "Three dots take the tab's icon place while an agent works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showAgentWorkingOnTabs",
+      "keywords" : [
+        "agent",
+        "working",
+        "thinking",
+        "dots"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showAgentWorkingOnTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs",
+        "text" : "Show Agent Working on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.showPageLoading.help",
+        "text" : "A spinner takes a browser tab's icon place while its page loads."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showPageLoading",
+      "keywords" : [
+        "browser",
+        "loading",
+        "spinner",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showPageLoading"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showPageLoading",
+        "text" : "Show Page Loading on Tabs"
       },
       "validation" : "portable"
     },
@@ -15702,7 +15844,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e56ff476e0cc0b67f6fe96017f244fd81c9941a0b13c978f3cdc35c9d2397e44",
+  "schema_hash" : "665e98bbc05ba8e173364f96157dbe32fba60fb43e3e169d98b29f86e36b8858",
   "sections" : [
     {
       "id" : "general",
