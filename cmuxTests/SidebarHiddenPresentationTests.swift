@@ -242,6 +242,10 @@ struct SidebarHiddenPresentationTests {
                 UserDefaults.standard.removeObject(forKey: cloudMarkerKey)
             }
         }
+        // This test owns a disabled-to-enabled transition. Clear any marker
+        // left by an earlier app-host test so the initial sidebar snapshot is
+        // independent of suite order.
+        UserDefaults.standard.removeObject(forKey: cloudMarkerKey)
         defaults.set(
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
