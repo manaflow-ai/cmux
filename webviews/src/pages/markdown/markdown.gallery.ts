@@ -2,6 +2,8 @@
 // The markdown editor page (cmux-page://cmux.markdown/) on fixed files: the real page entry
 // (main.tsx) over an in-page cmuxPage host (src/gallery/frame/pages.ts).
 import { markdownPageEntry } from "../../gallery/format";
+import SHOWCASE from "../../gallery/fixtures/markdown-showcase.md?raw";
+import SHOWCASE_SVG from "../../gallery/fixtures/markdown-showcase-assets/sample.svg?raw";
 
 const README = `# Atlas web
 
@@ -59,6 +61,52 @@ tags: [release, notes]
 - **Fixed** a crash when a tab closed during a drag.
 `;
 
+const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
+const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
+const TASK_NESTED =
+  "- [x] Release checklist\n  - [ ] Update the changelog\n  - [x] Run the focused tests\n    - [ ] Ask for review\n";
+const TASK_LONG = `- [ ] This task has a deliberately long title that wraps across several lines in a narrow markdown column so the checkbox stays aligned with the first line of the item rather than drifting into the line box.`;
+
+const SHOWCASE_DIR = "/Users/you/src/markdown-showcase";
+
+/// The showcase split at its level-2 headings (outside code fences), one variant per section,
+/// with stable ids from the heading text so a section keeps its URL.
+function showcaseSections(text: string): Array<{ id: string; title: string; body: string }> {
+  const lines = text.split("\n");
+  const sections: Array<{ id: string; title: string; body: string }> = [];
+  let fence: string | null = null;
+  let current: { title: string; lines: string[] } | null = null;
+  for (const line of lines) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) fence = fence === null ? marker[0] : marker[0] === fence ? null : fence;
+    if (fence === null && line.startsWith("## ") && !marker) {
+      if (current) sections.push({ id: "", title: current.title, body: current.lines.join("\n") });
+      current = { title: line.slice(3).trim(), lines: [line] };
+    } else current?.lines.push(line);
+  }
+  if (current) sections.push({ id: "", title: current.title, body: current.lines.join("\n") });
+  return sections.map((section) => ({
+    ...section,
+    id: `showcase-${section.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")}`,
+  }));
+}
+
+const showcaseFiles = { [`${SHOWCASE_DIR}/markdown-showcase-assets/sample.svg`]: SHOWCASE_SVG };
+const showcaseVariants = Object.fromEntries(
+  showcaseSections(SHOWCASE).map((section) => [
+    section.id,
+    {
+      note: `Showcase section: ${section.title}.`,
+      path: `${SHOWCASE_DIR}/markdown-showcase.md`,
+      text: section.body,
+      files: showcaseFiles,
+    },
+  ]),
+);
+
 export default markdownPageEntry({
   id: "pages.markdown",
   title: "Markdown editor",
@@ -66,11 +114,38 @@ export default markdownPageEntry({
   height: 640,
   covers: ["page:cmux.markdown", "pages/markdown/MarkdownPage.tsx", "viewer-empty/MarkdownEmptyState.tsx"],
   variants: {
+    showcase: {
+      note: "The full markdown showcase (every feature the agent replies must render).",
+      path: `${SHOWCASE_DIR}/markdown-showcase.md`,
+      text: SHOWCASE,
+      files: showcaseFiles,
+    },
+    ...showcaseVariants,
     readme: {
       note: "A README: headings, a table, code, a task list, math, links.",
       path: "/Users/you/src/atlas-web/README.md",
       text: README,
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
+    },
+    "tasks-checked": {
+      note: "Checked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_CHECKED,
+    },
+    "tasks-unchecked": {
+      note: "Unchecked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_UNCHECKED,
+    },
+    "tasks-nested": {
+      note: "Nested checked and unchecked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_NESTED,
+    },
+    "tasks-long": {
+      note: "A long task-list item wrapping in a narrow column.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_LONG,
     },
     "read-only": {
       note: "A file the user cannot write.",

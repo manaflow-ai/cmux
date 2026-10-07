@@ -47,7 +47,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # workers/cmux-vm/cli/rust-toolchain.toml is a symlink to this pin.
+      # workers/cmux-vm/cli/rust-toolchain.toml is a regular-file copy of
+      # cmux-tui/rust-toolchain.toml (the fleet build fingerprint rejects a
+      # symlinked dependency file); this step fails when the two drift.
+      - name: The cli toolchain pin matches cmux-tui
+        working-directory: .
+        run: diff <(grep -v '^#' workers/cmux-vm/cli/rust-toolchain.toml) cmux-tui/rust-toolchain.toml
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 

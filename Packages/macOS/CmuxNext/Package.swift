@@ -101,8 +101,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-3494fdc61366d8a0cde7cdc09992587744aac137/CCmuxAppFFI.xcframework.zip",
-    checksum: "968a7a2d6484753b8f92d2e50d6b9da9a9865f7b579ab9c151d8712961b84588"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-51ced0d4ee783fb6bd7bacbe26c6eec801eb73ae/CCmuxAppFFI.xcframework.zip",
+    checksum: "445e54014d50ea0ff602d4c450114fd1baa1afcdd2fb3d1e9eda82c9019fef0e"
 )
 
 let package = Package(
@@ -275,6 +275,11 @@ let package = Package(
         // and the cancellable importer. No UI, nothing main-actor.
         .target(
             name: "CmuxNextBrowserImport",
+            // browser-sources.json: the one browser source registry (decision
+            // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
+            resources: [
+                .copy("Resources/browser-sources.json"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -519,7 +524,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextRemoteBrowserTests",
-            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView"],
+            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView", "CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
@@ -580,8 +585,11 @@ let package = Package(
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
+            // WhatsNew: the bundled What's New documents and media
+            // (scripts/whats-new/sync-app-bundle.sh copies them from whats-new/).
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/WhatsNew"),
             ],
             swiftSettings: uiSwiftSettings
         ),

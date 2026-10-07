@@ -213,27 +213,9 @@ enum NewTabPage {
 
 extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, where the store
-    /// places a new tab, with the selected tab's kind selected and folder inherited.
-    /// Adopts the window's prewarmed spare page when it has one
-    /// (NewTabSparePool), else the page loads cold.
-    func newTabPage(seed: AgentPaneSeedSource? = nil) {
-        let start = ContinuousClock.now
-        let cwd = selectedTab?.cwd
-        let page = NewTabPage.page(services, selected: selectedTab)
-        let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
-            if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
-        }
-        let spare = seed == nil ? services.newTabSpares.take(for: view.window) : nil
-        // The tab shows at once (a store intent); the store's tab replaces it when it answers.
-        guard openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) else { return }
-        // The adopted page is alive: show it this frame and give it the keyboard now, so the
-        // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil, services.presentation.showNow(self) {
-            services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-        }
-        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
-                                           milliseconds: NewTabSparePool.milliseconds(since: start)))
-    }
+    /// places a new tab, with the selected tab's kind selected and folder inherited
+    /// (``NewTabPage/open(in:seed:)``).
+    func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab
     /// page already showing; anywhere else a new tab page, whose field takes
@@ -254,6 +236,35 @@ extension PaneController {
 @MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
 
 extension NewTabPage {
+    /// The New Tab page in `pane`, adopting the window's prewarmed spare when it has one
+    /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
+    /// limit counts PaneController's extensions). Everything happens in this one main-actor
+    /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
+    /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
+    /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?) {
+        let start = ContinuousClock.now
+        let services = pane.services
+        let cwd = pane.selectedTab?.cwd
+        let page = Self.page(services, selected: pane.selectedTab)
+        let handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
+            if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
+        }
+        let spare = seed == nil
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
+            : nil
+        // The tab shows at once (a store intent); the store's tab replaces it when it answers.
+        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else { return }
+        // The adopted page is alive: show it this frame and give it the keyboard now, so the
+        // first key typed after the open reaches its field (fleet test: it went to the old responder).
+        if spare != nil, services.presentation.showNow(pane) {
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+        }
+        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
+        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+                                           milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
+    }
+
     /// The page chose a terminal or browser: open it, then close the page,
     /// which held nothing yet (the open-beside rule's one replace case). The
     /// page closes only once the new tab exists, so a refused or failed open
@@ -282,15 +293,17 @@ extension NewTabPage {
         case .browser:
             services.newTabKinds.record(.browser(engine: nil), folder: cwd)
             let resolver = services.cache.suggestionEngine.resolver
+            let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search
-                ? resolver.searchEngine.searchURL(for: request.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                : resolver.destination(for: request.text)?.url
+                ? resolver.searchEngine.searchURL(for: text)
+                : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
+            let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs?.isAvailable() == true {
-                pane.newBrowserTab(url: url, then: closePage)
+                pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
-                pane.newBrowserTab(url: url)
-                pane.close([StripTabID(key)])
+                // A refused tab (a Chromium page without Chromium) keeps the page.
+                if pane.newBrowserTab(url: url, engine: engine) { pane.close([StripTabID(key)]) }
             }
         case .agent:
             return

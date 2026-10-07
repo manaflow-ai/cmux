@@ -16,6 +16,9 @@ pub struct CliError {
     code: i32,
     status: Option<u16>,
     tag: Option<String>,
+    /// For HTTP 429, which budget ran out (`snapshots`, `vms`, `rate` or
+    /// `capacity`), when the server names it.
+    budget: Option<String>,
     message: String,
 }
 
@@ -55,6 +58,7 @@ impl CliError {
             code,
             status: None,
             tag: Some(tag.to_owned()),
+            budget: None,
             message: message.into(),
         }
     }
@@ -116,6 +120,7 @@ impl CliError {
                 .map(str::to_owned)
         };
         let tag = field("_tag");
+        let budget = field("budget");
         let server_message = field("message");
         let code = exit::for_status(status);
         let fallback = match status {
@@ -126,6 +131,7 @@ impl CliError {
             404 => "not found",
             409 => "the resource's current state does not allow this",
             413 => "the request is larger than the cmux VM API accepts",
+            426 => "this endpoint needs a WebSocket upgrade",
             429 => "a quota or rate limit was reached",
             501 => "this operation is not available yet",
             503 => "the cmux VM service is temporarily unavailable",
@@ -139,23 +145,29 @@ impl CliError {
             code,
             status: Some(status),
             tag,
+            budget,
             message,
         }
     }
 
     pub fn report(&self, json: bool, stderr: &mut dyn Write) {
         let _ = if json {
-            let body = json!({
-                "error": {
-                    "status": self.status,
-                    "tag": self.tag,
-                    "message": self.message,
-                    "exitCode": self.code,
-                }
+            let mut error = json!({
+                "status": self.status,
+                "tag": self.tag,
+                "message": self.message,
+                "exitCode": self.code,
             });
-            writeln!(stderr, "{body}")
+            if let Some(budget) = &self.budget {
+                error["budget"] = json!(budget);
+            }
+            writeln!(stderr, "{}", json!({ "error": error }))
         } else {
-            match (self.status, &self.tag) {
+            let tag = match (&self.tag, &self.budget) {
+                (Some(tag), Some(budget)) => Some(format!("{tag}, budget {budget}")),
+                (tag, _) => tag.clone(),
+            };
+            match (self.status, &tag) {
                 (Some(status), Some(tag)) => {
                     writeln!(stderr, "cmux-vm: {} (HTTP {status} {tag})", self.message)
                 }

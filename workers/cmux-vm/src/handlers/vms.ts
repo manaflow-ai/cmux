@@ -87,7 +87,7 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
-  if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60 });
+  if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" });
   return unavailable();
 };
 
@@ -134,7 +134,11 @@ const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: Tena
     }
     if (decision._tag === "over_quota") {
       return yield* Effect.fail(
-        new QuotaExceeded({ message: `This team already has its limit of ${decision.limit} VMs; delete one first`, retryAfterSeconds: 60 }),
+        new QuotaExceeded({
+          message: `This team already has its limit of ${decision.limit} VMs; delete one first`,
+          retryAfterSeconds: 60,
+          budget: "vms",
+        }),
       );
     }
     const limits = yield* TenantLimits;
@@ -181,7 +185,7 @@ const createRecorded = <C, S>(
             Effect.tapError(() => created.discard),
             Effect.mapError((error) =>
               error.status === 429
-                ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60 })
+                ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
                 : conflict("The VM could not be grown to the requested size; nothing was kept"),
             ),
           );

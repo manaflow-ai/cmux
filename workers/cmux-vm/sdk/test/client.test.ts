@@ -77,3 +77,7 @@ describe("createCmuxVmClient", () => {
     expect(error).toEqual({ _tag: "NotFound", message: "VM not found" });
   });
 });
+
+test("the default base URL is the production cmux.dev host", () => {
+  expect(DEFAULT_BASE_URL).toBe("https://vm.cmux.dev");
+});

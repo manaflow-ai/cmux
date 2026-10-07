@@ -14,6 +14,7 @@
     "test": "bun run test:workers && bun run test:pg",
     "test:workers": "vitest run --config vitest.config.ts",
     "test:pg": "vitest run --config vitest.node.config.ts",
+    "coverage:upstream": "vitest run --config vitest.node.config.ts test/node/upstream-coverage.test.ts",
     "bundle": "wrangler deploy --dry-run --outdir dist --env staging",
     "bundle:check": "node scripts/check-bundle-size.mjs dist",
     "check": "bun run typecheck && bun run lint && bun run lint:selftest && bun run openapi:check && bun run test && bun run bundle && bun run bundle:check"

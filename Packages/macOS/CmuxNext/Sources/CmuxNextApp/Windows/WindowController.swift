@@ -49,6 +49,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
+        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -87,6 +88,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
+        followTopPageForBack()
     }
 
     @available(*, unavailable)
@@ -330,7 +332,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
-    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?
@@ -355,6 +356,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
+        if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)
     }

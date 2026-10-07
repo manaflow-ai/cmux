@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190. */
+/* cmux-tui mux protocol 12, IR dd397238b8eb7fb9c2b8abbe4503cb89252e5cdd7407fc839386afd96fb6a9f1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -196,6 +196,7 @@ export type ColorHex = string;
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "role"?: (string) | null;
 };
 
 export type ConversationChange = {

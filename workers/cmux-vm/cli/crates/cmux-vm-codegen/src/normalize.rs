@@ -13,6 +13,10 @@ use serde_json::{Map, Value};
 ///   become `nullable: true`.
 /// - `const: v` becomes `enum: [v]`; numeric `exclusiveMinimum`/`exclusiveMaximum`
 ///   become `minimum`/`maximum` plus the 3.0 boolean flag.
+/// - An `anyOf`/`oneOf` whose branches are all plain strings (a `vm_` or a
+///   `snap_` id, say) becomes one string whose pattern is the alternation of
+///   the branch patterns. Progenitor would otherwise generate a struct of
+///   flattened newtypes, which cannot read or write a JSON string.
 /// - `examples` arrays are dropped (3.0 has only `example`).
 ///
 /// Deliberate changes:
@@ -31,6 +35,10 @@ use serde_json::{Map, Value};
 ///   schema. A byte stream keeps the status code and the body for every error,
 ///   including ones a proxy answers with HTML, and the CLI decodes the common
 ///   `{ "_tag", "message" }` shape itself.
+/// - Operations that answer `101 Switching Protocols` (the terminal
+///   WebSocket endpoints) are left out. Progenitor's upgrade support does not
+///   compile with byte-stream error bodies, and a WebSocket needs its own
+///   client; the `cmux-vm` CLI has no terminal verbs yet.
 pub fn normalize(doc: &mut Value) {
     if let Some(version) = doc.get_mut("openapi")
         && version.as_str().is_some_and(|v| v.starts_with("3.1"))
@@ -55,13 +63,26 @@ pub fn normalize(doc: &mut Value) {
             if let Some(params) = item.get_mut("parameters") {
                 normalize_parameters(params);
             }
+            item.retain(|method, operation| !(is_http_method(method) && is_upgrade(operation)));
             for (method, operation) in item.iter_mut() {
                 if is_http_method(method) {
                     normalize_operation(operation);
                 }
             }
         }
+        paths.retain(|_, item| {
+            item.as_object()
+                .is_none_or(|item| item.keys().any(|k| is_http_method(k)))
+        });
     }
+}
+
+/// Whether `operation` answers with a protocol switch (a WebSocket).
+fn is_upgrade(operation: &Value) -> bool {
+    operation
+        .get("responses")
+        .and_then(Value::as_object)
+        .is_some_and(|responses| responses.contains_key("101"))
 }
 
 /// Makes every 2xx response body raw bytes (`*/*`). Applied after
@@ -296,6 +317,45 @@ fn normalize_schema(schema: &mut Value, open_enums: bool) {
             }
         }
     }
+    merge_string_unions(obj);
+}
+
+/// Merges an `anyOf`/`oneOf` of plain string schemas into one string schema.
+/// A branch is plain when it has `type: string` and at most a `pattern` and a
+/// `description` besides; any other keyword (a length, an enum, a format)
+/// leaves the union alone.
+fn merge_string_unions(obj: &mut Map<String, Value>) {
+    for key in ["anyOf", "oneOf"] {
+        let Some(Value::Array(branches)) = obj.get(key) else {
+            continue;
+        };
+        let plain = branches.len() > 1
+            && branches.iter().all(|b| {
+                b.as_object().is_some_and(|b| {
+                    b.get("type").is_some_and(|t| t == "string")
+                        && b.keys()
+                            .all(|k| matches!(k.as_str(), "type" | "pattern" | "description"))
+                })
+            });
+        if !plain {
+            continue;
+        }
+        let patterns: Option<Vec<&str>> = branches
+            .iter()
+            .map(|b| b.get("pattern").and_then(Value::as_str))
+            .collect();
+        let pattern = patterns.map(|p| {
+            p.iter()
+                .map(|p| format!("(?:{p})"))
+                .collect::<Vec<_>>()
+                .join("|")
+        });
+        obj.remove(key);
+        obj.insert("type".to_owned(), Value::String("string".to_owned()));
+        if let Some(pattern) = pattern {
+            obj.insert("pattern".to_owned(), Value::String(pattern));
+        }
+    }
 }
 
 fn is_null_schema(schema: &Value) -> bool {
@@ -391,6 +451,48 @@ mod tests {
         );
         assert_eq!(responses["404"]["content"], json!({ "*/*": {} }));
         assert!(responses["500"].get("content").is_none());
+    }
+
+    #[test]
+    fn websocket_operations_are_left_out() {
+        let mut doc = json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/t": { "get": { "responses": { "101": { "description": "upgrade" } } } },
+                "/u": {
+                    "get": { "responses": { "101": { "description": "upgrade" } } },
+                    "delete": { "responses": { "200": { "description": "ok" } } }
+                }
+            }
+        });
+        super::normalize(&mut doc);
+        assert!(doc["paths"].get("/t").is_none());
+        assert!(doc["paths"]["/u"].get("get").is_none());
+        assert!(doc["paths"]["/u"].get("delete").is_some());
+    }
+
+    #[test]
+    fn unions_of_plain_strings_become_one_string() {
+        let mut doc = json!({
+            "openapi": "3.1.0",
+            "components": { "schemas": {
+                "Ids": { "type": "array", "items": { "anyOf": [
+                    { "type": "string", "pattern": "^vm_[a-z]{3}$", "description": "a vm" },
+                    { "type": "string", "pattern": "^snap_[a-z]{3}$" }
+                ] } },
+                "Mixed": { "anyOf": [
+                    { "type": "string", "maxLength": 3 },
+                    { "type": "string" }
+                ] }
+            } },
+            "paths": {}
+        });
+        super::normalize(&mut doc);
+        assert_eq!(
+            schema(&doc, "Ids")["items"],
+            json!({ "type": "string", "pattern": "(?:^vm_[a-z]{3}$)|(?:^snap_[a-z]{3}$)" })
+        );
+        assert!(schema(&doc, "Mixed").get("anyOf").is_some());
     }
 
     #[test]

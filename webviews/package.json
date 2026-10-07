@@ -6,7 +6,8 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "vp check",
+    "check": "bun run check:browser-lanes && vp check",
+    "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",

@@ -60,7 +60,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
-        view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
+        view.onResize = { [weak services, weak paneView = view] in
+            services?.surfaceInvariant.noteChange()
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+        }
         observe()
     }
 
@@ -165,7 +168,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
         _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
-        let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
+        let address = services.cache.pageRequests.proxiedTabs.appFetchableFavicon(page.map { $0.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: services.cache.existingBrowser(key)?.tab)
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
         let url = page?.url ?? recordURL.flatMap(URL.init(string:))
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
@@ -196,10 +199,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
+        if view.underlay != nil, let key = currentTabKey, !services.agentTabs.isNewTabPage(key) { view.dropBackdrop(keeping: nil) } // became a chat
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
             showSelected()
+        } else if let selectedID, selectedID.rawValue != currentTabKey {
+            PaneSelectionPresenter(pane: self).present() // a close selected the neighbor
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
@@ -250,7 +256,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        view.show(content?.view)
+        if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
+        view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

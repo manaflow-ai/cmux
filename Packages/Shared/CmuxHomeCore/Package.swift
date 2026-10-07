@@ -21,9 +21,15 @@ let package = Package(
             name: "CmuxHomeCore",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // One condition-polling wait for every suite (no per-suite yield loops).
+        .target(
+            name: "CmuxHomeCoreTestSupport",
+            path: "Tests/CmuxHomeCoreTestSupport",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "CmuxHomeCoreTests",
-            dependencies: ["CmuxHomeCore"],
+            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

@@ -49,14 +49,23 @@ mod tests {
             method::MUX_HANDOFF_DISCARD,
             method::ACP_TRUST_GET,
             method::ACP_TRUST_SET,
+            method::MUX_HARNESS_ENABLE,
+            crate::catalog::RPC_GET,
+            crate::catalog::RPC_REFRESH,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }
+        // Folder profiles in the harness list (BRING-YOUR-OWN-HARNESS H4).
+        let harnesses = &methods[method::MUX_HARNESSES];
+        assert!(harnesses["params"].get("cwd").is_some(), "{harnesses}");
+        assert!(harnesses["result"].get("folderProfiles").is_some(), "{harnesses}");
         for n in [
             method::MUX_EVENT,
             method::MUX_SESSION_CHANGED,
             method::MUX_PERMISSION_PENDING,
             method::MUX_PROMPT_ACCEPTED,
+            method::MUX_HARNESSES_CHANGED,
+            crate::catalog::EVENT_CHANGED,
         ] {
             assert!(notes.contains_key(n), "schema is missing notification {n}");
         }

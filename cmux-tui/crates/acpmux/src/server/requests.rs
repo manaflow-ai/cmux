@@ -404,6 +404,8 @@ async fn dispatch_request(
             }
             Ok(cat)
         }
+        crate::catalog::RPC_GET => Ok(hub.catalog.get()),
+        crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
@@ -421,7 +423,7 @@ async fn dispatch_request(
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_HARNESSES => Ok(hub.harnesses_view().await),
+        method::MUX_HARNESSES => hub.harnesses_reply(&params, conn.origin.web_class()).await,
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
@@ -725,6 +727,9 @@ async fn dispatch_request(
             );
             Ok(hub.session_summary(&s))
         }
+        method::MUX_HARNESS_ENABLE => {
+            super::harness_enable::handle(hub, conn.origin, &params).await
+        }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }
@@ -885,7 +890,7 @@ async fn dispatch_request(
             };
             Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
-        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
+        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params, conn.origin.web_class()).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {

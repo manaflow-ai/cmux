@@ -13,15 +13,18 @@ public final class OnboardingModel {
         case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
-    /// The first run: agent sign-ins, then browser import. Done lands on the app.
-    static let firstRun: [Step] = [.accounts, .importData]
+    /// The first run: agent sign-ins, classic cmux workspaces and agent
+    /// chats to bring over, then browser import. Done lands on the app.
+    static let firstRun: [Step] = [.accounts, .classicSessions, .chats, .importData]
     /// New Tab's Import and Sync: folders to open, then work to bring into them.
     static let bringWork: [Step] = [.projects, .classicSessions, .chats]
 
     public private(set) var step: Step
     /// The screens of this run: the first run, the group `start` belongs
-    /// to, or `start` alone (each only when the App supplies it).
-    public let steps: [Step]
+    /// to, or `start` alone (each only when the App supplies it). A work
+    /// screen whose scan found nothing drops out, unless it is up.
+    public var steps: [Step] { planned.filter { $0 == step || !foundNothing($0) } }
+    private let planned: [Step]
     public let firstTask: FirstTaskStepModel
     public let projects: ProjectsStepModel
     public let classicSessions: ClassicSessionsStepModel
@@ -35,8 +38,12 @@ public final class OnboardingModel {
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
+    /// This window shows the first run (not a group opened from elsewhere).
+    public let isFirstRun: Bool
 
-    public init(services: any OnboardingServices, start: Step? = nil) {
+    /// `resumingFirstRunAt`: the first run, at the step a previous window
+    /// (or app launch) left it.
+    public init(services: any OnboardingServices, start: Step? = nil, resumingFirstRunAt resume: Step? = nil) {
         self.services = services
         let computerUseSource = services.computerUsePermissions
         func available(_ step: Step) -> Bool {
@@ -51,13 +58,15 @@ public final class OnboardingModel {
         }
         let firstRun = Self.firstRun.filter(available)
         // A start the App can't show opens the first run instead.
-        let group: [Step]? = start.flatMap { start in
+        let group: [Step]? = resume != nil ? nil : start.flatMap { start in
             guard available(start) else { return nil }
-            return [Self.firstRun, Self.bringWork].first { $0.contains(start) } ?? [start]
+            // The work screens open from New Tab with their own group, not the first run.
+            return [Self.bringWork, Self.firstRun].first { $0.contains(start) } ?? [start]
         }
         let steps = group?.filter(available) ?? firstRun
-        self.steps = steps
-        step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
+        isFirstRun = group == nil
+        planned = steps
+        step = (resume ?? start).flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         firstTask = FirstTaskStepModel(services: services)
         projects = ProjectsStepModel(services: services)
         classicSessions = ClassicSessionsStepModel(services: services)
@@ -66,6 +75,16 @@ public final class OnboardingModel {
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
         computerUse = ComputerUseStepModel(source: computerUseSource)
+        // Opening or resuming only shows the step; it is not the person moving.
+        if isFirstRun { services.onboardingDidReach(step, interacted: false) }
+    }
+
+    private func foundNothing(_ step: Step) -> Bool {
+        switch step {
+        case .classicSessions: classicSessions.scanned && classicSessions.workspaces.isEmpty
+        case .chats: chats.scanned && chats.chats.isEmpty
+        default: false
+        }
     }
 
     public var index: Int { steps.firstIndex(of: step) ?? 0 }
@@ -120,18 +139,18 @@ public final class OnboardingModel {
     public func go(to target: Step) {
         guard target != step, steps.contains(target) else { return }
         step = target
+        if isFirstRun { services.onboardingDidReach(target, interacted: true) }
         stepDidAppear()
     }
 
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
         if step != .computerUse { computerUse.stop() }
+        // Any screen starts the work scans, so their screens are ready (or gone) by the time they come up.
+        if planned.contains(.chats) { chats.scan() }
+        if planned.contains(.classicSessions) { classicSessions.scan() }
         switch step {
-        // Any of these screens starts every scan, so the next one's list is ready.
-        case .projects, .classicSessions, .chats:
-            projects.scan()
-            if steps.contains(.chats) { chats.scan() }
-            if steps.contains(.classicSessions) { classicSessions.scan() }
+        case .projects, .classicSessions, .chats: projects.scan()
         case .defaultBrowser: defaults.refresh()
         // Browser detection reads other apps' data: only Find Browsers starts it.
         case .importData: break
@@ -142,8 +161,23 @@ public final class OnboardingModel {
         }
     }
 
-    /// Ends the flow: `completed` false means skipped (Escape, close button).
+    /// Ends the flow: `completed` false means skipped (Escape, Skip).
     /// A running import finishes; an uncommitted theme is put back.
+    /// The window closed without Skip or Done (close button, quit, the App
+    /// rebuilding it): the run is not over. Work stops and an uncommitted
+    /// theme is put back, but nothing is recorded as skipped, so the first
+    /// run resumes at its step.
+    public func leave(notNow: Bool = true) {
+        guard !ended else { return }
+        ended = true
+        if isFirstRun { services.onboardingDidLeave(notNow: notNow) }
+        projects.stop()
+        chats.stop()
+        computerUse.stop()
+        if !theme.isCommitted { theme.revert() }
+        firstTask.stop()
+    }
+
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true

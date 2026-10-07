@@ -14,3 +14,17 @@
 .acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:24px;padding:0 12px 6px;color:var(--agent-muted);font-size:12px}
 .acpmux-edited-status-changed{color:var(--agent-warning,var(--agent-muted))}
 .acpmux-edited-viewdiff{height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer;text-decoration:underline}
+/* The card as drawn in the target (2026-10-07): a 1px theme border, a dark icon tile with the ±
+   glyph, the title over a secondary "View changes ↗" link, Undo as a text button and View changes
+   as an outlined one; rows put the directory in the secondary color and cut its middle. */
+.acpmux-edited::after{box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
+.acpmux-edited-icon{background:var(--agent-page-bg);color:var(--agent-text);box-shadow:inset 0 0 0 1px var(--agent-border)}
+.acpmux-edited-sub{display:flex;align-items:center;gap:8px;min-width:0;line-height:18px;font-size:12px}
+.acpmux-edited-link{display:inline-flex;align-items:center;gap:3px;min-width:0;height:18px;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
+.acpmux-edited-link:hover{color:var(--agent-text);text-decoration:underline}
+.acpmux-edited-link:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
+.acpmux-review-changes{background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
+.acpmux-review-changes:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
+.acpmux-edited-dir-head{flex:none}
+.acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}

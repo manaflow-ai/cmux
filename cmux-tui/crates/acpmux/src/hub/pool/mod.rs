@@ -172,6 +172,7 @@ fn initialize_params() -> Value {
         "protocolVersion": 1,
         "clientCapabilities": {
             "fs": {"readTextFile": true, "writeTextFile": true},
+            "subagents": {},
             "terminal": false
         },
         "clientInfo": {"name": "acpmux", "version": VERSION}
@@ -556,7 +557,7 @@ impl Hub {
             } else {
                 Some(
                     child
-                        .request(method::SESSION_NEW, json!({"cwd": draft.cwd, "mcpServers": []}))
+                        .request(method::SESSION_NEW, self.acp_params(draft, &spec.spawn, None))
                         .await?,
                 )
             };

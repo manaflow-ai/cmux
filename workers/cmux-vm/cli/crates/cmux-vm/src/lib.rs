@@ -31,7 +31,7 @@ use crate::error::CliError;
 const EXIT_CODES_HELP: &str = "\
 Configuration:
   CMUX_VM_API_KEY    API key (or \"apiKey\" in the config file)
-  CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.com
+  CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
 
@@ -40,12 +40,13 @@ Exit codes:
   1  unexpected error (undocumented HTTP status or unreadable response)
   2  usage error
   3  network error (the API could not be reached)
-  4  cancelled (delete was not confirmed)
+  4  cancelled (delete or revoke was not confirmed)
   10 bad request (400)          11 not authenticated (401, or no API key)
   12 payment required (402)     13 forbidden, missing scope (403)
   14 not found (404)            15 conflict (409)
-  16 quota or rate limit (429)  17 not available yet (501)
-  18 service unavailable (503)  19 payload too large (413)";
+  16 quota or rate limit (429; --json names the budget)
+  17 not available yet (501)    18 service unavailable (503)
+  19 payload too large (413)    20 WebSocket upgrade required (426)";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -95,6 +96,106 @@ enum Command {
     Fork(ForkArgs),
     /// Delete a VM permanently (asks to type the VM id, or needs --yes without a terminal)
     Delete(DeleteArgs),
+    /// Create, list, show and delete snapshots
+    #[command(subcommand)]
+    Snapshot(SnapshotCommand),
+    /// Create, list and revoke API keys
+    #[command(subcommand, name = "api-key")]
+    ApiKey(ApiKeyCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum SnapshotCommand {
+    /// Capture a VM's memory and disk as a snapshot
+    Create(SnapshotCreateArgs),
+    /// Show a snapshot
+    Get(SnapshotArg),
+    /// List the team's snapshots
+    List(SnapshotListArgs),
+    /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
+    Delete(SnapshotDeleteArgs),
+}
+
+#[derive(Args, Debug)]
+struct SnapshotArg {
+    /// Snapshot id (snap_...)
+    snapshot_id: String,
+}
+
+#[derive(Args, Debug)]
+struct SnapshotDeleteArgs {
+    /// Snapshot id (snap_...)
+    snapshot_id: String,
+    /// Delete without asking; required when stdin is not a terminal
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct SnapshotCreateArgs {
+    /// VM to capture (vm_...)
+    vm_id: String,
+    /// Display name
+    #[arg(long)]
+    name: Option<String>,
+    /// Seconds the snapshot is kept after its last use (60-31536000)
+    #[arg(long, value_name = "SECONDS")]
+    ttl: Option<i64>,
+    /// Seconds after creation when the snapshot is deleted (60-31536000)
+    #[arg(long, value_name = "SECONDS")]
+    auto_delete: Option<i64>,
+    /// Reuse this key when retrying, so the snapshot is created only once [default: a new random key]
+    #[arg(long, value_name = "KEY")]
+    idempotency_key: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct SnapshotListArgs {
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's next cursor
+    #[arg(long)]
+    cursor: Option<String>,
+    /// Only snapshots captured from this VM (vm_...)
+    #[arg(long, value_name = "VM_ID")]
+    vm: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum ApiKeyCommand {
+    /// Create an API key; the secret is printed once
+    Create(ApiKeyCreateArgs),
+    /// List the team's API keys (never their secrets)
+    List,
+    /// Revoke an API key (asks to type the key id, or needs --yes without a terminal)
+    Revoke(ApiKeyRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+struct ApiKeyCreateArgs {
+    /// Name of the key
+    #[arg(long)]
+    name: String,
+    /// Scope to grant; repeat for several (vm:read, vm:write, vm:exec, vm:files,
+    /// vm:terminal, snapshot:read, snapshot:write, snapshot:*, admin, ...)
+    #[arg(long = "scope", value_name = "SCOPE", required = true)]
+    scopes: Vec<String>,
+    /// Limit the key to this VM or snapshot id; repeat for several [default: every resource of the team]
+    #[arg(long = "resource", value_name = "ID")]
+    resources: Vec<String>,
+    /// Expiry as an RFC 3339 time; a key never outlives the credential that creates it
+    #[arg(long, value_name = "TIME")]
+    expires_at: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ApiKeyRevokeArgs {
+    /// API key id (vmk_...)
+    key_id: String,
+    /// Revoke without asking; required when stdin is not a terminal
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -303,32 +404,147 @@ async fn dispatch(
         }
         Command::Delete(DeleteArgs { vm_id, yes }) => {
             if !yes {
-                confirm_delete(prompt, &vm_id)?;
+                confirm(prompt, Destroy::DeleteVm, &vm_id)?;
             }
             call(client.vms_delete_vm(&vm_id, None)).await?;
             out.deleted(&vm_id)
         }
+        Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
+        Command::ApiKey(command) => api_key(client, command, prompt, out).await,
     }
 }
 
-/// Asks a person at a terminal to type the VM id. Without a terminal the
-/// caller (usually an agent or a script) must pass `--yes` instead.
-fn confirm_delete(prompt: &mut dyn Prompt, vm_id: &str) -> Result<(), CliError> {
+async fn snapshot(
+    client: &Client,
+    command: SnapshotCommand,
+    prompt: &mut dyn Prompt,
+    mut out: output::Printer<'_>,
+) -> Result<(), CliError> {
+    match command {
+        SnapshotCommand::Create(args) => {
+            let body: types::CreateSnapshotRequest = request_body(json!({
+                "displayName": args.name,
+                "ttlSeconds": args.ttl,
+                "autoDeleteSeconds": args.auto_delete,
+            }))?;
+            let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
+            let key = parse_key::<types::SnapshotsCreateSnapshotIdempotencyKey>(&key_text)?;
+            let snapshot =
+                fetch_body(client.snapshots_create_snapshot(&args.vm_id, Some(&key), None, &body))
+                    .await
+                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
+            out.snapshot(&snapshot)
+        }
+        SnapshotCommand::Get(SnapshotArg { snapshot_id }) => {
+            let snapshot = fetch_body(client.snapshots_get_snapshot(&snapshot_id, None)).await?;
+            out.snapshot(&snapshot)
+        }
+        SnapshotCommand::List(args) => {
+            let cursor = parse_opt::<types::SnapshotsListSnapshotsCursor>("--cursor", args.cursor)?;
+            let vm = parse_opt::<types::SnapshotsListSnapshotsSourceVmId>("--vm", args.vm)?;
+            let limit = args.limit.map(|n| n.to_string());
+            // Label filters (`labels=key:value`) are not a CLI flag yet.
+            let page = fetch_body(client.snapshots_list_snapshots(
+                cursor.as_ref(),
+                None,
+                limit.as_deref(),
+                vm.as_ref(),
+                None,
+            ))
+            .await?;
+            out.snapshot_list(&page)
+        }
+        SnapshotCommand::Delete(SnapshotDeleteArgs { snapshot_id, yes }) => {
+            if !yes {
+                confirm(prompt, Destroy::DeleteSnapshot, &snapshot_id)?;
+            }
+            call(client.snapshots_delete_snapshot(&snapshot_id, None)).await?;
+            out.deleted(&snapshot_id)
+        }
+    }
+}
+
+async fn api_key(
+    client: &Client,
+    command: ApiKeyCommand,
+    prompt: &mut dyn Prompt,
+    mut out: output::Printer<'_>,
+) -> Result<(), CliError> {
+    match command {
+        ApiKeyCommand::Create(args) => {
+            let resources = (!args.resources.is_empty()).then_some(args.resources);
+            let body: types::CreateApiKeyRequest = request_body(json!({
+                "name": args.name,
+                "scopes": args.scopes,
+                "resourceAllowlist": resources,
+                "expiresAt": args.expires_at,
+            }))?;
+            let key = fetch_body(client.api_keys_create_api_key(None, &body)).await?;
+            out.created_api_key(&key)
+        }
+        ApiKeyCommand::List => {
+            let page = fetch_body(client.api_keys_list_api_keys(None)).await?;
+            out.api_key_list(&page)
+        }
+        ApiKeyCommand::Revoke(ApiKeyRevokeArgs { key_id, yes }) => {
+            if !yes {
+                confirm(prompt, Destroy::RevokeApiKey, &key_id)?;
+            }
+            call(client.api_keys_revoke_api_key(&key_id, None)).await?;
+            out.revoked(&key_id)
+        }
+    }
+}
+
+/// A destructive verb that needs confirmation.
+#[derive(Clone, Copy)]
+enum Destroy {
+    DeleteVm,
+    DeleteSnapshot,
+    RevokeApiKey,
+}
+
+impl Destroy {
+    /// The verb, the verb capitalized, and the name of the id to type.
+    fn words(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Destroy::DeleteVm => ("delete", "Delete", "VM id"),
+            Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
+            Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
+        }
+    }
+}
+
+/// Asks a person at a terminal to type the id of what is about to be
+/// destroyed. Without a terminal the caller (usually an agent or a script)
+/// must pass `--yes` instead.
+fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), CliError> {
+    let (verb, question_verb, id_name) = action.words();
     if !prompt.is_interactive() {
         return Err(CliError::usage(format!(
-            "refusing to delete {vm_id} without confirmation: stdin is not a terminal, so pass --yes"
+            "refusing to {verb} {id} without confirmation: stdin is not a terminal, so pass --yes"
         )));
     }
+    let question = match action {
+        Destroy::RevokeApiKey => format!(
+            "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
+        ),
+        _ => format!(
+            "{question_verb} {id} permanently? This cannot be undone. Type the {id_name} to confirm: "
+        ),
+    };
     let answer = prompt
-        .ask(&format!(
-            "Delete {vm_id} permanently? This cannot be undone. Type the VM id to confirm: "
-        ))
+        .ask(&question)
         .map_err(|e| CliError::cancelled(format!("could not read the confirmation: {e}")))?;
-    if answer.trim() == vm_id {
+    if answer.trim() == id {
         Ok(())
     } else {
+        let past = match action {
+            Destroy::RevokeApiKey => "revoked",
+            _ => "deleted",
+        };
         Err(CliError::cancelled(format!(
-            "the typed id did not match {vm_id}; nothing was deleted"
+            "the typed id did not match {id}; nothing was {past}"
         )))
     }
 }

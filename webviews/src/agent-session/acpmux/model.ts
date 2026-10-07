@@ -1,3 +1,4 @@
+import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -5,6 +6,8 @@ import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
+import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENT_ROW } from "./subagents/subagentRows";
 
 export type AcpmuxRow = {
   id: string;
@@ -41,6 +44,8 @@ export type AcpmuxRow = {
   ended?: boolean;
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
+  /// A subagent group's subagents (subagents/subagentFold.ts).
+  subagents?: Subagent[];
 };
 
 export type AcpmuxActivity = {
@@ -79,6 +84,20 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+};
+
+/** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
+ *  catalog metadata, which ranks between the cmux catalog and the user's overrides. */
+export type AcpmuxCatalogModel = {
+  id: string;
+  name?: string;
+  unavailable?: string;
+  shortName?: string;
+  family?: string;
+  efforts?: string[];
+  defaultEffort?: string;
+  fast?: boolean;
+  contextWindow?: number;
 };
 
 export type AcpmuxSnapshot = {
@@ -143,8 +162,13 @@ export type AcpmuxSnapshot = {
   catalog: {
     id: string;
     name: string;
-    models: { id: string; name?: string; unavailable?: string }[];
+    models: AcpmuxCatalogModel[];
     unavailable?: string;
+    pickable?: boolean;
+    /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
+    family?: string;
+    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    icon?: string;
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -254,11 +278,23 @@ export function editedCardHeight(files: number, plain = 0): number {
   return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
 }
 
-/// What an edit without a diff lists as in the edited-files card, deduped.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
-  return [
-    ...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text)),
-  ];
+/// What edits without a diff list as in the edited-files card: each path they name, once
+/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file").
+/// Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
+  const out: { key: string; path?: string }[] = [];
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (!item.tool || item.tool.diffs?.length) return;
+    const paths = editedPaths(item.tool);
+    if (!paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
+    for (const path of paths)
+      if (!seen.has(path)) {
+        seen.add(path);
+        out.push({ key: `path-${path}`, path });
+      }
+  });
+  return out;
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
@@ -278,6 +314,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
+  // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
+  // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
+  if (row.kind === SUBAGENTS) return 56;
+  if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.

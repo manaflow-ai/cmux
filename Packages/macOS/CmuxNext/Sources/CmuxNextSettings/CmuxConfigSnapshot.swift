@@ -44,6 +44,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
+    /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
+    public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -66,6 +68,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
+    public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
+    public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
@@ -214,6 +219,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
+        CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -225,6 +231,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentPaneEditedFiles = AgentPaneEditedFilesSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders

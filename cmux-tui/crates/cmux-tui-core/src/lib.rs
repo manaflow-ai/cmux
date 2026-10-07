@@ -71,6 +71,8 @@ mod surface;
 #[cfg(unix)]
 mod terminal_backend;
 mod terminal_end;
+#[cfg(unix)]
+mod terminal_loss_log;
 mod terminal_metadata;
 mod workspace_registry;
 
@@ -100,7 +102,7 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{
-    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
+    ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{

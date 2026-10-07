@@ -48,7 +48,7 @@ describe("createVm", () => {
     const creates = t.upstream.callsTo("POST", /^\/v5\/vms$/);
     expect(creates).toHaveLength(1);
     expect(creates[0]?.json).toEqual({
-      displayName: `cmux ${TENANT_A} ${id}`,
+      displayName: `cmux-vm-local ${TENANT_A} ${id}`,
       idleTimeoutSeconds: 300,
       metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local" },
       firewall: { rules: [] },
@@ -68,7 +68,7 @@ describe("createVm", () => {
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     const vm = await json(await createVm(t, key));
     expect(t.audit).toEqual([
-      { tenantId: TENANT_A, actor: expect.stringMatching(/^key:vmk_/), action: "vm.create", cmuxId: vm.id, outcome: "ok" },
+      { tenantId: TENANT_A, actor: expect.stringMatching(/^key:vmk_/), action: "vm.create", cmuxId: vm.id, outcome: "ok", ownerActor: null },
     ]);
   });
 
@@ -138,7 +138,7 @@ describe("createVm", () => {
     const otherTenant = await createVm(t, keyB);
 
     expect(second.status).toBe(429);
-    expect(await json(second)).toMatchObject({ _tag: "QuotaExceeded" });
+    expect(await json(second)).toMatchObject({ _tag: "QuotaExceeded", budget: "vms" });
     expect(otherTenant.status).toBe(201);
 
     expect((await t.request(`/v1/vms/${String(first.id)}`, bearer(keyA), { method: "DELETE" })).status).toBe(204);
@@ -154,7 +154,7 @@ describe("createVm", () => {
     expect((await createVm(t, keyA)).status).toBe(201);
     const limited = await createVm(t, keyA);
     expect(limited.status).toBe(429);
-    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number) });
+    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number), budget: "rate" });
     expect((await createVm(t, keyB)).status).toBe(201);
   });
 });

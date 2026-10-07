@@ -78,8 +78,9 @@ describe("agent theme", () => {
   test("labels on the accent use the accent label color", () => {
     const acpmux = css("../acpmux/styles.css");
     expect(acpmux).toMatch(/--acpmux-base:var\(--agent-accent-text/);
-    // Send fills with the highlight; its arrow is the highlight's label color, else the opaque base.
-    expect(acpmux).toMatch(/\.acpmux-send\{[^}]*color:var\(--agent-highlight-text,var\(--acpmux-base\)\)/);
+    // Send fills with the theme's text color (not the ANSI-blue highlight); its arrow is the opaque base.
+    expect(acpmux).toMatch(/\.acpmux-send\{[^}]*background:var\(--agent-text\);color:var\(--acpmux-base\)/);
+    expect(acpmux).not.toMatch(/\.acpmux-send[^{]*\{[^}]*--agent-highlight/);
   });
 
   // The composer sits on the page, which already paints the theme's
@@ -124,11 +125,11 @@ describe("agent theme", () => {
     expect(send).not.toMatch(/[;{]color:var\(--acpmux-composer-bg\)/);
     // The idle Send dims by mixing into the opaque base, never by opacity, which would let the backdrop through.
     expect(acpmux).not.toMatch(/\.acpmux-send[^{]*\{[^}]*opacity/);
-    // Location controls are plain labels above the box, with no tray or chip card (composerLocation.css).
+    // Location controls are plain labels in the attached tray, with no chip card (composerLocation.css).
     const location = css("../acpmux/composerLocation.css");
     expect(location).toMatch(/\.acpmux-composer-context\s*\{[^}]*justify-content\s*:\s*flex-end/);
     expect(location).toMatch(/\.acpmux-location-button[^}]*background\s*:\s*none/);
-    expect(location).not.toMatch(/\.acpmux-composer-context\s*\{[^}]*background\s*:/);
+    expect(location).toMatch(/\.acpmux-composer-context\s*\{[^}]*background\s*:\s*var\(--acpmux-composer-tray\)/);
     const overlay = acpmux.match(/\[data-sidebar=open\] \.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
     expect(overlay).toMatch(/background:var\(--acpmux-base\)/);
     for (const hover of [

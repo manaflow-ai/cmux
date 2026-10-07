@@ -6252,6 +6252,17 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "role": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "since": 12,
+     "capability": "dock-column-role-v1"
     }
    },
    "additional_properties": false
@@ -11502,6 +11513,26 @@
       "nullable": true,
       "default": null
      },
+     "permanent": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "role": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "dock-column-role-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
@@ -11520,7 +11551,8 @@
    },
    "stream": null,
    "constraints": [
-    "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+    "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
+    "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
     "See spec/commands.md for the result object."
    ]
   },

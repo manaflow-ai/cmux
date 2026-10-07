@@ -56,7 +56,10 @@ const surfaces = [
   {
     name: "markdown page",
     entries: ["chunks/markdown-page.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_200_000),
+    // 1.4 MB since 8eef4842b70: the editor renders its read-only task checkbox (src/ui TaskCheckbox)
+    // to static markup for a ProseMirror decoration, so react-dom's server renderer (~188 KB) is
+    // eager here. The bundler keeps it out of the shared `vendor` chunk the other pages load.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_400_000),
     forbidden: monacoChunks,
   },
   {

@@ -200,6 +200,22 @@ What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--
 
 A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
 
+## `layout.newPanePlacement` and `layout.tileBrowsers`
+
+Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, the strip's +, the palette).
+
+```json
+{
+  "layout": { "newPanePlacement": "split", "tileBrowsers": false }
+}
+```
+
+- `newPanePlacement: "tab"` (default): a new tab in the focused pane.
+- `newPanePlacement: "split"`: a new pane, the same as New Pane (Auto Layout) (Ctrl-Cmd-N). The largest pane on screen splits along its longer side, like Zellij. A docked column never splits. The new terminal starts in the focused terminal's folder.
+- `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
+
+The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
 How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
@@ -526,6 +542,15 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## `mcp.enabled` and agent sessions
+
+Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
+and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+`"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
+To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
+daemon (or in one acpmux profile's `env`). A Claude profile that passes
+`--strict-mcp-config` opts out too and keeps only the MCP servers it names.
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
@@ -604,3 +629,29 @@ shows the same keys.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
+
+## `agentPane.editedFiles.*`
+
+The card in an agent chat that lists the files a turn edited, with Undo and View changes.
+Settings > General > Agent Chat shows the same keys.
+
+```jsonc
+{
+  "agentPane": {
+    "editedFiles": {
+      "show": "always",
+      "maxRows": 5,
+      "scope": "turn"
+    }
+  }
+}
+```
+
+- `show`: `always` (default) shows the card with its file rows, `collapsed` shows only the
+  header (its chevron shows the rows), and `never` shows no card (the turn keeps its plain
+  tool rows).
+- `maxRows`: file rows shown before "Show N more", `1` to `50`. Default: `5`.
+- `scope`: `turn` (default) gives each turn its own card; `session` shows one card for the
+  whole chat, at its latest edit.
+
+A value cmux does not know keeps that key's default and is reported as a diagnostic.

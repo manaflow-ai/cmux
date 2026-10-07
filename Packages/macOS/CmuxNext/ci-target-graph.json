@@ -82,7 +82,9 @@
         "CmuxNextAgentActivity"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "tests/fixtures/cua-helper-signatures/"
+      ]
     },
     "CmuxNextAgentCursor": {
       "kind": "regular",
@@ -756,6 +758,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteBrowserTests",
       "targets": [
+        "CmuxNextBrowser",
         "CmuxNextRemoteBrowser",
         "CmuxNextRemoteView"
       ],
@@ -1072,7 +1075,9 @@
       "packages": [
         "CmuxUpdater"
       ],
-      "reads": []
+      "reads": [
+        "scripts/whats-new/fixtures/good/1.0.0-nightly.42.json"
+      ]
     },
     "CmuxNextWakeups": {
       "kind": "regular",

@@ -394,3 +394,12 @@ fn host_death_keeps_tab_under_running_daemon() {
     );
     let _ = remove_stale_terminal_host_record(&record_path, &record);
 }
+
+#[path = "stray_signals.rs"]
+mod stray_signals;
+
+#[path = "pty_custody.rs"]
+mod pty_custody;
+
+#[path = "owner_idle_exit.rs"]
+mod owner_idle_exit;

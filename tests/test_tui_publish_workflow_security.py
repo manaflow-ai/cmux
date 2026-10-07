@@ -315,7 +315,13 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert len(fetching) >= 2
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
-    assert probes and all("CMUX_TUI_TREE_PR_NUMBER" in step.get("env", {}) for step in probes)
+    # A pull request's merge tree has no publisher of its own: a same-repository
+    # PR's probe dispatches one; a fork PR's never does.
+    dispatch_gate = (
+        "${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}"
+    )
+    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
@@ -2173,14 +2179,14 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
-def test_cmux_tui_artifacts_never_replaces_a_queued_feat_cmux_next_push() -> None:
-    # 2026-10-07: with one group per branch, each feat-cmux-next push replaced the
-    # pending run before its preflight started (01:31 to 02:11: 13 runs cancelled,
-    # 1 publish), so a base tree rarely got artifacts and every PR's same-tree wait
-    # timed out at 45 min. Each feat-cmux-next push now has its own group: its
-    # preflight skips a complete tree, and the jobs' owner election (tree-owner-wait,
-    # per-run job groups) keeps one builder per tree key. Pin branches keep one
-    # pending run per branch, since each publishes one tree on purpose.
+def test_cmux_tui_artifacts_coalesces_queued_feat_cmux_next_pushes() -> None:
+    # 2026-10-07 05:30: one group per feat-cmux-next push left 67 runs queued,
+    # each waiting about 2 h for a macOS builder, so the tip's tree (and the
+    # nightly-next build that needs it) waited behind every older push. Pushes
+    # to a branch now share one group with cancel-in-progress false: the running
+    # publish always finishes (no half-uploaded tree), and a newer push replaces
+    # only the pending run. PRs into feat-cmux-next are retired (direct pushes
+    # since 2026-10-03), so no PR same-tree wait depends on an intermediate tree.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     assert concurrency["cancel-in-progress"] == "false"
@@ -2193,8 +2199,7 @@ def test_cmux_tui_artifacts_never_replaces_a_queued_feat_cmux_next_push() -> Non
         )
 
     feat = "refs/heads/feat-cmux-next"
-    assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
-    assert "a" * 40 in evaluate("push", feat, "a" * 40)
+    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
     pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
     assert pin_a == evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "b" * 40)
     assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)

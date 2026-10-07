@@ -10,6 +10,7 @@
 #include <mutex>
 
 #include "agent_url_policy.h"
+#include "context_proxy_policy.h"
 #include "include/cef_parser.h"
 #include "shim_internal.h"
 
@@ -148,12 +149,11 @@ void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& 
     if (it == proxies().end()) return;
     port = it->second.port;
   }
+  const ContextProxyValues values = ContextProxyFor(port);
   CefRefPtr<CefDictionaryValue> dict = CefDictionaryValue::Create();
-  dict->SetString("mode", "fixed_servers");
-  dict->SetString("server", "http://127.0.0.1:" + std::to_string(port));
-  // Chromium bypasses loopback by default; "<-loopback>" removes that, so
-  // localhost goes to the proxy too. Nothing else bypasses it.
-  dict->SetString("bypass_list", "<-loopback>");
+  dict->SetString("mode", values.mode);
+  dict->SetString("server", values.server);
+  dict->SetString("bypass_list", values.bypass_list);
   CefRefPtr<CefValue> value = CefValue::Create();
   value->SetDictionary(dict);
   CefString error;
@@ -175,7 +175,7 @@ using namespace cmux_shim;
 extern "C" {
 
 int cmux_shim_set_context_proxy(const char* profile_cache_path, int port) {
-  if (!profile_cache_path || !*profile_cache_path || port <= 0 || port > 65535) return 0;
+  if (!profile_cache_path || !*profile_cache_path || !ContextProxyPortValid(port)) return 0;
   std::string path = profile_cache_path;
   {
     std::lock_guard<std::mutex> lock(proxy_mutex());

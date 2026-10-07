@@ -183,13 +183,15 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // Long frames gate only on Chromium's Long Animation Frames; rAF timing in headless WebKit on a
     // CPU-only VM measures the VM's software rendering, so the stage reports it as a warning.
     const play = await page.evaluate(() => (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null);
+    // An experiment case (`measure=1`) leaves its frame timings per step (frame/experimentRunner.ts).
+    const experiment = await page.evaluate(() => (window as unknown as { cmuxGalleryExperimentReport?: unknown }).cmuxGalleryExperimentReport ?? null);
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, play, ...(experiment ? { experiment } : {}) };
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
       if (existsSync(baselinePath)) {
@@ -306,7 +308,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });

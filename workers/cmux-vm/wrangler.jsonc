@@ -4,6 +4,8 @@
   // Secrets, set per environment by the deploy workflow from GitHub
   // environment secrets (never committed, never printed):
   //   UPSTREAM_API_KEY, STACK_PROJECT_ID, STACK_SECRET_SERVER_KEY
+  // Optional Worker secret, set by the operator with `wrangler secret put` (not by the deploy):
+  //   STACK_WEBHOOK_SECRET  Stack webhook signing secret; without it POST /v1/webhooks/stack answers 503.
   "name": "cmux-vm-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
@@ -13,7 +15,9 @@
   "vars": {
     "ENVIRONMENT": "local",
     "STACK_API_URL": "https://api.stack-auth.com",
-    "UPSTREAM_API_URL": "https://api.freestyle.sh"
+    "UPSTREAM_API_URL": "https://api.freestyle.sh",
+    "CMUX_VM_MESH_EXPERIMENT": "0",
+    "CMUX_VM_MESH_TENANT_IDS": ""
   },
   "hyperdrive": [
     {
@@ -48,25 +52,37 @@
       "vars": {
         "ENVIRONMENT": "preview",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
+        "CMUX_VM_MESH_EXPERIMENT": "0",
+        "CMUX_VM_MESH_TENANT_IDS": ""
       }
     },
-    // vm-staging.cmux.com is attached when DNS is set up; no route here yet.
+    // Workers custom domain in the cmux.dev zone (CMUX-VM-API amendment 2).
+    // Nothing of cmux VM is published under cmux.com or cmux.sh.
     "staging": {
       "name": "cmux-vm-staging",
       "workers_dev": false,
+      "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
+        // ids checked against the staging Stack project: "cmux-agent-dev@manaflow.ai's Team" and
+        // "Lawrence Chen's Team". No customer team. Production stays off.
+        "CMUX_VM_MESH_EXPERIMENT": "1",
+        "CMUX_VM_MESH_TENANT_IDS": "d8284bb7-c83e-4314-9c2c-8e702ac96ea9,b8f12e8e-7893-4a52-89a5-f1fdf0145b07"
       }
     },
-    // vm.cmux.com is attached when DNS is set up; no route here yet.
+    // Workers custom domain in the cmux.dev zone; attached by the first
+    // production deploy (cx-b4h.5), not before.
     "production": {
       "name": "cmux-vm-production",
       "workers_dev": false,
+      "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
@@ -76,7 +92,10 @@
         // JSON object of Stack team id to live VM limit; the default is 20.
         "TENANT_VM_QUOTAS": "{}",
         "STACK_API_URL": "https://api.stack-auth.com",
-        "UPSTREAM_API_URL": "https://api.freestyle.sh"
+        "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
+        "CMUX_VM_MESH_EXPERIMENT": "0",
+        "CMUX_VM_MESH_TENANT_IDS": ""
       }
     }
   }

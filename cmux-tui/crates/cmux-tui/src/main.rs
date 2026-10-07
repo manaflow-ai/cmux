@@ -1374,7 +1374,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             }
             "-h" | "--help" => return,
             scope
-                if cli::canonical_scope(scope) == "server"
+                if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
                 let start_args = &args[index + 2..];
@@ -1762,9 +1762,9 @@ fn run_main() {
         }
         return;
     }
-    // `server start` is the canonical spelling for the existing foreground
-    // headless owner. Keep startup in the established Args/run_server path so
-    // lifecycle aliases cannot drift into a second server launcher.
+    // `daemon start` (`server start` on cmux-tui; pre-D1 `cmux server start`, rewritten first) is
+    // the foreground headless owner, on the one Args/run_server path: no second server launcher.
+    cli::rewrite_deprecated_server_lifecycle(&mut raw_args);
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
