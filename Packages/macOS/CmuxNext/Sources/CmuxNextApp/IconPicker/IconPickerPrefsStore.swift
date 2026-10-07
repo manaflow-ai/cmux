@@ -100,7 +100,8 @@ nonisolated enum IconPickerPrefs {
             .object(["key": .string(key), "count": .number(value.count), "last": .number(value.last)])
         }
         let tone: CmuxNextSettings.JSONValue = ours["tone"] ?? theirs["tone"] ?? .number(0)
-        let merged: [String: CmuxNextSettings.JSONValue] = ["tone": tone, "recents": .array(recents)]
+        var merged: [String: CmuxNextSettings.JSONValue] = ["tone": tone, "recents": .array(recents)]
+        if let mode = ours["symbolMode"] ?? theirs["symbolMode"] { merged["symbolMode"] = mode }
         return .object(merged)
     }
 }

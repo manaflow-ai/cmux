@@ -49,6 +49,7 @@ struct IconPickerSession: Equatable {
         if let current { members["value"] = .string(current) }
         if let catalog { members.merge(catalog.eventMembers) { _, catalogValue in catalogValue } }
         if let maxEmojiVersion { members["maxEmojiVersion"] = JSONValue(maxEmojiVersion) }
+        if let symbolStyle { members["symbolStyle"] = .string(symbolStyle) }
         return .object(members)
     }
 }

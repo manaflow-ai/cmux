@@ -32,7 +32,12 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     /// The page's cache key for the colored modes: the accent (sRGB hex) and light or dark.
     /// The page puts it in the image URL, so a changed accent never reuses a cached image.
     static func style(accent: NSColor = .controlAccentColor, dark: Bool) -> String {
-        "" // red stub
+        let scheme = dark ? "dark" : "light"
+        guard let rgb = accent.usingColorSpace(.sRGB) else { return scheme }
+        let hex = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
+            .map { String(format: "%02x", Int((min(max($0, 0), 1) * 255).rounded())) }
+            .joined()
+        return "\(hex)-\(scheme)"
     }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
@@ -58,7 +63,10 @@ final class IconPickerSymbols: PageDynamicResourceSource {
         let mode: Mode
         switch request.path.count {
         case 1: mode = .monochrome
-        default: return nil // red stub: one component only
+        case 2:
+            guard let named = Mode(rawValue: request.path[0]) else { return nil }
+            mode = named
+        default: return nil
         }
         let name = String(file.dropLast(4)).removingPercentEncoding ?? ""
         return IconValue.isSymbolName(name) ? (name, mode) : nil
@@ -77,7 +85,8 @@ final class IconPickerSymbols: PageDynamicResourceSource {
         var config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         switch mode {
         case .monochrome: break
-        case .hierarchical, .multicolor: break // red stub
+        case .hierarchical: config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: accent))
+        case .multicolor: config = config.applying(.preferringMulticolor())
         }
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
             return nil
