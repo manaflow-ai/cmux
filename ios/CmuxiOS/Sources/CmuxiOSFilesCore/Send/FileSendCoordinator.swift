@@ -81,7 +81,7 @@ public final class FileSendCoordinator {
         case .composer:
             guard let attachments else { return }
             let attachment = FileAttachment(id: item.id, hostID: host, remotePath: path, name: entry.file.name,
-                                            mime: entry.file.mime, byteCount: entry.file.byteCount)
+                                            mime: entry.file.mime, byteCount: entry.file.byteCount, uploadID: item.progress.uploadID)
             Task { await attachments.attach(attachment) }
         case .inbox, .directory:
             break

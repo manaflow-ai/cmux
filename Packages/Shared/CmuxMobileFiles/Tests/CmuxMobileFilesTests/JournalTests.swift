@@ -5,6 +5,18 @@ import Testing
 
 @Suite("Transfer journal")
 struct JournalTests {
+    @Test func uploadReferencesRoundTripAndOlderEntriesRemainReadable() async throws {
+        let record = TransferRecord(id: "upload", hostID: "h", direction: .upload, localPath: "/tmp/a", remotePath: "",
+                                    name: "a", mime: "text/plain", status: .finished, resultPath: "/inbox/a", uploadID: "up_verified")
+        let encoded = try JSONEncoder().encode(record)
+        #expect(try JSONDecoder().decode(TransferRecord.self, from: encoded).uploadID == "up_verified")
+        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacy.removeValue(forKey: "uploadID")
+        let decoded = try JSONDecoder().decode(TransferRecord.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(decoded.uploadID == nil)
+        #expect(decoded.resultPath == "/inbox/a")
+    }
+
     @Test func aRunningTransferReloadsAsPaused() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("c4j-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }

@@ -7,12 +7,16 @@ public struct MobileTransferUpdate: Hashable, Sendable {
     public var status: TransferStatus
     /// Upload: the Mac path once finished.
     public var resultPath: String?
+    /// The Mac-issued upload reference, present only after a verified upload.
+    public var uploadID: String?
 
-    public init(id: String, completedBytes: UInt64, totalBytes: UInt64?, status: TransferStatus, resultPath: String? = nil) {
+    public init(id: String, completedBytes: UInt64, totalBytes: UInt64?, status: TransferStatus, resultPath: String? = nil,
+                uploadID: String? = nil) {
         self.id = id
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
         self.status = status
         self.resultPath = resultPath
+        self.uploadID = uploadID
     }
 }

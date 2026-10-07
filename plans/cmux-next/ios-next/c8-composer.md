@@ -188,3 +188,30 @@ Unverified: everything visual (no simulator run), dictation on device, VoiceOver
 Type, the live spawn check (so dispatch stays refused `spawn_unverified` on real Macs), TS catalog
 tests (no `node_modules`). Tagged build not attempted (known blocked: no fleet manifest, dev backend
 VM).
+
+## 8. Attachment intake prerequisite (2026-10-07)
+
+The upload path now preserves the Mac's verified `files.upload.done.upload` reference through
+`MobileTransferManager`, its restart journal, `LinkFileTransfer`, `TransferProgress`, and
+`FileSendCoordinator` into `FileAttachment.uploadID`. Older journal records keep a nil reference;
+a remote path is never converted into an upload id.
+
+`ComposerSession.attachmentSink()` supplies a weak `FileAttachmentSink` bound to the current
+host, target, and draft generation. It accepts at most the task protocol's 32 attachments,
+updates duplicate transfer ids without consuming another slot, and requires an owner-shaped
+`up_` reference. It refuses attachments for another host, after switching targets (including
+switching back), after a successful send, or while a send has an unknown outcome. Refused
+uploads remain in the Mac inbox and do not alter another draft.
+
+This is a core prerequisite, not completed attachment UI: `ComposerAttachmentUploading` is still
+not supplied in `ShellComposition`. The picker requires explicit cancellation/removed-item handling,
+temporary-file cleanup, and upload ownership across target changes before that button is enabled.
+C8's parity row therefore remains **seam only**.
+
+Regression coverage added: real loopback upload id through the file coordinator and restart history;
+transfer-manager result and journal retention; backward journal decoding; persisted composer intake;
+invalid/missing ids and foreign hosts; the 32-item cap and replay; target-generation invalidation;
+unknown/successful dispatch races. Swift parsing and `git diff --check` passed. The focused remote
+Swift test command did not execute: `nx-remote` job `1007-165217-271b07` exited 255 because
+`cmux-lawrence-2` could not resolve (known HQ REPAIR.md build-host alias/DNS symptom). No simulator
+or phone verification was performed.

@@ -22,6 +22,8 @@ public final class ComposerSession {
     private var requestedTarget: ComposerTarget?
     private var catalogPump: Task<Void, Never>?
     private var taskPump: Task<Void, Never>?
+    /// Invalidates an intake when its target changes or its draft was sent.
+    private var attachmentGeneration = UUID()
 
     public init(sink: any TaskComposerSink, store: ComposerDraftStore, preferences: ComposerPreferences,
                 target: ComposerTarget? = nil) {
@@ -88,6 +90,7 @@ public final class ComposerSession {
     public func setTarget(_ target: ComposerTarget) {
         guard target != draft?.target else { return }
         saveDraft()
+        attachmentGeneration = UUID()
         draft = makeDraft(for: target)
         preferences.remember(target: target)
         changed()
@@ -141,6 +144,24 @@ public final class ComposerSession {
         changed()
     }
 
+    /// An intake for this target and draft lifetime. A late upload after a
+    /// target switch or a successful send remains in the Mac inbox.
+    public func attachmentSink() -> (any FileAttachmentSink)? {
+        guard let draft else { return nil }
+        return ComposerFileAttachmentSink(session: self, target: draft.target, generation: attachmentGeneration)
+    }
+
+    func accept(_ file: FileAttachment, target: ComposerTarget, generation: UUID) {
+        guard generation == attachmentGeneration, let draft, draft.target == target,
+              file.hostID == target.hostID, !isSending, draft.pendingKey == nil,
+              file.byteCount >= 0, let upload = file.uploadID, upload.hasPrefix("up_") else { return }
+        let suffix = upload.dropFirst(3)
+        guard (2...64).contains(suffix.count), suffix.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }),
+              draft.attachments.contains(where: { $0.id == file.id }) || draft.attachments.count < 32 else { return }
+        upsertAttachment(ComposerAttachment(id: file.id, name: file.name, mime: file.mime, byteCount: file.byteCount,
+                                            uploadID: upload, phase: .ready))
+    }
+
     public func removeAttachment(_ id: TransferID) {
         guard var draft else { return }
         draft.attachments.removeAll { $0.id == id }
@@ -191,6 +212,7 @@ public final class ComposerSession {
         }
         switch result {
         case .started(let target, _, let taskID, _):
+            attachmentGeneration = UUID()
             store.clear(target)
             draft.prompt = ""
             draft.attachments = []

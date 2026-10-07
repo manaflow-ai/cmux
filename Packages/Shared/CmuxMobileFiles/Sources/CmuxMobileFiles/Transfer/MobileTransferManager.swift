@@ -161,6 +161,7 @@ public actor MobileTransferManager {
             return await journal.update(id) {
                 $0.status = .finished
                 $0.resultPath = done.path
+                $0.uploadID = done.upload
                 $0.completedBytes = done.size
                 $0.size = done.size
             } ?? record
@@ -202,6 +203,6 @@ public actor MobileTransferManager {
 
     private func update(_ record: TransferRecord) -> MobileTransferUpdate {
         MobileTransferUpdate(id: record.id, completedBytes: record.completedBytes, totalBytes: record.size,
-                             status: record.status, resultPath: record.resultPath)
+                             status: record.status, resultPath: record.resultPath, uploadID: record.uploadID)
     }
 }

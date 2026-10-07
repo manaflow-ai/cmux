@@ -21,12 +21,14 @@ public struct TransferRecord: Hashable, Sendable, Codable, Identifiable {
     public var status: TransferStatus
     /// Upload: the Mac path from `files.upload.done`.
     public var resultPath: String?
+    /// The Mac-issued upload reference; older journal entries decode as nil.
+    public var uploadID: String?
     public var createdAt: Date
 
     public init(id: String, hostID: String, direction: TransferDirection, localPath: String, remotePath: String,
                 name: String, mime: String, dest: FilesUploadDestination? = nil, size: UInt64? = nil,
                 sha256: String? = nil, completedBytes: UInt64 = 0, status: TransferStatus = .running,
-                resultPath: String? = nil, createdAt: Date = Date()) {
+                resultPath: String? = nil, uploadID: String? = nil, createdAt: Date = Date()) {
         self.id = id
         self.hostID = hostID
         self.direction = direction
@@ -40,6 +42,7 @@ public struct TransferRecord: Hashable, Sendable, Codable, Identifiable {
         self.completedBytes = completedBytes
         self.status = status
         self.resultPath = resultPath
+        self.uploadID = uploadID
         self.createdAt = createdAt
     }
 

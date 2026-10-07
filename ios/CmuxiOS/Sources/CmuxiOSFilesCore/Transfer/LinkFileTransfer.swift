@@ -72,7 +72,8 @@ public actor LinkFileTransfer: FileTransfer {
 
     static func progress(_ update: MobileTransferUpdate) -> TransferProgress {
         TransferProgress(id: TransferID(rawValue: update.id), completedBytes: Int64(update.completedBytes),
-                         totalBytes: update.totalBytes.map(Int64.init), state: state(update.status), remotePath: update.resultPath)
+                         totalBytes: update.totalBytes.map(Int64.init), state: state(update.status), remotePath: update.resultPath,
+                         uploadID: update.uploadID)
     }
 
     static func state(_ status: TransferStatus) -> TransferProgress.State {
@@ -101,7 +102,7 @@ public actor LinkFileTransfer: FileTransfer {
             name: record.name, mime: record.mime)
         let progress = TransferProgress(id: request.id, completedBytes: Int64(record.completedBytes),
                                         totalBytes: record.size.map(Int64.init), state: state(record.status),
-                                        remotePath: record.resultPath)
+                                        remotePath: record.resultPath, uploadID: record.uploadID)
         return TransferSnapshot(request: request, progress: progress)
     }
 }

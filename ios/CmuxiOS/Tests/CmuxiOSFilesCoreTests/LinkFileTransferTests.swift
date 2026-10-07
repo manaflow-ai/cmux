@@ -14,6 +14,26 @@ import Testing
 /// against a `MobileHost` with the C4 handlers over a loopback link.
 @Suite("LinkFileTransfer over a loopback Mac")
 struct LinkFileTransferTests {
+    @Test @MainActor func composerReceivesTheVerifiedUploadReferenceAndHistoryPreservesIt() async throws {
+        let mac = try await LoopbackMac()
+        defer { Task { await mac.stop() } }
+        let journal = mac.base.appendingPathComponent("journal.json")
+        let transfer = LinkFileTransfer(connector: mac, journalURL: journal)
+        let sink = RecordingSink()
+        let model = TransferListModel(transfer: transfer)
+        let stager = FileStager(root: mac.base.appendingPathComponent("staging"))
+        let coordinator = FileSendCoordinator(model: model, paster: nil, attachments: sink, stager: stager)
+        let file = try stager.stage(data: Data("task context".utf8), name: "context.txt")
+        coordinator.send([file], to: .composer, host: HostID(LoopbackMac.hostID))
+        let attachment = try await waitFor { await sink.attachments.first }
+        let uploadID = try #require(attachment.uploadID)
+        #expect(uploadID.hasPrefix("up_"))
+        #expect(uploadID != attachment.remotePath)
+        #expect(attachment.byteCount == 12)
+        let relaunched = LinkFileTransfer(connector: mac, journalURL: journal)
+        #expect(await relaunched.history().first?.progress.uploadID == uploadID)
+    }
+
     @Test @MainActor func sendToTerminalUploadsToTheInboxAndPastesThePath() async throws {
         let mac = try await LoopbackMac()
         defer { Task { await mac.stop() } }

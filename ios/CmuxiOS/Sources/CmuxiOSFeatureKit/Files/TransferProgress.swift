@@ -23,13 +23,17 @@ public struct TransferProgress: Hashable, Sendable {
     public var state: State
     /// A finished upload's path on the Mac.
     public var remotePath: String?
+    /// A verified upload's owner-issued `up_` reference, used by task dispatch.
+    public var uploadID: String?
 
-    public init(id: TransferID, completedBytes: Int64, totalBytes: Int64?, state: State, remotePath: String? = nil) {
+    public init(id: TransferID, completedBytes: Int64, totalBytes: Int64?, state: State, remotePath: String? = nil,
+                uploadID: String? = nil) {
         self.id = id
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
         self.state = state
         self.remotePath = remotePath
+        self.uploadID = uploadID
     }
 
     public var fraction: Double? {

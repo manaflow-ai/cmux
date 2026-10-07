@@ -65,7 +65,7 @@ public actor MockFileTransfer: FileTransfer {
         let request = requests[id]
         let remote = request.flatMap { $0.isUpload ? "/Users/mock/Downloads/cmux-phone/\($0.displayName)" : nil }
         continuation.yield(TransferProgress(id: id, completedBytes: completed, totalBytes: start.total, state: .finished,
-                                            remotePath: remote))
+                                            remotePath: remote, uploadID: remote.map { _ in "up_" + id.rawValue.replacingOccurrences(of: "-", with: "") }))
     }
 }
 
