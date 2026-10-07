@@ -61,6 +61,9 @@ class ShadowJobTests(unittest.TestCase):
                 block = jobs((WORKFLOWS / workflow).read_text(encoding="utf-8"))[shadow]
                 self.assertIn("scripts/ci/macos-cross.sh", block)
                 self.assertIn("python3 tests/test_ci_macho_parity.py", block)
+                # The sysroot is Zig's darwin stub: it must be the Zig the
+                # ghostty-next manifest sets (pin run 37589232394 got another).
+                self.assertRegex(block, r"GHOSTTY_ZIG_SOURCE: ghostty-next\n(?:.*\n){0,4}.*ghostty-zig-version\.sh")
 
 
 if __name__ == "__main__":

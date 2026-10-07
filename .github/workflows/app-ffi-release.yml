@@ -205,9 +205,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-19 lld-19 llvm-19 llvm-19-dev cmake ninja-build libblocksruntime-dev
 
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # Zig's darwin headers and libSystem stub: the Zig the ghostty-next
+      # manifest sets, the one libghostty-vt builds with.
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Only the darwin headers and libSystem stub bundled with Zig are used.
       - name: Install zig
