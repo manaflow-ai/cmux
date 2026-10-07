@@ -2,12 +2,15 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSOnboarding
+import CmuxiOSOnboardingCore
 import CmuxiOSShell
 import CmuxiOSTerminal
 import UIKit
 
-/// Switches between restoring, sign-in and the signed-in shell (Home plus
-/// the feature tabs) as the auth state changes.
+/// Switches between restoring, onboarding, sign-in and the signed-in shell
+/// (Home plus the feature tabs) as the auth state changes. One onboarding
+/// controller lives across signed-out and signed-in until it finishes.
 @MainActor
 final class RootViewController: UIViewController {
     private let container: AppContainer
@@ -16,6 +19,8 @@ final class RootViewController: UIViewController {
     private weak var shell: ShellRootController?
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
+    private var onboarding: OnboardingViewController?
+    private var onboardingDecided = false
 
     init(container: AppContainer) {
         self.container = container
@@ -75,12 +80,68 @@ final class RootViewController: UIViewController {
         case .signedOut:
             shellAccount = nil
             container.signedOut()
-            install(SignInScreen.make(coordinator: container.auth.coordinator))
+            if presentsOnboarding(signedIn: false) {
+                showOnboarding(signedIn: false)
+            } else {
+                install(SignInScreen.make(coordinator: container.auth.coordinator))
+            }
         case .signedIn(let account):
-            showHome(account: account)
-            container.signedIn(account: account)
+            let onboards = presentsOnboarding(signedIn: true)
+            // Onboarding primes the notifications prompt; a user who chose
+            // Not Now there is not asked again at the next launch.
+            let declined = container.onboardingStore.load()?.outcomes[.notifications] == .skipped
+            container.signedIn(account: account, requestPushPermission: !onboards && !declined)
             DebugLaunchTasks.signedIn(container: container)
+            if onboards {
+                showOnboarding(signedIn: true)
+            } else {
+                showHome(account: account)
+            }
         }
+    }
+
+    // MARK: - Onboarding
+
+    /// Decided once per launch from the stored progress and auth; afterwards
+    /// only a running onboarding keeps presenting.
+    private func presentsOnboarding(signedIn: Bool) -> Bool {
+        if let onboarding { return !onboarding.model.isFinished }
+        guard !onboardingDecided else { return false }
+        onboardingDecided = true
+        return container.onboardingPolicy.shouldPresent(stored: container.onboardingStore.load(), isSignedIn: signedIn)
+    }
+
+    private func showOnboarding(signedIn: Bool) {
+        if let onboarding {
+            onboarding.model.setSignedIn(signedIn)
+            if current !== onboarding { install(onboarding) }
+            return
+        }
+        let model = OnboardingComposition.firstRun(container: container, isSignedIn: signedIn)
+        let controller = OnboardingViewController(model: model)
+        model.onFinish = { [weak self] _ in self?.onboardingFinished() }
+        onboarding = controller
+        install(controller)
+    }
+
+    private func onboardingFinished() {
+        onboarding = nil
+        if case .signedIn(let account) = container.auth.state {
+            showHome(account: account)
+        } else {
+            install(SignInScreen.make(coordinator: container.auth.coordinator))
+        }
+    }
+
+    /// Settings > Replay Welcome Tour: the tour in memory, full screen.
+    private func presentReplay() {
+        let model = OnboardingComposition.replay(container: container)
+        let controller = OnboardingViewController(model: model)
+        controller.modalPresentationStyle = .fullScreen
+        model.onFinish = { [weak controller] _ in controller?.dismiss(animated: true) }
+        var presenter: UIViewController = self
+        while let next = presenter.presentedViewController { presenter = next }
+        presenter.present(controller, animated: true)
     }
 
     private static func screenKey(_ state: AuthState) -> String {
@@ -98,7 +159,10 @@ final class RootViewController: UIViewController {
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
-        let shell = ShellComposition.makeShell(container: container, account: account, home: navigation)
+        let shell = ShellComposition.makeShell(
+            container: container, account: account, home: navigation,
+            replayTour: { [weak self] in self?.presentReplay() }
+        )
         self.shell = shell
         shellAccount = account
         install(shell)
