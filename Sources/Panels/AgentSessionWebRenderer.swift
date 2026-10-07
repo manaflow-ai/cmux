@@ -42,6 +42,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             isFocused: isFocused
         )
         let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        context.coordinator.attach(to: host)
         webView.onPointerDown = onRequestPanelFocus
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator

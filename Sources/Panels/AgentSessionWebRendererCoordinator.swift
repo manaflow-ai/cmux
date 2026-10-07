@@ -8,6 +8,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     var webView: AgentSessionWebView?
     private var panelId = UUID()
     private var workspaceId = UUID()
+    private var attachedHostID: ObjectIdentifier?
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
@@ -19,7 +20,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var hasFinishedNavigation = false
     private var hasCompletedVisiblePaintFlush = false
     private var isVisiblePaintFlushInFlight = false
-    private var visiblePaintGeneration: UInt64 = 0
+    private(set) var visiblePaintGeneration: UInt64 = 0
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
@@ -44,8 +45,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         isFocused: Bool
     ) {
         self.panelId = panelId
+        let workspaceChanged = self.workspaceId != workspaceId
         self.workspaceId = workspaceId
-        if self.rendererKind != rendererKind {
+        if self.rendererKind != rendererKind || workspaceChanged {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
@@ -65,6 +67,17 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
         processStore.activeProviderSink = { [weak self] hasActiveProvider in
             self?.onHasActiveProviderChanged?(hasActiveProvider)
+        }
+    }
+
+    /// Records the host currently displaying this retained renderer session.
+    func attach(to host: AgentSessionWebHostView) {
+        let hostID = ObjectIdentifier(host)
+        guard attachedHostID != hostID else { return }
+        let hadAttachedHost = attachedHostID != nil
+        attachedHostID = hostID
+        if hadAttachedHost {
+            invalidateVisiblePaintAfterReattachment()
         }
     }
 
@@ -159,6 +172,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
+        attachedHostID = nil
         resetVisiblePaintState()
     }
 

@@ -33,6 +33,24 @@ struct AgentSessionWebRendererTests {
 
     @Test
     @MainActor
+    func testRetainedCoordinatorReopensPaintGateForNewHost() {
+        let coordinator = AgentSessionWebRendererCoordinator()
+        let firstHost = AgentSessionWebHostView()
+        let secondHost = AgentSessionWebHostView()
+        let initialGeneration = coordinator.visiblePaintGeneration
+
+        coordinator.attach(to: firstHost)
+        #expect(coordinator.visiblePaintGeneration == initialGeneration)
+
+        coordinator.attach(to: secondHost)
+        #expect(coordinator.visiblePaintGeneration == initialGeneration + 1)
+
+        coordinator.attach(to: secondHost)
+        #expect(coordinator.visiblePaintGeneration == initialGeneration + 1)
+    }
+
+    @Test
+    @MainActor
     func testTerminalCommandQueuedBeforeCloseIsRejectedAfterClose() {
         let coordinator = AgentSessionWebRendererCoordinator()
         var invoked = false
