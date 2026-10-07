@@ -245,3 +245,20 @@ pub fn usage(question: &Value, session: &str) -> String {
     out.push_str(&format!("decline: acpmux deny {session}\n"));
     out
 }
+
+/// What `acpmux pending` and a streaming turn print as the way to answer a
+/// pending request: the `answer` command for a question (an allow would be
+/// refused), else allow with the offered option ids, and deny for both.
+pub fn pending_hint(request: &Value, session: &str) -> String {
+    if let Some(first) = question(request).and_then(|q| items(q).first()) {
+        return format!(
+            "acpmux session answer {session} --answer \"{}=<choice>\" | acpmux session deny {session}",
+            item_name(first)
+        );
+    }
+    let ids: Vec<&str> = request["options"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|o| o["optionId"].as_str()).collect())
+        .unwrap_or_default();
+    format!("acpmux session allow {session} [{}] | acpmux session deny {session}", ids.join("|"))
+}
