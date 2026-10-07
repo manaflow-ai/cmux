@@ -371,3 +371,29 @@ fn a_refused_capture_is_retried_until_the_shim_accepts_it() {
     tab.retry_capture(&mut fake);
     assert!(fake.calls.is_empty(), "a running capture is not started twice");
 }
+
+#[test]
+fn a_select_popup_the_page_closed_is_cancelled_on_the_viewer_only() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let menu = Menu {
+        kind: MenuKind::Select,
+        anchor: Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+        surface: 0,
+        items: vec![item(0, "Red", "option"), item(1, "Green", "option")],
+        selected: Some(0),
+        multiple: false,
+        right_aligned: false,
+    };
+    let shown = tab.menu_opened(77, menu, &mut fake);
+    let Some(Control::MenuShow { token, .. }) = shown.first().cloned() else {
+        panic!("menu shown: {shown:?}");
+    };
+    fake.calls.clear();
+    assert!(tab.menu_closed_by_page(76).is_empty(), "another fork token is stale");
+    assert_eq!(tab.menu_closed_by_page(77), vec![Control::MenuCancel { token }]);
+    assert!(fake.calls.is_empty(), "Chromium closed it: no answer goes back");
+    let late = Control::MenuResult { token, choice: MenuChoice::Indices { indices: vec![1] } };
+    tab.control("v1", &late, &mut fake);
+    assert!(fake.calls.is_empty(), "a late viewer answer reaches nothing");
+}
