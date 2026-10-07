@@ -4,6 +4,10 @@ use crate::error::DecodeError;
 pub const STREAM_CONTROL: u8 = 1;
 /// Stream frame type of one datagram (header and payload) carried on the stream.
 pub const STREAM_DATAGRAM: u8 = 2;
+/// Stream frame type of one bulk chunk (file bytes; rd change C5): see
+/// [`crate::BulkFrame`]. Sent only when both sides list the `bulk` cap: an
+/// older deframer refuses the type and ends the session.
+pub const STREAM_BULK: u8 = 3;
 /// Size of the stream frame prefix: `u8 type`, `u32 len`.
 pub const STREAM_PREFIX_LEN: usize = 5;
 /// Largest stream frame payload.
