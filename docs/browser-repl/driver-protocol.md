@@ -613,6 +613,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   string (the page-read budget, a long name) it drops the 53,248
   characters before the cut (4,096 bytes in their longest escaped form)
   before the reply leaves the page: a cut never hands on a value's prefix.
+  Action diagnostics (an element that intercepts pointer events, a
+  strict-mode violation's matches) name each element by its tag and role
+  only, and a match's locator is the caller's selector with its index:
+  Playwright's previews cut page text and attributes, so none of them
+  leaves the page.
   A snapshot's link URLs leave the page whole; the snapshot renderer
   makes every summary of one after masking: an off-site link's
   `host/first-segment` form, an on-site link's path without its origin,

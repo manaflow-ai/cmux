@@ -14,6 +14,13 @@ rules neither reference enforces together:
    there (`/robots.txt`) and runs nothing when a redirect left that origin:
    the call fails with `origin_changed` when the tab's URL is elsewhere, and
    each evaluation first checks its document's own `location.origin`.
+   Every background tab a tool opens is bound to the origin of the site
+   URL it opened (`withTab`). Its read-backs and waits run only in a
+   document on that origin, and the commit protocol checks every bound
+   tab's URL and document origin before its first read-back, before each
+   click and before each batch of input or request. A tab that a redirect
+   or a later navigation took to another origin fails with
+   `target_mismatch`, and nothing is sent there.
    A token a site keeps in the page (Slack's `xoxc-` token in
    `localStorage`, LinkedIn's CSRF cookie) is used inside that page and never
    returned. Reference A's `slack.getClient()` and `notion.getClient()` extract

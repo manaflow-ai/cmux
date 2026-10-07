@@ -1323,3 +1323,44 @@ test("input: a refused key down or mouse move leaves no modifier or coordinate f
   assert.equal(press.params.type, "down");
   assert.deepEqual([press.params.x, press.params.y, press.params.modifiers], [10, 20, []], JSON.stringify(press.params));
 });
+
+test("diagnostics: hit-target and strict-mode errors name elements by tag and role, never the page's text or attributes", async () => {
+  // Playwright's previews cut page text at 50 characters and attributes at
+  // 500, and its "aka" locators cut text at word boundaries. Secrets are
+  // masked natively by whole value after the error leaves the page, so a
+  // cut secret would pass as its unmasked prefix. The errors name only the
+  // elements' tags, roles and count.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const secret = "SECRETPREFIX" + "x".repeat(80);
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate((secret) => {
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:10px;top:10px;width:100px;height:40px">Target</button>' +
+          '<div id="cover" style="position:absolute;left:0;top:0;width:300px;height:300px;z-index:5"></div>' +
+          '<p class="dup">a</p><p class="dup">b</p>';
+        const cover = document.getElementById("cover");
+        cover.setAttribute("data-s", secret + "y".repeat(600));
+        cover.textContent = secret;
+        for (const p of document.querySelectorAll(".dup")) { p.setAttribute("title", secret + " tail"); p.textContent = secret + " more words here " + secret; }
+      }, secret);
+      const err = async (f) => { try { await f(); return null; } catch (e) { return String(e.message || e); } };
+      const r = {
+        covered: await err(() => page.locator("#t").click({ timeout: 800 })),
+        strict: await err(() => page.locator("p.dup").click({ timeout: 800 })),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.match(r.covered || "", /<div> intercepts pointer events/, r.covered);
+    assert.doesNotMatch(r.covered || "", /SECRET|data-s|cover/, `the hit-target error carried page text: ${r.covered}`);
+    assert.match(r.strict || "", /strict mode violation: .* resolved to 2 elements/, r.strict);
+    assert.match(r.strict || "", /1\) <p> \(paragraph\)/, r.strict);
+    assert.doesNotMatch(r.strict || "", /SECRET|more words|title=/, `the strict-mode error carried page text: ${r.strict}`);
+  } finally {
+    await server.close();
+  }
+});
