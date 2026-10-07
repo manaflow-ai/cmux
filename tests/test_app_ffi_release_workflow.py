@@ -8,6 +8,13 @@ a person noticed. Whenever the job cannot create the release (workflow files
 changed, an HTTP 403, or a create that silently publishes nothing), it now
 fails and names the hand-publish command.
 
+Workflow-file changes no longer need a hand publish: GITHUB_TOKEN may not
+create a tag over them, and FFI tags sit under the admin-create ruleset
+24624526, so the publish job creates the release with a token of the FFI
+release GitHub App (contents and workflows write, in ruleset 24624526's bypass
+list), minted in the app-ffi-release environment. The fake `gh` refuses a
+create with any other token.
+
 The test runs the publish job's own shell steps in order, as the runner would,
 against a fake `gh` and `curl` that play each outcome.
 """
@@ -35,6 +42,8 @@ SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
 TAG = f"cmux-app-ffi-{SHA}"
 REPO = "manaflow-ai/cmux"
 RUN_ID = "37556534995"
+APP_TOKEN = "fake-ffi-release-app-token"
+APP_SECRETS = ("CMUX_APP_FFI_RELEASE_APP_ID", "CMUX_APP_FFI_RELEASE_APP_KEY")
 
 FAKE_GH = r"""#!/usr/bin/env bash
 # Fake gh: FAKE_CREATE is ok, 403 or noop. A created release is the directory $STATE/release.
@@ -43,6 +52,9 @@ rel="$STATE/release"
 case "$1 $2" in
   "release view") [[ -d "$rel" ]] && exit 0; echo "release not found" >&2; exit 1 ;;
   "release create")
+    # GITHUB_TOKEN may not tag over workflow-file changes or past ruleset
+    # 24624526; only the FFI release App's token creates the release.
+    [[ "${GH_TOKEN:-}" == "$APP_TOKEN" ]] || { echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; }
     case "$FAKE_CREATE" in
       403) echo "HTTP 403: Resource not accessible by integration" >&2; exit 1 ;;
       noop) exit 0 ;;
@@ -121,9 +133,10 @@ class PublishJob(unittest.TestCase):
                 "needs": {"build": {"outputs": {"tag": TAG, "checksum": checksum,
                                                 "workflow_changed": "true" if workflow_changed else "false"}}},
                 "vars": {}, "runner": {"temp": str(temp_path)},
+                "steps": {"app-token": {"outputs": {"token": APP_TOKEN}}},
             }
             base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
-                        "FAKE_CREATE": create, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                        "FAKE_CREATE": create, "APP_TOKEN": APP_TOKEN, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
@@ -149,9 +162,11 @@ class PublishJob(unittest.TestCase):
         self.assertRegex(log, rf"gh release create {TAG}\b.*--target {SHA}", log)
         self.assertIn(f"gh run download {RUN_ID}", log, log)
 
-    def test_workflow_files_changed_fails_with_the_hand_publish_command(self):
-        # Run 37556534995: the create step skipped and the job went green.
-        self.assert_fails_loud(*self.run_publish(workflow_changed=True))
+    def test_workflow_files_changed_still_publishes_with_the_app_token(self):
+        # Runs 37595723068 and 37613480750 needed a hand publish for this.
+        passed, log = self.run_publish(workflow_changed=True)
+        self.assertTrue(passed, log)
+        self.assertNotIn("publish by hand", log.lower(), log)
 
     def test_a_refused_create_fails_with_the_hand_publish_command(self):
         # Run 37272232472: GITHUB_TOKEN got HTTP 403 creating the tag.
@@ -168,6 +183,35 @@ class PublishJob(unittest.TestCase):
     def test_a_rerun_over_the_same_release_passes(self):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
+
+
+class ReleaseAppToken(unittest.TestCase):
+    """Only the publish job, in its protected environment, can mint the App token."""
+
+    def test_the_publish_job_mints_a_contents_and_workflows_token(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
+        self.assertEqual(job.get("environment"), "app-ffi-release")
+        self.assertEqual(job.get("permissions"), {"contents": "read"})
+        mint = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/create-github-app-token@")]
+        self.assertEqual(len(mint), 1, "exactly one App token step")
+        self.assertEqual(mint[0].get("id"), "app-token")
+        with_ = mint[0]["with"]
+        self.assertEqual(with_["app-id"], "${{ secrets.CMUX_APP_FFI_RELEASE_APP_ID }}")
+        self.assertEqual(with_["private-key"], "${{ secrets.CMUX_APP_FFI_RELEASE_APP_KEY }}")
+        self.assertEqual(with_["repositories"], "${{ github.event.repository.name }}")
+        self.assertEqual(sorted(k for k in with_ if k.startswith("permission-")),
+                         ["permission-contents", "permission-workflows"])
+        self.assertEqual((with_["permission-contents"], with_["permission-workflows"]), ("write", "write"))
+
+    def test_no_other_job_reads_the_app_secrets(self):
+        for workflow in sorted(WORKFLOW.parent.glob("*.yml")):
+            jobs = (yaml.safe_load(workflow.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+            for name, job in jobs.items():
+                if (workflow, name) == (WORKFLOW, "publish"):
+                    continue
+                text = yaml.safe_dump(job)
+                for secret in APP_SECRETS:
+                    self.assertNotIn(secret, text, f"{workflow.name}:{name} reads {secret}")
 
 
 if __name__ == "__main__":
