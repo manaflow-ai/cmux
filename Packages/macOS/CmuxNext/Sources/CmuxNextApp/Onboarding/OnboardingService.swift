@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -25,6 +26,17 @@ final class OnboardingService {
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
+
+    /// The cmux-cua socket the computer use step reads (CMUX_NEXT_CUA_SOCKET,
+    /// else cmux-cua's default). Tests point it at their own socket.
+    var computerUseConfiguration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+
+    /// Whether an open window can show `step`: it already has that step (or
+    /// no step was asked for). Otherwise the window is rebuilt for the step.
+    static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
+        guard let step else { return true }
+        return steps.contains(step)
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -125,9 +137,15 @@ final class OnboardingService {
     /// Opens onboarding at `step` (or brings the open one to that step).
     func show(step: OnboardingModel.Step? = nil) {
         if let controller {
-            if let step { controller.model.go(to: step) }
-            controller.present()
-            return
+            if Self.reusesWindow(showing: controller.model.steps, for: step) {
+                if let step { controller.model.go(to: step) }
+                controller.present()
+                return
+            }
+            // The open window was built without this step (for example the
+            // first run, or a helper that came up since): rebuild it.
+            controller.model.finish(completed: false)
+            self.controller = nil
         }
         let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step)
         let controller = OnboardingWindowController(model: model)
