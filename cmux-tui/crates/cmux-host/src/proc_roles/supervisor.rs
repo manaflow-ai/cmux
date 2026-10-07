@@ -347,7 +347,7 @@ impl Loop {
     }
 
     fn publish(&mut self) {
-        let json = serde_json::json!({ "roles": self.health() });
+        let json = status_document(&self.health());
         if self.published.as_ref() == Some(&json) {
             return;
         }
@@ -389,6 +389,12 @@ fn signal_group(pid: u32, signal: i32) {
 }
 
 /// Reads `<state>/roles/status.json` (for `cmux host roles`).
+/// The document of `<state>/roles/status.json`, which `cmux host roles
+/// --json` prints and the app's LocalServerStatus maps.
+pub fn status_document(roles: &[RoleHealth]) -> serde_json::Value {
+    serde_json::json!({ "roles": roles })
+}
+
 pub fn read_status(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
