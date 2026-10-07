@@ -5453,7 +5453,11 @@ command is accepted on trusted local (Unix-classified) connections only.
 Participant = object{id:string, kind:"human"|"agent", display_name:string, agent_class?:"mux"|"agent", acp_session?:string}
 PartRef = object{message_id:string, part_index:uint32}
 TextRun = object{start:uint32, length:uint32, mention?:string, link?:string}
-Part = object{type:"text", text:string, runs?:[TextRun]} | object{type:"work", session:string, host?:string, status:"running"|"done"|"failed"|"waiting", preview?:string} | object{type:"attachment", hash:string, name:string, mime_type:string, byte_count:uint64, width?:uint32, height?:uint32, duration_ms?:uint64, poster?:DerivedImage, preview?:DerivedImage}
+Part = object{type:"text", text:string, runs?:[TextRun]} | object{type:"work", session:string, host?:string, status:"running"|"done"|"failed"|"waiting", preview?:string} | object{type:"attachment", hash:string, name:string, mime_type:string, byte_count:uint64, width?:uint32, height?:uint32, duration_ms?:uint64, poster?:DerivedImage, preview?:DerivedImage} | Question
+Question = object{type:"question", harness:"claude"|"codex"|"acp"|"chief", session:string, permission?:string, agent?:string, items:[QuestionItem], state:QuestionState}
+QuestionItem = object{id:string, header?:string, prompt:string, options:[object{id:string, label:string, detail?:string, preview?:object{text:string, format:"monospace"|"markdown"}}], multi_select:bool, allows_other:bool}
+QuestionState = object{kind:"pending"} | object{kind:"cancelled"} | object{kind:"answered", answer:QuestionAnswer}
+QuestionAnswer = object{selections:map<string, object{option_ids:[string], other?:string}>, respondent?:object{participant:string, display_name:string, device?:string, remote:bool}, answered_at?:string}
 DerivedImage = object{hash:string, mime_type:"image/jpeg"|"image/webp", byte_count:uint64}
 Reaction = object{author:string, part_index:uint32, kind:object{tapback:"love"|"like"|"dislike"|"laugh"|"emphasize"|"question"}|object{emoji:string}, at:string}
 Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
@@ -5569,6 +5573,12 @@ with `replayed:true` and publishes nothing. `op` is tagged by `kind`:
 | `read_cursor.set` | `seq` | the actor's own cursor; monotonic; at most `last_seq` |
 | `participants.add` | `participant` | id unique; at most 64 participants |
 | `title.set` | `title` | 1-200 characters |
+| `question.answer` | `message_id, part_index, answer` | human participants only (`human_only`); the part is a pending question (`question_closed` otherwise); every item answered with known options, one choice on single select, `other` only where `allows_other` (`invalid_answer`); the owner stamps `respondent` (a paired device answers as its person, `remote:true`) and `answered_at` |
+
+A `question` part (plans/cmux-next/agent-questions.md) is sent only by an
+agent and only as `pending`. A `message.edit` keeps every question part at
+its index with the same content; it may only move a pending question to
+`cancelled`.
 
 Rejects use `error_code` `conversation_rejected` with the reason as the
 error text: `not_participant`, `not_author`, `unknown_message`,
@@ -5576,7 +5586,8 @@ error text: `not_participant`, `not_author`, `unknown_message`,
 `unknown_conversation`, `cursor_out_of_range`, `retracted`,
 `invalid_client_msg_id`, `invalid_part_index`, `duplicate_reaction`,
 `unknown_reaction`, `invalid_reaction`, `duplicate_participant`,
-`invalid_participant`, `invalid_title`. A malformed request (an unknown op
+`invalid_participant`, `invalid_title`, `human_only`, `question_closed`,
+`invalid_answer`. A malformed request (an unknown op
 kind, a bad `transaction` or idempotency key) is a plain bad request.
 
 Params: `conversation`, `idempotency_key`, `op` (required), `actor` (optional; the owner stamps the connection's principal and refuses a different value with `actor_mismatch`),
@@ -5793,6 +5804,30 @@ live socket gets `live`), and then emits the same state as a
 `cloud-subscription-state` event, so a change that raced the reply never
 leaves the client on an older state. Every later change of the shared socket
 is a `cloud-subscription-state` event.
+
+### cloud-mux-subscribe, cloud-mux-unsubscribe, cloud-mux-ack
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The leased chief's MuxDO wake queue (`mux:<agent>`, plans/cmux-next/cloud-chief-vm.md).
+The agent is the lease token's `agt` claim, never a request field: the
+subscribe commands take no fields and `cloud-mux-ack` takes only
+`conversation` and `seq` (an unknown field is refused). A person's lease is
+refused with `mux_needs_chief`.
+
+Events on the subscribe stream: `cloud-mux-wake {seq, wakes, account?}` for
+new wakes and `cloud-mux-resynced {seq, pending, account?}` after a
+(re)subscribe, so a wake missed while the socket was down is delivered. A
+wake is ids only: `{conversation, seq, reason}`, never message text; the
+brain reads the message through its own authorized conversation read.
+
+`cloud-mux-ack {conversation, seq}` sends `mux.ack` for the lease's chief
+with idempotency key `mux-ack:<conversation>:<seq>`: a repeated ack is a
+replay and changes nothing.
 
 ### create-profile
 

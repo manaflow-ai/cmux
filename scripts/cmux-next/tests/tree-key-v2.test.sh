@@ -81,9 +81,11 @@ path="\${path#https://cdn.test/cmux-tui/}"
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
 chmod +x "$TMP/bin/curl"
+# The stub CDN publishes the macOS arm64 daemon only. Pin that target: on a Linux runner
+# pin-cmux-tui.sh would otherwise ask for x86_64-unknown-linux-musl, which these trees lack.
 fetch() {
   (cd "$src" && env -u GITHUB_ACTIONS -u CI_JOB_DIR PATH="$TMP/bin:$PATH" CMUX_NEXT_TUI_ALLOW_DIRTY=1 \
-    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 CMUX_TUI_TREE_TARGET=aarch64-apple-darwin \
     bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1)
 }
 out=$(fetch) || fail "fetch through the v1 publication failed:" "$out"
