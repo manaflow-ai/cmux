@@ -5,8 +5,10 @@
 //! open, never acts on viewer-to-host messages, and closes open UI when the
 //! session crashes or closes. Vectors: `schemas/remote-tab/client.json`.
 
+use std::collections::BTreeSet;
+
 use crate::proto::{
-    Control, CursorShape, Dialog, Menu, MenuChoice, Rect, ScreenInfo, SessionState,
+    Control, CursorShape, Dialog, Disposition, Menu, MenuChoice, Rect, ScreenInfo, SessionState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +24,10 @@ pub enum ClientInput {
     DialogAnswered { token: u64, accept: bool, text: Option<String> },
     /// The pane's page size or scale changed.
     Resize { screen: ScreenInfo },
+    /// The person typed an address in the local omnibar.
+    Navigate { url: String },
+    /// The App answered `open_tab` (the new tab's id, or why it refused).
+    TabOpened { request: u64, tab: Option<String>, refused: Option<String> },
 }
 
 /// What the viewer does after one input, in order.
@@ -72,6 +78,20 @@ pub enum ClientEffect {
     Session {
         state: SessionState,
     },
+    /// The page did not handle key `input_seq`: the viewer runs what a
+    /// local tab runs for an unhandled key.
+    KeyUnhandled {
+        input_seq: u32,
+    },
+    /// The page opened a tab (Cmd-click, `target=_blank`, `window.open`):
+    /// the App creates a remote tab on the same host and answers with
+    /// `tab_opened`.
+    OpenTab {
+        request: u64,
+        url: String,
+        disposition: Disposition,
+        user_gesture: bool,
+    },
 }
 
 /// Inputs that change nothing, and why.
@@ -86,6 +106,8 @@ pub enum ClientNote {
     StaleShow,
     /// `rb.screen_applied` for an older `rb.screen`.
     StaleScreen,
+    /// `tab_opened` for a request the host did not make or that was answered.
+    UnknownRequest,
     /// A host message a later step handles.
     Unhandled,
 }
@@ -115,6 +137,8 @@ pub struct Client {
     pub screen_seq: u32,
     last_menu: u64,
     last_dialog: u64,
+    /// `rb.open_tab` requests the App has not answered.
+    pending_tabs: BTreeSet<u64>,
 }
 
 impl Client {
@@ -138,6 +162,14 @@ impl Client {
             ClientInput::Resize { screen } => {
                 self.screen_seq = self.screen_seq.saturating_add(1);
                 Ok(send(Control::Screen { seq: self.screen_seq, screen }))
+            }
+            ClientInput::Navigate { url } => Ok(send(Control::Navigate { url })),
+            ClientInput::TabOpened { request, tab, refused } => {
+                Ok(if self.pending_tabs.remove(&request) {
+                    send(Control::OpenTabResult { request, tab, refused })
+                } else {
+                    note(ClientNote::UnknownRequest)
+                })
             }
         }
     }
@@ -202,6 +234,18 @@ impl Client {
                 }
                 effects_only(vec![ClientEffect::ScreenApplied { pixel_width, pixel_height, scale }])
             }
+            Control::KeyUnhandled { input_seq } => {
+                effects_only(vec![ClientEffect::KeyUnhandled { input_seq }])
+            }
+            Control::OpenTab { request, url, disposition, user_gesture } => {
+                self.pending_tabs.insert(request);
+                effects_only(vec![ClientEffect::OpenTab {
+                    request,
+                    url,
+                    disposition,
+                    user_gesture,
+                }])
+            }
             _ => note(ClientNote::Unhandled),
         })
     }
@@ -233,6 +277,7 @@ fn viewer_to_host(message: &Control) -> bool {
             | Control::Screen { .. }
             | Control::Vsync { .. }
             | Control::History { .. }
+            | Control::Navigate { .. }
             | Control::MenuResult { .. }
             | Control::DialogResult { .. }
             | Control::FileChooserResult { .. }

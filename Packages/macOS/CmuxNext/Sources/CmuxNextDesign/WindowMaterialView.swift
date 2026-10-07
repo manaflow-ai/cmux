@@ -30,11 +30,25 @@ public final class WindowMaterialView: NSView {
     private var loadedTexture: BackdropTexture?
     private var artImage: NSImage?
     private let textureCache = BackdropTextureCache()
+    private let images: BackdropImageStore
+    /// Loads the art the last `apply` asked for when it was not decoded yet.
+    private var artLoad: Task<Void, Never>?
+    /// The solid sheet and Reduce Transparency must never expose art.
+    private var hidesArt = false
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
     /// - Parameter frameRect: The initial frame.
-    override public init(frame frameRect: NSRect) {
+    override public convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, images: .shared)
+    }
+
+    /// Creates an opaque backdrop whose art comes from `images`.
+    ///
+    /// - Parameter frameRect: The initial frame.
+    /// - Parameter images: Where decoded backdrop images are shared.
+    public init(frame frameRect: NSRect, images: BackdropImageStore) {
+        self.images = images
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -55,6 +69,9 @@ public final class WindowMaterialView: NSView {
         super.layout()
         updateArtCrop()
     }
+
+    /// Waits until the art the last `apply` asked for has loaded (tests).
+    func artLoaded() async { await artLoad?.value }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -78,18 +95,28 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
+        hidesArt = backdrop.isOpaque
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
-            let source = backdrop.selection?.image() ?? backdrop.art?.image()
-            let sourceID = backdrop.selection?.id ?? backdrop.art?.rawValue ?? "none"
-            artImage = source.flatMap { textureCache.image(for: sourceID, source: $0, texture: backdrop.texture) }
-            artView.layer?.contents = artImage
-            updateArtCrop()
+            artLoad?.cancel()
+            artLoad = nil
+            let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
+            let texture = backdrop.texture
+            // A painting not decoded yet loads off the main actor and fades
+            // in; until then the window shows the theme's colors.
+            showArt(shown.flatMap(images.cached), id: shown?.id, texture: texture)
+            if let shown, artImage == nil {
+                artLoad = Task { [weak self, images] in
+                    let image = await images.image(shown)
+                    guard !Task.isCancelled, let self, let image else { return }
+                    self.showArt(image, id: shown.id, texture: texture)
+                    self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn")
+                }
+            }
         }
-        // The solid sheet and Reduce Transparency must never expose art.
-        artView.isHidden = backdrop.isOpaque || artImage == nil
+        artView.isHidden = hidesArt || artImage == nil
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -108,6 +135,21 @@ public final class WindowMaterialView: NSView {
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+    }
+
+    private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
+        artImage = source.flatMap { textureCache.image(for: id ?? "none", source: $0, texture: texture) }
+        artView.layer?.contents = artImage
+        artView.isHidden = hidesArt || artImage == nil
+        updateArtCrop()
+    }
+
+    private static func fadeIn() -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.2
+        return fade
     }
 
     private func updateArtCrop() {

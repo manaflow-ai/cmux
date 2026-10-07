@@ -208,6 +208,9 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
+    /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
+    #[command(subcommand)]
+    Chats(crate::cli::chats::ChatsCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -375,6 +378,20 @@ pub enum HarnessCmd {
         id: String,
         #[arg(long)]
         folder: PathBuf,
+    },
+    /// Run a protocol = "terminal" harness (a CLI/TUI without ACP) in this
+    /// terminal with its profile env; `--tab` (cmux) opens it in a new tab.
+    Run {
+        id: String,
+        /// The folder to run in (default: the current folder).
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// The model for `${model}` (default: the profile's).
+        #[arg(long)]
+        model: Option<String>,
+        /// Open a new tab in the current pane (cmux only).
+        #[arg(long)]
+        tab: bool,
     },
     /// Secrets for harness env keys, kept in the system secret store.
     #[command(subcommand)]

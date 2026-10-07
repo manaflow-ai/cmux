@@ -185,3 +185,46 @@ fn a_proxy_cannot_carry_a_session_past_the_range_rule() {
     assert_eq!(metadata.code, ErrorCode::Forbidden, "{metadata}");
     let _ = local.driver_call("tabs.close", json!({"targetId": tab}));
 }
+
+/// A page fetch (net.fetch with the page's tab) on an http page that is not
+/// loopback: an insecure context, where the host world has no
+/// `crypto.randomUUID`. The proxy gives the test such an origin
+/// (`http://inner.test`).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_page_fetch_works_on_an_insecure_http_page() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let (proxy_port, _) = forward_proxy(port);
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let (local, _) = gated_session(&source, &browsers, "local", false);
+    local
+        .driver_call(
+            "session.configure",
+            json!({"proxy": {"server": format!("http://127.0.0.2:{proxy_port}")}}),
+        )
+        .unwrap();
+    let tab = local
+        .driver_call("tabs.open", json!({"url": "http://inner.test/second"}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let secure = local
+        .driver_call(
+            "frame.evaluate",
+            json!({"targetId": tab, "world": "page", "source": "() => isSecureContext"}),
+        )
+        .unwrap();
+    assert_eq!(secure, false, "the page is an insecure context");
+    let fetched = local
+        .driver_call("net.fetch", json!({"targetId": tab, "url": "http://inner.test/second"}))
+        .unwrap_or_else(|error| panic!("page fetch on an http page: {error}"));
+    assert_eq!(fetched["status"], 200, "{fetched}");
+    let _ = local.driver_call("tabs.close", json!({"targetId": tab}));
+}

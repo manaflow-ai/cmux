@@ -39,6 +39,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view.model) }
+        AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
 

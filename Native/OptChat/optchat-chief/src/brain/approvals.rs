@@ -109,11 +109,13 @@ impl Brain {
     /// the host): `ask` during an ask turn or while an ask child is live,
     /// unless the Mac turned on remote.autoApprove.
     pub fn spawn_policy(&self) -> Option<&'static str> {
-        if self.chief.remote_auto_approve {
-            return None;
-        }
-        (self.turn_ask || self.ask_child_live() || self.ask_subagent_live())
-            .then_some(crate::approval::ASK)
+        // The shared rule (cmux_chief::policy::spawn_floor).
+        cmux_chief::policy::spawn_floor(
+            self.chief.remote_auto_approve,
+            self.turn_ask,
+            self.ask_child_live(),
+            self.ask_subagent_live(),
+        )
     }
 
     /// Drops the running turn's own pending approvals (its session ends);

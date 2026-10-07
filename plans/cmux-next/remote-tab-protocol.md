@@ -48,6 +48,7 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.vsync` | V | `timebase_us`, `interval_us` | viewer display timing in the rd session clock; drives begin frames (RT12, RP3) |
 | `rb.page` | H | `url`, `title`, `loading`, `can_go_back`, `can_go_forward` | runtime facts; the viewer forwards URL and title to the store only for the record's current URL revision (OWNERSHIP) |
 | `rb.history` | V | `op` (`back`, `forward`, `reload`, `reload_no_cache`, `stop`) | history and loading are owned by the page runtime |
+| `rb.navigate` | V | `url` | the omnibar (local chrome, RT11) loads a typed or opened address in the page |
 | `rb.key_unhandled` | H | `input_seq` | the page did not handle the key with that input sequence number; the viewer runs its menu or KeyRouter action for it |
 | `rb.cursor` | H | `cursor` | `{kind}` for standard shapes, `{kind: "custom", hash}` for an image |
 | `rb.cursor_image` | H | `hash`, `width`, `height`, `hotspot_x`, `hotspot_y`, `scale`, `png_base64` | sent once per hash per session; the viewer caches it |
