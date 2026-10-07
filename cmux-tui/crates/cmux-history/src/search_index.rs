@@ -224,7 +224,9 @@ impl SearchIndex {
             .join(" AND ");
         // The trigram tokenizer counts characters, so the snippet keeps 64 of them.
         let mut values = vec![Sql::Text(expression)];
-        let filter = kind_filter(kinds, &mut values);
+        // `+d.kind` keeps SQLite off the kind index: the text match, newest first, drives the
+        // query, so a rare kind does not test the match row by row over the whole index.
+        let filter = kind_filter("+d.kind", kinds, &mut values);
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms, \
@@ -255,7 +257,7 @@ impl SearchIndex {
             return Ok(Vec::new());
         }
         let mut values = Vec::new();
-        let filter = kind_filter(&names, &mut values);
+        let filter = kind_filter("d.kind", &names, &mut values);
         let mut sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms \
              FROM docs d WHERE 1{filter}"
@@ -348,12 +350,13 @@ fn put(transaction: &Transaction<'_>, doc: &SearchDoc) -> Result<(), HistoryErro
 }
 
 /// ` AND d.kind IN (?, …)` for `kinds`, binding them; empty for every kind.
-fn kind_filter(kinds: &[SearchKind], values: &mut Vec<Sql>) -> String {
+/// ` AND <column> IN (...)` for `kinds`, binding them into `values`.
+fn kind_filter(column: &str, kinds: &[SearchKind], values: &mut Vec<Sql>) -> String {
     if kinds.is_empty() {
         return String::new();
     }
     values.extend(kinds.iter().map(|kind| Sql::Text(kind.as_str().to_owned())));
-    format!(" AND d.kind IN ({})", vec!["?"; kinds.len()].join(", "))
+    format!(" AND {column} IN ({})", vec!["?"; kinds.len()].join(", "))
 }
 
 /// The hit of a row (`key, kind, target, position, title, at_ms`) with its
