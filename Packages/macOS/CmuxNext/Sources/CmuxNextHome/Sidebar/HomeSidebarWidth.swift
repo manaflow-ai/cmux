@@ -8,11 +8,17 @@ public struct HomeSidebarWidth: Sendable {
     public static let minimum: CGFloat = 220
     public static let standard: CGFloat = 300
 
-    /// Red stub.
-    public static func clamp(_ width: CGFloat, window: CGFloat) -> CGFloat { width }
+    /// `width` kept between the minimum and half of `window` (a window
+    /// narrower than twice the minimum keeps the minimum).
+    public static func clamp(_ width: CGFloat, window: CGFloat) -> CGFloat {
+        max(minimum, min(width, window / 2))
+    }
 
-    /// Red stub: the pinned grid's columns at `width`.
-    public static func gridColumns(width: CGFloat, tileWidth: CGFloat) -> Int { 3 }
+    /// The pinned grid's columns at `width`: as many tiles as fit, one to three.
+    public static func gridColumns(width: CGFloat, tileWidth: CGFloat) -> Int {
+        guard tileWidth > 0 else { return 1 }
+        return max(1, min(3, Int(width / tileWidth)))
+    }
 
     private let defaults: UserDefaults
 
@@ -20,12 +26,20 @@ public struct HomeSidebarWidth: Sendable {
         self.defaults = defaults
     }
 
-    /// Red stub.
-    public func width(window: String) -> CGFloat? { nil }
+    /// The width saved for `window`, or nil for the standard width.
+    public func width(window: String) -> CGFloat? {
+        let value = defaults.double(forKey: Self.key(window))
+        return value > 0 ? CGFloat(value) : nil
+    }
 
-    /// Red stub.
-    public func save(_ width: CGFloat, window: String) {}
+    public func save(_ width: CGFloat, window: String) {
+        defaults.set(Double(width), forKey: Self.key(window))
+    }
 
-    /// Red stub.
-    public func reset(window: String) {}
+    /// Back to the standard width (the divider's double-click).
+    public func reset(window: String) {
+        defaults.removeObject(forKey: Self.key(window))
+    }
+
+    private static func key(_ window: String) -> String { "cmux.home.sidebarWidth.\(window)" }
 }
