@@ -136,7 +136,37 @@ cursor, device projection (sections, order, revoked hidden, status), rename rule
 notification store and sink receipt, consent store over the shared key, mock account team switch and
 deletion. A drift test in `CmuxiOSTerminalTests` checks the settings key ids equal `TerminalKeyBarKey`.
 
-## 5. Not done here
+HIG references: Settings (https://developer.apple.com/design/human-interface-guidelines/settings: in-app
+settings for frequent options, grouped lists), Managing accounts
+(https://developer.apple.com/design/human-interface-guidelines/managing-accounts: account deletion inside the
+app, confirm before deleting), Privacy, Accessibility.
+
+## 5. Verification (2026-10-06)
+
+- `CmuxiOSSettingsCoreTests`: 35 Swift Testing tests pass on macOS through a scratch package that links the
+  same sources (FeatureKit, SettingsCore, CmuxTheme, CmuxTerminalRenderCore, CmuxLink).
+- `CmuxTerminalRenderCoreTests`: `TerminalAppearanceConfigTests` (4) and the existing
+  `TerminalGhosttyConfigTests` pass on macOS.
+- `CmuxiOSShellTests` (`ShellSettingsModelTests`, 4) and `CmuxiOSTerminalTests` (`KeyBarSettingsDriftTests`, 2)
+  compile for `arm64-apple-ios17.0-simulator`; they run in CI or on the fleet.
+- The whole `CmuxiOSApp` target builds for `arm64-apple-ios17.0-simulator` with SwiftPM, no warnings in the
+  touched modules.
+- Not run: any simulator or device UI. The screens are UNVERIFIED on a device (no tagged build, see below).
+
+## 6. Real vs mocked
+
+Real: account profile, team switcher (`AuthCoordinator.selectTeam`), Delete Account
+(`AuthCoordinator.deleteAccount`, shipping failure mapping, sign-out through `StackAuthGate`), sign out,
+terminal settings persisted and applied to SSH terminals through `TerminalAppearance`, notification
+preferences persisted on device, system notification permission (onboarding's `SystemPermissionCenter`),
+crash-report consent (shared key, `CrashReporter` follows it), C16 links, C10 replay, About links.
+Mocked or local only: the device list (`MockDeviceRegistry` until B6 fills `realFactories.devices`), link
+badges (`MockLinkDiagnosticsSource`, shown only while devices are mocked, until B5/D1 fill
+`linkDiagnosticsFactory`), notification sync (`localOnly` until C7 fills `notificationPreferencesSinkFactory`).
+The DEV terminal (`DevTerminal`) does not follow the settings yet; host terminals pick them up when C1/D1
+construct `TerminalViewController` with `appearance:`.
+
+## 7. Not done here
 
 - Real link diagnostics and notification sink: slots wait for B5/D1 and C7.
 - Hidden computers and order (C5), Keep Mac Awake row placement (C16 stub stays DEV-only until B5).
