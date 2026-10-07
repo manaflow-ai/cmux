@@ -388,18 +388,3 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */
 .ui-title-tooltip{position:fixed;z-index:1000;max-width:min(320px,calc(100vw - 12px));padding:4px 8px;box-sizing:border-box;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,Canvas));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent),0 4px 14px var(--agent-shadow,rgb(0 0 0/.3));color:var(--agent-text);font:12px/16px system-ui,-apple-system,sans-serif;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
-.acpmux-add-project{display:flex;flex-direction:column;width:min(360px,calc(100vw - 24px));height:236px;box-sizing:border-box;padding:10px 10px 6px;color:var(--agent-text)}
-.acpmux-add-project-title{padding:0 4px 8px;font-size:12px;font-weight:600;color:var(--agent-muted)}
-.acpmux-add-project-input{width:100%;height:30px;box-sizing:border-box;padding:0 9px;border:1px solid var(--acpmux-composer-edge);border-radius:7px;background:var(--acpmux-base);color:var(--agent-text);font:13px system-ui,-apple-system,sans-serif;outline:none}
-.acpmux-add-project-input:focus{border-color:color-mix(in srgb,var(--agent-accent) 60%,var(--acpmux-composer-edge));box-shadow:0 0 0 2px color-mix(in srgb,var(--agent-accent) 22%,transparent)}
-.acpmux-add-project-list{flex:1;min-height:0;margin-top:6px;overflow:auto}
-.acpmux-add-project-item{padding:0;border-radius:7px}
-.acpmux-add-project-item[data-highlighted]{background:var(--acpmux-menu-hover)}
-.acpmux-add-project-row{display:flex;align-items:center;gap:8px;min-height:38px;padding:5px 8px;box-sizing:border-box}
-.acpmux-add-project-icon{display:grid;place-items:center;flex:none;width:20px;height:20px;border-radius:5px;color:var(--agent-muted);background:color-mix(in srgb,var(--agent-text) 9%,transparent);font-size:12px}
-.acpmux-add-project-row .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-add-project-row.is-disabled{color:var(--agent-muted);cursor:default;opacity:.72}
-.acpmux-add-project-tag{flex:none;padding:1px 4px;border:1px solid color-mix(in srgb,var(--agent-text) 24%,transparent);border-radius:3px;color:var(--agent-muted);font-size:10px;line-height:14px;white-space:nowrap}
-.acpmux-add-project-finder{width:100%;margin-top:6px;padding:7px 8px;border:0;border-top:1px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:12px system-ui,-apple-system,sans-serif;text-align:left;cursor:pointer}
-.acpmux-add-project-finder:hover{background:var(--acpmux-menu-hover)}
-.acpmux-add-project-footer{display:flex;gap:9px;margin-top:7px;padding:7px 4px 0;border-top:1px solid var(--acpmux-composer-edge);color:var(--agent-muted);font-size:10.5px;line-height:14px;white-space:nowrap}

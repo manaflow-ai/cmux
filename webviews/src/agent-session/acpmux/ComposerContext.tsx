@@ -5,6 +5,7 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
+import { AddProjectDialog } from "./AddProjectPanel";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
@@ -98,6 +99,8 @@ export function ComposerContext({
             current={currentFolder}
             onPick={(cwd) => onProject?.(cwd)}
             onBrowse={onBrowseProject}
+            localName={localName}
+            peers={peers}
           />
         ) : (
           <LocationPicker
@@ -294,6 +297,8 @@ function FolderMenu({
   current,
   onPick,
   onBrowse,
+  localName,
+  peers,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -302,8 +307,11 @@ function FolderMenu({
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  localName?: string;
+  peers?: string[];
 }) {
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
@@ -342,15 +350,26 @@ function FolderMenu({
               className="acpmux-menu-item acpmux-location-choose"
               onSelect={() => {
                 setOpen(false);
-                onBrowse();
+                setAdding(true);
               }}
             >
               <span className="ui-menu-check" aria-hidden="true" />
-              <span className="acpmux-menu-label">{t(CONTEXT_LABELS.chooseFolderMenu)}</span>
+              <span className="acpmux-menu-label">{t("project.add")}</span>
             </MenuItem>
           )}
         </MenuPopup>
       </Menu>
+      <AddProjectDialog
+        open={adding}
+        localName={localName}
+        peers={peers}
+        onBrowse={onBrowse}
+        onClose={() => setAdding(false)}
+        onPick={(cwd) => {
+          setAdding(false);
+          onPick(cwd);
+        }}
+      />
     </span>
   );
 }

@@ -49,7 +49,7 @@ const longProjects: Project[] = [
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-browse"));
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
 };
 
 const noMatches: Play = async (ctx) => {
@@ -62,36 +62,6 @@ const typedPath: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("/tmp/new-project");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-menu-active"));
-};
-
-const addProject: Play = async (ctx) => {
-  await open(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-browse"));
-  await ctx.click({ selector: ".acpmux-project-browse" });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="environment"]'));
-};
-
-const sourcePicker: Play = async (ctx) => {
-  await addProject(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="environment"]'));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
-  await ctx.click({ selector: ".acpmux-add-project-item" });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="source"]'));
-};
-
-const directoryBrowser: Play = async (ctx) => {
-  await sourcePicker(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="source"]'));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-item"));
-  await ctx.click({ selector: ".acpmux-add-project-item" });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-add-project-step="directory"]'));
-};
-
-const sourceSetupRequired: Play = async (ctx) => {
-  await sourcePicker(ctx);
-  const list = ctx.document.querySelector<HTMLElement>(".acpmux-add-project-list");
-  if (list) list.scrollTop = list.scrollHeight;
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-tag"));
 };
 
 export default componentEntry<Props>({
@@ -156,26 +126,6 @@ export default componentEntry<Props>({
         onBrowse: () => undefined,
       },
       play: open,
-    },
-    "add-project": {
-      note: "Add project opens as one keyboard-first surface, starting with the environment picker.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
-      play: addProject,
-    },
-    "add-project-source": {
-      note: "The source step keeps local folder and Git URL choices together, with setup-required sources quiet and disabled.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
-      play: sourcePicker,
-    },
-    "add-project-source-setup": {
-      note: "Setup-required sources stay visible as small quiet tags and cannot be selected until configured.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
-      play: sourceSetupRequired,
-    },
-    "add-project-directory": {
-      note: "The folder browser stays in the same panel and keeps its navigation hints visible.",
-      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined, onBrowse: () => undefined },
-      play: directoryBrowser,
     },
   },
 });

@@ -1,0 +1,45 @@
+.acpmux-add-project-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--agent-border);
+  border-radius: 12px;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  box-shadow: 0 12px 36px var(--agent-shadow, #0004);
+  overflow: hidden;
+}
+.acpmux-add-project {
+  display: grid;
+  grid-template-rows: 32px 26px 34px minmax(0, 1fr) 24px 34px 28px;
+  height: min(374px, 74vh);
+  min-height: 260px;
+  padding: 12px;
+  box-sizing: border-box;
+  color: var(--agent-text);
+  font: 13px/18px system-ui, sans-serif;
+}
+.acpmux-add-project button { font: inherit; color: inherit; border: 0; border-radius: 5px; background: transparent; cursor: default; }
+.acpmux-add-project button:hover:not(:disabled) { background: var(--agent-control); }
+.acpmux-add-project button:focus-visible { outline: 2px solid var(--agent-text); outline-offset: -2px; }
+.acpmux-add-project button:disabled { opacity: .45; }
+.acpmux-add-project-heading { display: flex; align-items: center; gap: 8px; }
+.acpmux-add-project-heading strong { flex: 1; font-size: 13px; font-weight: 600; }
+.acpmux-add-project-heading button { width: 26px; height: 26px; font-size: 18px; }
+.acpmux-add-project-path { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--agent-muted); }
+.acpmux-add-project-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-add-project-input { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--agent-border); border-radius: 6px; padding: 0 10px; background: var(--agent-input-bg); color: var(--agent-text); font: inherit; }
+.acpmux-add-project-input:focus-visible { outline: 1.5px solid var(--agent-muted); outline-offset: -1.5px; }
+.acpmux-add-project .acpmux-add-project-list { grid-row: 4; display: block; overflow: auto; min-height: 0; margin: 6px 0 0; padding: 0; }
+.acpmux-add-project .acpmux-add-project-list[hidden] { visibility: hidden; }
+.acpmux-add-project .acpmux-add-project-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-height: 32px; box-sizing: border-box; border-radius: 5px; }
+.acpmux-add-project-item svg { flex: none; color: var(--agent-muted); }
+.acpmux-add-project-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-add-project .acpmux-add-project-item[data-highlighted] { background: var(--agent-control); }
+.acpmux-add-project-item[data-disabled] { color: var(--agent-muted); }
+.acpmux-add-project-tag { flex: none; padding: 0 4px; border: 1px solid var(--agent-border); border-radius: 3px; font-size: 10px; white-space: nowrap; }
+.acpmux-add-project-status { grid-row: 5; display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--agent-muted); font-size: 12px; }
+.acpmux-add-project-status span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-add-project-actions { grid-row: 6; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.acpmux-add-project-actions button { padding: 4px 7px; }
+.acpmux-add-project .acpmux-add-project-submit { background: var(--agent-control); }
+.acpmux-add-project-footer { grid-row: 7; display: flex; justify-content: space-between; align-items: end; gap: 6px; border-top: 1px solid var(--agent-border); color: var(--agent-muted); font-size: 11px; }
+.acpmux-add-project kbd { font: inherit; opacity: .8; }

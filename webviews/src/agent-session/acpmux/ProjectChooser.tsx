@@ -1,8 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Combobox } from "../../ui/Combobox";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
+import { AddProjectDialog } from "./AddProjectPanel";
+import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "./popoverTrigger";
 
@@ -19,6 +20,7 @@ export function ProjectChooser({
   icon,
   onPick,
   onBrowse,
+  projectHost,
 }: {
   projects: Project[];
   current?: string;
@@ -26,14 +28,14 @@ export function ProjectChooser({
   icon: React.ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  projectHost?: ProjectDirectoryHost;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
   const [active, setActive] = useState<string | undefined>(undefined);
-  const [addStep, setAddStep] = useState<AddProjectStep | undefined>(undefined);
-  const addInput = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
@@ -57,12 +59,10 @@ export function ProjectChooser({
   const show = () => {
     setQuery("");
     setActive(current);
-    setAddStep(undefined);
     setOpen(true);
   };
   const close = (refocus: boolean) => {
     setOpen(false);
-    setAddStep(undefined);
     if (refocus) trigger.current?.focus();
   };
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
@@ -77,12 +77,11 @@ export function ProjectChooser({
 
   useEffect(() => {
     if (!open) return;
-    if (addStep) addInput.current?.focus();
-    else search.current?.focus();
+    search.current?.focus();
     const blur = () => setOpen(false);
     window.addEventListener("blur", blur);
     return () => window.removeEventListener("blur", blur);
-  }, [open, addStep]);
+  }, [open]);
 
   const keyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -126,27 +125,7 @@ export function ProjectChooser({
         initialFocus={search}
         finalFocus={false}
       >
-        {addStep ? (
-          <AddProjectPanel
-            ref={addInput}
-            projects={projects}
-            step={addStep}
-            onStep={setAddStep}
-            onPick={(cwd) => {
-              close(false);
-              onPick(cwd);
-            }}
-            onBrowse={() => {
-              close(false);
-              onBrowse?.();
-            }}
-            onCancel={() => {
-              if (addStep === "environment") close(true);
-              else if (addStep === "source") setAddStep("environment");
-              else setAddStep("source");
-            }}
-          />
-        ) : <div>
+        <div>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
@@ -228,102 +207,28 @@ export function ProjectChooser({
               className="acpmux-project-browse"
               onMouseDown={(event) => {
                 event.preventDefault();
-                setQuery("");
-                setAddStep("environment");
+                close(false);
+                setAdding(true);
               }}
             >
-              Add project
+              {t("project.add")}
             </button>
           )}
         </div>
-        }
       </Popover>
+      <AddProjectDialog
+        open={adding}
+        host={projectHost}
+        onBrowse={onBrowse}
+        onClose={() => setAdding(false)}
+        onPick={(cwd) => {
+          setAdding(false);
+          onPick(cwd);
+        }}
+      />
     </span>
   );
 }
-
-type AddProjectStep = "environment" | "source" | "directory";
-type AddProjectChoice = { id: string; label: string; description: string; disabled?: boolean };
-
-const ADD_PROJECT_ENVIRONMENTS: AddProjectChoice[] = [
-  { id: "local", label: "This device", description: "Use folders on this Mac" },
-  { id: "big-red", label: "big-red", description: "Use the shared development machine" },
-];
-const ADD_PROJECT_SOURCES: AddProjectChoice[] = [
-  { id: "new", label: "New project", description: "Create a project from a folder" },
-  { id: "folder", label: "Local folder", description: "Choose a folder already on the device" },
-  { id: "git", label: "Git URL", description: "Clone a repository from a URL" },
-  { id: "github", label: "GitHub repo", description: "Connect a repository from GitHub", disabled: true },
-  { id: "other", label: "Other sources", description: "Configure another source", disabled: true },
-];
-
-const AddProjectPanel = React.forwardRef<HTMLInputElement, {
-  projects: Project[];
-  step: AddProjectStep;
-  onStep(step: AddProjectStep): void;
-  onPick(cwd: string): void;
-  onBrowse(): void;
-  onCancel(): void;
-}>(function AddProjectPanel({ projects, step, onStep, onPick, onBrowse, onCancel }, inputRef) {
-  const [query, setQuery] = useState("");
-  const choices: AddProjectChoice[] =
-    step === "environment"
-      ? ADD_PROJECT_ENVIRONMENTS
-      : step === "source"
-        ? ADD_PROJECT_SOURCES
-        : projects.map((project) => ({ id: project.cwd, label: project.label, description: project.cwd }));
-  const suggestions = choices
-    .filter((choice) => `${choice.label} ${choice.description}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .map((choice) => choice.id);
-  const title = step === "environment" ? "Environment" : step === "source" ? "Add project" : "Choose a folder";
-  const placeholder = step === "directory" ? "Search folders" : `Search ${title.toLowerCase()}`;
-  return (
-    <div className="acpmux-add-project" data-add-project-step={step}>
-      <div className="acpmux-add-project-title">{title}</div>
-      <Combobox
-        suggestions={suggestions}
-        onQuery={setQuery}
-        onSubmit={(id) => {
-          const choice = choices.find((item) => item.id === id);
-          if (!choice || choice.disabled) return;
-          setQuery("");
-          if (step === "environment") onStep("source");
-          else if (step === "source") onStep("directory");
-          else onPick(id);
-        }}
-        onCancel={onCancel}
-        label={title}
-        placeholder={placeholder}
-        inputClassName="acpmux-add-project-input"
-        listClassName="acpmux-add-project-list"
-        itemClassName="acpmux-add-project-item"
-        inputRef={inputRef}
-        renderItem={(id) => {
-          const choice = choices.find((item) => item.id === id)!;
-          return (
-            <span className={`acpmux-add-project-row${choice.disabled ? " is-disabled" : ""}`}>
-              <span className="acpmux-add-project-icon" aria-hidden="true">{step === "directory" ? "⌂" : "•"}</span>
-              <span className="acpmux-menu-text">
-                <span className="acpmux-menu-label">{choice.label}</span>
-                <span className="acpmux-menu-description">{choice.description}</span>
-              </span>
-              {choice.disabled && <span className="acpmux-add-project-tag">Setup Required</span>}
-            </span>
-          );
-        }}
-        inline
-      />
-      {step === "directory" && (
-        <button type="button" className="acpmux-add-project-finder" onClick={onBrowse}>
-          Open in Finder
-        </button>
-      )}
-      <div className="acpmux-add-project-footer" aria-label="Keyboard shortcuts">
-        <span>↑↓ Navigate</span><span>↵ Select</span><span>← Back</span><span>Esc Close</span>
-      </div>
-    </div>
-  );
-});
 
 function SearchIcon() {
   return (

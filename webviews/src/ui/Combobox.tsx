@@ -27,6 +27,11 @@ export interface ComboboxProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** Keep a multi-control panel open when focus moves to its buttons. */
+  cancelOnBlur?: boolean;
+  /** Disabled rows remain visible but cannot be highlighted or submitted. */
+  isItemDisabled?(value: string): boolean;
+  autoHighlight?: boolean;
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
@@ -45,6 +50,9 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  cancelOnBlur = true,
+  isItemDisabled,
+  autoHighlight = false,
   renderItem,
 }: ComboboxProps) {
   const container = usePortalContainer();
@@ -60,7 +68,8 @@ export function Combobox({
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      onSubmit(highlighted ?? typed);
+      const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
+      if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -82,9 +91,12 @@ export function Combobox({
         <Autocomplete.Item
           key={item}
           value={item}
+          disabled={isItemDisabled?.(item)}
           className={cx("ui-combobox-item", itemClassName)}
           render={<li />}
-          onClick={() => onSubmit(item)}
+          onClick={() => {
+            if (!isItemDisabled?.(item)) onSubmit(item);
+          }}
         >
           {renderItem ? renderItem(item) : item}
         </Autocomplete.Item>
@@ -99,6 +111,7 @@ export function Combobox({
       onValueChange={(next) => update(next)}
       open={inline || suggestions.length > 0}
       inline={inline}
+      autoHighlight={autoHighlight}
       onItemHighlighted={(item) => setHighlighted(item as string | undefined)}
     >
       <Autocomplete.Input
@@ -109,7 +122,9 @@ export function Combobox({
         spellCheck={false}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
-        onBlur={() => onCancel()}
+        onBlur={() => {
+          if (cancelOnBlur) onCancel();
+        }}
       />
       {inline ? (
         list
