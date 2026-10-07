@@ -53,6 +53,9 @@ final class WorkspaceRowView: SidebarRowView {
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     private(set) var isShowingPlaceholder = false
+    /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
+    /// home row shows no close button.
+    private(set) var isClosable = true
     /// A static tonal bar where the title goes (no shimmer).
     private let placeholderBar = NSView()
     /// The bar's share of the text width, varied per row so a column of
@@ -133,6 +136,7 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         groupColor = row.groupColor
         isShowingPlaceholder = ws.rowState == .placeholder
+        isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its
         // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
@@ -301,7 +305,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The x and an unread badge share one slot, as wide as the wider of
         // the two, so hover swaps them in place and the name keeps its width.
-        let showClose = isHovered && !isShowingPlaceholder
+        let showClose = isHovered && !isShowingPlaceholder && isClosable
         closeButton.isHidden = !showClose
         badge.isHidden = showClose || !badge.state.isUnread
         var slot: CGFloat = showClose ? control : 0

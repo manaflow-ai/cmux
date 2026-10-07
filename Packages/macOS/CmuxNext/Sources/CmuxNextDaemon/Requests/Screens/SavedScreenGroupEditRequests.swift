@@ -8,6 +8,7 @@ import Foundation
 public struct DeleteSavedScreenGroupRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "delete-saved-screen-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
     public var saved: SavedScreenGroupID
     public init(saved: SavedScreenGroupID) { self.saved = saved }
 }
@@ -16,6 +17,7 @@ public struct DeleteSavedScreenGroupRequest: DaemonRequest {
 public struct ReopenSavedScreenGroupRequest: DaemonRequest, TerminalSpawningRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "reopen-saved-screen-group"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
     public var saved: SavedScreenGroupID
     public var workspace: WorkspaceHandle
     public init(saved: SavedScreenGroupID, workspace: WorkspaceHandle) {
