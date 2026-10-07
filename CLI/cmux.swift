@@ -26038,7 +26038,9 @@ struct CMUXCLI {
         /// Called while `stateLock` is held after both supported split targets fail.
         private func reportPaneCreationFailureOnce(threadId: String, error: Error) {
             let message: String
-            if let code = (error as? CLIError)?.v2Code {
+            if let rawCode = (error as? CLIError)?.v2Code {
+                // The code comes from the app on the socket.
+                let code = CLITerminalText.printable(rawCode)
                 message = String(
                     localized: "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode",
                     defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: \(code))."

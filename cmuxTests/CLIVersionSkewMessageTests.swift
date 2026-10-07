@@ -11,10 +11,18 @@ struct CLIVersionSkewMessageTests {
     /// A directory bundle without `Localizable` strings: every
     /// `String(localized:defaultValue:bundle:)` lookup returns its default.
     private static let sourceTextBundle: Bundle = {
+        // One fixed, empty directory: nothing accumulates across runs.
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-skew-source-text-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return Bundle(url: directory) ?? Bundle(for: SourceTextBundleAnchor.self)
+            .appendingPathComponent("cmux-skew-source-text", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            preconditionFailure("Cannot create \(directory.path): \(error)")
+        }
+        guard let bundle = Bundle(url: directory) else {
+            preconditionFailure("Cannot open \(directory.path) as a bundle")
+        }
+        return bundle
     }()
 
     private func message(
@@ -118,6 +126,21 @@ struct CLIVersionSkewMessageTests {
         #expect(peer.version == nil)
     }
 
+    @Test("A multi-line original error stays on its one line")
+    func multiLineOriginalIsJoined() throws {
+        let text = try #require(CLIVersionSkew.message(
+            method: "workspace.create",
+            socketPath: "/tmp/cmux.sock",
+            cliVersion: "cmux 0.65.0 (108)",
+            cliShortVersion: "0.65.0",
+            cliPath: nil,
+            peer: CLIVersionSkew.Peer(app: "cmux", version: "0.64.0", build: nil, cliPath: nil),
+            original: "method_not_found: x\n\nReason:\n  y",
+            bundle: Self.sourceTextBundle
+        ))
+        #expect(text.hasSuffix("(method_not_found: x  Reason:   y)"))
+    }
+
     @Test("The echoed original error is printable too")
     func originalErrorIsSanitized() throws {
         let text = try #require(CLIVersionSkew.message(
@@ -134,5 +157,3 @@ struct CLIVersionSkewMessageTests {
         #expect(text.hasSuffix("(method_not_found: x[2J)"))
     }
 }
-
-private final class SourceTextBundleAnchor {}

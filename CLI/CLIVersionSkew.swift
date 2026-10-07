@@ -87,7 +87,7 @@ enum CLIVersionSkew {
             method,
             socketPath
         )
-        return ([header] + details + ["(\(CLITerminalText.printable(original)))"]).joined(separator: "\n")
+        return ([header] + details + ["(\(CLITerminalText.printable(original.replacingOccurrences(of: "\n", with: " "))))"]).joined(separator: "\n")
     }
 
     /// The CLI line, app line, and fix, or nil when there is no skew or this
