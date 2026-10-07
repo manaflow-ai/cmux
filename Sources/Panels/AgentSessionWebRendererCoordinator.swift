@@ -18,6 +18,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var trustedShellURL: URL?
     private var hasFinishedNavigation = false
     private var hasCompletedVisiblePaintFlush = false
+    private var isVisiblePaintFlushInFlight = false
+    private var visiblePaintGeneration: UInt64 = 0
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
@@ -47,7 +49,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
-            hasCompletedVisiblePaintFlush = false
+            resetVisiblePaintState()
         }
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
@@ -122,7 +124,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        resetVisiblePaintState()
     }
 
     func focus() {
@@ -157,7 +159,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        resetVisiblePaintState()
     }
 
     func userContentController(
@@ -267,14 +269,31 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func flushVisiblePaintIfReady() {
         guard hasFinishedNavigation,
               !hasCompletedVisiblePaintFlush,
+              !isVisiblePaintFlushInFlight,
               let webView,
               webView.window != nil,
               !webView.bounds.isEmpty else {
             return
         }
+        let generation = visiblePaintGeneration
+        isVisiblePaintFlushInFlight = true
         flushInitialPaint(for: webView) { [weak self] in
-            self?.hasCompletedVisiblePaintFlush = true
+            guard let self, self.visiblePaintGeneration == generation else { return }
+            self.isVisiblePaintFlushInFlight = false
+            self.hasCompletedVisiblePaintFlush = true
         }
+    }
+
+    /// Reopens the visible paint gate after Bonsplit moves a retained web host.
+    func invalidateVisiblePaintAfterReattachment() {
+        resetVisiblePaintState()
+        flushVisiblePaintIfReady()
+    }
+
+    private func resetVisiblePaintState() {
+        visiblePaintGeneration &+= 1
+        isVisiblePaintFlushInFlight = false
+        hasCompletedVisiblePaintFlush = false
     }
 
     private func flushInitialPaint(for webView: WKWebView, completion: (() -> Void)? = nil) {

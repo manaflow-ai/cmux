@@ -49,6 +49,9 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         applyBackground(to: webView)
         applyAppearance(to: webView)
         host.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+        host.onDidReattach = { [weak coordinator = context.coordinator] in
+            coordinator?.invalidateVisiblePaintAfterReattachment()
+        }
         host.attachWebView(webView)
         host.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
             coordinator?.loadShellIfNeeded()
@@ -68,6 +71,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         if let host = nsView as? AgentSessionWebHostView {
             host.detachHostedWebViewIfOwned(coordinator.webView)
             host.onDidMoveToWindow = nil
+            host.onDidReattach = nil
             host.onGeometryChanged = nil
         }
     }
