@@ -171,8 +171,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
         let url = page?.url ?? recordURL.flatMap(URL.init(string:))
-        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url,
-                        showsLoading: DesignSettings.shared.statusIndicator.showsPageLoading)
+        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
     }
 
     /// Pushes daemon truth into the strip. `force` resets optimistic strip
