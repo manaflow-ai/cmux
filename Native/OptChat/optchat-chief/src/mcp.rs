@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::prompt::{DATE_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, ZOOM_DESCRIPTION};
+use crate::prompt::{
+    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, ZOOM_DESCRIPTION,
+};
 use crate::tools::{self, Call};
 
 /// The MCP revision this server speaks when the client names none it knows.
@@ -32,7 +34,7 @@ pub fn tools_for(subagent: bool) -> Value {
     ];
     if !subagent {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": text, "message": text}, "required": ["id", "message"], "additionalProperties": false}}));
     }

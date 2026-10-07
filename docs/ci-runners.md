@@ -40,8 +40,9 @@ that takes effect on the next workflow run.
 
 Linux uses Blacksmith. macOS uses Blacksmith cloud runners, plus the owned
 glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid overflow and is
-not a steady state for any lane. Non-urgent macOS work also uses free
-GitHub-hosted runners through the background lane described below.
+not a steady state for any lane. No job in `manaflow-ai` selects a
+GitHub-hosted runner, so a GitHub billing block or hosted outage cannot stop CI;
+see "Guard" for the few jobs that must stay GitHub-hosted and why.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
@@ -65,7 +66,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
-| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
+| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
@@ -688,7 +689,8 @@ contributor can start in the base repository's context (`pull_request_target`,
 `issue_comment`, `issues`, `pull_request_review`, `pull_request_review_comment`)
 cannot use this branch: `pull_request_target` carries a write token, and a
 comment event does not say whether the pull request comes from a fork. Their
-jobs pin a literal GitHub-hosted label instead and read no runner variable.
+jobs use the `CI_TRUSTED_RUNNER` selector (an ephemeral Blacksmith VM by
+default) and read no other runner variable.
 The guard parses each
 expression rather than matching text, so this branch nested under another
 condition (for example the paid-overflow switch) does not count.
@@ -729,19 +731,10 @@ xcframework build), and the two macOS Rust legs of
 `cmux-tui-build-package.yml`; release and full-suite callers keep their own
 runner).
 
-The fallback is `macos-15`, never `macos-26`: the self-hosted fleet carries a
-`macos-26` label and GitHub prefers a matching self-hosted runner. The
-`macos-15` image ships Xcode 26.3 (macOS 26.2 SDK) next to its 16.4 default, so
-jobs that pin `CMUX_CI_XCODE_APP_MACOS_15` resolve there too.
-
-An admin can repoint the whole lane with one variable edit, for example back
-to Blacksmith if GitHub's macOS queue is ever the slower one:
-
-```bash
-gh variable set MACOS_RUNNER_BACKGROUND --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
-```
-
-Leaving it unset is the intended state.
+The fallback is `blacksmith-6vcpu-macos-15`, behind the fork branch (a fork
+gets GitHub-hosted `macos-26`). It was GitHub-hosted `macos-15` until
+2026-10; a GitHub billing block stopped that lane, so it moved to Blacksmith.
+An admin can repoint the whole lane with one variable edit.
 
 ## Owned Macs for pull request compiles
 
@@ -1033,13 +1026,21 @@ runs. These choices are available only through `workflow_dispatch`.
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
-asserts that no job pins a bare GitHub-hosted runner (`ubuntu-*` / `macos-NN`):
-every job must route through a runner repo variable so the overflow switch stays
-a single variable flip. A GitHub-hosted macOS label may appear only as the
-`MACOS_RUNNER_BACKGROUND` fallback (`vars.MACOS_RUNNER_BACKGROUND || 'macos-15'`)
-in a workflow with no pull request, merge-queue or `workflow_call` trigger,
-apart from the pinned macOS 14 / Intel compatibility legs in
-`ci-macos-compat.yml` and `relay-publish-npm.yml`. It also asserts every paid macOS job references
+asserts (`check_no_github_hosted_runners`) that no runner-selection position
+names a GitHub-hosted label (`ubuntu-*`, `macos-*`, `windows-*`), including
+matrix values, dispatch defaults and `*RUNNER*` keys, and that the manaflow-ai
+fleet in `.github/runners.json` names none. A `# github-hosted-required:`
+comment is not an exemption. Allowed: the fork branch
+(`github.repository_owner != 'manaflow-ai' && '<label>'`), the label list
+inside the `CI_TRUSTED_RUNNER` selector, and an exact exception list in the
+guard: npm provenance publish and verify jobs (npm accepts only GitHub-hosted
+runners), the artifact-attestation job, the cloud overflow probe's `watch` job
+(it detects a Blacksmith outage), the two CLA jobs (pinned by
+`validate-cla-policy.rb` until the CLA migration lands), and the macOS 14 and
+Intel legs of the dispatch-only `ci-macos-compat.yml` (no Blacksmith image).
+The `MACOS_RUNNER_BACKGROUND` fallback (`vars.MACOS_RUNNER_BACKGROUND ||
+'blacksmith-6vcpu-macos-15'`) may appear only in a workflow with no pull
+request, merge-queue or `workflow_call` trigger. It also asserts every paid macOS job references
 `vars.MACOS_RUNNER_*` or a Blacksmith/Warp/Depot label so it can never silently
 fall back to a free runner. Bare third-party provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. "Paid" there means

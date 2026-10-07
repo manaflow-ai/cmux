@@ -100,8 +100,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2914fa520b6d7ae10f961fdb57966d8d976a4276/CCmuxAppFFI.xcframework.zip",
-    checksum: "5a0cdcdab75b99d71c41506292315ef94f5bba74927ce19364a0d28fa8639dc8"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-45845b2d13d794c435d31f72ea74dc0f4a5739d0/CCmuxAppFFI.xcframework.zip",
+    checksum: "94f96a2a0c70542cc2335839c578c94497858a9c3d7fc742b1f33235f3d0ca9b"
 )
 
 let package = Package(
@@ -478,7 +478,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -486,7 +486,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextFeedTests",
-            dependencies: ["CmuxNextFeed"],
+            dependencies: ["CmuxNextFeed", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):

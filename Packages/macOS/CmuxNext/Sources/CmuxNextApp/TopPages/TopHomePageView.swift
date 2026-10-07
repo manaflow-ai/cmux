@@ -15,6 +15,9 @@ import Observation
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
     let list = HomeConversationListView()
+    /// The sidebar's data (pins, search, the Messages-style model); the vendored
+    /// MessagesLab sidebar will read it in place of `list`.
+    let sidebar: HomeSidebarSource
     let split = NSSplitView()
     let transcriptColumn = NSView()
     private(set) var host: HomeHostView?
@@ -22,9 +25,11 @@ final class TopHomePageView: NSView {
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
+    private var accountObservation: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services
+        sidebar = services.home.makeSidebarSource()
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.isVertical = true
@@ -49,6 +54,7 @@ final class TopHomePageView: NSView {
         rowsObservation?.cancel()
         selectionObservation?.cancel()
         chiefObservation?.cancel()
+        accountObservation?.cancel()
     }
 
     static let listWidth: CGFloat = 280
@@ -69,9 +75,10 @@ final class TopHomePageView: NSView {
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
         list.onNewChief = { [weak self] in self?.presentNewChief() }
         list.onInvite = { [weak self] in self?.presentInvite(prefill: "") }
-        list.contextMenu = { [weak services] row in
-            guard let services, let chief = services.home.chief(of: row), !chief.isDefault else { return nil }
-            return HomePageMenus.chiefMenu(chief: chief.id, registry: services.registry)
+        list.contextMenu = { [weak self, weak services] row in
+            guard let self, let services else { return nil }
+            let chief = services.home.chief(of: row).flatMap { $0.isDefault ? nil : $0.id }
+            return HomePageMenus.rowMenu(row, sidebar: sidebar, archivableChief: chief, registry: services.registry)
         }
     }
 
@@ -97,6 +104,12 @@ final class TopHomePageView: NSView {
                 if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
                 previous = chief
             }
+        }
+        let auth = home.services.cloud.auth
+        let sidebar = sidebar
+        // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
+        accountObservation = Task {
+            for await _ in Observations({ auth.user?.id }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in

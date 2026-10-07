@@ -233,9 +233,42 @@ enum Instant {
         lock.lock()
         if let d = memo[s] { lock.unlock(); return d }
         lock.unlock()
-        let d = parser.date(from: s) ?? Date(timeIntervalSince1970: 0)
+        let d = fast(s) ?? parser.date(from: s) ?? Date(timeIntervalSince1970: 0)
         lock.lock(); memo[s] = d; lock.unlock()
         return d
+    }
+    /// "yyyy-MM-ddTHH:mm:ss" + "Z" or "+hh:mm"/"-hh:mm" without ICU (a new message's timestamp
+    /// parsed on the send's commit cost 0.1-0.3 ms there). Anything else (and any value out of
+    /// range) goes to ISO8601DateFormatter; the result is the same Date.
+    static func fast(_ s: String) -> Date? {
+        var u = s.utf8.makeIterator()
+        var b = [UInt8](); b.reserveCapacity(25)
+        while let c = u.next() { b.append(c); if b.count > 25 { return nil } }
+        guard b.count == 20 || b.count == 25 else { return nil }
+        func num(_ i: Int, _ n: Int) -> Int? {
+            var v = 0
+            for k in i..<(i + n) { let c = b[k]; guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
+            return v
+        }
+        guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
+              let y = num(0, 4), let mo = num(5, 2), let d = num(8, 2), let h = num(11, 2), let mi = num(14, 2), let se = num(17, 2),
+              (1...12).contains(mo), d >= 1, h < 24, mi < 60, se < 60, y >= 1 else { return nil }
+        var off = 0
+        if b.count == 20 { guard b[19] == 90 else { return nil } } else {
+            guard b[19] == 43 || b[19] == 45, b[22] == 58, let oh = num(20, 2), let om = num(23, 2), oh < 24, om < 60 else { return nil }
+            off = (oh * 3600 + om * 60) * (b[19] == 45 ? -1 : 1)
+        }
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+        let dim = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1]
+        guard d <= dim else { return nil }
+        // Days from 1970-01-01 (proleptic Gregorian, civil-from-days inverse).
+        let yy = mo <= 2 ? y - 1 : y
+        let era = (yy >= 0 ? yy : yy - 399) / 400
+        let yoe = yy - era * 400
+        let doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146097 + doe - 719468
+        return Date(timeIntervalSince1970: TimeInterval(days * 86400 + h * 3600 + mi * 60 + se - off))
     }
     static func format(_ d: Date) -> String { writer.string(from: d) }
 

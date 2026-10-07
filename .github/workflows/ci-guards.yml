@@ -471,6 +471,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_backend_migration_flow.py
 
+      - name: Validate the backend migrations plan skips the API when no migration changed
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_backend_migrations_plan.py
+
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         env:
@@ -586,6 +590,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_admission_placement.py
 
+      - name: Validate backend migrations plan without the GitHub API
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_backend_migrations_plan.py
+
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_side_lane_placement.py
@@ -669,6 +677,10 @@ jobs:
       - name: Validate pull request caches are read-only
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate signing secrets are read only in protected environments
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
@@ -964,6 +976,10 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate the nightly-next release notes fetch (published span only)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_release_notes_fetch.py
 
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ matrix.group == 'release-notary' }}

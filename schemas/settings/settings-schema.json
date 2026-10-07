@@ -7863,6 +7863,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showWorkspaceDirectory.help",
+        "text" : "Shows each workspace's folder under its name. A live agent status always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showWorkspaceDirectory",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "folder",
+        "directory",
+        "cwd",
+        "path",
+        "subtitle",
+        "branch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showWorkspaceDirectory"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showWorkspaceDirectory",
+        "text" : "Show Workspace Folder"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -11799,7 +11849,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "31c9e76cd409eb2f87fcb6804a4513b6b8ce14b91e042bdce4538010a9e76a26",
+  "schema_hash" : "db94b3dd550accd92de41a37ce49428f487119220ff9c47c9812f1af4ef7d6f0",
   "sections" : [
     {
       "id" : "general",

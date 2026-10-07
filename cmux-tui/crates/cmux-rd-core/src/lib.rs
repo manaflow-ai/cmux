@@ -5,6 +5,7 @@
 //! that needs time takes it as an argument. Design: plans/cmux-next/remote-desktop.md.
 
 pub mod cc;
+pub mod clock;
 pub mod fec;
 pub mod flow;
 pub mod input;

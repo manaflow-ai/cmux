@@ -402,6 +402,8 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
           snapshot: () => [...document.querySelectorAll("input")]
             .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
           fill: (id, v) => { el(id).value = v; },
+          // observe runs each read inside the agent's reply.
+          reply: (v) => v,
         };
       }"#}),
     );
@@ -1141,3 +1143,7 @@ mod clipboard;
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]
 mod drag;
+
+// Incognito tabs (private data P1).
+#[path = "chromium/incognito.rs"]
+mod incognito;
