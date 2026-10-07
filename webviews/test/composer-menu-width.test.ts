@@ -89,7 +89,9 @@ for (const [name, engine] of engines) {
       const page = await open(1000);
       const menu = await box(page, ".acpmux-model .acpmux-menu");
       expect(menu.width).toBe(520);
-      expect(await page.$eval(".acpmux-model .acpmux-menu", (node) => getComputedStyle(node).borderRadius)).toBe("10px");
+      expect(await page.$eval(".acpmux-model .acpmux-menu", (node) => getComputedStyle(node).borderRadius)).toBe(
+        "10px",
+      );
       await page.close();
     });
 
