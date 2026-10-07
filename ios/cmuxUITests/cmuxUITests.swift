@@ -128,7 +128,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentFeedDecisionPreviewPagesAndScrolls() {
+    func testAgentFeedDecisionPreviewAnswersAndScrolls() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
         ])
@@ -139,24 +139,53 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
 
-        let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
-        XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
-        let otherAnswer = app.buttons["MobileAgentFeedQuestionOther-deploy"]
-        XCTAssertTrue(otherAnswer.waitForExistence(timeout: 5))
-        XCTAssertTrue(otherAnswer.isHittable)
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
-        app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
+        app.buttons["MobileAgentFeedQuestionAnswer"].tap()
+        let submit = app.buttons["MobileAgentFeedQuestionSubmit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        XCTAssertFalse(submit.isEnabled)
+        let production = app.buttons["MobileAgentFeedQuestionOption-deploy-production"]
+        production.tap()
 
-        questionPager.swipeRight()
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionSubmit"].tap()
-        XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))
+        let build = app.buttons["MobileAgentFeedQuestionOption-events-build"]
+        let deploy = app.buttons["MobileAgentFeedQuestionOption-events-deploy"]
+        for _ in 0..<5 where !deploy.isHittable { app.swipeUp() }
+        build.tap()
+        deploy.tap()
+        XCTAssertTrue(build.isSelected)
+        XCTAssertTrue(deploy.isSelected)
+        XCTAssertGreaterThanOrEqual(deploy.frame.minY - build.frame.maxY, 6)
+        XCTAssertTrue(submit.isEnabled)
+        let selectedProof = XCTAttachment(screenshot: app.screenshot())
+        selectedProof.name = "feed-separated-multi-select-choices"
+        selectedProof.lifetime = .keepAlways
+        add(selectedProof)
+
+        let customAnswer = app.descendants(matching: .any)["MobileAgentFeedQuestionText-events"]
+        for _ in 0..<5 where !customAnswer.isHittable { app.swipeUp() }
+        customAnswer.tap()
+        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionOther-events"].isSelected)
+        XCTAssertFalse(build.isSelected)
+        XCTAssertFalse(deploy.isSelected)
+        XCTAssertFalse(submit.isEnabled)
+        customAnswer.typeText("Only failure notifications")
+        XCTAssertTrue(submit.isEnabled)
+
+        for _ in 0..<5 where !build.isHittable { app.swipeDown() }
+        build.tap()
+        XCTAssertFalse(app.buttons["MobileAgentFeedQuestionOther-events"].isSelected)
+        XCTAssertTrue(build.isSelected)
+        let customChoice = app.buttons["MobileAgentFeedQuestionOther-events"]
+        for _ in 0..<5 where !customChoice.isHittable { app.swipeUp() }
+        customChoice.tap()
+        XCTAssertEqual(customAnswer.value as? String, "Only failure notifications")
+        XCTAssertFalse(build.isSelected)
+        XCTAssertTrue(submit.isEnabled)
+        submit.tap()
+        let answered = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Only failure notifications")
+        ).firstMatch
+        XCTAssertTrue(answered.waitForExistence(timeout: 3))
+        XCTAssertFalse(submit.exists)
 
         let allow = app.buttons["MobileAgentFeedPermissionAllow"]
         let always = app.buttons["MobileAgentFeedPermissionAlways"]
@@ -170,10 +199,42 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(more.isHittable)
         XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
         XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
+        allow.tap()
+        XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedDecisionResult"].exists)
 
         for _ in 0..<8 { app.swipeDown() }
         let proof = XCTAttachment(screenshot: app.screenshot())
         proof.name = "feed-decision-controls-and-scroll"
+        proof.lifetime = .keepAlways
+        add(proof)
+    }
+
+    @MainActor
+    func testAgentFeedCustomAnswerGrowsToFourLines() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let answer = app.buttons["MobileAgentFeedQuestionAnswer"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        answer.tap()
+        let field = app.descendants(matching: .any)["MobileAgentFeedQuestionText-deploy"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let singleLineHeight = field.frame.height
+        app.buttons["MobileAgentFeedQuestionOther-deploy"].tap()
+        field.typeText("Line one\nLine two\nLine three\nLine four")
+        let expanded = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in field.frame.height > singleLineHeight * 2 },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 3), .completed)
+        let fourLineHeight = field.frame.height
+        field.typeText("\nLine five\nLine six")
+        XCTAssertEqual(field.frame.height, fourLineHeight, accuracy: 2)
+        XCTAssertTrue((field.value as? String)?.contains("Line six") == true)
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "feed-custom-answer-four-line-scroll-limit"
         proof.lifetime = .keepAlways
         add(proof)
     }
