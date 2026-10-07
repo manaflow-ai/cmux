@@ -128,7 +128,6 @@ export const handleStackWebhook = (request: Request, secret: Redacted.Redacted<s
       devicesRevoked: done.devicesRevoked,
       meshesReapplied: done.meshesReapplied,
       ...(event.tenantId === null ? {} : { tenantId: event.tenantId }),
-      ...(done.memberNow === undefined ? {} : { memberNow: done.memberNow === null ? "unknown" : String(done.memberNow) }),
       recorded: recorded._tag === "Right",
       eventAgeMs: at.getTime() - eventAt.getTime(),
     });

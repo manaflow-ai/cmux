@@ -1242,8 +1242,6 @@ export const USER_DELETED_WEBHOOK_ACTOR = "system:stack-user-deleted-webhook";
 export interface RevocationResult {
   readonly devicesRevoked: number;
   readonly meshesReapplied: number;
-  /** Whether Stack says the user is a member of the team now (null: Stack did not answer). Logged only; it changes nothing. */
-  readonly memberNow?: boolean | null;
 }
 
 /**
@@ -1259,11 +1257,12 @@ export interface RevocationResult {
  *    lost laptop), and a re-add does not bring them back. A device enrolled
  *    after the event passed a membership check after it and stays; if the
  *    user was removed again, that removal's own event revokes it.
- * 3. Stack is asked whether the user is a member now, for the log only: its
- *    answer and its failure change nothing, so an event for a team outside the
- *    mesh allowlist, without devices, or for a user Stack no longer knows is
- *    a recorded 200, never a 503 that Svix would retry until it disables the
- *    endpoint.
+ * 3. Stack is never asked: its answer would change nothing, and every event
+ *    would cost a Stack call. So an event for a team outside the mesh
+ *    allowlist, without devices, or for a user Stack no longer knows is a
+ *    recorded 200, never a 503 that Svix would retry until it disables the
+ *    endpoint. Revocation does not depend on the allowlist: a tenant that
+ *    left it still has its devices revoked.
  *
  * Idempotent: a retry finds no live device from before the event.
  */
@@ -1271,9 +1270,7 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
   Effect.gen(function* () {
     const cache = yield* MembershipCache;
     yield* cache.revoke(tenantId, userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
-    const closed = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
-    const memberNow = yield* (yield* TeamMembership).isMember(tenantId, userId).pipe(Effect.orElseSucceed(() => null));
-    const result: RevocationResult = { ...closed, memberNow };
+    const result: RevocationResult = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
     return result;
   });
 
