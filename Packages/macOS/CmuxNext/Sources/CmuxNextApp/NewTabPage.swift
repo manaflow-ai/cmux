@@ -260,7 +260,7 @@ extension NewTabPage {
         if spare != nil, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         }
-        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, motion: false) }
+        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
     }
