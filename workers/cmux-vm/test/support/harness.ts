@@ -17,6 +17,8 @@ import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
+import { TeamAdmin } from "../../src/auth/team-admin.ts";
+import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -53,12 +55,19 @@ interface StoredKey extends ApiKeyRecord {
   readonly hash: string;
   readonly revoked: boolean;
   readonly expiresAt: Date | null;
+  /** Set by the API key management endpoints (cx-b4h.12). */
+  readonly name?: string;
+  readonly createdBy?: string;
+  readonly createdAt?: Date;
+  readonly revokedAt?: Date;
 }
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
   const members = new Map<string, Set<string>>();
+  /** Team admins (Stack team_admin), per tenant. */
+  const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
@@ -156,6 +165,51 @@ export async function makeHarness(options: HarnessOptions = {}) {
       isMember: (tenantId, userId) => Effect.sync(() => members.get(tenantId)?.has(userId) ?? false),
     }),
     s3a.layer(upstreamFetch),
+    Layer.succeed(TeamAdmin, {
+      isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
+    }),
+    Layer.succeed(ApiKeyAdminStore, {
+      insert: (key) =>
+        Effect.sync(() => {
+          keys.push({
+            id: key.id,
+            tenantId: key.tenantId,
+            scopes: key.scopes,
+            resourceAllowlist: key.resourceAllowlist,
+            hash: key.keyHash,
+            revoked: false,
+            expiresAt: key.expiresAt,
+            name: key.name,
+            createdBy: key.createdBy,
+            createdAt: key.createdAt,
+          });
+        }),
+      list: (tenantId, limit) =>
+        Effect.sync(() =>
+          keys
+            .filter((key) => key.tenantId === tenantId)
+            .map((key) => ({
+              id: key.id,
+              name: key.name ?? "test key",
+              scopes: key.scopes,
+              resourceAllowlist: key.resourceAllowlist,
+              createdBy: key.createdBy ?? "user:test",
+              createdAt: key.createdAt ?? new Date(0),
+              expiresAt: key.expiresAt,
+              revokedAt: key.revokedAt ?? null,
+            }))
+            .reverse()
+            .slice(0, limit),
+        ),
+      revoke: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = keys.findIndex((key) => key.tenantId === tenantId && key.id === id);
+          const found = keys[index];
+          if (found === undefined) return false;
+          keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? at };
+          return true;
+        }),
+    }),
   );
 
   const { handler, dispose } = makeWebHandler(services);
@@ -229,6 +283,16 @@ export async function makeHarness(options: HarnessOptions = {}) {
         expiresAt: options.expiresAt ?? null,
       });
       return secret;
+    },
+    /** Makes `user` a team admin of `tenant` (Stack team_admin). */
+    addAdmin(tenant: string, user: string) {
+      const set = admins.get(tenant) ?? new Set<string>();
+      set.add(user);
+      admins.set(tenant, set);
+    },
+    /** Every stored API key record, as the database would hold it (hashes, never secrets). */
+    storedKeys(): ReadonlyArray<StoredKey> {
+      return keys;
     },
     addMember(tenant: string, user: string) {
       const set = members.get(tenant) ?? new Set<string>();

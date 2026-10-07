@@ -8,12 +8,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent.sql?raw";
+import { ApiKeyAdminStore, sqlApiKeyAdminStoreLayer } from "../../src/db/api-keys.ts";
 import { sqlSnapshotStoreLayer, SnapshotStore, type SnapshotPage } from "../../src/db/snapshots.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
-import { OwnershipStore, sqlStoresLayer, type ApiKeyStore, type AuditStore } from "../../src/db/stores.ts";
-import { newSnapshotId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
+import { ApiKeyStore, AuditStore, OwnershipStore, sqlStoresLayer } from "../../src/db/stores.ts";
+import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 
-type Stores = SnapshotStore | OwnershipStore | ApiKeyStore | AuditStore;
+type Stores = SnapshotStore | OwnershipStore | ApiKeyStore | AuditStore | ApiKeyAdminStore;
 
 let pg: PGlite;
 let layer: Layer.Layer<Stores>;
@@ -35,7 +36,7 @@ beforeEach(async () => {
         catch: (cause) => new StoreError({ operation, cause }),
       }),
   });
-  layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlStoresLayer).pipe(Layer.provide(sql));
+  layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlStoresLayer, sqlApiKeyAdminStoreLayer).pipe(Layer.provide(sql));
 });
 
 const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId()) =>
@@ -106,5 +107,56 @@ describe("snapshot store", () => {
     expect(Option.isSome(await run(Effect.flatMap(SnapshotStore, (store) => store.describe(TENANT_A, id))))).toBe(true);
     await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, id, at)));
     expect(Option.isNone(await run(Effect.flatMap(SnapshotStore, (store) => store.describe(TENANT_A, id))))).toBe(true);
+  });
+});
+
+describe("API key management store", () => {
+  const insert = (tenantId: TenantId, hash: string, allowlist: ReadonlyArray<string> | null = null) =>
+    Effect.gen(function* () {
+      const store = yield* ApiKeyAdminStore;
+      const id = newApiKeyId();
+      yield* store.insert({
+        id,
+        tenantId,
+        name: "ci",
+        keyHash: hash,
+        scopes: ["vm:read", "snapshot:*"],
+        resourceAllowlist: allowlist,
+        createdBy: "user:test",
+        createdAt: new Date(Date.UTC(2026, 9, 1)),
+        expiresAt: null,
+      });
+      return id;
+    });
+
+  it("inserts a key the authentication lookup finds, lists it per tenant without the hash, and revokes it per tenant", async () => {
+    const hash = "c".repeat(64);
+    const vm = newVmId();
+    const id = await run(insert(TENANT_A, hash, [vm]));
+    const now = new Date(Date.UTC(2026, 9, 2));
+
+    const found = await run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveByHash(hash, now)));
+    expect(Option.getOrNull(found)).toMatchObject({ id, tenantId: TENANT_A, scopes: ["vm:read", "snapshot:*"], resourceAllowlist: [vm] });
+
+    const listedA = await run(Effect.flatMap(ApiKeyAdminStore, (store) => store.list(TENANT_A, 10)));
+    expect(listedA.map((key) => key.id)).toEqual([id]);
+    expect(JSON.stringify(listedA)).not.toContain(hash);
+    expect(await run(Effect.flatMap(ApiKeyAdminStore, (store) => store.list(TENANT_B, 10)))).toEqual([]);
+
+    expect(await run(Effect.flatMap(ApiKeyAdminStore, (store) => store.revoke(TENANT_B, id, now)))).toBe(false);
+    expect(Option.isSome(await run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveByHash(hash, now))))).toBe(true);
+    expect(await run(Effect.flatMap(ApiKeyAdminStore, (store) => store.revoke(TENANT_A, id, now)))).toBe(true);
+    expect(Option.isNone(await run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveByHash(hash, now))))).toBe(true);
+  });
+
+  it("audits API key ids after migration 0003", async () => {
+    const id = newApiKeyId();
+    await run(
+      Effect.flatMap(AuditStore, (store) =>
+        store.append({ tenantId: TENANT_A, actor: "user:test", action: "apikey.create", cmuxId: id, outcome: "ok", at: new Date() }),
+      ),
+    );
+    const rows = await pg.query<{ cmux_id: string }>("SELECT cmux_id FROM cmux_vm.audit_log");
+    expect(rows.rows).toEqual([{ cmux_id: id }]);
   });
 });

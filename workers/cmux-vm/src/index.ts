@@ -13,6 +13,8 @@ import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } f
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
+import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
+import { stackTeamAdminLayer } from "./auth/team-admin.ts";
 import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
 import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
 
@@ -42,8 +44,8 @@ const liveServices = (env: Env) => {
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(
-    // Snapshot rows (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer).pipe(
+    // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer).pipe(
       Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
     ),
     policy,
@@ -57,6 +59,11 @@ const liveServices = (env: Env) => {
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
     s3aServices(env),
+    stackTeamAdminLayer({
+      apiUrl: env.STACK_API_URL,
+      projectId: env.STACK_PROJECT_ID,
+      serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
+    }),
   );
 };
 

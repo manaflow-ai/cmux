@@ -92,6 +92,10 @@ export const TENANT_ENDPOINTS = [
   { name: "createVm", method: "POST", template: "/v1/vms", scope: "vm:write" },
   { name: "listVms", method: "GET", template: "/v1/vms", scope: "vm:read" },
   { name: "listSnapshots", method: "GET", template: "/v1/snapshots", scope: "snapshot:read" },
+  // API key management (cx-b4h.12); test/workers/api-keys.test.ts runs the isolation cases.
+  { name: "createApiKey", method: "POST", template: "/v1/api-keys", scope: "admin" },
+  { name: "listApiKeys", method: "GET", template: "/v1/api-keys", scope: "admin" },
+  { name: "revokeApiKey", method: "DELETE", template: "/v1/api-keys/{keyId}", scope: "admin" },
 ] as const;
 
 export const ALL_SCOPES: ReadonlyArray<Scope> = [

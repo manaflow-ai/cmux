@@ -18,6 +18,9 @@ import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
+import { apiKeysHandlers } from "./handlers/api-keys.ts";
+import type { TeamAdmin } from "./auth/team-admin.ts";
+import type { ApiKeyAdminStore } from "./db/api-keys.ts";
 import type { SnapshotStore } from "./db/snapshots.ts";
 import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
 import type { UpstreamTerminals } from "./upstream/terminals.ts";
@@ -35,7 +38,7 @@ export type Services =
   | S3aServices;
 
 /** Snapshots and terminals (slice S3a). */
-type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals;
+type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin;
 
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
@@ -76,6 +79,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(filesHandlers)),
     Layer.provide(authenticated(snapshotsHandlers)),
     Layer.provide(authenticated(terminalsHandlers)),
+    Layer.provide(authenticated(apiKeysHandlers)),
     Layer.provide(services),
   );
   const perRequest = options.perRequest;
