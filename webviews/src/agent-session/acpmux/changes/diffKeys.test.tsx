@@ -78,7 +78,7 @@ afterAll(() => {
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { DiffPanel } = await import("../DiffPanel");
+const { bindDiffPanelEscape, DiffPanel } = await import("../DiffPanel");
 const { turnFiles } = await import("../diff");
 const { CURRENT_CHANGE } = await import("./useDiffKeys");
 
@@ -251,6 +251,33 @@ describe("changes view keys", () => {
       expect(view.document.querySelector(".acpmux-diff-keys")?.textContent).toBe("jkfiles·npchanges·escback");
     } finally {
       await view.unmount();
+    }
+  });
+
+  test("Escape follows the panel's window when another test changes the ambient window", () => {
+    const panel = dom.window.document.createElement("section");
+    const button = dom.window.document.createElement("button");
+    panel.append(button);
+    dom.window.document.body.append(panel);
+    button.focus();
+    const foreign = new JSDOM("<!doctype html>").window;
+    const previousWindow = globals.window;
+    const previousDocument = globals.document;
+    let closed = 0;
+    globals.window = foreign;
+    globals.document = foreign.document;
+    const remove = bindDiffPanelEscape(panel, () => {
+      closed += 1;
+    });
+    globals.window = previousWindow;
+    globals.document = previousDocument;
+    try {
+      dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+      expect(closed).toBe(1);
+    } finally {
+      remove();
+      panel.remove();
+      foreign.close();
     }
   });
 });
