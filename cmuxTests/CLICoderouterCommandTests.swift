@@ -770,15 +770,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (result, state) = try runCoderouterCLI(
             ["cr", "accounts", "--json"],
             socketName: "cr-team-follow",
-            extraEnvironment: ["PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path]
+            extraEnvironment: [
+                "PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path,
+                "CMUX_TEST_CODEROUTER_TEAM_PROBE_SCALE": "8",
+            ]
         ) { method, _ in
             guard method == "auth.status" else { return nil }
-            return self.okResponse(["signed_in": true, "selected_team_id": "team-from-app"])
+            return self.okResponse(["signed_in": true, "selected_team_id": "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"])
         }
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(try recordedTeam(in: fake.home), "team-from-app\n")
+        XCTAssertEqual(try recordedTeam(in: fake.home), "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13\n")
         XCTAssertEqual(try String(contentsOf: fake.home.appendingPathComponent("args"), encoding: .utf8), "<accounts><--json>")
         XCTAssertEqual(state.commands.filter { $0.contains(#""method":"auth.status""#) }.count, 1)
         XCTAssertFalse(state.commands.contains { !$0.contains(#""method":"auth.status""#) && !$0.hasPrefix("auth ") },
@@ -792,7 +795,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (result, _) = try runCoderouterCLI(
             ["cr", "accounts"],
             socketName: "cr-team-signed-out",
-            extraEnvironment: ["PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path]
+            extraEnvironment: [
+                "PATH": fake.path, "HOME": fake.home.path, "CFFIXED_USER_HOME": fake.home.path,
+                "CMUX_TEST_CODEROUTER_TEAM_PROBE_SCALE": "8",
+            ]
         ) { method, _ in
             guard method == "auth.status" else { return nil }
             return self.okResponse(["signed_in": false, "selected_team_id": "stale-team"])
@@ -822,7 +828,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 waitForSocket: false
             ) { method, _ in
                 guard method == "auth.status" else { return nil }
-                return self.okResponse(["signed_in": true, "selected_team_id": "team-from-app"])
+                return self.okResponse(["signed_in": true, "selected_team_id": "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"])
             }
 
             XCTAssertEqual(result.status, 0, "\(testCase.name): \(result.stderr)")
@@ -884,8 +890,11 @@ struct CoderouterTeamEnvironmentTests {
 
     @Test("auth.status yields a team only for a signed-in app with a team")
     func authStatusParsing() {
-        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": "team-a"]) == "team-a")
-        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": false, "selected_team_id": "team-a"]) == nil)
+        let team = "3c6f0a1e-8f7b-4d2a-9e51-2b7c4d9a0f13"
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": team]) == team)
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": false, "selected_team_id": team]) == nil)
+        // Not a Stack team UUID, so not a CodeRouter organization ID.
+        #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": "team-a"]) == nil)
         #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true]) == nil)
         #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: ["signed_in": true, "selected_team_id": ""]) == nil)
         #expect(CoderouterTeamEnvironment.selectedTeamID(fromAuthStatus: [:]) == nil)

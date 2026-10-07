@@ -44,8 +44,9 @@ struct CoderouterProvider: Hashable {
     }
 
     /// The shell command a New Account row runs for one team. `scope` is the
-    /// mechanism the last account read proved the CLI supports: `--team`, or
-    /// (older CLIs) an `org switch` inside a private copy of the config.
+    /// mechanism the last account read proved the CLI supports:
+    /// `CODEROUTER_TEAM_ID` for one invocation, `--team`, or (older CLIs) an
+    /// `org switch` inside a private copy of the config.
     func addCommand(
         for organizationID: String?,
         scope: CoderouterTeamScope = .isolatedConfiguration,
@@ -60,6 +61,8 @@ struct CoderouterProvider: Hashable {
         }
         let quotedOrganization = Self.shellQuote(organizationID)
         switch scope {
+        case .teamOverride:
+            return "\(CoderouterTeamEnvironment.shellAssignment(teamID: organizationID)) \(addCommand)"
         case .teamOption:
             return "\(addCommand) --team \(quotedOrganization)"
         case .isolatedConfiguration:

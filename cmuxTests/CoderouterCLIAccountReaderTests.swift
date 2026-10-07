@@ -417,13 +417,34 @@ struct CoderouterCLIAccountReaderTests {
             return Data("{\"teamId\":\"\(teamID ?? "")\",\"accounts\":[{\"id\":\"a\",\"provider\":\"codex\",\"label\":\"a@example.com\"}]}".utf8)
         }
 
-        // A non-UUID ID with a name would need `org list` on the legacy path.
-        let snapshot = try await CoderouterCLIAccountReader.snapshot(for: "legacy-team", name: "Example", cli: cli)
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(for: Self.cmuxTeamID, name: "Example", cli: cli)
 
         #expect(snapshot.scope == .teamOverride)
-        #expect(snapshot.organizationID == "legacy-team")
+        #expect(snapshot.organizationID == Self.cmuxTeamID)
         #expect(snapshot.accounts.map(\.label) == ["a@example.com"])
-        #expect(await recorder.value == [Invocation(arguments: ["accounts", "--json"], teamID: "legacy-team")])
+        #expect(await recorder.value == [Invocation(arguments: ["accounts", "--json"], teamID: Self.cmuxTeamID)])
+    }
+
+    @Test("A team ID that is not a Stack UUID keeps the legacy mapping even with team-override")
+    func teamOverrideRequiresUUIDTeam() async throws {
+        let recorder = InvocationRecorder()
+        let cli = recorder.cli(supportsTeamOverride: true) { arguments, _ in
+            switch arguments {
+            case ["org", "list"]:
+                return Data(" \tExample\t\(Self.cmuxOrganizationID)\n".utf8)
+            default:
+                return Data("{\"teamId\":\"\(Self.cmuxOrganizationID)\",\"accounts\":[]}".utf8)
+            }
+        }
+
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(for: "legacy-team", name: "Example", cli: cli)
+
+        #expect(snapshot.scope == .teamOption)
+        #expect(snapshot.organizationID == Self.cmuxOrganizationID)
+        #expect(await recorder.value == [
+            Invocation(arguments: ["org", "list"], teamID: nil),
+            Invocation(arguments: ["accounts", "--json", "--team", Self.cmuxOrganizationID], teamID: nil),
+        ])
     }
 
     @Test("With team-override, a payload for another team is rejected")

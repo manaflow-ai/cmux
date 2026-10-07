@@ -5,6 +5,9 @@ import OSLog
 /// How a CodeRouter command is pinned to the selected team without relying on
 /// the CLI's shared, persisted active organization.
 enum CoderouterTeamScope: Equatable, Sendable {
+    /// The CLI reports `team-override`: `CODEROUTER_TEAM_ID` scopes each
+    /// invocation. No organization catalog read or switch is ever needed.
+    case teamOverride
     /// The CLI accepts `--team <id>` on `accounts`, `remove`, and `add`.
     case teamOption
     /// Older CLIs: `org switch` plus the command, inside a private copy of the
@@ -18,6 +21,34 @@ enum CoderouterTeamScope: Equatable, Sendable {
 /// not need to mutate the user's active organization.
 enum CoderouterCLIAccountReader {
     typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
+
+    /// The CodeRouter CLI as the reader sees it: one command runner that can
+    /// scope a single invocation to a team, and whether the CLI honors that
+    /// scope. Tests replace both; production resolves the same binary as
+    /// `cmux cr` and asks it once per binary version.
+    struct CLI: Sendable {
+        /// Runs one command. A non-nil team ID is passed as
+        /// `CODEROUTER_TEAM_ID` for that invocation only.
+        let run: @Sendable (_ arguments: [String], _ teamID: String?) async throws -> Data
+        let supportsTeamOverride: @Sendable () async -> Bool
+
+        /// The pre-`team-override` runner used by callers that only inject
+        /// argument-level behavior.
+        static func legacy(_ run: @escaping Run) -> CLI {
+            CLI(run: { arguments, _ in try await run(arguments) }, supportsTeamOverride: { false })
+        }
+
+        static let live = CLI(
+            run: { arguments, teamID in
+                // Only the sidebar decides the team: an override inherited
+                // from the app's own launch environment is never forwarded.
+                var environment = ProcessInfo.processInfo.environment
+                environment[CoderouterTeamEnvironment.variable] = teamID
+                return try await CoderouterCLIAccountReader.runCLI(arguments, environment: environment)
+            },
+            supportsTeamOverride: { await CoderouterCLIAccountReader.liveSupportsTeamOverride() }
+        )
+    }
 
     struct Snapshot {
         let organizationID: String
@@ -43,14 +74,31 @@ enum CoderouterCLIAccountReader {
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
         knownOrganizationID: String? = nil,
-        run: Run? = nil
+        run: Run? = nil,
+        cli injectedCLI: CLI? = nil
     ) async throws -> Snapshot {
         try Task.checkCancellation()
-        guard let teamID = normalizedID(cmuxTeamID) else {
+        let cli = injectedCLI ?? run.map { CLI.legacy($0) } ?? .live
+        guard let teamID = CoderouterTeamEnvironment.normalizedTeamID(cmuxTeamID) else {
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
 
-        let invoke = run ?? runCLI
+        // A CLI with `team-override` takes the cmux team ID (which is the
+        // CodeRouter organization ID) for this invocation only: no catalog
+        // read, no `org switch`, and no shared state to race with. Only a
+        // Stack team UUID is an organization ID; anything else keeps the
+        // legacy mapping below.
+        if UUID(uuidString: teamID) != nil, await cli.supportsTeamOverride() {
+            try Task.checkCancellation()
+            let payload = try await readAccounts(arguments: ["accounts", "--json"]) { arguments in
+                try await cli.run(arguments, teamID)
+            }
+            return try verifiedSnapshot(payload, organizationID: teamID, scope: .teamOverride)
+        }
+
+        let invoke: Run = { arguments in try await cli.run(arguments, nil) }
+        // Injected runners (tests) replace the isolated-config sequence too.
+        let injectedRun: Run? = injectedCLI != nil || run != nil ? invoke : nil
         guard let organizationID = try await resolvedOrganizationID(
             for: teamID,
             name: cmuxTeamName,
@@ -75,7 +123,7 @@ enum CoderouterCLIAccountReader {
             // CLI from PATH or the installer, so keep this fallback.
             guard isUnsupportedTeamOption(error, command: "accounts") else { throw error }
             logger.info("Using an isolated CodeRouter configuration for the legacy CLI")
-            payload = try await withLegacyCLI(run: run) { legacyRun in
+            payload = try await withLegacyCLI(run: injectedRun) { legacyRun in
                 try Task.checkCancellation()
                 _ = try await legacyRun(["org", "switch", organizationID])
                 try Task.checkCancellation()
@@ -108,7 +156,7 @@ enum CoderouterCLIAccountReader {
         if UUID(uuidString: cmuxTeamID) != nil {
             return cmuxTeamID
         }
-        if let knownOrganizationID = normalizedID(knownOrganizationID),
+        if let knownOrganizationID = CoderouterTeamEnvironment.normalizedTeamID(knownOrganizationID),
            UUID(uuidString: knownOrganizationID) != nil {
             return knownOrganizationID
         }
@@ -122,16 +170,25 @@ enum CoderouterCLIAccountReader {
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
         knownOrganizationID: String? = nil,
-        run: Run? = nil
+        run: Run? = nil,
+        cli injectedCLI: CLI? = nil
     ) async throws {
         try Task.checkCancellation()
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
-        guard let teamID = normalizedID(cmuxTeamID) else {
+        guard let teamID = CoderouterTeamEnvironment.normalizedTeamID(cmuxTeamID) else {
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
-        let invoke = run ?? runCLI
+        let cli = injectedCLI ?? run.map { CLI.legacy($0) } ?? .live
+        if UUID(uuidString: teamID) != nil, await cli.supportsTeamOverride() {
+            try Task.checkCancellation()
+            _ = try await cli.run(["remove", accountID, "--yes"], teamID)
+            logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
+            return
+        }
+        let invoke: Run = { arguments in try await cli.run(arguments, nil) }
+        let injectedRun: Run? = injectedCLI != nil || run != nil ? invoke : nil
         guard let organizationID = try await resolvedOrganizationID(
             for: teamID,
             name: cmuxTeamName,
@@ -146,7 +203,7 @@ enum CoderouterCLIAccountReader {
             // Compatibility with the pre-team-scoped CLI. This legacy path is
             // only used when the direct command is not understood.
             guard isUnsupportedTeamOption(error, command: "remove") else { throw error }
-            try await withLegacyCLI(run: run) { legacyRun in
+            try await withLegacyCLI(run: injectedRun) { legacyRun in
                 try Task.checkCancellation()
                 _ = try await legacyRun(["org", "switch", organizationID])
                 try Task.checkCancellation()
@@ -195,7 +252,9 @@ enum CoderouterCLIAccountReader {
 
     private static func withLegacyCLI<T>(run: Run?, body: (Run) async throws -> T) async throws -> T {
         if let run { return try await body(run) }
-        return try await withIsolatedConfiguration { environment in
+        var inherited = ProcessInfo.processInfo.environment
+        inherited[CoderouterTeamEnvironment.variable] = nil
+        return try await withIsolatedConfiguration(environment: inherited) { environment in
             try await body { arguments in
                 try await runCLI(arguments, environment: environment)
             }
@@ -260,18 +319,13 @@ enum CoderouterCLIAccountReader {
             return (String(candidateID), normalized(candidateName))
         }
         if let exact = organizations.first(where: { $0.id == cmuxTeamID }) { return exact.id }
-        guard let cmuxTeamName = normalizedID(cmuxTeamName) else { return nil }
+        guard let cmuxTeamName = CoderouterTeamEnvironment.normalizedTeamID(cmuxTeamName) else { return nil }
         let wanted = normalized(cmuxTeamName)
         let matches = organizations.filter { $0.name == wanted }
         guard matches.count <= 1 else {
             throw accountError("More than one CodeRouter organization matches the selected team.")
         }
         return matches.first?.id
-    }
-
-    private static func normalizedID(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 
     private static func normalized(_ value: String) -> String {
@@ -312,6 +366,37 @@ enum CoderouterCLIAccountReader {
             ?? URL(fileURLWithPath: home).appendingPathComponent(".coderouter").path
         let installed = URL(fileURLWithPath: installRoot).appendingPathComponent("bin/coderouter").path
         return isExecutable(installed) ? installed : nil
+    }
+
+    private static let capabilityCache = CoderouterCLICapabilityCache()
+
+    /// Whether the CLI the sidebar runs honors `CODEROUTER_TEAM_ID`. The answer
+    /// is cached per binary path and modification date, so an app update or a
+    /// reinstall of the PATH CLI is re-probed and nothing else is.
+    private static func liveSupportsTeamOverride() async -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        guard let executable = resolvedExecutable(environment: environment) else { return false }
+        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: executable))?[.modificationDate] as? Date
+        return await capabilityCache.supportsTeamOverride(
+            key: .init(executable: executable, modificationDate: modificationDate)
+        ) {
+            do {
+                let result = try await runProcess(
+                    executable: executable,
+                    arguments: ["capabilities", "--json"],
+                    environment: environment.filter { key, _ in
+                        !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+                    }
+                )
+                return CoderouterTeamEnvironment.supportsTeamOverride(capabilitiesJSON: result.stdout)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                // A CLI without `capabilities` (or one that fails it) is an
+                // older CLI; it keeps the argument-level fallbacks.
+                return false
+            }
+        }
     }
 
     @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
@@ -459,5 +544,42 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
         }
         try? stdout.close()
         try? stderr.close()
+    }
+}
+
+/// Remembers which CodeRouter binaries honor `team-override`. Entries are
+/// keyed by path and modification date; a probe that ends in cancellation
+/// (`nil`) is not remembered, so the next refresh asks again.
+final class CoderouterCLICapabilityCache: @unchecked Sendable {
+    struct Key: Hashable, Sendable {
+        let executable: String
+        let modificationDate: Date?
+    }
+
+    private let lock = NSLock()
+    private var entries: [Key: Bool] = [:]
+
+    func supportsTeamOverride(
+        key: Key,
+        probe: @Sendable () async -> Bool?
+    ) async -> Bool {
+        if let cached = cachedValue(for: key) { return cached }
+        guard let probed = await probe() else { return false }
+        store(probed, for: key)
+        return probed
+    }
+
+    private func cachedValue(for key: Key) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[key]
+    }
+
+    private func store(_ value: Bool, for key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        // One binary path has one current version; drop stale versions.
+        entries = entries.filter { $0.key.executable != key.executable }
+        entries[key] = value
     }
 }
