@@ -4,6 +4,8 @@ import CmuxiOSCloud
 import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
+import CmuxiOSRemoteDesktop
+import CmuxiOSRemoteDesktopCore
 import CmuxiOSSearch
 import CmuxiOSSearchCore
 import CmuxiOSSettingsCore
@@ -63,6 +65,16 @@ enum ShellComposition {
             surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
             appearance: container.terminalPreferences,
             isMock: !workspacesAreReal)
+        // Lane C3: remote desktop from a paired Mac's Hosts row and from the
+        // workspace detail menu, over the same link sessions as C1's terminals.
+        let remoteDesktop = RemoteDesktopEntry(connector: LinkRemoteDesktopConnector(
+            clients: LinkClientProvider(directory: container.accountLinks)))
+        ssh.openPairedMac = { record, presenter, source in
+            remoteDesktop.present(host: record.id, hostName: record.name, from: presenter, sourceView: source)
+        }
+        workspaces.remoteDesktop = WorkspacesFeature.RemoteDesktopHook(title: RemoteDesktopEntry.actionTitle) { host, name, presenter in
+            remoteDesktop.present(host: host, hostName: name, from: presenter)
+        }
         // Lane C13: Changes and Files in the workspace detail, and the viewer
         // for finished downloads.
         workspaces.viewers = WorkspaceViewersAdapter(feature: container.viewersFeature(for: sources, real: workspacesAreReal))

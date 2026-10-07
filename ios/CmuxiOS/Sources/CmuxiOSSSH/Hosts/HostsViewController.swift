@@ -94,7 +94,8 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
             content.imageProperties.tintColor = ShellPalette.secondaryText
             cell.contentConfiguration = content
             if case .pairedMac = row.record.kind {
-                cell.accessories = []
+                // Paired Macs open remote desktop when the shell wires it (C3).
+                cell.accessories = self?.feature.openPairedMac == nil ? [] : [.disclosureIndicator()]
             } else {
                 cell.accessories = [.disclosureIndicator()]
             }
@@ -175,7 +176,8 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
         switch row.record.kind {
         case .ssh: feature.openTerminal(row.record, records: records, from: self)
         case .direct: feature.showEditor(.edit(id), records: records, from: self)
-        case .pairedMac: break
+        case .pairedMac:
+            feature.openPairedMac?(row.record, self, collectionView.cellForItem(at: indexPath))
         }
     }
 
