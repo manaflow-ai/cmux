@@ -235,7 +235,6 @@ struct SidebarHiddenPresentationTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
-        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
         defer {
             if let previousCloudMarker {
                 UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey)
@@ -338,6 +337,11 @@ struct SidebarHiddenPresentationTests {
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()
+        // Keep the process-wide activation marker off while exercising hidden
+        // table retention. Opt in immediately before the reveal so the Cloud
+        // row is rebuilt by the visible apply without activating observers
+        // during the hidden workspace-order update.
+        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
 
         // A doubled projection count means a SECOND sidebar body pass followed
         // the reveal. Record what landed inside the reveal window (the async
