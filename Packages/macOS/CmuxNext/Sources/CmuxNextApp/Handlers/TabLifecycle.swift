@@ -32,13 +32,14 @@ enum TabLifecycle {
             return
         }
         if let controller {
-            // From the docked agent chat, a tab in the strip (ChatColumnPlacement).
+            // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
+            // cwd is the explicit one or nil, for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             var target: PaneController? = controller
             if invocation.origin == .user {
-                let spawn = SpawnOptions(cwd: cwd ?? controller.selectedTab?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+                let spawn = SpawnOptions(cwd: cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, source: controller)
+            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller)
             return
         }
         let handle = pane.handle
