@@ -189,6 +189,11 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// A docked column marked permanent stays docked on its edge for every
+/// client: `set-column-dock` takes `permanent`, and an undock, another edge,
+/// a replacement or a close or move that would remove it answers
+/// `dock-column-permanent`.
+pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
@@ -13836,8 +13841,13 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnDock { pane, dock, edge, mode, permanent: _, transaction } => {
-            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+        Command::SetColumnDock { pane, dock, edge, mode, permanent, transaction } => {
+            let mut dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+            // `permanent-dock-v1`: `permanent:true` marks the column; false or
+            // omitted keeps the current value (a permanent column stays one).
+            if let Some(flag) = dock.as_mut() {
+                flag.permanent = permanent == Some(true);
+            }
             let outcome = mux.set_column_dock(
                 pane,
                 dock,

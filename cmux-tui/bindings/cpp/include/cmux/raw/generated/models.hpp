@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
+inline constexpr std::string_view kProtocolIrSha256 = "cec6aa954cc0d202e14fe945bfbac29b8eb4d5468a899a90d267725dbfd8b40e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3961,6 +3961,7 @@ struct SetColumnDockRequest {
     Field<std::string> edge{};
     Field<std::string> mode{};
     Id pane{};
+    Field<bool> permanent{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
 };

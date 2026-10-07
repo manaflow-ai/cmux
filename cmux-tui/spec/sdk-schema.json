@@ -11465,6 +11465,15 @@
       "nullable": true,
       "default": null
      },
+     "permanent": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
@@ -11484,6 +11493,7 @@
    "stream": null,
    "constraints": [
     "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+    "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
     "See spec/commands.md for the result object."
    ]
   },

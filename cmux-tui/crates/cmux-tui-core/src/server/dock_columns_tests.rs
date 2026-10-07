@@ -731,7 +731,13 @@ impl Wire {
 fn permanent_dock_capability_is_advertised() {
     let mut wire = Wire::new();
     let identity = wire.ok(json!({"cmd": "identify"}));
-    assert!(identity["capabilities"].as_array().unwrap().iter().any(|capability| capability == "permanent-dock-v1"));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "permanent-dock-v1")
+    );
 }
 
 #[test]
@@ -741,9 +747,19 @@ fn permanent_dock_column_cannot_be_undocked_moved_or_replaced() {
     assert_eq!(data["dock"], json!({"edge": "left", "mode": "docked", "permanent": true}));
     assert_eq!(wire.dock(), vec![permanent("left", "docked"), None, None]);
 
-    refused_permanent(&wire.send(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": false})));
-    refused_permanent(&wire.send(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "right"})));
-    refused_permanent(&wire.send(json!({"cmd": "set-column-dock", "pane": panes[1], "dock": true, "edge": "left"})));
+    refused_permanent(
+        &wire.send(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": false})),
+    );
+    refused_permanent(
+        &wire.send(
+            json!({"cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "right"}),
+        ),
+    );
+    refused_permanent(
+        &wire.send(
+            json!({"cmd": "set-column-dock", "pane": panes[1], "dock": true, "edge": "left"}),
+        ),
+    );
     assert_eq!(wire.dock(), vec![permanent("left", "docked"), None, None]);
 
     // The mode may change; an omitted `permanent` keeps the column permanent.

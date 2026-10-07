@@ -1597,7 +1597,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "aca2af5afc0731218eea717d8ca5614fe3ac6a6e624fc8c6e26b60f7eacf760f",
+      "sha256": "461a76e3d726fb498b71b1c9b9bbec6a462fbc2a468f03d687d48ef0105b9652",
       "size": 5749
     },
     {
@@ -2017,8 +2017,8 @@
     },
     {
       "path": "SetColumnDockRequest.java",
-      "sha256": "8110d72b99f26ad724f9487deb0e1d69f7ac882265ba21a8dfdc3eeff0a0d960",
-      "size": 4515
+      "sha256": "5283e1c08db031a31a85d0921285088228aaadac9302a42296584f423c6ba2ef",
+      "size": 5209
     },
     {
       "path": "SetDefaultColorsRequest.java",
@@ -2772,7 +2772,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e",
+  "ir_sha256": "cec6aa954cc0d202e14fe945bfbac29b8eb4d5468a899a90d267725dbfd8b40e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

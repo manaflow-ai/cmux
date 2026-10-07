@@ -3608,6 +3608,15 @@ impl Mux {
         if let Some(delta) = &mut delta {
             delta.workspace_revision = None;
         }
+        // `permanent-dock-v1`: a user close never removes a permanent column (a terminal
+        // that exited still closes; closing the whole workspace is no removal).
+        if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
+            crate::mux::ensure_permanent_columns_kept(
+                &operation_name(operation),
+                &crate::mux::permanent_columns(state),
+                &projected,
+            )?;
+        }
         Ok(ResourceClosePlan {
             state: projected,
             removed,

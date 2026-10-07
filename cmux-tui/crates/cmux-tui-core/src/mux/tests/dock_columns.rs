@@ -91,7 +91,10 @@ fn dock_column_registry_record_is_additive() {
     let mut with_dock = old;
     with_dock["dock"] = serde_json::json!({"edge": "right", "mode": "docked"});
     let column: RegistryViewportColumn = serde_json::from_value(with_dock.clone()).unwrap();
-    assert_eq!(column.dock, Some(ColumnDock { edge: DockEdge::Right, mode: DockMode::Docked, permanent: false }));
+    assert_eq!(
+        column.dock,
+        Some(ColumnDock { edge: DockEdge::Right, mode: DockMode::Docked, permanent: false })
+    );
     assert_eq!(serde_json::to_value(&column).unwrap(), with_dock);
 }
 
