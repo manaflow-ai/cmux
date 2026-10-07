@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Mesh proof launcher (M1c cx-0op.3, M2 cx-0op.4, M3 cx-0op.5). Runs e2e.ts (or the script
-# named by the second argument, e.g. m3.ts) on cmux-lawrence-2 (userspace only,
+# Mesh proof launcher (M1c cx-0op.3, M2 cx-0op.4, M3 cx-0op.5, M4 cx-0op.6). Runs e2e.ts (or the script
+# named by the second argument, e.g. m3.ts or m4.ts) on cmux-lawrence-2 (userspace only,
 # no sudo). The provider key file is never read here: the shell redirects it
 # into ssh's stdin, and e2e.ts holds it in memory only.
-#   workers/cmux-vm/mesh/e2e/run-m1.sh <exact feat-cmux-next sha> [e2e.ts|m3.ts]
+#   workers/cmux-vm/mesh/e2e/run-m1.sh <exact feat-cmux-next sha> [e2e.ts|m3.ts|m4.ts]
 set -euo pipefail
 SHA="${1:?exact commit sha}"
 SCRIPT="${2:-e2e.ts}"
-case "$SCRIPT" in e2e.ts|m3.ts) ;; *) echo "unknown proof script $SCRIPT" >&2; exit 2 ;; esac
+case "$SCRIPT" in e2e.ts|m3.ts|m4.ts) ;; *) echo "unknown proof script $SCRIPT" >&2; exit 2 ;; esac
 HOST="${MESH_HOST:-cmux-lawrence-2}"
 KEY_FILE="${MESH_KEY_FILE:-$HOME/.secrets/freestyle-cmux-next-dev-20261004.key}"
 HERE="$(cd "$(dirname "$0")" && pwd)"

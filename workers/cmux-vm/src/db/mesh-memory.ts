@@ -57,6 +57,8 @@ export function makeMemoryMeshStore() {
       }),
     listDevicesCreatedBy: (tenantId, createdBy) =>
       Effect.sync(() => devices.filter((row) => row.tenantId === tenantId && row.createdBy === createdBy && row.deletedAt === null)),
+    listTenantsWithDevicesCreatedBy: (createdBy) =>
+      Effect.sync(() => [...new Set(devices.filter((row) => row.createdBy === createdBy && row.deletedAt === null).map((row) => row.tenantId))].sort().map((id) => TenantId.make(id))),
     updateDeviceKey: (tenantId, deviceId, wgPublicKey, _at) =>
       Effect.sync(() => {
         const index = devices.findIndex((row) => row.tenantId === tenantId && row.deviceId === deviceId && row.deletedAt === null);

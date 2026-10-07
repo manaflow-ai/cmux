@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import Mock
 import xml.etree.ElementTree as ET
 
@@ -163,7 +164,25 @@ class CollectionTests(unittest.TestCase):
     def github(self, responses):
         github = Mock(repo=REPO)
         github.rest.side_effect = responses
+        github.graphql.side_effect = self.route(github)
         return github
+
+    def route(self, github, inner=None):
+        """Answer association queries from the test, and the follow-up
+        pullRequest(number:) detail queries from the PRs those returned."""
+        seen = {}
+
+        def call(query):
+            numbers = re.findall(r"(p\d+): pullRequest\(number: (\d+)\)", query)
+            if numbers:
+                return {alias: seen[int(number)] for alias, number in numbers}
+            result = inner(query) if inner else github.graphql.return_value
+            for obj in result.values():
+                for pr in ((obj or {}).get("associatedPullRequests") or {}).get("nodes", []):
+                    seen[pr["number"]] = pr
+            return result
+
+        return call
 
     def associations(self, *prs, more=False):
         return {"associatedPullRequests": {"pageInfo": {"hasNextPage": more}, "nodes": list(prs)}}
@@ -184,7 +203,10 @@ class CollectionTests(unittest.TestCase):
         }
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         github.rest.assert_called_once_with(f"compare/{BASE}...{HEAD}?per_page=100&page=1")
-        query = github.graphql.call_args.args[0]
+        query = github.graphql.call_args_list[0].args[0]
+        # Membership is read cheaply; titles, labels and files only for kept PRs.
+        self.assertNotIn("files(first", query)
+        self.assertIn("pullRequest(number: 10)", github.graphql.call_args_list[-1].args[0])
         self.assertIn(first, query)
         self.assertIn(second, query)
 
@@ -213,9 +235,9 @@ class CollectionTests(unittest.TestCase):
             return {alias: self.associations(expected) if sha == shas[-1] else self.associations()
                     for alias, sha in objects}
 
-        github.graphql.side_effect = graphql
+        github.graphql.side_effect = self.route(github, graphql)
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 2)
+        self.assertEqual(github.graphql.call_count, 3)
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
@@ -264,11 +286,47 @@ class CollectionTests(unittest.TestCase):
             return {"c0": {"associatedPullRequests": {
                 "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [expected]}}}
 
-        github.graphql.side_effect = graphql
+        github.graphql.side_effect = self.route(github, graphql)
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         self.assertEqual(len(calls), 3)
         self.assertIn(sha, calls[1])
         self.assertIn("first: 100", calls[1])
+
+    def test_timed_out_batch_is_split_until_github_answers(self):
+        # nightly-next run 37593192286: a 25-commit association batch returned
+        # HTTP 504 and failed the publish. A transient 5xx splits the batch.
+        shas = [f"{number:040x}" for number in range(1, 5)]
+        github = self.github([{"status": "ahead", "total_commits": len(shas),
+                               "commits": [{"sha": sha} for sha in shas]}])
+        expected = self.merged(10, shas[-1])
+
+        def graphql(query):
+            objects = re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query)
+            if len(objects) > 1:
+                raise NOTES.TransientGitHubError("HTTP 504")
+            alias, sha = objects[0]
+            return {alias: self.associations(expected) if sha == shas[-1] else self.associations()}
+
+        github.graphql.side_effect = self.route(github, graphql)
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
+
+    def test_single_commit_that_keeps_timing_out_fails(self):
+        github = self.github([{"status": "ahead", "total_commits": 1,
+                               "commits": [{"sha": "c" * 40}]}])
+        github.graphql.side_effect = NOTES.TransientGitHubError("HTTP 504")
+        with self.assertRaises(RuntimeError):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
+
+    def test_request_retries_a_transient_server_error(self):
+        responses = iter([(1, "", "gh: HTTP 504"), (0, '{"ok": true}', "")])
+
+        def run(*args, **kwargs):
+            code, out, err = next(responses)
+            return Mock(returncode=code, stdout=out, stderr=err)
+
+        with unittest.mock.patch.object(NOTES.subprocess, "run", side_effect=run), \
+                unittest.mock.patch.object(NOTES.time, "sleep"):
+            self.assertEqual(NOTES.GitHub.request(["graphql"]), {"ok": True})
 
     def test_endless_association_pages_fail_instead_of_looping(self):
         github = self.github([{"status": "ahead", "total_commits": 1,

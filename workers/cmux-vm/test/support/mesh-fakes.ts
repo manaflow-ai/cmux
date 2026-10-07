@@ -47,9 +47,17 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; tunnelCreateStatus: number | null; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
+  const state: {
+    mintKey: boolean;
+    tunnelCreateStatus: number | null;
+    tunnelDeleteStatus: number | null;
+    ruleCreateStatus: number | null;
+    ruleCreates: number;
+    rotations: number;
+  } = {
     mintKey: false,
     tunnelCreateStatus: null,
+    tunnelDeleteStatus: null,
     ruleCreateStatus: null,
     ruleCreates: 0,
     rotations: 0,
@@ -159,6 +167,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       if (tunnel === undefined) return json({ message: "not found" }, 404);
       if (method === "GET") return json(tunnelBody(tunnel, ""));
       if (method === "DELETE") {
+        if (state.tunnelDeleteStatus !== null) return json({ message: "injected failure" }, state.tunnelDeleteStatus);
         tunnels.delete(id);
         // Rules naming a deleted tunnel go with it.
         for (const [ruleId, rule] of rules) if (rule.source["tunnelId"] === id || rule.destination["tunnelId"] === id) rules.delete(ruleId);
@@ -239,6 +248,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     /** Tunnel creates answer `status` (null: normal). */
     failTunnelCreates(status: number | null) {
       state.tunnelCreateStatus = status;
+    },
+    /** Tunnel deletes answer `status` (null: normal). */
+    failTunnelDeletes(status: number | null) {
+      state.tunnelDeleteStatus = status;
     },
     /** Rule creates answer `status` (null: normal). */
     failRuleCreates(status: number | null) {
