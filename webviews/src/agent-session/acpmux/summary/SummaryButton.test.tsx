@@ -79,7 +79,7 @@ test("the button opens the summary, focuses its first link, and Escape returns f
   await act(async () => button.click());
   expect(button.getAttribute("aria-expanded")).toBe("true");
   // The Codex app's three sections first, always; pull requests and wakeups after, when there are any.
-  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources", "Pull requests"]);
+  expect(titles(popover()!)).toEqual(["Changes", "Subagents", "Sources", "Pull requests"]);
   const link = popover()!.querySelector<HTMLAnchorElement>("a.acpmux-summary-link")!;
   expect(link.href).toBe("https://github.com/a/b/pull/9");
   expect(link.textContent).toContain("Fix scroll");
@@ -158,7 +158,7 @@ test("following a pull request link closes the summary", async () => {
 test("an empty chat shows the three sections with None, not a sentence", async () => {
   const { button, popover, unmount } = await render([], rows.slice(0, 1));
   await act(async () => button.click());
-  expect(titles(popover()!)).toEqual(["Outputs", "Subagents", "Sources"]);
+  expect(titles(popover()!)).toEqual(["Changes", "Subagents", "Sources"]);
   expect([...popover()!.querySelectorAll(".acpmux-summary-none")].map((node) => node.textContent)).toEqual([
     "None",
     "None",

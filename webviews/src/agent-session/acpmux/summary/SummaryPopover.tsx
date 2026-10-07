@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -9,7 +9,73 @@ import { SummarySection } from "./SummarySection";
 
 const ROW_ICON = rowIconSize(12);
 
-/// The chat's summary, a section per kind of thing it produced. Outputs, Subagents and Sources
+function ChangesSection({
+  files,
+  changes,
+  onOpenChanges,
+  onOpenOutput,
+}: {
+  files: SessionSummary["outputs"];
+  changes?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
+  onOpenOutput?: (path: string) => void;
+}) {
+  const t = useT();
+  const [all, setAll] = useState(false);
+  const totals =
+    changes ??
+    files.reduce(
+      (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+      { additions: 0, deletions: 0 },
+    );
+  return (
+    <section className="acpmux-summary-section" aria-label={t("header.changes")}>
+      <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
+      <ul className="acpmux-summary-list">
+        {onOpenChanges && changes && (
+          <li>
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link"
+              aria-label={t("header.changes")}
+              onClick={onOpenChanges}
+            >
+              <Icon name="diff.file" size={ROW_ICON} row />
+              <span className="acpmux-summary-text">{t("header.changes")}</span>
+              <Counts additions={totals.additions} deletions={totals.deletions} />
+            </button>
+          </li>
+        )}
+        {files.length === 0 && !changes ? (
+          <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
+        ) : (
+          (all ? files : files.slice(0, 5)).map((file) => (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link"
+                title={file.path}
+                disabled={!onOpenOutput}
+                onClick={() => onOpenOutput?.(file.path)}
+              >
+                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{file.displayPath}</span>
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+      {files.length > 5 && (
+        <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>
+          {all ? t("summary.showFewer") : t("summary.viewAll", { n: files.length })}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/// The chat's summary, a section per kind of thing it produced. Changes, Subagents and Sources
 /// always show, in the Codex app's order, with "None" while empty; pull requests and wakeups
 /// follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
@@ -30,25 +96,11 @@ export function SummaryPopover({
   const t = useT();
   return (
     <>
-      <SummarySection
-        title={t("summary.outputs")}
-        fixed
-        items={summary.outputs}
-        row={(file) => (
-          <li key={file.path}>
-            <button
-              type="button"
-              className="acpmux-summary-row acpmux-summary-link"
-              title={file.path}
-              disabled={!onOpenOutput}
-              onClick={() => onOpenOutput?.(file.path)}
-            >
-              <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-summary-text">{file.displayPath}</span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </button>
-          </li>
-        )}
+      <ChangesSection
+        files={summary.outputs}
+        changes={changes}
+        onOpenChanges={onOpenChanges}
+        onOpenOutput={onOpenOutput}
       />
       <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
         <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
@@ -85,25 +137,6 @@ export function SummaryPopover({
           </li>
         )}
       />
-      {changes && (
-        <section className="acpmux-summary-section" aria-label={t("header.changes")}>
-          <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
-          <ul className="acpmux-summary-list">
-            <li>
-              <button
-                type="button"
-                className="acpmux-summary-row acpmux-summary-link"
-                aria-label={t("header.changes")}
-                onClick={onOpenChanges}
-              >
-                <Icon name="diff.file" size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{t("header.changes")}</span>
-                <Counts additions={changes.additions} deletions={changes.deletions} />
-              </button>
-            </li>
-          </ul>
-        </section>
-      )}
       <SummarySection
         title={t("summary.pullRequests")}
         items={summary.pullRequests}
