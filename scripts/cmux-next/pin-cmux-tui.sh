@@ -465,6 +465,27 @@ pull_request_base_key() {
   tree_key "$base_rev"
 }
 
+# The tree key of a pull request's head commit (the merge commit's second parent). A shallow
+# checkout may lack it; fetch just that commit.
+pull_request_head_key() {
+  local head="$1"
+  git -C "$repo_root" cat-file -e "$head^{commit}" 2>/dev/null \
+    || git -C "$repo_root" fetch -q --depth=1 origin "$head" 2>/dev/null || return 1
+  tree_key "$head"
+}
+
+# The key fetch uses: this checkout's, or on a pull request the head tree the probe chose
+# (CMUX_TUI_TREE_KEY), accepted only when it is exactly the PR head's own key.
+checkout_tree_key() {
+  local key wanted="${CMUX_TUI_TREE_KEY:-}" head="${CMUX_TUI_TREE_HEAD_SHA:-}"
+  key="$(tree_key HEAD)"
+  if [[ -n "$wanted" && "$wanted" != "$key" && "${GITHUB_EVENT_NAME:-}" == pull_request && "$head" =~ ^[0-9a-f]{40}$ ]] \
+      && [[ "$(pull_request_head_key "$head" 2>/dev/null)" == "$wanted" ]]; then
+    echo "$wanted"; return
+  fi
+  echo "$key"
+}
+
 # On a developer checkout, waiting is pointless when the last commit that
 # changed the binary's inputs is on no remote branch: nothing will publish
 # it. CI and fleet checkouts may lack remote-tracking refs, so they wait.
@@ -563,8 +584,12 @@ fetch_tree_companions() {
 }
 
 fetch_tree() {
-  local key base_key wait_key dir binary url actual temp_dir
-  key="$(tree_key HEAD)"
+  local key base_key wait_key dir binary url actual temp_dir legacy_rev=HEAD
+  key="$(checkout_tree_key)"
+  if [[ "$key" != "$(tree_key HEAD)" ]]; then
+    legacy_rev="$CMUX_TUI_TREE_HEAD_SHA"
+    echo "pull-request cmux-tui: nothing publishes the merge tree; using the PR head's tree $key (the probe's choice)" >&2
+  fi
   if local_build_matches "${CMUX_TUI_CLIENT_LOCAL:-}"; then
     echo "same-tree cmux-tui $key: using the local build of this source, $CMUX_TUI_CLIENT_LOCAL"
     return 0
@@ -596,7 +621,7 @@ fetch_tree() {
       echo "pull-request cmux-tui tree $key differs from base tree $base_key; waiting for its own publication (bounded)" >&2
     fi
   fi
-  wait_for_tree "$wait_key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
+  wait_for_tree "$wait_key" "$temp_dir/sha256" "$(legacy_tree_key "$legacy_rev")"
   if [[ "$published_key" != "$key" ]]; then
     echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/cmux-tui-$TARGET"
@@ -734,8 +759,20 @@ probe_checkout_tree() {
     sleep "$recheck"
     state="$(probe_state)"
   fi
+  # GitHub runs pull_request_target workflows only from the default branch, so cmux-tui artifacts
+  # never builds a pull request's merge commit. When nothing publishes the merge tree, test the PR
+  # head's tree if a cmux-tui-pin-* push published it (fetch accepts that key, and no other).
+  local head="${CMUX_TUI_TREE_HEAD_SHA:-}" head_key="" merge_key=""
+  if [[ "$state" != ready && "$state" != active && "${GITHUB_EVENT_NAME:-}" == pull_request && "$head" =~ ^[0-9a-f]{40}$ ]]; then
+    head_key="$(pull_request_head_key "$head" || true)"
+    if [[ -n "$head_key" && "$head_key" != "$key" ]] && tree_published "$head_key" "$(legacy_tree_key "$head")"; then
+      merge_key="$key"; key="$head_key"; state=head
+    fi
+  fi
   case "$state" in
     ready) reason="published" ;;
+    head) state=ready
+      reason="nothing publishes the merge tree $merge_key (pull_request_target runs only from the default branch); the PR head $head's tree $key is published, so the tree jobs test it" ;;
     active) state=deferred
       reason="an active cmux-tui artifacts run (${source#*:}) publishes tree $key; its publish starts the tree jobs" ;;
     ended\ *)
