@@ -30,6 +30,7 @@ connected with, so they resolve from the same network path.
 | `duplicateRate` | 0.02 | each `event` notification is sent twice |
 | `disconnectEverySeconds` | 240 | each socket is dropped at a jittered 0.5x to 1.5x interval; 0 disables |
 | `botIntervalScale` | 1 | multiplies bot pacing (typing, replies, tapbacks); large values silence bots |
+| `scheduledFailRate` | 0 | a due Send Later message becomes `failed` instead of sending |
 
 ## Pressure CLI
 

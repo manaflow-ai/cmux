@@ -119,6 +119,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// Send Later: when the server will send this message. Set only while it
+    /// waits (no seq yet); the sent message that replaces it carries none.
+    public var scheduledAt: Date?
 
     public init(
         id: String,
@@ -132,7 +135,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         editedAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        scheduledAt: Date? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -146,7 +150,11 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.scheduledAt = scheduledAt
     }
+
+    /// A Send Later message still waiting on the server (or failed to send).
+    public var isScheduled: Bool { scheduledAt != nil && seq == nil }
 
     /// Identity that survives the pending to acknowledged transition, so the
     /// row a sender sees never re-inserts when the server echo arrives.

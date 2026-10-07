@@ -10,6 +10,10 @@ public enum ConversationBackendEvent: Sendable {
     /// Duplicates are possible; the store dedupes on `eventSeq`.
     case message(ConversationMessage, eventSeq: Int)
     case typing(participantID: String, isTyping: Bool)
+    /// A Send Later message left the queue: cancelled, or sent (its sent
+    /// message arrives as `.message` with the same client id). Scheduled
+    /// messages themselves arrive as `.message` with `scheduledAt` set.
+    case scheduledRemoved(id: String, clientMessageID: String?, eventSeq: Int)
     case disconnected(reason: String)
 }
 
@@ -42,4 +46,34 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment
     func close()
+
+    // MARK: Send Later (defaults throw: a backend without server-side scheduling)
+
+    /// Every waiting or failed Send Later message, earliest first.
+    func scheduledMessages() async throws -> [ConversationMessage]
+    /// Queues a message for the server to send at `date`. Idempotent on the client id.
+    func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage
+    /// Moves a waiting (or failed) message to a new time.
+    func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage
+    func cancelScheduled(scheduledID: String) async throws
+    /// Sends a waiting (or failed) message now; returns the sent message.
+    func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage
+}
+
+public extension ConversationBackend {
+    static var sendLaterUnsupported: ConversationBackendError {
+        ConversationBackendError(code: -32601, message: "send later unsupported")
+    }
+
+    func scheduledMessages() async throws -> [ConversationMessage] { [] }
+    func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage {
+        throw Self.sendLaterUnsupported
+    }
+    func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage {
+        throw Self.sendLaterUnsupported
+    }
+    func cancelScheduled(scheduledID: String) async throws { throw Self.sendLaterUnsupported }
+    func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage {
+        throw Self.sendLaterUnsupported
+    }
 }

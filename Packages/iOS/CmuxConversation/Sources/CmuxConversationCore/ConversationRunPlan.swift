@@ -41,9 +41,18 @@ public struct ConversationRunPlan: Sendable, Equatable {
         }
         var entries: [Entry] = []
         entries.reserveCapacity(messages.count)
+        // Send Later messages trail the transcript, each its own tailed bubble
+        // under a "Send Later" header the renderer draws; the history above
+        // groups as if they were not there.
+        let firstScheduled = messages.firstIndex(where: \.isScheduled) ?? messages.count
         for (index, message) in messages.enumerated() {
+            if index >= firstScheduled {
+                let failed = message.delivery?.isFailed == true
+                entries.append(Entry(showsTimestamp: false, isFirstInRun: true, isLastInRun: true, status: failed ? .notDelivered : .none))
+                continue
+            }
             let previous = index > 0 ? messages[index - 1] : nil
-            let next = index + 1 < messages.count ? messages[index + 1] : nil
+            let next = index + 1 < firstScheduled ? messages[index + 1] : nil
             let showsTimestamp = previous.map { message.sentAt.timeIntervalSince($0.sentAt) >= Self.timestampGap } ?? true
             let firstInRun = showsTimestamp || !(previous.map { Self.sameRun($0, message) } ?? false)
             let lastInRun: Bool = {

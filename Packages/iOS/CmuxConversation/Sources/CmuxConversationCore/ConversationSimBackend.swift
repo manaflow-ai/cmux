@@ -73,6 +73,41 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         Task { await core.close() }
     }
 
+    // MARK: Send Later
+
+    public func scheduledMessages() async throws -> [ConversationMessage] {
+        let result = try await core.request("scheduled", params: JSONBox([:]), timeout: .seconds(15)).value
+        let base = await core.httpBase
+        return (result["scheduled"] as? [[String: Any]] ?? []).compactMap { WireDecoding.scheduled($0, base: base) }
+    }
+
+    public func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage {
+        var params: [String: Any] = [
+            "clientMessageId": draft.clientMessageID,
+            "text": draft.text,
+            "scheduledAt": WireDecoding.milliseconds(date),
+        ]
+        if let replyTo = draft.replyToID { params["replyToId"] = replyTo }
+        if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
+        let result = try await core.request("scheduleSend", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeScheduled(JSONBox(result["scheduled"] as? [String: Any] ?? [:]))
+    }
+
+    public func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage {
+        let params: [String: Any] = ["id": scheduledID, "scheduledAt": WireDecoding.milliseconds(date)]
+        let result = try await core.request("reschedule", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeScheduled(JSONBox(result["scheduled"] as? [String: Any] ?? [:]))
+    }
+
+    public func cancelScheduled(scheduledID: String) async throws {
+        _ = try await core.request("cancelScheduled", params: JSONBox(["id": scheduledID]), timeout: .seconds(15))
+    }
+
+    public func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage {
+        let result = try await core.request("sendScheduledNow", params: JSONBox(["id": scheduledID]), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
     // MARK: -
 
     actor Core {
@@ -194,8 +229,21 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             let params = object["params"] as? [String: Any] ?? [:]
             switch method {
             case "event":
-                guard let eventSeq = params["eventSeq"] as? Int,
-                      let raw = params["message"] as? [String: Any],
+                guard let eventSeq = params["eventSeq"] as? Int else { return }
+                if let kind = params["kind"] as? String, kind.hasPrefix("scheduled.") {
+                    if let last = lastEventSeq, eventSeq <= last { return }
+                    if kind == "scheduled.upserted" {
+                        guard let raw = params["scheduled"] as? [String: Any],
+                              let scheduled = WireDecoding.scheduled(raw, base: httpBase) else { return }
+                        lastEventSeq = eventSeq
+                        continuation?.yield(.message(scheduled, eventSeq: eventSeq))
+                    } else if kind == "scheduled.removed", let id = params["id"] as? String {
+                        lastEventSeq = eventSeq
+                        continuation?.yield(.scheduledRemoved(id: id, clientMessageID: params["clientMessageId"] as? String, eventSeq: eventSeq))
+                    }
+                    return
+                }
+                guard let raw = params["message"] as? [String: Any],
                       let message = WireDecoding.message(raw, base: httpBase) else { return }
                 if let last = lastEventSeq, eventSeq <= last { return }
                 lastEventSeq = eventSeq
@@ -252,6 +300,13 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             let waiters = pending
             pending = [:]
             waiters.values.forEach { $0.resume(throwing: error) }
+        }
+
+        func decodeScheduled(_ raw: JSONBox) throws -> ConversationMessage {
+            guard let message = WireDecoding.scheduled(raw.value, base: httpBase) else {
+                throw ConversationBackendError(code: -4, message: "bad scheduled message")
+            }
+            return message
         }
 
         func decodeMessage(_ raw: JSONBox) throws -> ConversationMessage {
@@ -320,6 +375,30 @@ enum WireDecoding {
             attachments: attachments,
             delivery: delivery
         )
+    }
+
+    /// A Send Later entry: no seq, `scheduledAt` set, `.sent` while waiting
+    /// (the server holds it) and `.failed` once it will not send.
+    static func scheduled(_ raw: [String: Any], base: URL) -> ConversationMessage? {
+        guard let id = raw["id"] as? String, let senderID = raw["senderId"] as? String,
+              let scheduledAt = date(raw["scheduledAt"]) else { return nil }
+        let failed = raw["state"] as? String == "failed"
+        return ConversationMessage(
+            id: id,
+            seq: nil,
+            clientMessageID: raw["clientMessageId"] as? String,
+            senderID: senderID,
+            sentAt: date(raw["createdAt"]) ?? Date(),
+            text: raw["text"] as? String ?? "",
+            replyToID: raw["replyToId"] as? String,
+            attachments: (raw["attachments"] as? [[String: Any]] ?? []).compactMap { attachment($0, base: base) },
+            delivery: failed ? .failed(raw["error"] as? String ?? "not delivered") : .sent,
+            scheduledAt: scheduledAt
+        )
+    }
+
+    static func milliseconds(_ date: Date) -> Int {
+        Int((date.timeIntervalSince1970 * 1000).rounded())
     }
 
     static func attachment(_ raw: [String: Any], base: URL) -> ConversationAttachment? {
