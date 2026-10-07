@@ -408,6 +408,8 @@ test("the project pill changes the cwd used by a new agent chat", async () => {
     ),
   );
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
+  expect(container.querySelectorAll(".acpmux-project-badge")).toHaveLength(2);
+  expect(container.querySelectorAll(".acpmux-project-check")[0]?.textContent).toBe("✓");
   const web = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find(
     (node) => node.textContent === "web",
   );

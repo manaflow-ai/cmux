@@ -1,10 +1,26 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
-import { useUiAnchor } from "../../ui/anchor";
+import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "./popoverTrigger";
 
 export type Project = { cwd: string; label: string };
+
+const BADGE_COLORS = [
+  "var(--agent-ansi-4, #58a6ff)",
+  "var(--agent-ansi-5, #bf7af0)",
+  "var(--agent-ansi-6, #f2c94c)",
+  "var(--agent-ansi-2, #32d74b)",
+  "var(--agent-ansi-3, #ff9f0a)",
+] as const;
+
+function projectBadge(project: Project): { label: string; color: string } {
+  const words = project.label.trim().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const label = (words.length > 1 ? words.map((word) => word[0]).join("") : project.label.trim()).slice(0, 2);
+  let hash = 0;
+  for (const character of project.cwd) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return { label: (label || "?").toUpperCase(), color: BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length]! };
+}
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
 /// projects the user has chats in, newest first. Picking one other than the current
@@ -30,12 +46,10 @@ export function ProjectChooser({
   const [query, setQuery] = useState("");
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
   const [active, setActive] = useState<string | undefined>(undefined);
-  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -73,18 +87,7 @@ export function ProjectChooser({
   };
 
   useEffect(() => {
-    if (!open) return;
-    search.current?.focus();
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      window.removeEventListener("blur", blur);
-    };
+    if (open) search.current?.focus();
   }, [open]);
 
   const keyDown = (event: React.KeyboardEvent) => {
@@ -103,13 +106,7 @@ export function ProjectChooser({
   };
 
   return (
-    <span
-      ref={root}
-      className="acpmux-picker acpmux-project"
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
+    <span className="acpmux-picker acpmux-project">
       <button
         ref={trigger}
         type="button"
@@ -125,8 +122,17 @@ export function ProjectChooser({
         <span>{currentLabel ?? t("project.choose")}</span>
         <ChevronIcon />
       </button>
-      {open && (
-        <div ref={menu} className="acpmux-menu acpmux-menu-start acpmux-project-menu" style={menuStyle}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => (next ? show() : close(true))}
+        anchor={open ? trigger.current : null}
+        label={t("project.label")}
+        className="acpmux-menu acpmux-project-menu"
+        side="top"
+        initialFocus={search}
+        finalFocus={trigger}
+      >
+        <div ref={menu}>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
@@ -175,10 +181,13 @@ export function ProjectChooser({
                   pick(project);
                 }}
               >
-                {icon}
+                <ProjectBadge project={project} />
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{project.label}</span>
                   <span className="acpmux-menu-description" data-path={project.cwd} />
+                </span>
+                <span className="acpmux-project-check" aria-hidden="true">
+                  {project.cwd === current ? "✓" : ""}
                 </span>
               </div>
             ))}
@@ -213,7 +222,16 @@ export function ProjectChooser({
             </button>
           )}
         </div>
-      )}
+      </Popover>
+    </span>
+  );
+}
+
+function ProjectBadge({ project }: { project: Project }) {
+  const badge = projectBadge(project);
+  return (
+    <span className="acpmux-project-badge" style={{ "--acpmux-project-badge": badge.color } as React.CSSProperties} aria-hidden="true">
+      {badge.label}
     </span>
   );
 }
