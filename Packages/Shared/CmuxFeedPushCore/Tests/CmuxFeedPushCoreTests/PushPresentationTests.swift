@@ -71,6 +71,16 @@ import Testing
         #expect(PushPresentation.shortened(emoji, to: 80).count == 80)
     }
 
+    @Test func theOwnersKindWins() {
+        var prefs = NotificationPreferences()
+        prefs.set(.terminalAlert, enabled: false)
+        // A system notice about a terminal: the table alone would say finished.
+        let result = present(PushContent(title: "Bell", category: "FEED_NOTICE"),
+                             ["feed_item": "fi_1", "type": "notice", "kind": "notice", "notify_kind": "terminalAlert"], prefs: prefs)
+        #expect(result.kind == .terminalAlert)
+        #expect(result.outcome == .silenced)
+    }
+
     @Test func notificationKindsMatchTheOwnersTable() {
         #expect(NotificationKind(feedKind: "approve", type: "request", category: nil) == .permission)
         for kind in ["question", "choice", "confirm", "input", "file"] {

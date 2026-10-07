@@ -29,7 +29,8 @@ public struct PushPresentation: Hashable, Sendable {
         if let payload, FeedPushCategory(rawValue: content.category) == nil, let category = payload.resolvedCategory {
             content.category = category.rawValue
         }
-        let kind = NotificationKind(feedKind: payload?.kind, type: payload?.type, category: content.category)
+        // The owner names the kind; the table is the fallback for older owners.
+        let kind = payload?.notifyKind ?? NotificationKind(feedKind: payload?.kind, type: payload?.type, category: content.category)
         self.kind = kind
         content.title = Self.shortened(content.title, to: Self.titleLimit)
         content.subtitle = Self.shortened(content.subtitle, to: Self.subtitleLimit)

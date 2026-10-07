@@ -1,7 +1,7 @@
 import Foundation
 
 /// The parts of a feed push the app reads: `cmux.feed_item`, `kind`, `type`,
-/// `scopes`, `subject`, `expires_at` and `aps.category`. Mail pushes carry no
+/// `scopes`, `subject`, `expires_at`, `notify_kind` and `aps.category`. Mail pushes carry no
 /// content (only the item id).
 public struct FeedPushPayload: Hashable, Sendable {
     public var item: String
@@ -14,9 +14,11 @@ public struct FeedPushPayload: Hashable, Sendable {
     public var subject: String?
     /// When the item stops mattering (owner clock, unix ms).
     public var expiresAt: Date?
+    /// The owner's preference kind for the item (`cmux.notify_kind`).
+    public var notifyKind: NotificationKind?
 
     public init(item: String, kind: String? = nil, type: String? = nil, category: FeedPushCategory? = nil,
-                scopes: [String] = [], subject: String? = nil, expiresAt: Date? = nil) {
+                scopes: [String] = [], subject: String? = nil, expiresAt: Date? = nil, notifyKind: NotificationKind? = nil) {
         self.item = item
         self.kind = kind
         self.type = type
@@ -24,6 +26,7 @@ public struct FeedPushPayload: Hashable, Sendable {
         self.scopes = scopes
         self.subject = subject
         self.expiresAt = expiresAt
+        self.notifyKind = notifyKind
     }
 
     /// Owner item ids: a lowercase prefix, "_", then letters and digits (at most 80 characters).
@@ -45,6 +48,7 @@ public struct FeedPushPayload: Hashable, Sendable {
         scopes = ((cmux["scopes"] as? [Any]) ?? []).compactMap { $0 as? String }
         subject = cmux["subject"] as? String
         expiresAt = (cmux["expires_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        notifyKind = (cmux["notify_kind"] as? String).flatMap(NotificationKind.init(rawValue:))
         let aps = userInfo["aps"] as? [String: Any]
         category = (aps?["category"] as? String).flatMap(FeedPushCategory.init(rawValue:))
     }
