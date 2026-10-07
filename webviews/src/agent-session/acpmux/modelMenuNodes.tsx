@@ -179,7 +179,7 @@ export function folded<T>(
 /// fails seconds later; one whose switch just failed says so (`harnessNotes`). Resting on an
 /// available one sends the prewarm hint; picking it switches.
 export function harnessNode(
-  harness: ModelPickerProps["catalog"][number],
+  harness: { id: string; name: string; unavailable?: string },
   props: ModelPickerProps,
   t: Translate,
   section?: string,
@@ -188,31 +188,9 @@ export function harnessNode(
     key: `harness:${harness.id}`,
     label: harness.name,
     icon: <AgentMark agent={harness.id} size={14} />,
-    // The chat folder's own profiles stand in a group of their own.
-    section: harness.folder ? t("picker.thisFolder") : section,
+    section,
     checked: harness.id === props.harness,
   };
-  const profile = harness.folder;
-  // A folder profile waiting for Enable asks for it from the pick (the host shows the
-  // confirmation); one waiting for the folder's Trust answer, or broken, says why and does nothing.
-  if (profile && harness.id !== props.harness && profile.state === "needs-enable")
-    return {
-      ...node,
-      detail: t("picker.enableHarness"),
-      run: () => props.onHarnessEnable?.(profile.folder, harness.id),
-    };
-  if (profile && harness.id !== props.harness && (profile.state === "needs-trust" || profile.state === "error"))
-    return {
-      ...node,
-      detail: t(profile.state === "needs-trust" ? "picker.needsTrust" : "picker.unavailable"),
-      children: [
-        {
-          key: `harness:${harness.id}:reason`,
-          label:
-            profile.state === "needs-trust" ? t("picker.trustFirst") : (profile.diagnostic ?? t("picker.unavailable")),
-        },
-      ],
-    };
   if (harness.unavailable && harness.id !== props.harness)
     return {
       ...node,
