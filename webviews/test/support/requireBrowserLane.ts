@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 
 type BrowserLaneOptions = {
-  env?: { CI?: string; CMUX_BROWSER_TESTS?: string };
+  env?: Record<string, string | undefined>;
   report?: (message: string) => void;
   skip?: (name: string) => void;
 };
@@ -16,9 +16,10 @@ export async function requireBrowserLane(
     skip = (name) => describe.skip(name, () => test("browser lane", () => {})),
   }: BrowserLaneOptions = {},
 ): Promise<void> {
-  // Regression baseline: registration currently runs on every host.
-  void env;
-  void report;
-  void skip;
+  if (env.CI !== "true" && env.CMUX_BROWSER_TESTS !== "1") {
+    report("browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)");
+    skip(name);
+    return;
+  }
   await register();
 }

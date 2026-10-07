@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { requireBrowserLane } from "./requireBrowserLane";
 
-const message =
-  "browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)";
+const message = "browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)";
 
 describe("requireBrowserLane", () => {
   for (const env of [
@@ -17,11 +16,21 @@ describe("requireBrowserLane", () => {
       let probes = 0;
       const lines: string[] = [];
       const skipped: string[] = [];
-      await requireBrowserLane("synthetic browser file", () => { probes += 1; }, {
-        env,
-        report: (line) => { lines.push(line); },
-        skip: (name) => { skipped.push(name); },
-      });
+      await requireBrowserLane(
+        "synthetic browser file",
+        () => {
+          probes += 1;
+        },
+        {
+          env,
+          report: (line) => {
+            lines.push(line);
+          },
+          skip: (name) => {
+            skipped.push(name);
+          },
+        },
+      );
       expect(probes).toBe(0);
       expect(lines).toEqual([message]);
       expect(skipped).toEqual(["synthetic browser file"]);
@@ -33,14 +42,22 @@ describe("requireBrowserLane", () => {
       let registered = false;
       const lines: string[] = [];
       const skipped: string[] = [];
-      await requireBrowserLane("synthetic browser file", async () => {
-        await Promise.resolve();
-        registered = true;
-      }, {
-        env,
-        report: (line) => { lines.push(line); },
-        skip: (name) => { skipped.push(name); },
-      });
+      await requireBrowserLane(
+        "synthetic browser file",
+        async () => {
+          await Promise.resolve();
+          registered = true;
+        },
+        {
+          env,
+          report: (line) => {
+            lines.push(line);
+          },
+          skip: (name) => {
+            skipped.push(name);
+          },
+        },
+      );
       expect(registered).toBe(true);
       expect(lines).toEqual([]);
       expect(skipped).toEqual([]);
@@ -48,8 +65,14 @@ describe("requireBrowserLane", () => {
   }
 
   test("propagates registration failures in an authorized lane", async () => {
-    await expect(requireBrowserLane("failure", async () => {
-      throw new Error("registration failed");
-    }, { env: { CI: "true" } })).rejects.toThrow("registration failed");
+    await expect(
+      requireBrowserLane(
+        "failure",
+        async () => {
+          throw new Error("registration failed");
+        },
+        { env: { CI: "true" } },
+      ),
+    ).rejects.toThrow("registration failed");
   });
 });
