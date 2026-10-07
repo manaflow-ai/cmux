@@ -1,6 +1,7 @@
 //! Connecting a remote session: transports, provider authority, and initialization.
 
 use super::*;
+use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
 
 impl RemoteSession {
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
