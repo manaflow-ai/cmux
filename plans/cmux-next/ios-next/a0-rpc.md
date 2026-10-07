@@ -193,8 +193,11 @@ wake a paused VM or a sleeping Mac (`wake` relay frame).
 ### 5.2 workspace (control; owner the Mac workspace store, mirrored by `HostDO`; stream `workspace:<host>`)
 Snapshot state is the host's workspace list with panes and tabs (arrangement only, no scrollback).
 Owner events: `workspace.upsert`, `workspace.remove`, `workspace.tab.upsert`, `workspace.tab.remove`,
-`workspace.status.set` (tab status `idle | running | needs_input | error`, unread count). Client ops:
-`workspace.create`, `workspace.rename`, `workspace.tab.create`, `workspace.tab.close`. Selection and
+`workspace.status.set` (tab status `idle | running | needs_input | error`, unread count),
+`workspace.preview.set` (C5: a tab's preview line, sent only while the host has viewers). Client ops:
+`workspace.create`, `workspace.rename`, `workspace.tab.create`, `workspace.tab.close`, and from C5
+`workspace.close` and `workspace.read` (caps `workspace.close`, `workspace.read`, `workspace.preview`;
+c5-workspaces.md section 2). Selection and
 focus are client view state and never on the wire (OWNERSHIP-PRINCIPLES).
 
 ### 5.3 terminal (stream; owner the Mac session host)

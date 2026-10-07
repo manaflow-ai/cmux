@@ -17,10 +17,13 @@ extension MobileCatalog {
             MobileMessage("workspace.tab.upsert", .owner, .control, .s2c, owner: "mac-workspace-store"),
             MobileMessage("workspace.tab.remove", .owner, .control, .s2c, owner: "mac-workspace-store"),
             MobileMessage("workspace.status.set", .owner, .control, .s2c, owner: "mac-workspace-store"),
+            MobileMessage("workspace.preview.set", .owner, .control, .s2c, owner: "mac-workspace-store"),
             MobileMessage("workspace.create", .op, .control, .c2s, owner: "mac-workspace-store"),
             MobileMessage("workspace.rename", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
             MobileMessage("workspace.tab.create", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
             MobileMessage("workspace.tab.close", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.tab_not_found"]),
+            MobileMessage("workspace.close", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
+            MobileMessage("workspace.read", .op, .control, .c2s, owner: "mac-workspace-store", errors: ["workspace.not_found"]),
         ]),
         MobileFamily("terminal", .stream, owner: "mac-session-host", messages: [
             MobileMessage("terminal", .channel, .stream, .c2s, owner: "mac-session-host", channelClass: .interactive, errors: ["terminal.not_found", "terminal.exited"]),
