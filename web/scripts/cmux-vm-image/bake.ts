@@ -192,6 +192,10 @@ function parkCommand(): string {
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "pkill -f '[_]_terminal-host' || true",
     "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
+    // cmux-tui hosts since 2323e5bdbb76 survive a SIGTERM that is not from PID 1 (host_signals.rs);
+    // the builder's terminals are smoke leftovers whose state is wiped next, so they get SIGKILL.
+    "pkill -KILL -f '[_]_terminal-host' || true",
+    "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
     "! pgrep -f '[_]_terminal-host' >/dev/null",
     `systemctl is-active ${DAEMON_UNIT} >/dev/null`,
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux-tui" "$CMUX_TUI_HOME/.local/state/cmux" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json /etc/cmux/daemon-layout /tmp/cmux-tui-websocket-smoke',
