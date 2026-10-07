@@ -137,6 +137,15 @@ enum ConversationTheme {
         dark: [(64, 156, 255), (52, 153, 255), (37, 150, 255), (22, 148, 255), (0, 145, 255)]
     )
 
+    /// Contacts' monogram for people without a photo (CNAvatarImageRenderer
+    /// on iOS 26.3): a periwinkle gradient, top to bottom, the same in dark
+    /// mode, with white semibold initials at 0.47 of the diameter.
+    static let monogramGradient = [
+        UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1),
+        UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1),
+    ]
+    static let monogramFontScale: CGFloat = 0.472
+
     static let failedBubble = UIColor.systemBlue
 
     static let outgoingText = UIColor.white
