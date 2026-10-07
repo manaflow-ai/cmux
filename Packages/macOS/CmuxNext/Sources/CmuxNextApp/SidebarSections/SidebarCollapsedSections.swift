@@ -16,4 +16,11 @@ struct SidebarCollapsedSections {
     func save(_ ids: Set<LayoutSectionID>) {
         defaults.set(ids.map(\.rawValue).sorted(), forKey: Self.key)
     }
+
+    /// `model` with the saved sections collapsed, saving every later toggle.
+    func restoring(_ model: SidebarModel) -> SidebarModel {
+        model.collapsedLayoutSections = load()
+        model.onCollapsedLayoutSectionsChange = { save($0) }
+        return model
+    }
 }

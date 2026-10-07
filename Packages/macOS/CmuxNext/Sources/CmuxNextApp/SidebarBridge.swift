@@ -10,7 +10,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarModel()
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -41,9 +41,6 @@ final class SidebarBridge {
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
-        let collapsed = SidebarCollapsedSections(defaults: .standard)
-        model.collapsedLayoutSections = collapsed.load()
-        model.onCollapsedLayoutSectionsChange = { collapsed.save($0) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
         model.ungroupedFirst = !services.machines.local.store.supportsPersonalMixedOrder
