@@ -347,6 +347,17 @@ async fn web_starts_asking(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
+    let web = control == crate::hub::Control::Web;
+    if web
+        && m == method::SESSION_NEW
+        && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
+    {
+        return Err(RpcError::invalid_params(
+            "a remote device cannot adopt a local agent session; start a new chat from this device",
+        )
+        .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
+    }
     if m == method::SESSION_NEW
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
@@ -429,6 +440,14 @@ async fn web_starts_asking(
             e.message
         ))
     })?;
+    // D13: a copy of a Claude Code session the Mac started carries its
+    // local state; a remote chain starts fresh.
+    if web
+        && copies
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if sets_mode {
         hub.web_control_check(&s, control)?;
     }
