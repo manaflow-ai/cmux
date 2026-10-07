@@ -55,6 +55,15 @@ export type PasswordsPageVariant = VariantBase & {
   steps?: PageFixtureStep[];
 };
 
+/** Public-safe answers for the agent pane's link/image/browser host calls. */
+export type ChipHostFixture = {
+  paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
+  sites?: Record<string, { icon?: string; title?: string }>;
+  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  images?: Record<string, string | null>;
+  browsers?: { id: string; name: string; icon?: string }[];
+};
+
 /** Common to every variant. */
 type VariantBase = {
   /** One line for the stage header: what the variant shows. */
@@ -74,6 +83,8 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Gallery-only answers for the reply chips and preview card's host calls. */
+  chipHost?: ChipHostFixture;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -194,7 +205,11 @@ export type KeybindingsPageVariant = VariantBase & {
 };
 
 /** A React component with props, for components no page host draws on its own. */
-export type ComponentVariant<P> = VariantBase & { props: P };
+export type ComponentVariant<P> = VariantBase & {
+  props: P;
+  /** Gallery-only answers for the component's reply chip/preview host calls. */
+  chipHost?: ChipHostFixture;
+};
 
 /**
  * A native (Swift) view's variant: the view builder registered under the same id in
