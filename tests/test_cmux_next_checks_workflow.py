@@ -131,6 +131,10 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        # Only there: the macOS swift test job no longer carries a copy.
+        everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
+                      for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
+        self.assertEqual(everywhere, [(JOB, "Check the app FFI pin")])
 
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
