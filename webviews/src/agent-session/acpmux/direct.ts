@@ -1392,11 +1392,14 @@ export class AcpmuxDirectClient {
   /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
+  /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
+    ticket?: string,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1433,7 +1436,7 @@ export class AcpmuxDirectClient {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId } },
+        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
       });
       accept();
     } catch (error) {

@@ -54,7 +54,9 @@ import Synchronization
     }
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
-    public static let ticketLifetime: TimeInterval = 60
+    public nonisolated static let ticketLifetime: TimeInterval = 60
+    /// How long a prompt held for the folder trust answer keeps its send's gesture.
+    public nonisolated static let heldPromptLifetime: TimeInterval = 600
 
     struct Ticket {
         var connection: Int
@@ -71,7 +73,7 @@ import Synchronization
     public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
         guard consume() else { return nil }
         let at = now()
-        tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime
+        tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
             && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
         let ticket = UUID().uuidString
         tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
@@ -88,7 +90,7 @@ import Synchronization
     /// Spends `ticket`; true when it was this connection's, still fresh, and for exactly `pick`.
     public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?) -> Bool {
         guard let held = tickets.removeValue(forKey: ticket) else { return false }
-        return held.connection == connection && now() - held.at <= Self.ticketLifetime && held.intent.matches(pick)
+        return held.connection == connection && now() - held.at <= held.intent.lifetime && held.intent.matches(pick)
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).

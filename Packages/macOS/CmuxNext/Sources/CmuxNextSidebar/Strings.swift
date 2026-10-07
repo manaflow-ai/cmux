@@ -11,6 +11,7 @@ enum Strings {
             String(localized: "sidebar.tabDrop.pinnedArea", defaultValue: "The pinned area holds no new workspace.", bundle: .module)
         }
     }
+    static var back: String { String(localized: "sidebar.footer.back", defaultValue: "Back", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
