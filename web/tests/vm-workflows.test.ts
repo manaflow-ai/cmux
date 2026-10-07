@@ -49,6 +49,7 @@ import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 import {
+  VM_DISK_MB_DEFAULT,
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
@@ -1172,7 +1173,7 @@ describe("VM Effect workflows", () => {
     expect(beginInput?.resourceReservation).toEqual({
       vcpus: 2,
       memoryMb: 4096,
-      diskMb: 32 * 1024,
+      diskMb: VM_DISK_MB_DEFAULT,
     });
     expect(createOptions?.memoryMb).toBe(4096);
     expect(createOptions?.network).toEqual({ id: "vpc-team", memberIngress: true });

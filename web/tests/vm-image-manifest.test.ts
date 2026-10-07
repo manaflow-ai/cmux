@@ -146,7 +146,7 @@ describe("devboxSourceDriftProblems", () => {
       kinds: ["desktop", "base"],
       sizes: [
         { imageId: "sh-x-sm", size: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } },
-        { imageId: "sh-x-md", size: { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 } },
+        { imageId: "sh-x-md", size: { name: "md", cpu: 4, memoryMb: 8192, storageMb: 65536 } },
       ],
     });
     expect(promoted.images).toHaveLength(4);
@@ -276,7 +276,7 @@ describe("promoteImageManifestEntry", () => {
     // suffix, and the provider's previous base defaults are demoted.
     const sizes = [
       { imageId: "sh-x-sm", size: { name: "sm" as const, cpu: 2, memoryMb: 4096, storageMb: 16384 } },
-      { imageId: "sh-x-md", size: { name: "md" as const, cpu: 4, memoryMb: 8192, storageMb: 32768 } },
+      { imageId: "sh-x-md", size: { name: "md" as const, cpu: 4, memoryMb: 8192, storageMb: 65536 } },
     ];
     const withDesktop = promoteImageManifestEntry(base, passedEntry({ version: "freestyle-x" }), { kinds: ["desktop"], sizes });
     const both = promoteImageManifestEntry(withDesktop, passedEntry({ version: "freestyle-x" }), { kinds: ["desktop", "base"], sizes });

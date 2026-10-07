@@ -146,5 +146,5 @@ export function freestyleGuestFixture(options: {
 
 export const guestCreateOptions = {
   image: "sh-synthetic",
-  imageSize: { name: "md", cpu: 2, memoryMb: 8192, storageMb: 32768 },
+  imageSize: { name: "md", cpu: 2, memoryMb: 8192, storageMb: 65536 },
 } as const;
