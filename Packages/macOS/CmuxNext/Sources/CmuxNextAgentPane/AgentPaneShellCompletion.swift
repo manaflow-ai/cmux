@@ -109,10 +109,15 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
                 .appending(path: "cmux-next", directoryHint: .isDirectory)
             if let caches { try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true) }
             let dump = caches?.appending(path: "zcompdump-shell-mode").path ?? "\(home)/.zcompdump-cmux-shell-mode"
-            return ([shell, "-l", "-c", Self.zshDriver, "zsh", line, shell],
-                    ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump])
+            // Do not load the user's login files: completion runs in a disposable shell and
+            // receives its startup directory through ZDOTDIR/HOME.
+            return ([shell, "-d", "-c", Self.zshDriver, "zsh", line, shell],
+                    ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump,
+                     "ZDOTDIR": home, "HOME": home, "HISTFILE": "\(home)/history"])
         case .bash:
-            return ([shell, "-l", "-c", Self.bashScript, "bash", Self.unquoted(word.text), word.commandPosition ? "1" : "0"], [:])
+            return ([shell, "--noprofile", "--rcfile", "\(home)/.bashrc", "-i", "-c", Self.bashScript,
+                     "bash", Self.unquoted(word.text), word.commandPosition ? "1" : "0"],
+                    ["HOME": home, "HISTFILE": "\(home)/history"])
         case .fish:
             return ([shell, "-l", "-c", Self.fishScript, line], [:])
         }

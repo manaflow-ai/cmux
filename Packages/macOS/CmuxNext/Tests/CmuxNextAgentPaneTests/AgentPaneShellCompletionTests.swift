@@ -8,9 +8,8 @@ import Testing
 /// completion runs only after a real gesture in the pane (completion functions run code).
 @MainActor
 @Suite struct AgentPaneShellCompletionTests {
-    /// The shared test deadline: these tests check candidates, not the 4 s app deadline, and a
-    /// loaded fleet Mac (load 56 on aws-m4pro-3) took longer than 4 s to start a login bash.
-    static let timeout: Duration = .seconds(30)
+    /// The outer safety deadline; success comes from the shell's completed output, not this timer.
+    static let timeout: Duration = .seconds(60)
 
     private func folder(_ files: [String] = [], directories: [String] = []) throws -> String {
         let url = FileManager.default.temporaryDirectory.appending(path: "complete-\(UUID().uuidString)")
@@ -19,12 +18,22 @@ import Testing
             try FileManager.default.createDirectory(at: url.appending(path: name), withIntermediateDirectories: true)
         }
         for name in files { try Data().write(to: url.appending(path: name)) }
+        for name in [".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".zshenv", ".zlogin"] {
+            try Data().write(to: url.appending(path: name))
+        }
         guard let real = realpath(url.path, nil) else { return url.path }
         defer { free(real) }
         return String(cString: real)
     }
 
     private func values(_ result: AgentPaneShellCompletion.Result) -> [String] { result.candidates.map(\.value) }
+
+    private func makeCompletion(_ shell: String, cwd: String) -> AgentPaneShellCompletion {
+        AgentPaneShellCompletion(shell: "/bin/\(shell)", environment: [
+            "HOME": cwd, "ZDOTDIR": cwd, "HISTFILE": "\(cwd)/history",
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "TERM": "xterm"
+        ], home: cwd, timeout: Self.timeout)
+    }
 
     /// A test shell must ignore login startup, even when it changes completion or exits early.
     @Test(arguments: ["bash", "zsh"])
@@ -62,8 +71,9 @@ import Testing
     }
 
     @Test func zshCompletesCommandsFromItsOwnCommandTable() async throws {
-        let completion = AgentPaneShellCompletion(shell: "/bin/zsh", timeout: Self.timeout)
-        let result = try await completion.complete("ech", cwd: try folder())
+        let cwd = try folder()
+        let completion = makeCompletion("zsh", cwd: cwd)
+        let result = try await completion.complete("ech", cwd: cwd)
         #expect(result.start == 0)
         #expect(values(result).contains("echo"))
     }
@@ -71,15 +81,16 @@ import Testing
     /// zsh's completion system knows subcommands; a hand-written list would not.
     @Test func zshCompletesSubcommandsThroughItsCompletionSystem() async throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/git") else { return }
-        let completion = AgentPaneShellCompletion(shell: "/bin/zsh", timeout: Self.timeout)
-        let result = try await completion.complete("git chec", cwd: try folder())
+        let cwd = try folder()
+        let completion = makeCompletion("zsh", cwd: cwd)
+        let result = try await completion.complete("git chec", cwd: cwd)
         #expect(result.start == 4)
         #expect(values(result).contains("checkout"))
     }
 
     @Test func zshCompletesFilesInTheChatsFolder() async throws {
         let cwd = try folder(["alpha file.txt", "beta.txt"], directories: ["alps"])
-        let completion = AgentPaneShellCompletion(shell: "/bin/zsh", timeout: Self.timeout)
+        let completion = makeCompletion("zsh", cwd: cwd)
         let result = try await completion.complete("cat al", cwd: cwd)
         #expect(result.start == 4)
         #expect(Set(values(result)) == [#"alpha\ file.txt"#, "alps/"])
@@ -87,7 +98,7 @@ import Testing
 
     @Test func bashCompletesCommandsAndFiles() async throws {
         let cwd = try folder(["alpha.txt"], directories: ["alps"])
-        let completion = AgentPaneShellCompletion(shell: "/bin/bash", timeout: Self.timeout)
+        let completion = makeCompletion("bash", cwd: cwd)
         #expect(values(try await completion.complete("ech", cwd: cwd)).contains("echo"))
         let files = try await completion.complete("cat al", cwd: cwd)
         #expect(files.start == 4)
@@ -95,7 +106,7 @@ import Testing
     }
 
     @Test func aMissingFolderFails() async throws {
-        let completion = AgentPaneShellCompletion(shell: "/bin/zsh", timeout: Self.timeout)
+        let completion = makeCompletion("zsh", cwd: try folder())
         await #expect(throws: AgentPaneShellCompletion.Failure.folderMissing) {
             try await completion.complete("ech", cwd: "/nonexistent-\(UUID().uuidString)")
         }
@@ -116,8 +127,8 @@ import Testing
     /// Completion functions run code (zsh's `_git` runs git), so page script cannot start one.
     @Test func aCompletionRunsOnlyAfterAGestureInThePane() async throws {
         let model = AgentPaneModel(host: MockAgentPaneHost())
-        model.shell.completion = AgentPaneShellCompletion(shell: "/bin/zsh", timeout: Self.timeout)
         let cwd = try folder(["alpha.txt"])
+        model.shell.completion = makeCompletion("zsh", cwd: cwd)
         let refused = await model.respond(to: .shellComplete(line: "cat al", cwd: cwd))
         #expect((refused["error"] as? [String: Any])?["code"] as? String == "shell.gesture_required")
         model.transport.gestures.record()
