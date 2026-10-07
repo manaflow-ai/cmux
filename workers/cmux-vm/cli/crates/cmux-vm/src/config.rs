@@ -113,3 +113,21 @@ fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> 
         .or_else(|| env("HOME").map(|home| PathBuf::from(home).join(".config")))?;
     Some(base.join("cmux").join("vm.json"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn the_default_base_url_is_the_production_cmux_dev_host() {
+        // Only the key is set: no flag, no CMUX_VM_BASE_URL, no config file
+        // (HOME points to a directory without one).
+        let env = |name: &str| match name {
+            "CMUX_VM_API_KEY" => Some("cmuxvm_sk_test".to_owned()),
+            "HOME" => Some("/nonexistent-cmux-vm-home".to_owned()),
+            _ => None,
+        };
+        let settings = Settings::resolve(None, None, None, &env).expect("resolve");
+        assert_eq!(settings.base_url, "https://vm.cmux.dev");
+    }
+}
