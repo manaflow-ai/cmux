@@ -152,7 +152,7 @@ class CmuxNextWiring(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner}
         # path_route (#17164) gates every Mac job; these cases are native changes.
-        context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
+        context["needs"] = {"path_route": {"outputs": {"native": "true", "release": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "daemon": "true", "generated": "true"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "same-tree-cmux-tui": {"result": "success", "outputs": {"superseded": "false"}},

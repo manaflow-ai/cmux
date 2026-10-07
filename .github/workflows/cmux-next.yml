@@ -250,6 +250,7 @@ jobs:
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
+      release: ${{ steps.route.outputs.release }}
       macos: ${{ steps.route.outputs.macos }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
@@ -273,18 +274,21 @@ jobs:
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
+          diff="$RUNNER_TEMP/changes.diff"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
+            git diff --no-renames -U0 HEAD^1 HEAD > "$diff"
             labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
               echo "::warning::could not read the pull request labels; routing on its paths only"
               labels=""
             }
           else
             : > "$changed"
+            : > "$diff"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
-          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" --diff "$diff" \
             --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   macos-placement:
@@ -1084,7 +1088,7 @@ jobs:
 
   release-compile:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    if: ${{ !cancelled() && needs.path_route.outputs.release == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp

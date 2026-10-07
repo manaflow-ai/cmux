@@ -184,9 +184,12 @@ class ReleaseCompileTier(unittest.TestCase):
     """
 
     def test_a_ui_pr_skips_the_release_compile(self):
-        result = tiers(PR_17470)
+        with mock.patch("cmux_next_route.debug_conditional", return_value=False):
+            result = tiers(PR_17470)
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["release"], "false")
+        # The real WindowManager.swift has a DEBUG conditional, so #17470 itself runs it.
+        self.assertEqual(tiers(PR_17470)["release"], "true")
 
     def test_manifests_and_build_settings_run_it(self):
         for path in ("Packages/Shared/CmuxGhosttyKit/Package.swift", f"{PACKAGE}/Package.swift",
@@ -209,8 +212,9 @@ class ReleaseCompileTier(unittest.TestCase):
 
     def test_a_removed_debug_conditional_runs_it(self):
         diff = ["--- a/x.swift", "+++ b/x.swift", "@@ -3,3 +2,0 @@", "-#if DEBUG", "-    log()", "-#endif"]
-        self.assertEqual(tiers(PR_17470, diff=diff)["release"], "true")
-        self.assertEqual(tiers(PR_17470, diff=["+    let debug = true", "-// DEBUG only"])["release"], "false")
+        with mock.patch("cmux_next_route.debug_conditional", return_value=False):
+            self.assertEqual(tiers(PR_17470, diff=diff)["release"], "true")
+            self.assertEqual(tiers(PR_17470, diff=["+    let debug = true", "-// DEBUG only"])["release"], "false")
 
     def test_debug_conditional_reads_the_head_file(self):
         import tempfile
