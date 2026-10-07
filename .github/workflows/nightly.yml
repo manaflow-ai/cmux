@@ -464,10 +464,10 @@ jobs:
   # which publishes from its own push run) to a feat-cmux-next commit. Runs
   # only here on main, in the `release` environment, with the release App (the
   # only bypass actor of the nightly-next ruleset). cmux-next.yml on
-  # feat-cmux-next requests it after a green push run (debounce=true); a person
-  # can Run workflow with the SHA (no debounce). The commit counts only through
-  # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
-  # "cmux-next Release compile (Xcode 26)" job passed.
+  # feat-cmux-next requests it for every push whose Linux checks pass (no
+  # debounce); a person can Run workflow with the SHA. The commit counts only
+  # through a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
+  # "cmux-next checks" job passed; the nightly build is the Release compile gate.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
@@ -503,14 +503,16 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const target = 'nightly-next';
-            const requiredJob = 'cmux-next Release compile (Xcode 26)';
+            // The push run's Linux checks gate the promotion. The nightly build is the Release
+            // compile gate: it compiles Release itself and publishes nothing when that fails.
+            const requiredJob = 'cmux-next checks (god files, concurrency, crash safety, l10n)';
             const sha = (process.env.REQUESTED_SHA || '').trim();
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
               return;
             }
 
-            // A pushed feat-cmux-next head whose push run passed the Release compile.
+            // A pushed feat-cmux-next head whose push run passed the Linux checks.
             const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
             });
