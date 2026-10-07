@@ -118,6 +118,20 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(path, push_paths)
 
+    def test_the_app_ffi_pin_is_checked_on_linux_on_every_run(self):
+        # swift test (macOS) carried this check. A newer push replaces a waiting
+        # swift test and a busy mini refuses its runner, so of 30 tip runs
+        # (2026-10-07 00:20Z to 01:05Z) none reached the step. The checks job
+        # runs on Linux for every push and pull request.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("ubuntu", document["jobs"][JOB]["runs-on"])
+        _, checks, _ = self.split()
+        pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
+        self.assertEqual(len(pin), 1, [step["name"] for step in checks])
+        self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
+        script_tests = next(step for step in checks if step.get("id") == "script-tests")
+        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
         godfile_runs = [step["run"] for step in checks if "check-no-godfiles.sh" in step["run"]]
@@ -197,6 +211,126 @@ class GodfileScopes(unittest.TestCase):
     def test_unknown_scope_is_rejected(self):
         result = self.run_check("--only", "go")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+
+class GodfilePullRequestScope(unittest.TestCase):
+    """`--base REF` fails only on what this change grew: a god file already on the base never blocks
+    an unrelated pull request (acpmux profiles.rs and requests.rs did, 2026-10-07)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.package = self.repo / "Packages/macOS/CmuxNext"
+        (self.package / "Sources/Fixture").mkdir(parents=True)
+        (self.package / "Tests").mkdir()
+        # Over budget on the base, and in no baseline: a 401-line Swift file, a 1001-line type, a
+        # 1001-line Rust file. Plus a Rust file exactly at its budget.
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 401)
+        body = "".join(f"    let field{i} = {i}\n" for i in range(997))
+        (self.package / "Sources/Fixture/Huge.swift").write_text("struct Huge {\n" + body + "}\n")
+        self.rust = self.repo / "cmux-tui/crates/fixture/src"
+        self.rust.mkdir(parents=True)
+        (self.rust / "long.rs").write_text("// x\n" * 1001)
+        (self.rust / "at_budget.rs").write_text("// x\n" * 1000)
+        self.git("init", "-q", "-b", "base")
+        self.commit("base")
+        self.git("tag", "fixture-base")
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message, "--allow-empty")
+
+    def run_check(self, *args: str) -> subprocess.CompletedProcess:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
+                              capture_output=True, text=True, env=env, timeout=120)
+
+    def both(self, *args: str) -> tuple[subprocess.CompletedProcess, subprocess.CompletedProcess]:
+        return self.run_check("--only", "swift", *args), self.run_check("--only", "rust", *args)
+
+    def test_without_a_base_the_base_reds_still_fail(self):
+        swift, rust = self.both()
+        self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
+
+    def test_an_unrelated_change_passes_over_base_reds(self):
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
+        self.commit("unrelated")
+        for result in self.both("--base", "fixture-base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("over budget on the base", result.stdout)
+
+    def test_a_merge_commit_s_first_parent_is_a_base(self):
+        self.git("checkout", "-q", "-b", "lane")
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        self.commit("lane work")
+        self.git("checkout", "-q", "base")
+        self.git("merge", "-q", "--no-ff", "-m", "merge", "lane")
+        for result in self.both("--base", "HEAD^1"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_growing_an_over_budget_file_fails(self):
+        (self.rust / "long.rs").write_text("// x\n" * 1002)
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 402)
+        self.commit("grow")
+        swift, rust = self.both("--base", "fixture-base")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("long.rs has 1002 lines", rust.stdout)
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("Wide.swift has 402 lines", swift.stdout)
+
+    def test_growing_an_over_budget_type_in_another_file_fails(self):
+        (self.package / "Sources/Fixture/HugeMore.swift").write_text("extension Huge {\n    func more() {}\n}\n")
+        self.commit("grow the type")
+        swift, _ = self.both("--base", "fixture-base")
+        self.assertEqual(swift.returncode, 1, swift.stdout)
+        self.assertIn("type Fixture/Huge spans 1002 lines", swift.stdout)
+
+    def test_pushing_a_file_past_its_budget_or_adding_one_fails(self):
+        (self.rust / "at_budget.rs").write_text("// x\n" * 1001)
+        (self.rust / "new.rs").write_text("fn f() {}\n" * 61)
+        self.commit("past budget")
+        _, rust = self.both("--base", "fixture-base")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("at_budget.rs has 1001 lines", rust.stdout)
+        self.assertIn("new.rs has 61 lines, 61 fns", rust.stdout)
+        self.assertNotIn("long.rs has", rust.stdout)
+
+    def test_shrinking_never_fails(self):
+        (self.rust / "long.rs").write_text("// x\n" * 1000)
+        (self.package / "Sources/Fixture/Wide.swift").write_text("let wide = 0\n" * 300)
+        self.commit("shrink")
+        for result in self.both("--base", "fixture-base"):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_unknown_base_runs_the_full_check(self):
+        (self.rust / "small.rs").write_text("fn f() {}\n")
+        self.commit("unrelated")
+        _, rust = self.both("--base", "no-such-ref")
+        self.assertEqual(rust.returncode, 1, rust.stdout)
+        self.assertIn("checking every file", rust.stdout + rust.stderr)
+
+    def test_ci_scopes_pull_requests_to_their_own_growth(self):
+        job = steps()
+        runs = [step["run"] for step in job if "check-no-godfiles.sh" in step.get("run", "")]
+        self.assertEqual(len(runs), 2)
+        for run in runs:
+            self.assertIn("--base HEAD^1", run)
+            self.assertIn("pull_request", run)
+        checkout = next(step for step in job if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        tui = yaml.safe_load((ROOT / ".github/workflows/cmux-tui.yml").read_text(encoding="utf-8"))
+        lint = tui["jobs"]["lint"]["steps"]
+        rust = next(step for step in lint if "check-no-godfiles.sh" in step.get("run", ""))
+        # The exact commit's merge base with feat-cmux-next, from the compare API, fetched alone.
+        self.assertIn("compare/feat-cmux-next...", rust["run"])
+        self.assertIn("merge_base_commit.sha", rust["run"])
+        self.assertIn('--base "$merge_base"', rust["run"])
 
 
 class PathRoutingStructure(unittest.TestCase):

@@ -41,6 +41,9 @@ final class HomeHostView: NSView {
             self?.transcript.avatarText = avatar
         }
         sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
+        sidebar.onShowMemory = { [weak services] in
+            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
+        }
         sidebar.onRename = { [weak service] name in
             guard let connection = service?.connection else { return }
             // task-owner: one op; ends with its reply

@@ -87,6 +87,34 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
+    # like "ask:"; "drift-ask: MODE" changes its own mode to MODE, then asks.
+    # Both let a test change the session between the dispatch and the ask.
+    if text.startswith("gate-ask:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[9:].strip()) as gate:
+            gate.read()
+        text = "ask: gated command"
+    if text.startswith("drift-ask:"):
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[10:].strip()})
+        text = "ask: drifted command"
+    # "ask-always: X" asks with an "allow always" option (a lasting grant).
+    if text.startswith("ask-always:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "t1", "title": text[11:].strip(), "kind": "execute", "status": "pending"},
+                "options": [
+                    {"optionId": "always", "name": "Always", "kind": "allow_always"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",

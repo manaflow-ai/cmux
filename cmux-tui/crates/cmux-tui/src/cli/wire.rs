@@ -439,6 +439,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
+                    let result = plan.view.project(result);
                     let shown = match global.output {
                         OutputMode::Human => human_view(plan, &result),
                         _ => std::borrow::Cow::Borrowed(&result),

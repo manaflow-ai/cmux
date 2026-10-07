@@ -115,6 +115,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportGesture(AgentPaneGestureIntent?)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
+    /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
+    case reply(AgentPaneReplyRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -327,6 +329,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneReplyRequest.methods.contains(method):
+            self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:
             self = .unsupported(method)
         }

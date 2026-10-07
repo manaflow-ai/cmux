@@ -458,7 +458,9 @@ jobs:
     # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
     # needs no marker of its own: its Mac jobs take the fallback, and the
     # rescue's watch of a side lane ends at attempt 2.
-    if: ${{ needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
+    # Same-tree mode runs it too: its owned-pool-watch marker lets the rescue
+    # re-run a tree job that a mini refuses (no head to move on a dispatch).
+    if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
@@ -543,6 +545,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit and its first parent: the god-file checks compare a
+          # pull request against its base.
+          fetch-depth: 2
 
       # Every check runs even when an earlier one fails; the last step fails the
       # job once, naming each red check. Checkout stays fatal: with no tree,
@@ -550,12 +555,28 @@ jobs:
       - name: God files and types (Swift)
         id: godfiles-swift
         continue-on-error: true
-        run: scripts/cmux-next/check-no-godfiles.sh --only swift "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # A pull request fails only on what it grew (its merge commit's first
+        # parent is the base), so a god file already on the base never blocks
+        # it. A push checks every file.
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: God files (cmux-tui Rust)
         id: godfiles-rust
         continue-on-error: true
-        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # A pull request fails only on what it grew (its merge commit's first
+        # parent is the base), so a god file already on the base never blocks
+        # it. A push checks every file.
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
         id: no-swift-cli
@@ -612,11 +633,16 @@ jobs:
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
+          bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
+          bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
+          bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/swift-test-summary.test.sh
           bash scripts/cmux-next/tests/cef-license.test.sh
@@ -664,6 +690,16 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_cmux_next_route.py
 
+      # Package.swift links the app FFI from one pinned release; the pin must
+      # match the FFI sources (every crate cmux-app-ffi reaches through Cargo
+      # path dependencies) and the release must be built from them. Here on
+      # Linux it runs on every push and pull request: in swift test a newer
+      # push replaced the waiting job, so tip runs rarely reached it.
+      - name: Check the app FFI pin
+        id: app-ffi-pin
+        continue-on-error: true
+        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -684,6 +720,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
