@@ -30,7 +30,7 @@ struct MachinesPanelView: View {
     /// The CodeRouter organization matched to the selected cmux team. Keep it
     /// beside the account snapshot so create actions can target that exact
     /// organization instead of the CLI's mutable global scope.
-    @State private var coderouterDestination: (teamID: String, identityID: String?, organizationID: String)?
+    @State private var coderouterDestination: (teamID: String, identityID: String?, organizationID: String, supportsTeamOption: Bool)?
     /// Bumped by the section's refresh icon; restarting the refresh loop keeps one owner of the CLI reads.
     @State private var coderouterRefreshRequest = 0
     @State private var bannerDismissals: CloudBannerDismissalStore
@@ -542,7 +542,7 @@ struct MachinesPanelView: View {
             guard !Task.isCancelled,
                   accountFlow?.confirmedTeamID == teamID,
                   accountFlow?.currentIdentity?.id == identityID else { return }
-            coderouterDestination = (teamID, identityID, snapshot.organizationID)
+            coderouterDestination = (teamID, identityID, snapshot.organizationID, snapshot.supportsTeamOption)
             coderouter.accounts = snapshot.accounts
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
@@ -618,7 +618,7 @@ struct MachinesPanelView: View {
         // Pass the matched organization explicitly. The CodeRouter CLI config
         // is shared with terminals, so relying on its active organization can
         // send a new account to another team's pool during a concurrent switch.
-        let command = provider.addCommand(for: destination.organizationID)
+        let command = provider.addCommand(for: destination.organizationID, supportsTeamOption: destination.supportsTeamOption)
 
         // Setup needs this Mac's credentials and an interactive shell. The
         // focused terminal might instead be remote or running an agent/editor.
