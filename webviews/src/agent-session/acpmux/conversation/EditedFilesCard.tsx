@@ -21,6 +21,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionRowsContext, isEditRow } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
+import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 
@@ -55,7 +56,10 @@ function Card({
   const t = useT();
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState(settings.show !== "collapsed");
+  // Derived on every render: the host's setting can arrive after the card mounts.
+  const userOpened = useCardOpen(row.id);
+  const open = settings.show !== "collapsed" || userOpened;
+  const setOpen = (value: boolean) => setCardOpen(row.id, value);
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );

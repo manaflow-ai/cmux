@@ -216,7 +216,7 @@ describe("S2 ownership queries", () => {
     const vmId = newVmId();
     await run(
       Effect.flatMap(AuditStore, (store) =>
-        store.append({ tenantId: tenantA, actor: "key:vmk_x", action: "vm.exec", cmuxId: vmId, outcome: "ok", at: new Date() }),
+        store.append({ tenantId: tenantA, actor: "key:vmk_x", ownerActor: null, action: "vm.exec", cmuxId: vmId, outcome: "ok", at: new Date() }),
       ),
     );
     const rows = await pg.query<{ action: string; cmux_id: string }>("SELECT action, cmux_id FROM cmux_vm.audit_log");
@@ -224,7 +224,7 @@ describe("S2 ownership queries", () => {
     await expect(
       run(
         Effect.flatMap(AuditStore, (store) =>
-          store.append({ tenantId: tenantA, actor: "key:vmk_x", action: "vm.exec", cmuxId: "rm -rf /", outcome: "ok", at: new Date() }),
+          store.append({ tenantId: tenantA, actor: "key:vmk_x", ownerActor: null, action: "vm.exec", cmuxId: "rm -rf /", outcome: "ok", at: new Date() }),
         ),
       ),
     ).rejects.toThrow();
