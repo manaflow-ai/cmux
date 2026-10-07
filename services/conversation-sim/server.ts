@@ -42,6 +42,19 @@ interface Message {
   attachments: AttachmentRef[];
   status?: "sent" | "delivered" | "read";
   readAt?: number;
+  textRuns?: TextRun[];
+}
+// Rich text (iMessage formatting and animated text effects). Offsets are UTF-16
+// code units into `text`, so they index JS strings, NSString and NSRange alike.
+type TextStyle = "bold" | "italic" | "underline" | "strikethrough";
+const TEXT_STYLES: TextStyle[] = ["bold", "italic", "underline", "strikethrough"];
+type TextEffect = "big" | "small" | "shake" | "nod" | "explode" | "ripple" | "bloom" | "jitter";
+const TEXT_EFFECTS: TextEffect[] = ["big", "small", "shake", "nod", "explode", "ripple", "bloom", "jitter"];
+interface TextRun {
+  start: number;
+  length: number;
+  styles?: TextStyle[];
+  effect?: TextEffect;
 }
 interface LoggedEvent {
   eventSeq: number;
@@ -288,8 +301,12 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       } else m.status = "delivered";
     }
   }
+  // Own stream so adding formatting leaves the seeded history otherwise identical.
+  const formatRng = mulberry32(seed ^ 0x7e57);
   for (const d of drafts) {
     const { day, replyToIndex, ...rest } = d;
+    const textRuns = randomTextRuns(formatRng, rest.text);
+    if (textRuns) (rest as Partial<Message>).textRuns = textRuns;
     store.append(rest);
   }
   for (let i = 0; i < drafts.length; i++) {
@@ -397,7 +414,50 @@ function wireMessage(m: Message, base: string) {
   if (m.editedAt) out.editedAt = m.editedAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
+  if (m.textRuns?.length) out.textRuns = m.textRuns;
   return out;
+}
+
+// ---------------------------------------------------------------- rich text
+
+/** Validates client runs: in bounds, non-overlapping, known styles/effects. Empty runs are dropped. */
+function parseTextRuns(raw: unknown, text: string): TextRun[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) throw invalid("textRuns");
+  const runs: TextRun[] = [];
+  for (const r of raw) {
+    const start = r?.start;
+    const length = r?.length;
+    if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length < 0 || start + length > text.length) {
+      throw invalid("textRuns range");
+    }
+    const styles = r?.styles ?? [];
+    if (!Array.isArray(styles) || styles.some((x: unknown) => !TEXT_STYLES.includes(x as TextStyle))) throw invalid("textRuns styles");
+    const effect = r?.effect ?? undefined;
+    if (effect !== undefined && !TEXT_EFFECTS.includes(effect)) throw invalid("textRuns effect");
+    if (length === 0 || (!styles.length && !effect)) continue;
+    const run: TextRun = { start, length };
+    if (styles.length) run.styles = TEXT_STYLES.filter((x) => styles.includes(x));
+    if (effect) run.effect = effect;
+    runs.push(run);
+  }
+  runs.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < runs.length; i++) {
+    if (runs[i].start < runs[i - 1].start + runs[i - 1].length) throw invalid("textRuns overlap");
+  }
+  return runs.length ? runs : undefined;
+}
+
+/** Bots and history occasionally format a word or animate a whole message. */
+function randomTextRuns(rng: Rng, text: string): TextRun[] | undefined {
+  if (!text || rng() >= 0.06) return undefined;
+  if (rng() < 0.5) return [{ start: 0, length: text.length, effect: pick(rng, TEXT_EFFECTS) }];
+  const words = [...text.matchAll(/[A-Za-z']{3,}/g)];
+  if (!words.length) return undefined;
+  const w = pick(rng, words);
+  const styles: TextStyle[] = [pick(rng, TEXT_STYLES)];
+  if (rng() < 0.25) styles.push(pick(rng, TEXT_STYLES));
+  return [{ start: w.index!, length: w[0].length, styles: TEXT_STYLES.filter((x) => styles.includes(x)) }];
 }
 
 // ---------------------------------------------------------------- RPC
@@ -475,8 +535,11 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (!m) throw invalid("unknown messageId");
       if (m.senderId !== ME.id) throw invalid("can only edit my messages");
       if (typeof p?.text !== "string" || !p.text.length) throw invalid("text");
+      const textRuns = parseTextRuns(p?.textRuns, p.text);
       await sleep(lat(120, 600));
       m.text = p.text;
+      // An edit replaces the formatting with the edit's own (none when omitted).
+      m.textRuns = textRuns;
       m.editedAt = Date.now();
       store.emit("message.updated", m);
       return { message: wireMessage(m, conn.base) };
@@ -507,6 +570,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   for (const a of attachmentIds) if (!media.has(a)) throw invalid(`unknown attachment ${a}`);
   if (!text && !attachmentIds.length) throw invalid("empty message");
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
+  const textRuns = parseTextRuns(p?.textRuns, text);
 
   await sleep(lat(120, 900));
   const existing = store.byClientId.get(cmid);
@@ -522,7 +586,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     const e = media.get(id)!;
     return { id, kind: "image", width: e.width, height: e.height };
   });
-  const m = store.create(ME.id, text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments });
+  const m = store.create(ME.id, text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments, textRuns });
   afterMySend(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
@@ -568,6 +632,7 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
     void (async () => {
       await botSleep(uniform(4000, 20_000));
       m.text = editedText(R, m.text || "photo");
+      m.textRuns = undefined;
       m.editedAt = Date.now();
       store.emit("message.updated", m);
     })();
@@ -597,6 +662,7 @@ function randomBotMessage(store: Store): { text: string; opts: Partial<Message> 
     const parent = store.messages[store.headSeq - 1 - Math.floor(R() * Math.min(30, store.headSeq))];
     opts.replyToId = parent.id;
   }
+  opts.textRuns = randomTextRuns(R, text);
   return { text, opts };
 }
 

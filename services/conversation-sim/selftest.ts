@@ -180,6 +180,36 @@ async function main() {
   const badEdit = await c.raw("edit", { messageId: newest.messages.find((m: any) => m.senderId !== "aziz").id, text: "x" });
   check(badEdit.error?.code === -32602, "editing someone else's message is rejected");
 
+  console.log("text formatting");
+  const runs = [
+    { start: 0, length: 5, styles: ["italic", "bold"] },
+    { start: 6, length: 7, effect: "explode" },
+  ];
+  const fmt = await c.call("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "hello formatted world", textRuns: runs });
+  check(
+    JSON.stringify(fmt.message.textRuns) === JSON.stringify([{ start: 0, length: 5, styles: ["bold", "italic"] }, { start: 6, length: 7, effect: "explode" }]),
+    "send textRuns round-trip (styles in canonical order)",
+  );
+  const page = await c.call("history", { beforeSeq: null, limit: 5 });
+  check(page.messages.some((m: any) => m.id === fmt.message.id && m.textRuns?.length === 2), "history carries textRuns");
+  const badRange = await c.raw("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "abc", textRuns: [{ start: 2, length: 5, styles: ["bold"] }] });
+  check(badRange.error?.code === -32602, "out-of-range textRuns rejected");
+  const badEffect = await c.raw("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "abc", textRuns: [{ start: 0, length: 3, effect: "wobble" }] });
+  check(badEffect.error?.code === -32602, "unknown text effect rejected");
+  const overlap = await c.raw("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "abcdef", textRuns: [{ start: 0, length: 4, styles: ["bold"] }, { start: 2, length: 2, effect: "nod" }] });
+  check(overlap.error?.code === -32602, "overlapping textRuns rejected");
+  const reformatted = await c.call("edit", { messageId: fmt.message.id, text: "hello again", textRuns: [{ start: 6, length: 5, styles: ["underline"] }] });
+  check(JSON.stringify(reformatted.message.textRuns) === JSON.stringify([{ start: 6, length: 5, styles: ["underline"] }]), "edit replaces textRuns");
+  const plain = await c.call("edit", { messageId: fmt.message.id, text: "hello plain" });
+  check(plain.message.textRuns === undefined, "edit without textRuns clears formatting");
+  let formattedSeen = false;
+  for (let before: number | null = null, pages = 0; !formattedSeen && pages < 10; pages++) {
+    const hp: any = await c.call("history", { beforeSeq: before, limit: 200 });
+    formattedSeen = hp.messages.some((m: any) => m.id !== fmt.message.id && m.textRuns?.length);
+    before = hp.messages[0].seq;
+  }
+  check(formattedSeen, "generated history includes formatted messages");
+
   console.log("resume");
   await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.text === "edited text"), 3000, "edit event");
   await sleep(300);

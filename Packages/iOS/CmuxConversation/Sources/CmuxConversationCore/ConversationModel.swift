@@ -119,6 +119,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// Formatting and animated text effects over `text`. Empty when plain.
+    public var textRuns: [ConversationTextRun]
 
     public init(
         id: String,
@@ -132,7 +134,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         editedAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        textRuns: [ConversationTextRun] = []
     ) {
         self.id = id
         self.seq = seq
@@ -146,6 +149,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.textRuns = textRuns
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -168,11 +172,13 @@ public struct ConversationOutgoingDraft: Sendable {
     public var text: String
     public var replyToID: String?
     public var attachmentIDs: [String]
+    public var textRuns: [ConversationTextRun]
 
-    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String]) {
+    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String], textRuns: [ConversationTextRun] = []) {
         self.clientMessageID = clientMessageID
         self.text = text
         self.replyToID = replyToID
         self.attachmentIDs = attachmentIDs
+        self.textRuns = textRuns
     }
 }

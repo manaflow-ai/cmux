@@ -30,6 +30,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         var params: [String: Any] = ["clientMessageId": draft.clientMessageID, "text": draft.text]
         if let replyTo = draft.replyToID { params["replyToId"] = replyTo }
         if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
+        if !draft.textRuns.isEmpty { params["textRuns"] = WireDecoding.wireRuns(draft.textRuns) }
         let result = try await core.request("send", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -41,7 +42,12 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
     }
 
     public func edit(messageID: String, text: String) async throws -> ConversationMessage {
-        let params: [String: Any] = ["messageId": messageID, "text": text]
+        try await edit(messageID: messageID, text: text, textRuns: [])
+    }
+
+    public func edit(messageID: String, text: String, textRuns: [ConversationTextRun]) async throws -> ConversationMessage {
+        var params: [String: Any] = ["messageId": messageID, "text": text]
+        if !textRuns.isEmpty { params["textRuns"] = WireDecoding.wireRuns(textRuns) }
         let result = try await core.request("edit", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -318,8 +324,34 @@ enum WireDecoding {
             editedAt: date(raw["editedAt"]),
             reactions: reactions,
             attachments: attachments,
-            delivery: delivery
+            delivery: delivery,
+            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? "")
         )
+    }
+
+    /// Wire runs (`{start, length, styles?, effect?}`, UTF-16) to the model.
+    /// Unknown styles and effects are ignored rather than failing the message.
+    static func textRuns(_ raw: Any?, text: String) -> [ConversationTextRun] {
+        guard let list = raw as? [[String: Any]] else { return [] }
+        let runs = list.compactMap { entry -> ConversationTextRun? in
+            guard let start = entry["start"] as? Int, let length = entry["length"] as? Int else { return nil }
+            return ConversationTextRun(
+                location: start,
+                length: length,
+                style: ConversationTextStyle(wireNames: entry["styles"] as? [String] ?? []),
+                effect: (entry["effect"] as? String).flatMap(ConversationTextEffect.init(rawValue:))
+            )
+        }
+        return ConversationRichText.normalized(runs, utf16Count: text.utf16.count)
+    }
+
+    static func wireRuns(_ runs: [ConversationTextRun]) -> [[String: Any]] {
+        runs.map { run in
+            var entry: [String: Any] = ["start": run.location, "length": run.length]
+            if !run.style.isEmpty { entry["styles"] = run.style.wireNames }
+            if let effect = run.effect { entry["effect"] = effect.rawValue }
+            return entry
+        }
     }
 
     static func attachment(_ raw: [String: Any], base: URL) -> ConversationAttachment? {

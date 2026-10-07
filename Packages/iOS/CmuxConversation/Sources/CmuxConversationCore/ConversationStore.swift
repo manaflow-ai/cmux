@@ -403,8 +403,13 @@ public final class ConversationStore {
 
     /// Appends the optimistic row at once, then uploads and sends.
     @discardableResult
-    public func send(text: String, images: [(data: Data, width: Int, height: Int, mimeType: String)] = [], replyToID: String? = nil) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    public func send(
+        text: String,
+        images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
+        replyToID: String? = nil,
+        textRuns: [ConversationTextRun] = []
+    ) -> String? {
+        let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
         let clientID = makeClientMessageID()
         let attachments = images.enumerated().map { offset, image in
@@ -426,7 +431,8 @@ public final class ConversationStore {
             text: trimmed,
             replyToID: replyToID,
             attachments: attachments,
-            delivery: .sending
+            delivery: .sending,
+            textRuns: runs
         )
         upsert(pending)
         sortAndReindex()
@@ -483,7 +489,8 @@ public final class ConversationStore {
                     clientMessageID: clientID,
                     text: current.text,
                     replyToID: current.replyToID,
-                    attachmentIDs: attachmentIDs
+                    attachmentIDs: attachmentIDs,
+                    textRuns: current.textRuns
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }
@@ -532,17 +539,20 @@ public final class ConversationStore {
     }
 
     /// Applies the edit at once; reverts if the backend refuses it.
-    public func edit(messageID: String, text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed else { return }
+    /// `textRuns` are the edited text's formatting; omitting them clears it.
+    public func edit(messageID: String, text: String, textRuns: [ConversationTextRun] = []) {
+        let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
+        guard !trimmed.isEmpty, let index = indexByID[messageID],
+              messages[index].text != trimmed || messages[index].textRuns != runs else { return }
         let original = messages[index]
         messages[index].text = trimmed
+        messages[index].textRuns = runs
         messages[index].editedAt = Date()
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {
-                let updated = try await self.backend.edit(messageID: messageID, text: trimmed)
+                let updated = try await self.backend.edit(messageID: messageID, text: trimmed, textRuns: runs)
                 self.upsert(updated)
             } catch {
                 guard let index = self.indexByID[messageID] else { return }
