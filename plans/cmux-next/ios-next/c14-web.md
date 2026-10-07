@@ -209,3 +209,9 @@ Follow-up on 2026-10-07: the generic SOCKS parity seam is now wired into `WebRou
   `ProxyForwardingTests.genericSocksRouteUsesCredentialsAndKeepsNonLoopbackDefaultDeny` covers the
   route adapter and a byte-for-byte SOCKS exchange. Manifest validation, Swift syntax parsing and
   `git diff --check` pass. Tagged WKWebView/SOCKS and live reconnect verification remain pending.
+
+Follow-up lifecycle hardening on 2026-10-07: `SocksProxyLifecycle` now tracks accepted handshake
+channels, rejects children after stop, closes handshakes during route shutdown, and checks the stop
+token before and after backend connect and before adapter installation. A regression proves a
+pre-stop client cannot open a backend after shutdown. Swift 6 library build and the focused lifecycle
+test pass; the full test target remains blocked by the local TestingMacros plugin environment.

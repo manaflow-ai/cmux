@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `80c3520858` reports 84 of 98 parity rows done, with one
+The refreshed D3 matrix at HEAD `bd9dc02a3c` reports 84 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), five seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now rate-limits TURN and pending-snapshot repair
 traffic by authenticated identity. C14's credentialed generic SOCKS route is wired to `WebRoute`,
@@ -65,6 +65,8 @@ The active wave is intentionally independent:
   live pane output; native tests and live SSH verification remain a build-host/device gate.
 - `d0678348d5` wires a credentialed generic SOCKS route through `WebRoute`; syntax and static checks
   pass, while native package tests, WKWebView and live reconnect verification remain pending.
+- `bd9dc02a3c` closes accepted SOCKS handshakes as part of route shutdown and rejects backend opens
+  after stop; the focused lifecycle regression and Swift 6 library build pass.
 
 The dedicated build host was unavailable during this wave (`cmux-lawrence-2` did not resolve),
 so native package tests, tagged pair installs, visual evidence, and live SSH/browser paths remain
