@@ -285,6 +285,18 @@
       "title" : "Let Statuses Choose Their Style",
       "type" : "boolean"
     },
+    "appearance.statusIndicator.showAgentWorkingOnTabs" : {
+      "default" : true,
+      "description" : "Three dots take the tab's icon place while an agent works.",
+      "title" : "Show Agent Working on Tabs",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showPageLoading" : {
+      "default" : true,
+      "description" : "A spinner takes a browser tab's icon place while its page loads.",
+      "title" : "Show Page Loading on Tabs",
+      "type" : "boolean"
+    },
     "appearance.statusIndicator.size" : {
       "default" : 1,
       "description" : "appearance.statusIndicator.size",
