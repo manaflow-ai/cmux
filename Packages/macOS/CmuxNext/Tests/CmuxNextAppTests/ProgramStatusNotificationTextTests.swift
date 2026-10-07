@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextApp
