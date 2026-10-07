@@ -844,7 +844,8 @@ struct BrowserReplFileSystemSpecialFileTests {
         let big = Data(count: 256 << 10)
         for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.big", big)] {
             let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
-            #expect(set == 0, "setxattr \(name): \(errno)")
+            let setErrno = errno
+            #expect(set == 0, "setxattr \(name): \(setErrno)")
         }
         let tight = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perCall: 64 << 10, perSession: 1 << 20))
 
@@ -1014,7 +1015,8 @@ struct BrowserReplCopyLargeAttributeTests {
         let large = Data(count: BrowserReplFileSystem.maxExtendedAttributeBytes + 1)
         for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.large", large)] {
             let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
-            #expect(set == 0, "setxattr \(name): \(errno)")
+            let setErrno = errno
+            #expect(set == 0, "setxattr \(name): \(setErrno)")
         }
         let session = BrowserReplSession(
             id: "xattr-\(UUID().uuidString)",
