@@ -719,7 +719,7 @@ final class BrowserReplTabAttachment {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.releaseRenderHost() }
+                Task { @MainActor [weak self] in self?.releaseRenderHost() }
             }
             pageDidChange()
         }
@@ -754,7 +754,7 @@ final class BrowserReplTabAttachment {
         mirrorCaptureInFlight = true
         mirrorNeedsCapture = false
         webView.takeSnapshot(with: nil) { [weak self, weak host] image, _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self, weak host] in
                 guard let self else { return }
                 self.mirrorCaptureInFlight = false
                 if let image, let host, host === self.renderHost { host.updateMirror(image) }

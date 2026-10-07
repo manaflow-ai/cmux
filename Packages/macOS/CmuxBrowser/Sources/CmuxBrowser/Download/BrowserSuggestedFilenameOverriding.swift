@@ -14,8 +14,10 @@ public protocol BrowserSuggestedFilenameOverriding: AnyObject {
 /// A download delegate that wants scripted `data:` downloads (a page's
 /// `<a download>` links) as WebKit downloads it receives, rather than saved
 /// directly by the web view. The browser REPL uses this so a driven tab
-/// reports those downloads to its session. Read on the main thread.
+/// reports those downloads to its session. Read on the main actor, where
+/// the web view handles the page's scripted-download message.
 public protocol BrowserScriptedDownloadRouting: AnyObject {
+    @MainActor
     var routesScriptedDownloadsThroughWebKit: Bool { get }
 
     /// WebKit made `download` of `url` for the scripted-download request

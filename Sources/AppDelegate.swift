@@ -3702,7 +3702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
             }
         }
@@ -14506,14 +14506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.handleShortcutDefaultsDidChange()
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.handleShortcutDefaultsDidChange()
-                }
+            Task { @MainActor [weak self] in
+                self?.handleShortcutDefaultsDidChange()
             }
         }
     }
@@ -14577,7 +14571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.ghosttyConfigDidReloadForLiveReload()
             }
         }
@@ -14643,7 +14637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
-            _ = MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
@@ -18607,7 +18601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.handleBrowserWebViewFirstResponderNotification(notification)
             }
         }
@@ -19654,7 +19648,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19665,7 +19658,6 @@ private extension NSWindow {
                     "window=\(ObjectIdentifier(self)) " +
                     "web=\(ObjectIdentifier(webView)) " +
                     "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
                     "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
                 )
 #endif
@@ -19679,8 +19671,7 @@ private extension NSWindow {
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
                 "web=\(ObjectIdentifier(webView)) " +
-                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0)"
             )
         }
 #endif
