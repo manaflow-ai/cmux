@@ -1153,3 +1153,7 @@ mod incognito;
 // frame.observe's field scan within the page-read budget.
 #[path = "chromium/observe.rs"]
 mod observe;
+
+// FETCH-PRIVATE-RANGES under a proxy store (browser-egress.md 7.3).
+#[path = "chromium/proxy_ranges.rs"]
+mod proxy_ranges;

@@ -95,6 +95,9 @@ export async function deleteLiveVms(): Promise<string[]> {
   return ids;
 }
 
+/** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
+export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
+
 export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
@@ -103,6 +106,10 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     displayName: options.name,
     // Outbound-only: the bake downloads its inputs; nothing dials in.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
+    // A run that dies without cleanup (lost laptop, killed harness) must not
+    // leave a VM running: Freestyle pauses it after this much network idleness
+    // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
+    idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
