@@ -21,7 +21,7 @@ extension SidebarView {
     /// Space-switcher slots in sidebar coordinates, in the space selection order.
     public var shortcutHintSpaceFrames: [CGRect] {
         guard !isHiddenOrHasHiddenAncestor, !profileBar.isHidden, bounds.width > 1 else { return [] }
-        return ProfileBarLogic.slotXs(count: model.profiles.count, slot: Metrics.roomDotSlot, width: profileBar.bounds.width)
+        return ProfileBarLogic.slotXs(count: model.profiles.count, slot: Metrics.roomDotSlot, leading: profileBar.slotsLeading)
             .prefix(model.profiles.count).map {
                 profileBar.convert(CGRect(x: $0, y: 0, width: Metrics.roomDotSlot, height: profileBar.bounds.height), to: self)
             }

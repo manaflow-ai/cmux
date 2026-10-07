@@ -58,6 +58,7 @@ members = [
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-agent-pane-policy",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -161,6 +162,7 @@ crossbeam-channel = "0.5"
 ratatui = "0.30"
 unicode-width = "0.2"
 unicode-segmentation = "1"
+unicode-normalization = "0.1"
 base64 = "0.22"
 # In-process WireGuard for Cloud VM attach (crates/cmux-wg). boringtun's
 # `noise` module is the sans-IO WireGuard session; no tun device, no ffi.

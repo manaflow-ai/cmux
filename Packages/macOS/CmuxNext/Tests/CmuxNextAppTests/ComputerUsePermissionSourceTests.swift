@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextAgentActivity
+import CmuxNextControl
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -74,6 +75,35 @@ import Testing
                 close(client)
             }
         }
+    }
+
+    /// The app strips every inherited CMUX* variable except CMUX_NEXT_* at
+    /// launch (LaunchIdentity), so the socket override and its tokens use
+    /// CMUX_NEXT_ names: a tagged app and its tests then reach their own
+    /// cmux-cua socket and never the shared default path.
+    @Test func theSocketOverrideSurvivesTheLaunchStrip() {
+        let launched = ["CMUX_NEXT_CUA_SOCKET": "/tmp/tag-scoped/cmux-cua.sock",
+                        "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "agent-token",
+                        "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-token",
+                        "CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock"]
+        let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: launched, bundledEnvironment: [:]))
+        let environment = launched.filter { !stripped.contains($0.key) }
+        let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "", environment: environment,
+                                                                            home: "/Users/someone")
+        #expect(configuration.socketPath == "/tmp/tag-scoped/cmux-cua.sock")
+        #expect(configuration.authToken == "agent-token")
+        #expect(configuration.hostAuthToken == "host-token")
+    }
+
+    /// Without the override the app reads cmux-cua's default socket, and an
+    /// old CMUX_CUA_SOCKET (a parent's, or the helper's own) is never used.
+    @Test func withoutTheOverrideTheDefaultSocketIsUsed() {
+        let configuration = AgentActivitySocketSource.Configuration.standard(
+            machineName: "", environment: ["CMUX_CUA_SOCKET": "/tmp/inherited-from-a-parent.sock",
+                                           "CMUX_CUA_SOCKET_AUTH_TOKEN": "inherited"],
+            home: "/Users/someone")
+        #expect(configuration.socketPath == "/Users/someone/Library/Caches/cmux-cua/cmux-cua.sock")
+        #expect(configuration.authToken == nil)
     }
 
     @Test func onlyABoundAndListeningSocketCounts() throws {

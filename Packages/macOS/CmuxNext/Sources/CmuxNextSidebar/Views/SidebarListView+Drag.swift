@@ -35,8 +35,7 @@ extension SidebarListView {
         let content = dequeue(press.key)
         configure(content, row: row, animated: false)
         content.isHovered = false
-        // The lifted card is its own raised surface: no selection fill on it.
-        content.isSelected = false
+        content.isSelected = false // The lifted card is its own raised surface: no selection fill on it.
         (content as? WorkspaceRowView)?.isSecondarySelected = false
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
@@ -58,6 +57,7 @@ extension SidebarListView {
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
@@ -80,6 +80,7 @@ extension SidebarListView {
     func finishDrag() {
         guard let drag else { return }
         autoscroll.stop()
+        if SidebarListPinDrop.finish(self, drag) { return }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         switch (drag.payload, target) {
@@ -90,20 +91,19 @@ extension SidebarListView {
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
-            // The target first, then the dragged rows (the Arc/Dia order).
-            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin) // The target first, then the dragged rows (Arc/Dia).
             drag.renameOnLand = anchor
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
-        // Rows land under the lifted view, stay hidden until it arrives.
-        suppressed = drag.hiddenKeys
+        suppressed = drag.hiddenKeys // Rows land under the lifted view, stay hidden until it arrives.
         reload(animated: true)
         land(drag)
     }
     func cancelDrag() {
         guard let drag else { return }
         autoscroll.stop()
+        SidebarListPinDrop.end(self)
         self.drag = nil
         press?.cancelled = true
         suppressed = drag.hiddenKeys

@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion]
+ *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -23,6 +23,10 @@
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
+ *
+ * - --agent-tools (dev snapshots only, bead cx-h8n): the browser role baked, the agent display
+ *   and computer-use units (on demand) and the tool dir acpmux reads, so agent sessions on the
+ *   machine get the cmux browser and computer-use tools (agent-tools.ts).
  *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
  * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
@@ -46,6 +50,7 @@ import {
   devboxSnapshotClockCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
+import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
 import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
@@ -92,6 +97,8 @@ export type BakeOptions = {
   updateLock: boolean;
   keepBuilder: boolean;
   promotion: boolean;
+  /** Bake the agent tools (agent-tools.ts); off by default. */
+  agentTools?: boolean;
 };
 
 export type BakeResult = Record<string, unknown> & { name: string; snapshotId?: string; error?: string; sbomFile?: string; manifestFile?: string };
@@ -153,7 +160,8 @@ function coderouterProfileScript(): string {
   return `# cmux: the coderouter CLI uses the VM edge alias; no login and no token on disk. Managed, do not edit.\nexport CODEROUTER_API_URL=${sq(`https://${vmEdgeAliasDomain()}`)}\n`;
 }
 
-function daemonUnit(): string {
+/** The daemon's unit; `extraEnv` (agent tools) reaches every terminal it creates. */
+export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
   return [
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
@@ -163,7 +171,11 @@ function daemonUnit(): string {
     "Type=simple",
     "User=root",
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
+    // so a stop or restart of this unit keeps every terminal for re-adoption.
+    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
     `Environment=PATH=${STORE_PATH}`,
+    ...daemonEnvLines(extraEnv),
     "ExecStart=/usr/local/bin/cmux-devbox-boot",
     "Restart=always",
     "RestartSec=2",
@@ -182,6 +194,10 @@ function parkCommand(): string {
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "pkill -f '[_]_terminal-host' || true",
+    "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
+    // cmux-tui hosts since 2323e5bdbb76 survive a SIGTERM that is not from PID 1 (host_signals.rs);
+    // the builder's terminals are smoke leftovers whose state is wiped next, so they get SIGKILL.
+    "pkill -KILL -f '[_]_terminal-host' || true",
     "for i in $(seq 1 50); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 0.1; done",
     "! pgrep -f '[_]_terminal-host' >/dev/null",
     `systemctl is-active ${DAEMON_UNIT} >/dev/null`,
@@ -446,10 +462,18 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
+/** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
+async function installAgentTools(ctx: Ctx): Promise<void> {
+  const { vm, L, lock } = ctx;
+  for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
+  for (const file of agentToolsFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
-  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(), 0o644);
+  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
   await L.step(vm, "daemon-unit", `sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
@@ -532,6 +556,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureSystem(ctx);
     await configureSshd(ctx);
     await configureRoles(ctx);
+    if (options.agentTools) await installAgentTools(ctx);
     await installVmAgent(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
@@ -558,7 +583,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools]");
+  if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
@@ -566,6 +592,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     updateLock: hasFlag("--update-lock", argv),
     keepBuilder: hasFlag("--keep-builder", argv),
     promotion: hasFlag("--promotion", argv),
+    agentTools: hasFlag("--agent-tools", argv),
   };
 }
 

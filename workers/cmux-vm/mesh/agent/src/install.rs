@@ -1,7 +1,8 @@
 //! The install key and the signed mesh message (`cmux-mesh-v1`).
 //!
 //! The install key is an ECDSA P-256 key that proves a request comes from
-//! this installation. It signs every enrollment and key rotation. The file
+//! this installation. It signs every enrollment and key rotation, and a
+//! device's own peer-map and tunnel reads, which need no other credential. The file
 //! holds the base64 of the 32-byte secret scalar, mode 0600, and is never
 //! overwritten. Like the WireGuard key it is never printed, logged, or sent:
 //! `Debug` is redacted and only the public point leaves this module.
@@ -11,7 +12,9 @@
 //!   point `0x04 || X || Y`;
 //! - message: eight UTF-8 lines joined by `\n`, no trailing newline:
 //!   `cmux-mesh-v1`, purpose, target, WireGuard public key, install public
-//!   key, device name (empty for rotate-key), signedAt (unix ms), nonce;
+//!   key, device name (empty except for enroll), signedAt (unix ms), nonce;
+//!   purposes `enroll`, `rotate-key`, `peers`, `tunnel` (the last two have
+//!   an empty WireGuard key line);
 //! - nonce: 16 random bytes, base64url without padding (22 characters);
 //! - signature: base64 (standard, padded) of the 64-byte `r || s` ECDSA
 //!   P-256 SHA-256 signature (RFC 6979 deterministic k).
@@ -122,6 +125,10 @@ pub fn install_keygen(path: &Path) -> io::Result<String> {
 pub enum Purpose {
     Enroll,
     RotateKey,
+    /// The device reads its own peer map (M3); no credential but this signature.
+    Peers,
+    /// The device reads its own tunnel config (M3); no credential but this signature.
+    Tunnel,
 }
 
 impl Purpose {
@@ -129,13 +136,15 @@ impl Purpose {
         match self {
             Self::Enroll => "enroll",
             Self::RotateKey => "rotate-key",
+            Self::Peers => "peers",
+            Self::Tunnel => "tunnel",
         }
     }
 }
 
 /// The exact bytes that are signed. `target` is the mesh id for enroll and
-/// the device id for rotate-key; `wg_public_key` is the key being registered;
-/// `name` is empty for rotate-key. No field may contain a newline (the
+/// the device id otherwise; `wg_public_key` is the key being registered
+/// (empty for peers and tunnel); `name` is empty except for enroll. No field may contain a newline (the
 /// callers check ids, keys, and names before they get here).
 pub fn message(
     purpose: Purpose,

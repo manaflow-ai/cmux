@@ -53,6 +53,11 @@ export interface MarkdownConfig {
   hash: string;
   /** The page may not save: the file is outside every workspace root (or not writable). */
   readOnly?: boolean;
+  /**
+   * A recovered crash draft of this file (R96), sent once: the page loads it as unsaved edits on
+   * `hash`. Ignored when read only or equal to `text`.
+   */
+  recoveredText?: string;
   /** The terminal appearance, as the diff viewer gets it (code colors and font). */
   appearance?: DiffViewerAppearance;
   /** URL prefix of the file's folder for relative images; without it they do not load. */
