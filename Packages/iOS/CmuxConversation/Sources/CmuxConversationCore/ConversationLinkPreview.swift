@@ -77,20 +77,47 @@ public struct ConversationLinkSplit: Sendable, Hashable {
     public var bodyText: String
     /// Whether the card comes before the text bubble (the URL opened the message).
     public var cardFirst: Bool
+    /// UTF-16 offset of `bodyText` in the message text, so ranges over the
+    /// whole text (mentions, formatting) can be re-based onto the bubble.
+    public var bodyOffset: Int = 0
 
     public static func split(text: String, preview: ConversationLinkPreview?) -> ConversationLinkSplit? {
         guard let preview else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let range = urlRange(in: trimmed, matching: preview.url) else { return nil }
+        guard let range = urlRange(in: trimmed, matching: preview.url),
+              let trimmedStart = text.range(of: trimmed)?.lowerBound else { return nil }
+        let leading = text.utf16.distance(from: text.startIndex, to: trimmedStart)
+        func whitespacePrefix(_ part: Substring) -> Int {
+            part.prefix { $0.isWhitespace || $0.isNewline }.utf16.count
+        }
         if range.lowerBound == trimmed.startIndex {
-            let rest = trimmed[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return ConversationLinkSplit(bodyText: rest, cardFirst: true)
+            let tail = trimmed[range.upperBound...]
+            let rest = tail.trimmingCharacters(in: .whitespacesAndNewlines)
+            let offset = leading + trimmed.utf16.distance(from: trimmed.startIndex, to: range.upperBound) + whitespacePrefix(tail)
+            return ConversationLinkSplit(bodyText: rest, cardFirst: true, bodyOffset: offset)
         }
         if range.upperBound == trimmed.endIndex {
             let rest = trimmed[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-            return ConversationLinkSplit(bodyText: rest, cardFirst: false)
+            return ConversationLinkSplit(bodyText: rest, cardFirst: false, bodyOffset: leading)
         }
         return nil
+    }
+
+    /// Mentions over the whole text, moved onto `bodyText` (any that overlap
+    /// the URL are dropped).
+    public func bodyMentions(_ mentions: [ConversationMention]) -> [ConversationMention] {
+        let shifted = mentions.map { ConversationMention(participantID: $0.participantID, location: $0.location - bodyOffset, length: $0.length) }
+        return ConversationMentionEditing.normalized(shifted, textLength: bodyText.utf16.count)
+    }
+
+    /// Formatting runs over the whole text, clipped to `bodyText`.
+    public func bodyRuns(_ runs: [ConversationTextRun]) -> [ConversationTextRun] {
+        let shifted = runs.map { run -> ConversationTextRun in
+            var run = run
+            run.location -= bodyOffset
+            return run
+        }
+        return ConversationRichText.normalized(shifted, utf16Count: bodyText.utf16.count)
     }
 
     nonisolated(unsafe) private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)

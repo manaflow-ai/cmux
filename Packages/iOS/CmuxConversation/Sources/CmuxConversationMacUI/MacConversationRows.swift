@@ -255,13 +255,12 @@ final class MacMessageLayoutCache {
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
         // Audio bubbles show the transcript; a link card takes its URL out of
-        // the text bubble. Mentions and formatting index the full `text`, so
-        // they apply only when the bubble shows it whole.
+        // the text bubble, so mentions and formatting (ranges over the whole
+        // `text`) are re-based onto what the bubble shows.
         let isAudio = model.message.audioAttachment != nil
         let body = isAudio ? model.message.macBodyText : model.bodyText
-        let whole = !isAudio && model.linkSplit == nil
-        let mentions = whole ? model.message.mentions : []
-        let runs = whole ? model.message.textRuns : []
+        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
+        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
         if let (text, outgoing, cachedMentions, cachedRuns, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
            cachedMentions == mentions, cachedRuns == runs {
             return value

@@ -23,6 +23,21 @@ import Testing
         #expect(split.cardFirst)
     }
 
+    @Test func mentionsAndFormattingMoveOntoTheTextLeftBesideTheCard() throws {
+        // "  https://www.apple.com/iphone/  hey Leo, look" with "Leo" mentioned and "look" bold.
+        let text = "  https://www.apple.com/iphone/  hey Leo, look"
+        let split = try #require(ConversationLinkSplit.split(text: text, preview: ConversationLinkPreview(url: apple)))
+        #expect(split.bodyText == "hey Leo, look")
+        #expect(split.bodyMentions([
+            ConversationMention(participantID: "leo", location: 37, length: 3),
+            ConversationMention(participantID: "url", location: 10, length: 5),
+        ]) == [ConversationMention(participantID: "leo", location: 4, length: 3)])
+        #expect(split.bodyRuns([ConversationTextRun(location: 42, length: 4, style: [.bold])]) == [ConversationTextRun(location: 9, length: 4, style: [.bold])])
+        // A trailing URL leaves the text where it was.
+        let trailing = try #require(ConversationLinkSplit.split(text: " hi Leo apple.com/iphone", preview: ConversationLinkPreview(url: apple)))
+        #expect(trailing.bodyMentions([ConversationMention(participantID: "leo", location: 4, length: 3)]) == [ConversationMention(participantID: "leo", location: 3, length: 3)])
+    }
+
     @Test func aURLInTheMiddleStaysInlineText() {
         #expect(ConversationLinkSplit.split(text: "see https://www.apple.com/iphone/ for details", preview: ConversationLinkPreview(url: apple)) == nil)
         #expect(ConversationLinkSplit.split(text: "https://www.apple.com/iphone/", preview: nil) == nil)
