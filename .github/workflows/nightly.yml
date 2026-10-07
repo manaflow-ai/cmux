@@ -2513,6 +2513,10 @@ jobs:
 
       - name: Prepare nightly release notes and appcast summaries
         if: needs.decide.outputs.should_publish == 'true'
+        # The notes take seconds. Bounded here, a slow notes run fails before
+        # any asset upload instead of using up the job's 30 minutes and being
+        # cancelled mid-upload (run 37611677848 left partial assets that way).
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
