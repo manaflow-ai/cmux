@@ -68,7 +68,6 @@ extension SidebarListView {
         suppressed.subtract(drag.hiddenKeys)
         for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
         reload(animated: true)
-        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
 }
 

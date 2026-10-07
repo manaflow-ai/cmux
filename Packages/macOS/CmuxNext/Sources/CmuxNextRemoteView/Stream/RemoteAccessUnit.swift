@@ -19,6 +19,8 @@ public nonisolated struct RemoteFrameFlags: OptionSet, Sendable, Hashable {
     public static let refine = RemoteFrameFlags(rawValue: 0b0010)
     /// The frame recovers from a loss by referencing an acknowledged frame.
     public static let recovery = RemoteFrameFlags(rawValue: 0b0100)
+    /// A lossless tile top-off on a tile stream (rd change C3); not H.264.
+    public static let tile = RemoteFrameFlags(rawValue: 0b1000)
 }
 
 /// One complete access unit, reassembled by the transport and ready to

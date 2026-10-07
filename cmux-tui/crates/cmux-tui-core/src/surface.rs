@@ -16,6 +16,10 @@ pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
 #[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
+mod hosted_callbacks;
+#[cfg(unix)]
+use hosted_callbacks::hosted_terminal_callbacks;
+#[cfg(unix)]
 mod prelaunch;
 use directory::PublishedDirectory;
 
@@ -1896,30 +1900,6 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
 }
 
 #[cfg(unix)]
-fn hosted_terminal_callbacks(
-    id: SurfaceId,
-    mux: Weak<Mux>,
-    title_changed: Arc<AtomicBool>,
-) -> Callbacks {
-    Callbacks {
-        // The terminal-host parser is authoritative and already writes query
-        // responses (DA/DSR, Kitty graphics, OSC colors, ...) to the PTY. A
-        // hosted Surface is only a mirror: answering here would inject one
-        // duplicate reply per server/frontend mirror into the child input.
-        on_pty_write: None,
-        on_title_changed: Some(Box::new(move || {
-            title_changed.store(true, Ordering::Relaxed);
-        })),
-        on_bell: Some(Box::new(move || {
-            if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
-            }
-        })),
-        on_clipboard_read: None,
-    }
-}
-
-#[cfg(unix)]
 fn mark_hosted_runtime_exited(
     pty: &PtySurface,
     identity: &crate::terminal_host_runtime::TerminalHostIdentity,
@@ -2539,9 +2519,10 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
-        let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        let records = terminal_metadata.program_status();
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone(), records);
+        let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         anyhow::ensure!(
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
             "terminal host returned invalid OSC progress metadata"
@@ -2996,10 +2977,12 @@ impl Surface {
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
+                                let records = pty.program_status_records();
                                 let callbacks = hosted_terminal_callbacks(
                                     id,
                                     mux.clone(),
                                     title_changed.clone(),
+                                    records,
                                 );
                                 let Ok(mut replacement) =
                                     Terminal::new(cols, rows, scrollback, callbacks)
@@ -3309,8 +3292,13 @@ impl Surface {
                             cell_width: replacement_snapshot.cell_pixels.0,
                             cell_height: replacement_snapshot.cell_pixels.1,
                         };
-                        let callbacks =
-                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+                        let records = pty.program_status_records();
+                        let callbacks = hosted_terminal_callbacks(
+                            id,
+                            mux.clone(),
+                            title_changed.clone(),
+                            records.clone(),
+                        );
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -3365,7 +3353,9 @@ impl Surface {
                             replacement_term.vt_write(&color_delta);
                         }
                         let mut replacement_metadata =
-                            crate::terminal_metadata::TerminalMetadata::default();
+                            crate::terminal_metadata::TerminalMetadata::with_program_status(
+                                records,
+                            );
                         if !replacement_metadata
                             .set_osc_progress(&replacement_snapshot.osc_progress)
                         {
@@ -3712,7 +3702,9 @@ impl Surface {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
+        let terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        let records = terminal_metadata.program_status();
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed, records);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -3760,7 +3752,7 @@ impl Surface {
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(Default::default()),
+                terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
@@ -7412,8 +7404,12 @@ mod tests {
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
         let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
-        let callbacks =
-            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+        let callbacks = hosted_terminal_callbacks(
+            1,
+            Arc::downgrade(&mux),
+            Arc::new(AtomicBool::new(false)),
+            Default::default(),
+        );
 
         assert!(
             callbacks.on_pty_write.is_none(),

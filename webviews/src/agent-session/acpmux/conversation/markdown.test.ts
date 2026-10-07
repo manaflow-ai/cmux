@@ -98,6 +98,14 @@ describe("the pane's earlier renderer gaps", () => {
     expect(out).not.toContain("[ ]");
     expect(out).not.toContain("[x]");
   });
+
+  test("checked tasks expose an accessible checkbox and a check mark", () => {
+    const out = html("- [x] done");
+    expect(out).toContain('role="checkbox"');
+    expect(out).toContain('aria-checked="true"');
+    expect(out).toContain('aria-readonly="true"');
+    expect(out).toContain('class="cv-checkbox__check"');
+  });
 });
 
 describe("links", () => {

@@ -12,6 +12,8 @@ public struct SidebarDebugRow: Sendable {
     public var viewAlpha: CGFloat?
     public var inList: Bool
     public var suppressed: Bool
+    /// The row's view paints the selection fill now.
+    public var selected: Bool
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -73,7 +75,7 @@ extension SidebarView {
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
-                                   suppressed: list.suppressed.contains(row.key))
+                                   suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []
