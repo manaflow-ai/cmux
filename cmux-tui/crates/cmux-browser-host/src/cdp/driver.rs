@@ -340,6 +340,7 @@ impl Driver for CdpDriver {
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
             "cookies.clear" => inner.cookies_clear(params),
+            "cookies.restore" => inner.cookies_restore(params),
             "cdp" => inner.raw_cdp(params),
             _ => Err(DriverError::unsupported_method(method)),
         }

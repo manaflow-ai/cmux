@@ -87,6 +87,8 @@ public final class AgentPaneModel {
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The App's side of reply chips, images and the preview card's browsers.
+    @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -174,6 +176,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
+        case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -371,6 +374,8 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
+        case .reply(let reply):
+            return await respond(to: reply)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
