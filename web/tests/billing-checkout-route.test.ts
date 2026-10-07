@@ -796,6 +796,28 @@ describe("billing checkout route", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/portal");
   });
 
+  // A plan switch would leave the cancellation in place, so a subscriber
+  // whose cancellation is scheduled goes to the plain portal, where Renew lives.
+  test("sends a Pro subscriber with a scheduled cancellation who asks for Max to the plain portal", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_pro" }];
+    stripeSubscriptionRows = [{
+      id: "sub_pro",
+      status: "active",
+      cancelAtPeriodEnd: true,
+      plan: "pro",
+    }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/portal");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
   test("routes a past_due customer to the billing portal", async () => {
     stripeConfigured = true;
     stripeCustomerRows = [{ id: "cus_past_due" }];
