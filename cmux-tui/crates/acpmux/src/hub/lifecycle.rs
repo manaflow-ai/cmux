@@ -414,6 +414,7 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            let plan = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
