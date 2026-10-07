@@ -354,3 +354,25 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
         Err(e) => session_code(&e),
     })
 }
+
+/// Starts clock probes on this session (red-commit stub).
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_enable_clock(session: *mut CmuxRdSession) -> i32 {
+    with_session(session, |_| CMUX_RD_OK)
+}
+
+/// The clock estimate (red-commit stub).
+///
+/// # Safety
+/// `session` is valid; outs are writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_clock(
+    session: *const CmuxRdSession,
+    _offset_us: *mut i64,
+    _rtt_us: *mut u32,
+) -> i32 {
+    with_session(session.cast_mut(), |_| 0)
+}
