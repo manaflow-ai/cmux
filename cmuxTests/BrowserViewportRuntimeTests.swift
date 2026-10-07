@@ -36,6 +36,95 @@ struct BrowserViewportRuntimeTests {
     }
 
     @Test
+    func dockConfigurationDoesNotReparentInspectorDuringDividerDrag() async throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let contentView = try #require(window.contentView)
+        let host = WebViewRepresentable.HostContainerView(frame: contentView.bounds)
+        contentView.addSubview(host)
+        let slot = host.ensureLocalInlineSlotView()
+        let page = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 500))
+        let inspector = DockConfigurationProbeWebView(
+            frame: NSRect(x: 500, y: 0, width: 300, height: 500)
+        )
+        slot.addSubview(page)
+        slot.addSubview(inspector)
+        host.pinHostedWebView(page, in: slot)
+        host.setHostedInspectorFrontendWebView(inspector)
+        contentView.layoutSubtreeIfNeeded()
+        #expect(host.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded())
+        let container = try #require(page.superview)
+        #expect(container !== slot)
+
+        // Wait for a real dock query scheduled by the host's layout, then
+        // deliver its completion inside the mouse-down/up interval.
+        var queries = inspector.dockQueries.makeAsyncIterator()
+        await queries.next()
+        let point = host.convert(NSPoint(x: inspector.frame.minX + 2, y: 250), to: nil)
+        func mouseEvent(_ type: NSEvent.EventType, x: CGFloat) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: x, y: point.y), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1
+            ))
+        }
+        host.mouseDown(with: try mouseEvent(.leftMouseDown, x: point.x))
+        inspector.completeDockQueries(with: "bottom")
+        #expect(page.superview === container)
+        #expect(inspector.superview === container)
+
+        let initialWidth = inspector.frame.width
+        host.mouseDragged(with: try mouseEvent(.leftMouseDragged, x: point.x - 30))
+        #expect(inspector.frame.width > initialWidth)
+        #expect(page.superview === container)
+        host.mouseUp(with: try mouseEvent(.leftMouseUp, x: point.x - 30))
+
+        #expect(page.superview === slot)
+        #expect(inspector.superview === slot)
+    }
+
+    private final class DockConfigurationProbeWebView: WKWebView {
+        let dockQueries: AsyncStream<Void>
+        private let queryContinuation: AsyncStream<Void>.Continuation
+        private var completions: [@MainActor @Sendable (Any?, (any Error)?) -> Void] = []
+
+        init(frame: NSRect) {
+            (dockQueries, queryContinuation) = AsyncStream<Void>.makeStream()
+            super.init(frame: frame, configuration: WKWebViewConfiguration())
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func evaluateJavaScript(
+            _ javaScriptString: String,
+            completionHandler: (@MainActor @Sendable (Any?, (any Error)?) -> Void)? = nil
+        ) {
+            if javaScriptString == "typeof WI === 'undefined' ? null : WI.dockConfiguration",
+               let completionHandler {
+                completions.append(completionHandler)
+                queryContinuation.yield(())
+            } else {
+                completionHandler?(nil, nil)
+            }
+        }
+
+        func completeDockQueries(with configuration: String) {
+            let pending = completions
+            completions.removeAll()
+            for completion in pending {
+                completion(configuration, nil)
+            }
+        }
+    }
+
+    @Test
     func frameworkLayoutCallbackCanEnterViewportHostThroughMainThreadDispatch() async {
         let host = BrowserViewportHostView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240)
