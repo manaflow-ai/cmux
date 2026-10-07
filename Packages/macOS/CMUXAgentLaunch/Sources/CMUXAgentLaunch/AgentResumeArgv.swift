@@ -116,6 +116,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// idempotent, since the codex sanitizer policy preserves `-c key=value` pairs.
     public static let codexUpdateCheckSuppressionOverride = ["-c", "check_for_update_on_startup=false"]
 
+    /// Builds the root Codex argv for a Codex Teams app-server connection.
+    ///
+    /// Codex accepts `--remote` for a fresh launch and for a session command.
+    public func codexTeamsRootArguments(appServerURL: String, commandArgs: [String]) -> [String] {
+        guard let first = commandArgs.first, first == "resume" || first == "fork" else {
+            return ["--remote", appServerURL] + commandArgs
+        }
+        return [first, "--remote", appServerURL] + Array(commandArgs.dropFirst())
+    }
+
     /// The override tokens to inject between `resume <id>` and the preserved launch
     /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
     /// sets `check_for_update_on_startup` (either value).
