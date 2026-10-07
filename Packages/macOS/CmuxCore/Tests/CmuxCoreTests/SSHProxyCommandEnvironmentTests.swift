@@ -56,7 +56,19 @@ struct SSHProxyCommandEnvironmentTests {
             "-o", "ProxyCommand=/bin/sh \(shellQuote(proxy.path))",
             "--", "cmux-proxy-environment.invalid",
         ]
-        process.environment = configuration(agentSocketPath: agentSocketPath).sshProcessEnvironment
+        // OpenSSH executes ProxyCommand through $SHELL. A runner's zshenv can
+        // rewrite PATH before our helper starts, so control the shell and all
+        // fixture values instead of asserting on the runner's private context.
+        let inherited = [
+            "HOME": directory.path,
+            "USER": "cmux-proxy-test",
+            "LOGNAME": "cmux-proxy-test",
+            "PATH": "/cmux-proxy-fixture/bin:/usr/bin:/bin",
+            "SHELL": "/bin/sh",
+            "SSH_AUTH_SOCK": "/tmp/cmux-inherited-test-agent.sock",
+        ]
+        process.environment = configuration(agentSocketPath: agentSocketPath)
+            .sshProcessEnvironment(inheriting: inherited)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -65,7 +77,6 @@ struct SSHProxyCommandEnvironmentTests {
 
         // The helper intentionally ends before any SSH handshake or network connection.
         #expect(process.terminationStatus == 255)
-        let inherited = ProcessInfo.processInfo.environment
         let expected = ["HOME", "USER", "LOGNAME", "PATH"].map { inherited[$0] ?? "" }
             + [agentSocketPath.map { $0.isEmpty ? "unset" : $0 } ?? inherited["SSH_AUTH_SOCK"] ?? "unset"]
         let proxyReceivedExpectedEnvironment =
