@@ -77873,7 +77873,7 @@
         }
       }
     },
-  "newTabPage.tool.changes": {
+    "newTabPage.tool.changes": {
     "comment": "Agent pane New Tab Tools card",
     "extractionState": "manual",
     "localizations": {
@@ -78005,7 +78005,7 @@
       }
     }
   },
-  "newTabPage.tool.terminal": {
+    "newTabPage.tool.terminal": {
     "comment": "Agent pane New Tab Tools card",
     "extractionState": "manual",
     "localizations": {
@@ -78137,7 +78137,7 @@
       }
     }
   },
-  "newTabPage.tool.files": {
+    "newTabPage.tool.files": {
     "comment": "Agent pane New Tab Tools card",
     "extractionState": "manual",
     "localizations": {
@@ -78269,7 +78269,7 @@
       }
     }
   },
-  "newTabPage.tool.sideChat": {
+    "newTabPage.tool.sideChat": {
     "comment": "Agent pane New Tab Tools card",
     "extractionState": "manual",
     "localizations": {
@@ -78401,7 +78401,7 @@
       }
     }
   },
-  "newTabPage.tools": {
+    "newTabPage.tools": {
     "comment": "Agent pane New Tab Tools",
     "extractionState": "manual",
     "localizations": {
@@ -78533,7 +78533,7 @@
       }
     }
   },
-  "newTabPage.moreOptions": {
+    "newTabPage.moreOptions": {
     "comment": "Agent pane New Tab Tools",
     "extractionState": "manual",
     "localizations": {
@@ -78664,7 +78664,138 @@
         }
       }
     }
-  }
+  },
+    "image.open" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
