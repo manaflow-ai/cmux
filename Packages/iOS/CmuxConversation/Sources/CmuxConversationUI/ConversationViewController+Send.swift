@@ -86,8 +86,15 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             imageFlights.append((imageView, start))
         }
 
-        var bubbleFlight: (bubble: BubbleBackgroundView, clip: UIView, label: UILabel, from: CGRect, to: CGRect, textFrom: CGRect, textTo: CGRect)?
+        // Text and emoji fly in a mover parked at the final frame. Measured
+        // against Messages (iOS 26): the trailing edge stays pinned while the
+        // field's width collapses to the bubble's in ~0.15 s, the whole body
+        // dips to ~0.77 scale and back over ~0.4 s, and the rise is a 0.5 s
+        // response spring (damping 0.82) that settles in ~0.39 s.
+        var textFlight: SendFlightMotion?
         if let bubbleFrame = cellLayout.bubbleFrame, let textFrame = cellLayout.textFrame {
+            let to = bubbleFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
+            let textTo = textFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
@@ -101,39 +108,59 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             clip.clipsToBounds = true
             clip.isUserInteractionEnabled = false
             clip.addSubview(label)
-            container.addSubview(bubble)
-            container.addSubview(clip)
-            let to = bubbleFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
-            let textTo = textFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
-            // Start as the whole composer field, text where it was typed.
-            let from = CGRect(
-                x: flight.fieldFrame.minX,
-                y: flight.fieldFrame.maxY - max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height)),
-                width: flight.fieldFrame.width + ConversationTheme.tailWidth,
-                height: max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height))
-            )
-            // Bottom-aligned at the start: a scrolled draft showed its end, and
-            // a short one lands at the same spot as top alignment.
+            let mover = UIView(frame: to)
+            mover.isUserInteractionEnabled = false
+            mover.addSubview(bubble)
+            mover.addSubview(clip)
+            container.addSubview(mover)
+            // Start as the composer field (tail included), trailing edge at
+            // the bubble's, bottom-aligned with the field.
+            let height = max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height))
+            let from = CGRect(x: flight.fieldFrame.minX, y: flight.fieldFrame.maxY - height, width: max(to.width, to.maxX - flight.fieldFrame.minX), height: height)
+            // Text starts where it was typed: leading edge at the typed
+            // glyphs, bottom-aligned (a scrolled draft showed its end).
             let textFrom = CGRect(
                 x: flight.textFrame.minX,
                 y: from.maxY - ConversationTheme.bubbleVerticalPadding - textTo.height + 1,
                 width: textTo.width,
                 height: textTo.height
             )
-            bubbleFlight = (bubble, clip, label, from, to, textFrom, textTo)
+            textFlight = SendFlightMotion(
+                mover: mover, body: [bubble, clip], label: label,
+                startCenterY: from.midY, endCenterY: to.midY,
+                bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
+                bodyTo: CGRect(origin: .zero, size: to.size),
+                labelFrom: textFrom.offsetBy(dx: -from.minX, dy: -from.minY),
+                labelTo: textTo.offsetBy(dx: -to.minX, dy: -to.minY)
+            )
+        } else if let emojiFrame = cellLayout.emojiFrame {
+            // Emoji-only sends fly bare, growing from the composer's text
+            // size to the large emoji.
+            let to = emojiFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
+            let label = UILabel()
+            label.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize)
+            label.numberOfLines = 0
+            label.text = model.message.text
+            let mover = UIView(frame: to)
+            mover.isUserInteractionEnabled = false
+            mover.addSubview(label)
+            container.addSubview(mover)
+            let ratio = ConversationTheme.bodyFont.pointSize / ConversationTheme.emojiOnlyFontSize
+            let start = CGSize(width: to.width * ratio, height: to.height * ratio)
+            let lineMidY = flight.textFrame.minY + ConversationTheme.bubbleVerticalPadding + ConversationTheme.bodyFont.lineHeight / 2
+            let from = CGRect(x: flight.textFrame.minX, y: lineMidY - start.height / 2, width: start.width, height: start.height)
+            textFlight = SendFlightMotion(
+                mover: mover, body: [label], label: nil,
+                startCenterY: from.midY, endCenterY: to.midY,
+                bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
+                bodyTo: CGRect(origin: .zero, size: to.size),
+                labelFrom: .zero, labelTo: .zero
+            )
         }
 
-        UIView.performWithoutAnimation {
-            if let flight = bubbleFlight {
-                flight.bubble.frame = flight.from
-                flight.bubble.layoutIfNeeded()
-                flight.clip.frame = flight.from
-                flight.label.frame = flight.textFrom.offsetBy(dx: -flight.from.minX, dy: -flight.from.minY)
-            }
-        }
+        UIView.performWithoutAnimation { textFlight?.applyStart() }
 
-        // Main motion ~0.35 s with a small overshoot, settled by ~0.7 s. The
-        // transaction's completion lands the flight however the animation ends.
+        // The transaction's completion lands the flight however it ends.
         activeFlights[rowID] = container
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
@@ -143,14 +170,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         UIView.animate(withDuration: 1.1, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             for image in imageFlights { image.view.transform = .identity }
         }
-        UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-            if let flight = bubbleFlight {
-                flight.bubble.frame = flight.to
-                flight.bubble.layoutIfNeeded()
-                flight.clip.frame = flight.to
-                flight.label.frame = flight.textTo.offsetBy(dx: -flight.to.minX, dy: -flight.to.minY)
-            }
-        }
+        textFlight?.animate()
         CATransaction.commit()
     }
 }
@@ -190,6 +210,65 @@ extension ConversationViewController {
         composer.isEditMode = false
         composer.clearAfterSend()
         header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
+    }
+}
+
+/// One text or emoji send flight: a mover parked at the final frame whose
+/// center rises on a spring while its body (bubble and text clip) collapses
+/// from the composer field into the mover's bounds.
+struct SendFlightMotion {
+    let mover: UIView
+    let body: [UIView]
+    let label: UILabel?
+    let startCenterY: CGFloat
+    let endCenterY: CGFloat
+    let bodyFrom: CGRect
+    let bodyTo: CGRect
+    let labelFrom: CGRect
+    let labelTo: CGRect
+
+    func applyStart() {
+        mover.center.y = startCenterY
+        mover.alpha = 0.7
+        for view in body {
+            view.frame = bodyFrom
+            view.layoutIfNeeded()
+        }
+        label?.frame = labelFrom
+    }
+
+    /// Scale about the trailing edge, where Messages pins the bubble.
+    private func trailingScale(_ scale: CGFloat) -> CGAffineTransform {
+        CGAffineTransform(translationX: mover.bounds.width * (1 - scale) / 2, y: 0).scaledBy(x: scale, y: scale)
+    }
+
+    func animate() {
+        let options: UIView.AnimationOptions = [.allowUserInteraction]
+        UIView.animate(springDuration: 0.5, bounce: 0.18, initialSpringVelocity: 0, delay: 0.015, options: options) {
+            mover.center.y = endCenterY
+        }
+        // Width collapse in ~0.14 s, between linear and ease-out like
+        // Messages; a cubic curve (not a spring) so the bubble's path
+        // animation follows its bounds.
+        let collapse = UIViewPropertyAnimator(duration: 0.14, controlPoint1: CGPoint(x: 0.2, y: 0.3), controlPoint2: CGPoint(x: 0.6, y: 1)) {
+            for view in body {
+                view.frame = bodyTo
+                view.layoutIfNeeded()
+            }
+            label?.frame = labelTo
+        }
+        collapse.isUserInteractionEnabled = true
+        collapse.startAnimation()
+        UIView.animate(withDuration: 0.14, delay: 0, options: options.union(.curveEaseOut)) {
+            mover.alpha = 1
+        }
+        // Scale dip: 0.85 at 0.075 s, 0.77 through ~0.19 s, back by ~0.4 s.
+        let dip = CAKeyframeAnimation(keyPath: "transform")
+        let scales: [CGFloat] = [1, 0.85, 0.77, 0.87, 0.97, 1]
+        dip.values = scales.map { NSValue(caTransform3D: CATransform3DMakeAffineTransform(trailingScale($0))) }
+        dip.keyTimes = [0, 0.19, 0.45, 0.62, 0.82, 1]
+        dip.duration = 0.4
+        mover.layer.add(dip, forKey: "sendDip")
     }
 }
 
