@@ -265,6 +265,60 @@ struct CloudPortRoutePlanTests {
         #expect(!model.isReady)
     }
 
+    @Test("Managed SSH browser proxy routes preserve IPv4 and IPv6 loopback destinations")
+    func managedSSHBrowserProxyAllowsLoopbackDestinations() async throws {
+        let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 42001, username: "fixture", password: "secret")
+        for host in ["127.0.0.1", "::1"] {
+            let model = CloudPortAccessModel(
+                target: CloudPortForwardTarget(host: host, port: 3000),
+                coordinator: nil, wake: {}, startForward: { _ in Issue.record("Browser opened explicit forward"); return 42002 },
+                stopForward: {}, startBrowserProxy: { endpoint }, allowsLoopback: true
+            )
+            let page = CloudBrowserAccessState()
+            let remoteURL = try #require(URL(string: "http://\(host == "::1" ? "[::1]" : host):3000/path"))
+            page.configure(model: model, url: remoteURL)
+            var navigations: [URL] = []
+            page.automaticallyNavigate { navigations.append($0) }
+            model.connectBrowser()
+            #expect(await wait { model.isReady && navigations.count == 1 })
+            #expect(navigations.first?.host == (host == "::1" ? "::1" : "127.0.0.1"))
+            #expect(page.nextURL() == nil, "An already-emitted route must not navigate twice")
+            #expect(page.owns(remoteURL))
+            await model.retire()
+        }
+
+        let aliasModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            startBrowserProxy: { endpoint }, allowsLoopback: true
+        )
+        let aliasPage = CloudBrowserAccessState()
+        aliasPage.configure(model: aliasModel, url: URL(string: "http://127.0.0.1:3000/page")!)
+        #expect(aliasPage.rewrittenLoopbackURL(URL(string: "http://[::1]:3000/ipv6")!)?.host == "::1")
+        #expect(aliasPage.rewrittenLoopbackURL(URL(string: "http://127.0.0.1:3000/ipv4")!)?.host == "127.0.0.1")
+        await aliasModel.retire()
+
+        let reverseAliasModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "::1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            startBrowserProxy: { endpoint }, allowsLoopback: true
+        )
+        let reverseAliasPage = CloudBrowserAccessState()
+        reverseAliasPage.configure(model: reverseAliasModel, url: URL(string: "http://[::1]:3000/page")!)
+        #expect(reverseAliasPage.rewrittenLoopbackURL(URL(string: "http://127.0.0.1:3000/ipv4")!)?.host == "127.0.0.1")
+        await reverseAliasModel.retire()
+
+        let ordinaryModel = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 42002 }, stopForward: {},
+            startBrowserProxy: { endpoint }
+        )
+        ordinaryModel.connectBrowser()
+        #expect(await wait { ordinaryModel.isReady })
+        #expect(ordinaryModel.url(for: URL(string: "http://127.0.0.1:3000/path")!) == nil)
+        await ordinaryModel.retire()
+    }
+
     private func makeModel(
         port: Int = 3000,
         coordinator: CloudTunnelCoordinator? = nil,

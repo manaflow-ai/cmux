@@ -265,7 +265,8 @@ extension CmuxTuiSurfaceProvider {
 #endif
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                     return endpoint
-                }
+                },
+                allowsLoopback: self.machine.isSSH
             )
         }
     }

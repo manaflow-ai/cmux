@@ -476,7 +476,15 @@ final class CloudBrowserAccessState {
         guard model?.usesBrowserProxy == true, let remoteURL,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = remoteURL.host else { return nil }
-        return CloudPortRoutePolicy().privateURL(url.absoluteString, address: address)
+        let allowsLoopback = model?.allowsLoopback == true
+        let explicitSSHLoopback = allowsLoopback
+            ? url.host.flatMap { ["127.0.0.1", "::1"].contains($0.lowercased()) ? $0 : nil }
+            : nil
+        return CloudPortRoutePolicy().privateURL(
+            url.absoluteString,
+            address: explicitSSHLoopback ?? address,
+            allowLoopback: allowsLoopback
+        )
     }
 
     private func cancelUnavailableRetry() {

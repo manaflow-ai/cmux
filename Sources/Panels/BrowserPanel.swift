@@ -5644,6 +5644,12 @@ final class BrowserPanel: Panel, ObservableObject {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
+        } else if cloudAccess.model?.allowsLoopback == true,
+                  RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "") {
+            guard let provider = privateAddressRouteProvider(for: url) else { return nil }
+            clearPendingRemoteNavigationForSupersedingRequest()
+            provider.configureBrowser(self, url: url)
+            return nil
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let provider = privateAddressRouteProvider(for: url) {
             clearPendingRemoteNavigationForSupersedingRequest()
@@ -5734,6 +5740,18 @@ final class BrowserPanel: Panel, ObservableObject {
             } else {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
+        }
+        let isOwnedSSHLoopbackNavigation = cloudAccess.model?.allowsLoopback == true
+            && RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? "")
+        if isOwnedSSHLoopbackNavigation {
+            guard let provider = privateAddressRouteProvider(for: url) else {
+                onNavigationStarted?(nil)
+                return nil
+            }
+            clearPendingRemoteNavigationForSupersedingRequest()
+            provider.configureBrowser(self, url: url, request: request)
+            onNavigationStarted?(nil)
+            return nil
         }
         if cloudBrowserMachineID == nil,
            ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
