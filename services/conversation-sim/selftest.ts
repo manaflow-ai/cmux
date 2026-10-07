@@ -479,8 +479,8 @@ async function main() {
   await post("/admin/burst?conversation=group&count=1&intervalMs=0");
   const quietHead = (await getState()).conversations.group.headSeq;
   await ga.call("markRead", { upToSeq: quietHead });
-  const quiet = (await getState()).conversations.group;
-  check(quiet.lastReadSeq === quietHead && quiet.receiptSeq === beforeOff, "markRead with receipts off reads without telling others");
+  const receiptState = (await getState()).conversations.group;
+  check(receiptState.lastReadSeq === quietHead && receiptState.receiptSeq === beforeOff, "markRead with receipts off reads without telling others");
   await ga.call("updateConversation", { sendReadReceipts: true });
   await post("/admin/burst?conversation=group&count=1&intervalMs=0");
   const loudHead = (await getState()).conversations.group.headSeq;

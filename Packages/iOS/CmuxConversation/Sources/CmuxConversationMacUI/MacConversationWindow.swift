@@ -28,7 +28,7 @@ final class MacConversationEntry {
         self.id = id
         // Drafts persist per conversation and per service.
         let service = "\(endpoint.host ?? "local")-\(endpoint.port ?? 0)"
-        let makeStore = { @MainActor (backend: ConversationSimBackend) in
+        func makeStore(_ backend: ConversationSimBackend) -> ConversationStore {
             ConversationStore(
                 backend: backend,
                 pageSize: ConversationStore.macPageSize,

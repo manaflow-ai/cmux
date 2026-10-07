@@ -98,9 +98,9 @@ extension MacKeyboardSelectionTests {
         #expect(MacConversationLab.handlesShortcut(try event("cmd+="), in: lab.window))
         #expect(MacConversationLab.handlesShortcut(try event("cmd+option+i"), in: lab.window))
         #expect(MacConversationLab.handlesShortcut(try event("cmd+option+8"), in: lab.window))
-        // Show Details has no answer until the details panel lands: the key
-        // is still the conversation's (consumed), never the host's.
-        #expect(MacConversationCommands.target(for: MacConversationCommands.showDetails.action, in: lab.window) == nil)
+        // Show Details (mac-details) answers in the conversation window; the
+        // key is the conversation's, never the host's.
+        #expect(MacConversationCommands.target(for: MacConversationCommands.showDetails.action, in: lab.window) != nil)
         #expect(lab.key("cmd+option+i") == "keyEquivalent")
     }
 
