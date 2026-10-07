@@ -262,8 +262,8 @@ extension CMUXCLI {
         // cmux's managed per-surface command-shim directory, so install tmux beside the existing
         // claude shim (or, with Claude integration off, in that same per-surface directory)
         // instead of relying on a separate launcher-only PATH entry. The environment
-        // only identifies the candidate: the write remains bound to cmux's canonical temporary
-        // root, and neither managed directory component may be a symlink.
+        // only identifies the candidate: the write remains bound to a cmux-cli-shims/<surface>
+        // directory this user owns, and neither managed directory component may be a symlink.
         if let managedPlan = claudeTeamsManagedShimPlan(
             processEnvironment: processEnvironment,
             launchContext: launchContext
