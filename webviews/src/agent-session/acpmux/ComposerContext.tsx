@@ -144,11 +144,13 @@ function BranchPicker({ branch }: { branch: string }) {
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
         <MenuPopup side="top" className="acpmux-menu acpmux-location-menu" align="end">
-          <MenuItem className="acpmux-menu-item" onSelect={() => setOpen(false)}>
-            <span className="acpmux-menu-text">
-              <span className="acpmux-menu-label">{branch}</span>
-            </span>
-          </MenuItem>
+          <MenuRadioGroup value={branch} onValueChange={() => undefined}>
+            <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
+              <span className="acpmux-menu-text">
+                <span className="acpmux-menu-label">{branch}</span>
+              </span>
+            </MenuRadioItem>
+          </MenuRadioGroup>
         </MenuPopup>
       </Menu>
     </span>
