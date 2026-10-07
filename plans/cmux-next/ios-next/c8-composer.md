@@ -163,10 +163,10 @@ channel.
 
 ## 6. Not here
 
-C4 upload wiring (seam only), `files.list` mentions (seam only), the app's `MobileTaskRunner` over
+C4 upload picker lifecycle and `files.list` mentions (seams only), the app's `MobileTaskRunner` over
 acpmux (cmux-next app, no local Mac build), the live spawn check (gate stays off), task cancel UI
-beyond the receipt, Live Activity per task (C7 owns `notify.activity.*`), tagged build (blocked:
-no fleet manifest, dev backend VM).
+beyond the receipt, and Live Activity per task (C7 owns `notify.activity.*`). A fleet archive exists
+for the earlier integration head, but no composer UI runtime or tagged-pair evidence is recorded.
 
 ## 7. Status (2026-10-06)
 
@@ -186,8 +186,8 @@ hidden), `@` mention names (`ComposerFileSuggesting`, `NoFileSuggestions` until 
 
 Unverified: everything visual (no simulator run), dictation on device, VoiceOver and large Dynamic
 Type, the live spawn check (so dispatch stays refused `spawn_unverified` on real Macs), TS catalog
-tests (no `node_modules`). Tagged build not attempted (known blocked: no fleet manifest, dev backend
-VM).
+tests (no `node_modules`). The fleet archive is compile evidence only; no tagged-pair or device run
+is recorded.
 
 ## 8. Attachment intake prerequisite (2026-10-07)
 

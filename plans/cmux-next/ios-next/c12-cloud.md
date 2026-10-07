@@ -155,6 +155,15 @@ Real now: the Cloud tab against the live CloudDO ops (`cloud.machine.list/create
 `cloud.plan.get`, `/v1/wire/cloud` events). Needs the phase-2 Rust host (section 4): VM terminals,
 workspaces and files on the phone; the `cloudWorkspaces` flag stays off until then.
 
-Unverified: everything visual (no simulator run, no tagged build: the known blocked fleet), live
+The phone-side phase-2 boundary is now typed in `CmuxiOSCloudCore`: `cloud.machine.connect_info`
+decodes to credential-free `CloudConnectInfo`, `CloudAttachPreflight` enforces exactly one machine or
+host selector, and `CloudAttachPlanner` validates the machine/host binding, positive epoch, service,
+32-byte WireGuard peer key, and `fd7c:6d78::/32` overlay before a carrier opens. Paused, pausing and
+starting machines return `resumeRequired`; no dial token is cached or minted by this seam. Attach and
+decode regressions are added; they are syntax-checked but await the unavailable hosted Swift test
+lane. Live VM hello, WireGuard and WebRTC paths remain blocked on the Rust host and credentials.
+
+Unverified: everything visual and runtime (no simulator or device run; the fleet archive is compile
+evidence only), live
 calls against a dev backend (Stack session principal on `/v1/ops` from the phone), VoiceOver and
 Dynamic Type at large sizes. `vm_hours_used` is 0 until UsageMeterDO metering lands (backend).

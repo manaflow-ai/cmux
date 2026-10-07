@@ -212,11 +212,20 @@ The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
 - `CmuxiOSShellTests` (with the new remote-layer tests) and `CmuxiOSPlatformTests` compile for
   `arm64-apple-ios17.0-simulator`; the whole `CmuxiOSApp` target builds with SwiftPM; the app target's
   scene delegate typechecks against it. `check-l10n.sh` and `check-concurrency.sh` pass.
-- Tagged build `nxc16` (`ios/scripts/reload-cloud.sh --tag nxc16`): BLOCKED, the same-tag Mac leg
-  times out on the dev backend VM (`cmux-dev-backend-1` SSH). The local fallback needs a fleet
-  manifest (none on this Mac) or 40 GiB free (27 GiB). No install, no screenshots; UI paths
-  (toast overlay, diagnostics share, What's New sheet, Mac gate, keep-awake, plans) are UNVERIFIED
-  on a device.
+- Fleet tag `nxd3-e0391-ios-v1` now compiles the device and simulator targets at exact head
+  `e039144f38988cb5ad880d8eeb19773cd075f5e7` (job `a9c4cefb950b6befe522ad06`); no install,
+  screenshots, or runtime UI evidence is recorded. Toast overlay, diagnostics share, What's New,
+  Mac gate, keep-awake and Plans remain unverified on a device.
 - Follow-ups: the `applinks:cmux.com` entitlement and AASA from `web/`; B1 realtime
   `config.snapshot` replacement for the low-frequency HTTP projection; B5 capabilities and power
   assertion; C7 payload keys; C11 moves the consent toggle; D3 replay masks.
+
+## 13. Analytics wire boundary (2026-10-07)
+
+`CMUXMobileCore` now contains a privacy-bounded `AnalyticsWireContract` and `AnalyticsWireBatch`.
+It mirrors the worker's `/api/analytics/events` envelope, allowlists event names, limits properties,
+identifiers, strings, batches and encoded bodies, rejects non-finite numbers, and maps an anonymous
+install id to `$anon_distinct_id`. The contract is transport-free and does not enable collection;
+`NoopAnalytics` remains the runtime owner until consent, persistence, retry and uploader lifecycle are
+wired. Five Swift Testing regressions cover shape, aliases and all bounds; package execution is
+blocked by the known `CMUXMobileCore` xcstringtool/Testing plugin checkout issue.

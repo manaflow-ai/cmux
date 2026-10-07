@@ -83,16 +83,23 @@ The active wave is intentionally independent:
   ends without its normal close marker. Swift parsing and package build pass.
 - `f538410565` resets account-scoped flags to that account's cache (or empty defaults) before a
   switched account's remote-config refresh can publish, closing the in-memory account-switch gap.
+- `61242e7aab`, `5e46833214`, and `f7a0ad406e` harden host control overflow, use Cloudflare's
+  documented TURN request shape, and pin an unambiguous active tmux pane; `0cc3c8feed` refreshes
+  stale tmux catalogs and drops modern windows without exactly one active pane.
+- `02c9e7e256`, `3eed11780a`, and `e039144f38` close the fleet archive's type and whole-module Swift
+  compile failures. `743332da42` preserves verified upload ids for bounded composer intake,
+  `61b549e59a`/`3bd1e8e902` add the credential-free Cloud VM attach preflight, and `d68a2dd488`
+  adds the privacy-bounded analytics wire contract.
 
 The dedicated build host was unavailable during the implementation wave (`cmux-lawrence-2` did not
 resolve), so native iOS package targets, tagged pair installs, visual evidence, and live SSH/browser
-paths remain explicitly unverified. A fleet archive now proves the current iOS device and simulator
+paths remain explicitly unverified. A fleet archive proves the pre-follow-up iOS device and simulator
 targets compile: job `a9c4cefb950b6befe522ad06`, tag `nxd3-e0391-ios-v1`, exact head
 `e039144f38988cb5ad880d8eeb19773cd075f5e7`, artifact digest
 `bb8f54c780611ecafd3f5d5f0e89e3899f9ea90d645b1d91b8bcee8cfdcf9b19`. Current static checks pass;
-the backend slice has 35 focused Vitest tests and a clean TypeScript typecheck. The next gate is
-tagged Mac/iPhone pairing and D3 runtime evidence; no simulator, real-phone, or live SSH/browser
-result is claimed.
+the post-build C8/C12/C16 slices add static and focused contract evidence; the backend slice has 35
+focused Vitest tests and a clean TypeScript typecheck. The next gate is tagged Mac/iPhone pairing
+and D3 runtime evidence; no simulator, real-phone, or live SSH/browser result is claimed.
 
 ## Dependency graph for this wave
 

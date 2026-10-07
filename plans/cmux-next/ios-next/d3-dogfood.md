@@ -1,6 +1,6 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` implementation baseline `e039144f38988cb5ad880d8eeb19773cd075f5e7` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` implementation baseline `3bd1e8e9020bec46432c1989f0873eba3b8681cf` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
 Plan: [PLAN.md](PLAN.md) D3. A tagged fleet archive is available, but no simulator or device run is
 recorded: job `a9c4cefb950b6befe522ad06` produced tag `nxd3-e0391-ios-v1` for this exact head and
@@ -112,7 +112,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.17 | Erase all data on this device | C11, E5 | done (sandbox-wide plan, e5-extras.md 3) |
 | 1.17 | DEBUG Developer section | A1 | done |
 | 1.18 | Structured diagnostic log, terminal latency trace | C16, C1 | done |
-| 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`) |
+| 1.18 | Analytics uploader | C16 | seam only (`NoopAnalytics`; proxy wire contract and bounds implemented, uploader/composition pending) |
 | 1.18 | Crash reporting (Sentry, hangs) | C16 | done (session replay off until masks are listed, section 4) |
 | 1.18 | DEBUG Copy Logs, Send Feedback | C16 | done (diagnostics share) |
 | 1.19 | Toast center | C16 | done |
@@ -342,7 +342,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
 not a test result for the implementation baseline; current implementation evidence is recorded at
-`e039144f38988cb5ad880d8eeb19773cd075f5e7`.
+`3bd1e8e9020bec46432c1989f0873eba3b8681cf`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -367,14 +367,15 @@ not a test result for the implementation baseline; current implementation eviden
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
 (no cargo on this Mac). The current-head backend slice has `35` focused Vitest tests and a clean
-TypeScript typecheck at `e039144f38988cb5ad880d8eeb19773cd075f5e7`.
+TypeScript typecheck at `3bd1e8e9020bec46432c1989f0873eba3b8681cf`.
 
 Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
 `git diff --check`, `check-concurrency.sh`, and `check-crash-safety.sh` pass for the follow-up changes;
 35 focused backend Vitest tests and TypeScript typecheck pass. The fleet archive above compiled both
-device and simulator targets. Native Swift tests, UI tests, and live network/device journeys remain
-unverified; do not read the historical 460-test total or the agent-reported package test runs as
-current-head device verification.
+device and simulator targets at its earlier exact head `e039144f38988cb5ad880d8eeb19773cd075f5e7`;
+the C8/C12/C16 follow-ups are static and contract evidence only. Native Swift tests, UI tests, and
+live network/device journeys remain unverified; do not read the historical 460-test total or the
+agent-reported package test runs as current-head device verification.
 
 ## 6. Runbook: tagged pair `nxd3`
 
