@@ -9,7 +9,9 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+mod open;
 mod query;
+mod settings;
 mod sources;
 mod watch;
 
@@ -19,12 +21,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use cmux_chat_index::{
     AdapterKind, ChatChange, ChatIndex, ChatKey, Discovery, DiscoveryInput, IndexedChat,
-    RecordedRoots, RefusedRoot, RootSpec, discover,
+    RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,
 };
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::ChatQuery;
+pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
 /// The index, its roots and the watcher over them.
@@ -41,6 +45,9 @@ struct State {
     index: ChatIndex,
     refused: Vec<RefusedRoot>,
     recorded: RecordedRoots,
+    /// The app's settings (`_acpmux/chat_settings`) and the roots they name that are refused.
+    settings: ChatSettings,
+    settings_refused: Vec<SettingsRefusal>,
     watcher: Option<watch::RootWatcher>,
     watch_errors: Vec<String>,
 }
@@ -54,7 +61,8 @@ impl ChatService {
     /// (incremental from the cache). Blocking: call it off the executor.
     pub fn start(sources: ChatSources) -> Arc<Self> {
         let recorded = RecordedRoots::load(sources.acpmux_home.join("chat-roots.json"));
-        let found = discover_roots(&sources, recorded.roots());
+        let settings = ChatSettings::load(&settings_path(&sources));
+        let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
         let (changes, _) = broadcast::channel(256);
         let service = Arc::new(Self {
@@ -63,6 +71,8 @@ impl ChatService {
                 index,
                 refused: found.refused,
                 recorded,
+                settings,
+                settings_refused,
                 watcher: None,
                 watch_errors: Vec::new(),
             }),
@@ -85,6 +95,9 @@ impl ChatService {
     /// One page of chats, newest first, and the cursor of the next page.
     pub fn list(&self, query: &ChatQuery) -> (Vec<Value>, Option<String>) {
         let state = lock(&self.state);
+        if !state.settings.enabled {
+            return (Vec::new(), None);
+        }
         let matching: Vec<&IndexedChat> =
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
         let page: Vec<Value> =
@@ -114,7 +127,47 @@ impl ChatService {
             "refused": state.refused,
             "recordedFile": state.recorded.path(),
             "watchErrors": state.watch_errors,
+            "settings": state.settings,
+            "settingsRefused": state.settings_refused,
         })
+    }
+
+    /// Reads the settings file again: settings sent while the index was
+    /// starting were only saved. Blocking.
+    pub fn reload_settings(self: &Arc<Self>) {
+        let saved = ChatSettings::load(&settings_path(&self.sources));
+        let changed = {
+            let mut state = lock(&self.state);
+            let changed = state.settings != saved;
+            state.settings = saved;
+            changed
+        };
+        if changed {
+            self.refresh_roots();
+        }
+    }
+
+    /// Whether the person turned chats on (`agents.chats.enabled`).
+    pub fn enabled(&self) -> bool {
+        lock(&self.state).settings.enabled
+    }
+
+    /// Applies and saves the app's settings, then finds the roots again
+    /// (a root that leaves takes its chats with it). Blocking.
+    pub fn apply_settings(self: &Arc<Self>, settings: ChatSettings) -> Result<(), String> {
+        settings
+            .save(&settings_path(&self.sources))
+            .map_err(|e| format!("save the chat settings: {e}"))?;
+        let changed = {
+            let mut state = lock(&self.state);
+            let changed = state.settings != settings;
+            state.settings = settings;
+            changed
+        };
+        if changed {
+            self.refresh_roots();
+        }
+        Ok(())
     }
 
     /// Records the store root of a transcript a harness reported (a hook's
@@ -141,11 +194,32 @@ impl ChatService {
         Ok(new)
     }
 
+    /// Records the store roots a spawn's env named (launch roots, C3); new
+    /// ones are scanned and watched. Blocking.
+    pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
+        let mut new = false;
+        {
+            let mut state = lock(&self.state);
+            for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
+                match state.recorded.record(spec.clone()) {
+                    Ok(fresh) => new |= fresh,
+                    Err(e) => tracing::warn!("record a launch root: {e}"),
+                }
+            }
+        }
+        if new {
+            self.refresh_roots();
+        }
+    }
+
     /// Discovers the roots again; new roots are scanned and watched.
     /// Blocking.
     pub fn refresh_roots(self: &Arc<Self>) {
-        let recorded: Vec<RootSpec> = lock(&self.state).recorded.roots().to_vec();
-        let found = discover_roots(&self.sources, &recorded);
+        let (recorded, settings) = {
+            let state = lock(&self.state);
+            (state.recorded.roots().to_vec(), state.settings.clone())
+        };
+        let (found, settings_refused) = discover_roots(&self.sources, &recorded, &settings);
         let paths: Vec<PathBuf> = found.roots.iter().map(|root| root.real_path.clone()).collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
@@ -157,6 +231,7 @@ impl ChatService {
             changes.extend(state.index.rescan_root(&id));
         }
         state.refused = found.refused;
+        state.settings_refused = settings_refused;
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
         self.save(&state.index);
@@ -256,16 +331,45 @@ fn cache_path(sources: &ChatSources) -> PathBuf {
     sources.acpmux_home.join("chat-index/v1.json")
 }
 
-fn discover_roots(sources: &ChatSources, recorded: &[RootSpec]) -> Discovery {
+fn settings_path(sources: &ChatSources) -> PathBuf {
+    sources.acpmux_home.join("chat-settings.json")
+}
+
+/// The roots to read under `settings`: none when chats are off; only the
+/// user's and managed roots when discovery is off (a listed root that is
+/// also a default root stays).
+fn discover_roots(
+    sources: &ChatSources,
+    recorded: &[RootSpec],
+    settings: &ChatSettings,
+) -> (Discovery, Vec<SettingsRefusal>) {
+    let refuse = |path: &Path| sources.refusal(path);
+    let (listed, settings_refused) = settings.root_specs(&refuse);
+    if !settings.enabled {
+        return (Discovery::default(), settings_refused);
+    }
     let mut launched = sources.launch_roots.clone();
     launched.extend(recorded.iter().cloned());
-    discover(&DiscoveryInput {
+    let mut user = sources.user_roots.clone();
+    user.extend(listed.iter().cloned());
+    let mut found = discover(&DiscoveryInput {
         home: &sources.home,
         env: &*sources.env,
-        refuse: &|path| sources.refusal(path),
+        refuse: &refuse,
         recorded: &launched,
-        user: &sources.user_roots,
-    })
+        user: &user,
+    });
+    if !settings.discovery {
+        let real =
+            |spec: &RootSpec| std::fs::canonicalize(&spec.path).ok().map(|p| (spec.harness, p));
+        let wanted: Vec<(AdapterKind, PathBuf)> = user.iter().filter_map(real).collect();
+        found.roots.retain(|root| wanted.contains(&(root.harness, root.real_path.clone())));
+        for root in &mut found.roots {
+            root.source = RootSource::User;
+        }
+        found.refused.retain(|root| root.source == RootSource::User);
+    }
+    (found, settings_refused)
 }
 
 /// `<harness>:<session id>`, the key clients pass back.
@@ -306,8 +410,31 @@ impl crate::hub::Hub {
         let service = tokio::task::spawn_blocking(move || ChatService::start(sources))
             .await
             .map_err(|e| format!("chat index start: {e}"))?;
-        let _ = self.chats.set(service);
+        let _ = self.chats.set(service.clone());
+        // Settings sent during the first scan went only to the file.
+        tokio::task::spawn_blocking(move || service.reload_settings())
+            .await
+            .map_err(|e| format!("chat settings: {e}"))?;
         Ok(())
+    }
+
+    /// Applies the app's chat settings; before the index runs, saves them
+    /// for its start. Blocking.
+    pub fn apply_chat_settings(&self, settings: ChatSettings) -> Result<bool, String> {
+        if let Some(service) = self.chats.get() {
+            return service.apply_settings(settings).map(|()| true);
+        }
+        settings
+            .save(&crate::config::home().join("chat-settings.json"))
+            .map_err(|e| format!("save the chat settings: {e}"))?;
+        // The index may have started between the check and the save.
+        match self.chats.get() {
+            Some(service) => {
+                service.reload_settings();
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     pub fn chat_index(&self) -> Option<&Arc<ChatService>> {

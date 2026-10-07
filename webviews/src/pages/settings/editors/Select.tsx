@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { Icon } from "../icons";
+import { Children, isValidElement, type ReactNode } from "react";
+import { Select as UiSelect, type SelectOption } from "../../../ui/Select";
 
-/** A native select drawn without its own chrome; the chevron is a sibling glyph. */
+/** A settings select backed by the shared macOS menu primitive. */
 export function Select({
   value,
   disabled,
@@ -15,18 +15,37 @@ export function Select({
   onChange: (value: string) => void;
   children: ReactNode;
 }) {
+  const options: SelectOption[] = Children.toArray(children).flatMap((child) => {
+    if (!isValidElement<{ value?: string; disabled?: boolean; children?: ReactNode }>(child) || child.type !== "option")
+      return [];
+    const option = child.props;
+    const optionValue = String(option.value ?? "");
+    return [{ value: optionValue, label: option.children, disabled: option.disabled }];
+  });
   return (
     <span className="select">
+      {/* Kept as a form-compatible mirror for settings automation and host integrations. The
+          visible control is the shared Menu-backed Select beside it. */}
       <select
-        className="field"
+        className="field ui-select-native"
         value={value}
         disabled={disabled}
         aria-labelledby={labelId}
+        aria-hidden="true"
         onChange={(event) => onChange(event.currentTarget.value)}
       >
         {children}
       </select>
-      <Icon name="chevron" />
+      <UiSelect
+        value={value}
+        options={options}
+        disabled={disabled}
+        label=""
+        labelledBy={labelId}
+        onChange={onChange}
+        className="ui-select-shared"
+        buttonClassName="field"
+      />
     </span>
   );
 }

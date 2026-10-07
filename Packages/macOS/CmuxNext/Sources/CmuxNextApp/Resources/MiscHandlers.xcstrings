@@ -6737,6 +6737,268 @@
           }
         }
       }
+    },
+    "handlers.chief.inspector.noLocalChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリインスペクタはこの Mac で動く Chief を表示します。Chief を起動して (Home でメッセージを送って) から、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض مفتش الذاكرة Chief الذي يعمل على هذا الـ Mac. شغّل Chief (أرسل إليه رسالة في Home)، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor memorije prikazuje Chiefa koji radi na ovom Macu. Pokrenite Chiefa (pošaljite mu poruku u Home), pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hukommelsesinspektøren viser en Chief, der kører på denne Mac. Start Chief (send en besked i Home), og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Speicher-Inspektor zeigt einen Chief, der auf diesem Mac läuft. Starte den Chief (schick ihm eine Nachricht in Home) und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El inspector de memoria muestra un Chief que se ejecuta en este Mac. Inicia el Chief (envíale un mensaje en Home) y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’inspecteur de mémoire affiche un Chief qui tourne sur ce Mac. Démarrez le Chief (envoyez-lui un message dans Home), puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’ispettore della memoria mostra un Chief in esecuzione su questo Mac. Avvia il Chief (inviagli un messaggio in Home) e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីពិនិត្យអង្គចងចាំបង្ហាញ Chief ដែលដំណើរការលើ Mac នេះ។ ចាប់ផ្ដើម Chief (ផ្ញើសារទៅវានៅក្នុង Home) រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리 인스펙터는 이 Mac에서 실행되는 Chief를 보여 줍니다. Chief를 시작한 다음(Home에서 메시지 보내기) 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minneinspektøren viser en Chief som kjører på denne Macen. Start Chief (send en melding i Home), og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor pamięci pokazuje Chiefa działającego na tym Macu. Uruchom Chiefa (wyślij mu wiadomość w Home) i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O inspetor de memória mostra um Chief que roda neste Mac. Inicie o Chief (envie uma mensagem no Home) e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инспектор памяти показывает Chief, который работает на этом Mac. Запустите Chief (отправьте ему сообщение в Home) и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวตรวจหน่วยความจำแสดง Chief ที่ทำงานบน Mac เครื่องนี้ เริ่ม Chief (ส่งข้อความใน Home) แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bellek Denetçisi bu Mac’te çalışan bir Chief’i gösterir. Chief’i başlatın (Home’da ona mesaj gönderin) ve yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інспектор пам’яті показує Chief, що працює на цьому Mac. Запустіть Chief (надішліть йому повідомлення в Home) і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình kiểm tra bộ nhớ hiển thị Chief chạy trên máy Mac này. Hãy khởi động Chief (gửi tin nhắn trong Home) rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "记忆检查器显示在这台 Mac 上运行的 Chief。请先启动 Chief（在 Home 中给它发一条消息），然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記憶檢查器顯示在這台 Mac 上執行的 Chief。請先啟動 Chief（在 Home 中傳一則訊息給它），然後再試一次。"
+          }
+        }
+      }
+    },
+    "handlers.chief.inspector.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief's Memory Inspector did not answer. Restart cmux to restart the Chief, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief のメモリインスペクタが応答しませんでした。cmux を再起動して Chief を再起動してから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب مفتش ذاكرة Chief. أعد تشغيل cmux لإعادة تشغيل Chief، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefov inspektor memorije nije odgovorio. Ponovo pokrenite cmux da ponovo pokrenete Chiefa, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs hukommelsesinspektør svarede ikke. Genstart cmux for at genstarte Chief, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Speicher-Inspektor des Chief hat nicht geantwortet. Starte cmux neu, um den Chief neu zu starten, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El inspector de memoria del Chief no respondió. Reinicia cmux para reiniciar el Chief y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’inspecteur de mémoire du Chief n’a pas répondu. Redémarrez cmux pour redémarrer le Chief, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’ispettore della memoria del Chief non ha risposto. Riavvia cmux per riavviare il Chief e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីពិនិត្យអង្គចងចាំរបស់ Chief មិនបានឆ្លើយតប។ ចាប់ផ្ដើម cmux ឡើងវិញដើម្បីចាប់ផ្ដើម Chief ឡើងវិញ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief의 메모리 인스펙터가 응답하지 않았습니다. cmux를 다시 시작해 Chief를 다시 시작한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs minneinspektør svarte ikke. Start cmux på nytt for å starte Chief på nytt, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor pamięci Chiefa nie odpowiedział. Uruchom ponownie cmux, aby ponownie uruchomić Chiefa, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O inspetor de memória do Chief não respondeu. Reinicie o cmux para reiniciar o Chief e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инспектор памяти Chief не ответил. Перезапустите cmux, чтобы перезапустить Chief, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวตรวจหน่วยความจำของ Chief ไม่ตอบสนอง รีสตาร์ต cmux เพื่อรีสตาร์ต Chief แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief’in Bellek Denetçisi yanıt vermedi. Chief’i yeniden başlatmak için cmux’u yeniden başlatın ve yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інспектор пам’яті Chief не відповів. Перезапустіть cmux, щоб перезапустити Chief, і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình kiểm tra bộ nhớ của Chief không phản hồi. Hãy khởi động lại cmux để khởi động lại Chief, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的记忆检查器没有响应。请重新启动 cmux 以重启 Chief，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的記憶檢查器沒有回應。請重新啟動 cmux 以重新啟動 Chief，然後再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
