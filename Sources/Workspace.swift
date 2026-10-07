@@ -14428,7 +14428,11 @@ extension Workspace: BonsplitDelegate {
                     }
 
                     self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    if !self.bonsplitController.closeTab(tabId) {
+                        // didCloseTab never runs for a rejected close, so drop the
+                        // bypass here or the next close would skip the warning.
+                        self.forceCloseTabIds.remove(tabId)
+                    }
                 }
             }
             return false

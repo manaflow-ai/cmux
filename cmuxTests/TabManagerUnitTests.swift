@@ -2200,6 +2200,60 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
+    func testRejectedConfirmedCloseDoesNotLeaveWarningBypass() throws {
+        try withCloseTabUserDefaults(warnBeforeClosingTab: true, hideTabCloseButton: false) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let initialPanelId = workspace.focusedPanelId,
+                  let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil,
+                  let initialSurfaceId = workspace.surfaceIdFromPanelId(initialPanelId) else {
+                XCTFail("Expected workspace with two terminal surfaces")
+                return
+            }
+            workspace.focusPanel(initialPanelId)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+            // The first confirmation is accepted, but Bonsplit rejects the
+            // confirmed retry, so the tab stays open.
+            let vetoingDelegate = VetoingCloseBonsplitDelegate()
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                if promptCount == 1 {
+                    workspace.bonsplitController.delegate = vetoingDelegate
+                }
+                return true
+            }
+
+            workspace.markExplicitClose(surfaceId: initialSurfaceId)
+            _ = workspace.bonsplitController.closeTab(initialSurfaceId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, 1)
+            XCTAssertNotNil(workspace.panels[initialPanelId])
+
+            // A later close of the still-open tab must ask again instead of
+            // reusing the stale force-close entry.
+            workspace.bonsplitController.delegate = workspace
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+            workspace.markExplicitClose(surfaceId: initialSurfaceId)
+            _ = workspace.bonsplitController.closeTab(initialSurfaceId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, 2)
+            XCTAssertNotNil(workspace.panels[initialPanelId])
+        }
+    }
+
     func testMiddleClickCloseDoesNotUseXButtonWarning() throws {
         try assertTabCloseButtonConfirmation(
             warnBeforeClosingTab: nil,
@@ -4728,5 +4782,11 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
             "The destination group's rows must stay contiguous after a cross-window move"
         )
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
+    }
+}
+
+private final class VetoingCloseBonsplitDelegate: BonsplitDelegate {
+    func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        false
     }
 }
