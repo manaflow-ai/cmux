@@ -650,6 +650,23 @@ pre.cv-math-source {
   margin-top: 6px;
   text-align: right;
 }
+/* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
+   transcript stays light; a click opens the image viewer. */
+.cv-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.cv-tool-images .cv-img {
+  max-width: min(100%, 360px);
+  max-height: 220px;
+  margin: 0;
+  object-fit: contain;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+
 .cv-tool-output {
   margin: 4px 0 8px;
   max-height: 240px;

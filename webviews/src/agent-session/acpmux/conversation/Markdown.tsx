@@ -4,7 +4,7 @@
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
@@ -16,10 +16,9 @@ import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
-import { ReplyImage } from "../chips/ReplyImage";
+import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { ImageViewerContext } from "./imageViewerContext";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -456,22 +455,12 @@ export function inlineImages(
 /// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
 /// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
-  const t = useT();
-  const openImage = useContext(ImageViewerContext);
   const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
   const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) {
-    const image = <img className="cv-img" src={src} alt={alt} />;
-    if (!openImage) return image;
-    return (
-      <button type="button" className="cv-img-open" title={alt || t("image.view")} onClick={() => openImage(src, alt)}>
-        {image}
-      </button>
-    );
-  }
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const href = safeHref(src);
   const fallback = !href ? (

@@ -5,6 +5,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
+import { BUILD_TIMES_PNG, LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -282,6 +283,35 @@ export default agentPaneEntry({
       note: "Markdown mixing URL/path chips, host-mediated images, an oversized image guard, and a local preview.",
       chipHost: CHIP_HOST,
       snapshot: chat([user("Show the links and images", 5), assistant(CHIP_PREVIEW_MIX, 4.9), summary(4.9)]),
+    },
+    "tool-images": {
+      note: "Images tool calls produced: a screenshot a browser tool returned, and a chart a script saved; a click opens the viewer.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false } },
+        images: { "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}` },
+      },
+      snapshot: chat([
+        user("Check the sign-in page, then chart the build times", 6),
+        activity(
+          [
+            tool("Screenshot localhost:5173/login", "other", "completed", {
+              output: "Captured 640x400",
+              images: [`data:image/png;base64,${LOGIN_SCREENSHOT_PNG}`],
+            }),
+            tool("python3 scripts/plot_build_times.py", "execute", "completed", {
+              command: "python3 scripts/plot_build_times.py",
+              output: "Saved chart to /Users/you/src/atlas-web/out/build-times.png\n",
+              exitCode: 0,
+            }),
+          ],
+          5.8,
+        ),
+        assistant(
+          "The sign-in page renders with both fields and the Continue button. The app target is the slowest build at 312 s.",
+          5.6,
+        ),
+        summary(5.6, { status: "completed", toolCount: 2 }),
+      ]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
