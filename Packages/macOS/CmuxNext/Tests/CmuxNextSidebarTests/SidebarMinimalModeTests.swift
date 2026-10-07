@@ -31,10 +31,10 @@ import Testing
         #expect(bandAlpha(view.aboveRegion) == 1)
         view.setChromeRevealed(true)
         #expect(bandAlpha(view.belowRegion) == 1)
-        // VoiceOver still finds Settings while the band is faded.
+        // VoiceOver still finds the profile control while the band is faded.
         view.setChromeRevealed(false)
-        let settings = view.belowRegion.itemView(LayoutItemID("itm_settings"))
-        #expect(settings != nil && settings?.isHiddenOrHasHiddenAncestor == false && settings?.isAccessibilityElement() == true)
+        let account = view.belowRegion.itemView(LayoutItemID("itm_account"))
+        #expect(account != nil && account?.isHiddenOrHasHiddenAncestor == false && account?.isAccessibilityElement() == true)
     }
 
     /// Lawrence (2026-10-05): "settings section border should fade if im not hovered". The

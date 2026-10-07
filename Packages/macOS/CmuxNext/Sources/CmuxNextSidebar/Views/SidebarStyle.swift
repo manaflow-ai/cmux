@@ -33,6 +33,14 @@ enum SidebarStyle {
     static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
     static var badgeHeight: CGFloat { Metrics.iconSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
+    /// 16 pt avatar circle at the compact density (the icon box), a small
+    /// chevron after it, and the control as wide as a row-height square
+    /// plus the chevron, so the circle keeps a square item's center.
+    static var avatarDiameter: CGFloat { iconBox }
+    static var avatarChevronSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
+    static var avatarChevronGap: CGFloat { Metrics.space1 }
+    static var avatarControlWidth: CGFloat { Metrics.sidebarRowHeight + avatarChevronGap + avatarChevronSize }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }

@@ -14,7 +14,9 @@ extension SidebarView {
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
             region.liftHost = self
-            region.onActivateWithModifiers = { [weak self] id, flags in
+            region.onActivateWithModifiers = { [weak self, weak region] id, flags in
+                // The profile control opens its menu over itself.
+                if let view = region?.itemView(id), view.showsAvatar, self?.showProfileMenu(from: view) == true { return }
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -24,6 +26,9 @@ extension SidebarView {
                 self.model.send(.layout(op))
             }
         }
+        // The footer row (the profile control and the spaces dots) takes no
+        // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
+        belowRegion.allowsDrag = false
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)
@@ -41,7 +46,7 @@ extension SidebarView {
         // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight)
-        let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
+        let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let bands = (above: (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps),
@@ -49,7 +54,7 @@ extension SidebarView {
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         // The one selection marks its top item active (its glyph, accessibility).
-        var selectedInfos = model.itemInfo
+        var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
         for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {

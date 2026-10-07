@@ -157,6 +157,13 @@ public final class SidebarView: NSView {
 
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means
+    /// The profile menu the footer's profile control opens
+    /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
+    /// registry actions. Nil opens nothing.
+    public var profileMenuProvider: (() -> NSMenu?)?
+    /// Shows a profile menu over its anchor (tests record it instead).
+    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
+
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
@@ -248,10 +255,14 @@ public final class SidebarView: NSView {
         profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
+        // Amendment 3: at the bottom the dots share the footer band's row
+        // (after the profile control), so the dots row takes no height of
+        // its own unless the band is empty.
         let footerHeight: CGFloat = SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
-        // From the bottom up (R112/R114): the Settings band, the dots, the
-        // staged update card (UPDATE-CARD), the cards.
+        // From the bottom up (R112/R114): the footer band (the profile
+        // control, then the dots), the staged update card (UPDATE-CARD),
+        // the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
@@ -326,7 +337,7 @@ public final class SidebarView: NSView {
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
                     layout: model.layout,
-                    itemInfo: model.itemInfo,
+                    itemInfo: model.resolvedItemInfo,
                     transientTopItems: model.transientTopItems,
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,

@@ -27,21 +27,4 @@ import Testing
         #expect(lines.allSatisfy { $0 === view.aboveLine })
         #expect(lines.allSatisfy { $0.frame.maxY <= view.belowFade.frame.minY - SidebarStyle.footerHeight })
     }
-
-    /// SIDEBAR-FOOTER-AND-SPACE-MENU F1 (Lawrence 2026-10-06, "too much
-    /// padding"): the avatar and the gear are row-height squares side by
-    /// side, no gap between them, the avatar's glyph on the column of the
-    /// rows' glyphs. Each square stays at least the macOS minimum hit size.
-    @Test func theFooterIconsAreEvenSquaresOnTheRowGlyphColumn() throws {
-        let view = sidebar()
-        let account = try #require(view.belowRegion.itemView(LayoutItemID("itm_account")))
-        let gear = try #require(view.belowRegion.itemView(LayoutItemID("itm_settings")))
-        let side = Metrics.sidebarRowHeight
-        #expect(account.frame.size == CGSize(width: side, height: side), "\(account.frame)")
-        #expect(gear.frame.size == account.frame.size)
-        #expect(gear.frame.minX == account.frame.maxX, "even spacing, no extra gap: \(account.frame) \(gear.frame)")
-        let column = SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2
-        #expect(abs(view.convert(account.frame, from: view.belowRegion).midX - column) <= 0.5)
-        #expect(side >= 20, "macOS minimum hit target")
-    }
 }
