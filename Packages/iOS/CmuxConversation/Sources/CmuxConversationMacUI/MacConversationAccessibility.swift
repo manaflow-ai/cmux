@@ -27,7 +27,9 @@ extension MacConversationViewController {
         case .notDelivered: value.append(ConversationAccessibilityText.sendFailure)
         }
         row.setAccessibilityValue(value.isEmpty ? nil : value.joined(separator: ", "))
-        row.setAccessibilityHelp(message.seq != nil ? ConversationAccessibilityText.reactHintMac : nil)
+        // The row's effects pass set "Sent with <effect>"; keep it before the hint.
+        let help = [message.effect.map(MacEffectStrings.sentWith), message.seq != nil ? ConversationAccessibilityText.reactHintMac : nil].compactMap { $0 }
+        row.setAccessibilityHelp(help.isEmpty ? nil : help.joined(separator: ", "))
 
         var actions: [NSAccessibilityCustomAction] = []
         if message.seq != nil {

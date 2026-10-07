@@ -204,6 +204,14 @@ extension ConversationViewController {
                 return true
             })
         }
+        // Send effects: hidden Invisible Ink, the effect's name, Replay/Reveal.
+        let effectAX = cell.effectAccessibility(revealedLabel: ax.bubble.accessibilityLabel ?? "")
+        if let hidden = effectAX.hiddenLabel {
+            ax.bubble.accessibilityLabel = hidden
+            cell.accessibilityLabel = hidden
+        }
+        ax.bubble.accessibilityValue = effectAX.value
+        actions += effectAX.actions
         ax.bubble.accessibilityCustomActions = actions
     }
 

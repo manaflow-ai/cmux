@@ -74,15 +74,21 @@ extension MessageCell {
             textLabel.layer.mask = nil
         }
 
-        // VoiceOver: hidden ink text stays hidden until revealed; effects add actions.
+        // VoiceOver speaks the row through `accessibility.bubble`; the
+        // controller adds `effectAccessibility` there (ink, effect, actions).
+    }
+
+    /// The bubble element's effect additions: Invisible Ink keeps the text
+    /// unspoken until revealed, the value names the effect, and Replay /
+    /// Reveal run the same paths as the button and touch.
+    func effectAccessibility(revealedLabel: String) -> (hiddenLabel: String?, value: String?, actions: [UIAccessibilityCustomAction]) {
+        guard let model else { return (nil, nil, []) }
+        var hiddenLabel: String?
         if let ink = inkView, !ink.isRevealed {
-            accessibilityLabel = [model.senderName, ConversationEffectStrings.inkHidden].compactMap { $0 }.joined(separator: ", ")
+            hiddenLabel = [model.senderName, ConversationEffectStrings.inkHidden].compactMap { $0 }.joined(separator: ", ")
         }
-        if let effect {
-            accessibilityValue = [effect.sentWithDescription, accessibilityValue].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
-        }
-        var actions = (accessibilityCustomActions ?? []).filter { !($0 is EffectAccessibilityAction) }
-        if layout.replayFrame != nil {
+        var actions: [UIAccessibilityCustomAction] = []
+        if cellLayout?.replayFrame != nil {
             actions.append(EffectAccessibilityAction(name: ConversationEffectStrings.replay) { [weak self] _ in
                 self?.requestReplay()
                 return true
@@ -93,11 +99,11 @@ extension MessageCell {
                 guard let self, let ink = self.inkView else { return false }
                 ink.revealAll()
                 ink.scheduleRecover()
-                self.accessibilityLabel = [self.model?.senderName, self.model?.message.text].compactMap { $0 }.joined(separator: ", ")
+                self.accessibility.bubble.accessibilityLabel = revealedLabel
                 return true
             })
         }
-        accessibilityCustomActions = actions
+        return (hiddenLabel, model.message.effect?.sentWithDescription, actions)
     }
 
     private func requestReplay() {
