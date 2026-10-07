@@ -330,6 +330,33 @@ mod tests {
         assert!(parse_run(&s(&["--root"]), vec![]).is_err());
     }
 
+    /// The units run `cmux host run --mode <user|system>` (launchd today;
+    /// systemd and Windows later). `--mode` is accepted on both the
+    /// roles-only path and the Linux bind agent path, anywhere in the args,
+    /// once; it overrides CMUX_SERVER_MODE.
+    #[test]
+    fn run_accepts_the_units_mode_argument() {
+        assert_eq!(split_mode(&s(&[])), Ok((None, s(&[]))));
+        assert_eq!(split_mode(&s(&["--mode", "user"])), Ok((Some(InstallMode::User), s(&[]))));
+        assert_eq!(
+            split_mode(&s(&["--roles-only", "--mode", "system"])),
+            Ok((Some(InstallMode::System), s(&["--roles-only"])))
+        );
+        assert_eq!(
+            split_mode(&s(&["--root", "/r", "--mode", "user", "--no-announce"])),
+            Ok((Some(InstallMode::User), s(&["--root", "/r", "--no-announce"])))
+        );
+        assert!(split_mode(&s(&["--mode"])).is_err());
+        assert!(split_mode(&s(&["--mode", "root"])).is_err());
+        assert!(split_mode(&s(&["--mode", "user", "--mode", "user"])).is_err());
+        // The launchd agent's exact argv (cmux-server-core) parses here.
+        for mode in [InstallMode::User, InstallMode::System] {
+            let argv = cmux_server_core::units::host_run_argv_with_mode("cmux", mode);
+            assert_eq!(argv[1..3], ["host", "run"]);
+            assert_eq!(split_mode(&argv[3..].to_vec()), Ok((Some(mode), s(&[]))));
+        }
+    }
+
     #[test]
     fn status_without_agent_is_not_found() {
         let dir = tempfile::tempdir().unwrap();
