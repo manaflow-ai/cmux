@@ -46,8 +46,14 @@
   const REPLY_CUT = "__cmuxReplyCut";
   // A reply the page agent cut at its budget fails with core.readCutNote's
   // words; `what` names the read in them.
+  // A whole-frame read the host's sensitive-field scan could not finish
+  // (frame.observe, `scope: "frame"`) can be read in parts.
+  const SCOPE_HINT = '; scope the read to a part of the page: snapshot(ref) or snapshot(locator), such as snapshot(page.locator("main"))';
   function uncutReply(r, what) {
-    if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) throw new Error(`Error: ${readCutNote(what || "the page reply", r[REPLY_CUT])}`);
+    if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) {
+      const cut = r[REPLY_CUT];
+      throw new Error(`Error: ${readCutNote(what || "the page reply", cut)}${cut.scope === "frame" ? SCOPE_HINT : ""}`);
+    }
     return r;
   }
 
@@ -929,9 +935,10 @@
     }
     emitTabCreated() {}
     // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
-    // that data store instead of the session's default one.
-    async newPage(url, { background, dataStore } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
+    // that data store instead of the session's default one; `incognito`
+    // opens it in a store that keeps nothing (driver-protocol.md).
+    async newPage(url, { background, dataStore, incognito } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }), ...(incognito === undefined ? {} : { incognito: !!incognito }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;

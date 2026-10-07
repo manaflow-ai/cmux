@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 /// `approve`: scope (when the poster offers more than one), Deny, Allow.
@@ -20,7 +22,8 @@ struct FeedApproveControls: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(FeedStrings.scope(scope))
-                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
+                        // Menu labels render through AppKit, which keeps images but not canvases.
+                        Image(nsImage: .icon(.controlPopup, size: .iconFloor)).renderingMode(.template)
                     }
                     .font(.system(size: 11.5))
                     .foregroundStyle(colors.secondary)

@@ -2130,7 +2130,7 @@ img.ProseMirror-separator {
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
 /* One chip for model and effort (Codex composer): the model in primary text, the effort after it in secondary, one chevron. */
 .acpmux-model-name{color:var(--agent-text)}
-.acpmux-model-effort{flex:none;margin-left:2px;color:var(--agent-muted)}
+.acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
@@ -3937,6 +3937,13 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-send.acpmux-send-ready:active,
 .acpmux-send.acpmux-cancel:active {
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+}
+
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-muted);
+  cursor: default;
 }
 
 /* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
