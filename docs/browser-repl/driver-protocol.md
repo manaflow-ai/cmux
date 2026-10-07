@@ -779,7 +779,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `blob:` of them; a wildcard scheme, `*://host`, names these four), never
   a `file:` URL (WebKit loads `file://host/p` as the local file `/p`), and the
   local-file rules come after the policy's, so no allowed pattern undoes
-  their block (`BrowserReplFileContentRuleTests`). WebKit compiles
+  their block (`BrowserReplFileContentRuleTests`). A universal host (`*`,
+  allowed or prohibited) matches every host in the rules as it does
+  natively, a bracketed IPv6 address too, and an IPv4 address written as
+  IPv6 (`[::ffff:…]`), which the policy refuses natively, is blocked by a
+  rule after the allowed patterns' (`BrowserReplContentRuleParityTests`,
+  `BrowserReplContentRuleIPTests`). WebKit compiles
   them asynchronously while those tabs' pages keep running, so from the
   main actor's next turn after a policy or directory change until the new
   list is on a tab (and after WebKit refused it, until a policy compiles),
