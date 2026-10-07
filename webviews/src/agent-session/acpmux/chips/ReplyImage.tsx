@@ -16,7 +16,8 @@ type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: stri
 export function localImageSource(src: string): string | undefined {
   const path = linkPath(src);
   if (path) return path;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?")) return undefined;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
+    return undefined;
   return src.split(/[?#]/)[0] || undefined;
 }
 

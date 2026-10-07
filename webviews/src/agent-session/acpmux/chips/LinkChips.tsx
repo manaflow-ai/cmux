@@ -21,7 +21,10 @@ export function PathChip({ path, label, written }: { path: string; label?: React
 function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
   const t = useT();
   const { info, policy } = usePathInfo(path);
-  const plain = info?.place === "denied" || info?.place === "missing" || (info?.place === "outside" && policy.outsideRoots === "text");
+  const plain =
+    info?.place === "denied" ||
+    info?.place === "missing" ||
+    (info?.place === "outside" && policy.outsideRoots === "text");
   if (plain) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");
