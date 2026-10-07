@@ -472,6 +472,13 @@ impl OptChat {
         render_view(&st.memory, &st.store)
     }
 
+    /// A view recorded by its parts (a past turn's), rendered from the stored
+    /// node texts: byte for byte what that turn read (nodes never change).
+    pub fn render_parts(&self, parts: &[NodeId]) -> RenderedView {
+        let st = self.shared.lock();
+        optchat_core::render_parts(parts, &st.store)
+    }
+
     /// The agent's `zoom(id, n)` tool (section 7.1).
     pub fn zoom(&self, id: u64, n: u64) -> Result<String, ZoomError> {
         let st = self.shared.lock();

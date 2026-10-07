@@ -74,6 +74,8 @@ pub struct Paths {
     pub subagent: PathBuf,
     /// The monitoring trace (`trace.rs`).
     pub traces: PathBuf,
+    /// The memory inspector's address and token for the app (inspect/http.rs), 0600.
+    pub inspector: PathBuf,
 }
 
 impl Paths {
@@ -95,6 +97,7 @@ impl Paths {
             instructions: root.join("AGENTS.md"),
             subagent: root.join("subagent"),
             traces: root.join("traces"),
+            inspector: root.join("inspector.json"),
             root,
         }
     }
