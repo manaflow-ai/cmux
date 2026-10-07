@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextControl
 import Foundation
 
 /// Reports the pooled React page hosts and claim/build timings (`debug.page_host_pool`).
@@ -15,7 +16,7 @@ enum DebugPageHostPool {
         let spans = pool.spans.map { ["name": .string($0.name), "ms": .number($0.milliseconds)] }
         return [
             "likely": .bool(pool.isLikely),
-            "building": .bool(pool.building),
+            "building": .bool(pool.isBuilding),
             "spare_ready": .bool(pool.isSpareReady),
             "host_count": .number(Double(pool.hostCount)),
             "claimed": .number(Double(pool.claimedHosts.count)),

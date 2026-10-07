@@ -61,6 +61,7 @@ public final class PageHostPool {
 
     public var spareHost: PageWebView? { spare }
     public var isSpareReady: Bool { spare != nil && spareReady }
+    public var isBuilding: Bool { building }
     public var claimedHosts: [PageWebView] {
         claimed = claimed.filter { $0.value.view != nil }
         return claimed.values.compactMap(\.view)
