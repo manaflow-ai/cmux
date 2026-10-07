@@ -768,6 +768,56 @@ describe("codex responses proxy session routing", () => {
   });
 });
 
+describe("codex responses proxy with no account configured", () => {
+  function noAccountProxy(configured: boolean) {
+    const selects: number[] = [];
+    const configuredChecks: string[] = [];
+    const sleptBefore = sleeps.length;
+    const proxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        selects.push(1);
+        return null;
+      },
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      hasConfiguredAccount: async (input) => {
+        configuredChecks.push(input.teamId);
+        return configured;
+      },
+    }, holdRuntime);
+    return { proxy, selects, configuredChecks, slept: () => sleeps.length - sleptBefore };
+  }
+
+  test("answers a team without any Codex account with a terminal 403", async () => {
+    const run = noAccountProxy(false);
+    const response = await run.proxy(responsesRequest());
+    // Codex retries 429 and 5xx; a 403 surfaces once with the recovery step.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is configured for this team. Add one with `cr add codex` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
+    expect(run.selects).toHaveLength(1);
+    expect(run.configuredChecks).toEqual(["team-1"]);
+    expect(run.slept()).toBe(0);
+  });
+
+  test("a team whose accounts are all unavailable still gets a retryable 503", async () => {
+    const run = noAccountProxy(true);
+    const response = await run.proxy(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+    expect(((await response.json()) as { error: string }).error).toBe("no_usable_account");
+  });
+});
+
 describe("codex responses proxy capacity hold", () => {
   /**
    * One-account pool that models cooldowns on the logical clock, the way the
