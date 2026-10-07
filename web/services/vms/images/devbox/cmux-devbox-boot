@@ -109,6 +109,8 @@
 # BIN is not fixed here: cmux_tui_layout() below sets it from the layout.
 DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
 STATE_MOUNT=/usr/local/bin/cmux-tui-state-mount
+STATE_IMAGE=/var/lib/cmux/cmux-tui-state.ext4
+STATE_RESERVATION_MARKER=/etc/cmux/cmux-tui-state-reservation
 DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
@@ -244,7 +246,12 @@ start_daemon() {
   # preallocated filesystem inside the unchanged VM disk. If that image is
   # present but cannot be mounted, do not fall back to the root filesystem:
   # that would recreate the full-disk failure this guard is meant to prevent.
-  if [ -x "$STATE_MOUNT" ] && ! "$STATE_MOUNT" ensure "$CMUX_TUI_HOME" "$CMUX_TUI_USER"; then
+  if [ -f "$STATE_RESERVATION_MARKER" ]; then
+    if [ ! -x "$STATE_MOUNT" ] || [ ! -f "$STATE_IMAGE" ] || ! "$STATE_MOUNT" ensure "$CMUX_TUI_HOME" "$CMUX_TUI_USER"; then
+      echo "cmux-devbox-boot: cmux-tui state reservation is unavailable; daemon start deferred" >&2
+      return 1
+    fi
+  elif [ -x "$STATE_MOUNT" ] && ! "$STATE_MOUNT" ensure "$CMUX_TUI_HOME" "$CMUX_TUI_USER"; then
     echo "cmux-devbox-boot: cmux-tui state reservation is unavailable; daemon start deferred" >&2
     return 1
   fi

@@ -100,6 +100,7 @@ import {
 import {
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   devboxTerminfoInstallCommand,
@@ -608,7 +609,7 @@ try {
   // without changing the VM's provisioned disk size.
   await step(
     "cmux-tui-state-reservation",
-    `sh -n ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} create ${WORK_HOME} ${WORK_USER} && mountpoint -q ${WORK_HOME}/.local/state/cmux-tui && [ "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} ] && echo cmux-tui-state-reservation-ok`,
+    `sh -n ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} create ${WORK_HOME} ${WORK_USER} && mountpoint -q ${WORK_HOME}/.local/state/cmux-tui && [ "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} ] && printf 'cmux-tui-state-v1\\n' > ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && chmod 0444 ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && echo cmux-tui-state-reservation-ok`,
   );
   await step(
     "cmux-tui-daemon-unit",

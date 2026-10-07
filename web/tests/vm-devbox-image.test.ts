@@ -22,6 +22,7 @@ import {
   DEVBOX_SOURCE_SCHEMA,
   DEVBOX_TEMPLATE_FILES,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
   agentPinDrift,
   devboxAgentPins,
@@ -205,9 +206,18 @@ describe("devbox image template", () => {
     expect(mount).toContain("mount -o loop");
     expect(mount).toContain("[ -f \"$STATE_IMAGE\" ] || return 0");
     expect(read("cmux-devbox-boot")).toContain("cmux-tui state reservation is unavailable");
+    expect(read("cmux-devbox-boot")).toContain(`STATE_RESERVATION_MARKER=${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}`);
+    expect(read("cmux-devbox-boot")).toContain("[ ! -x \"$STATE_MOUNT\" ] || [ ! -f \"$STATE_IMAGE\" ]");
     expect(freestyle).toContain(`await put("cmux-tui-state-mount", "${CMUX_TUI_STATE_MOUNT_HELPER_PATH}", 0o755);`);
     expect(freestyle).toContain('"cmux-tui-state-reservation"');
     expect(freestyle).toContain("stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH}");
+    expect(freestyle).toContain("printf 'cmux-tui-state-v1");
+    expect(freestyle).toContain("> ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}");
+    expect(mount).toContain('if [ -d "$state" ]; then');
+    expect(mount).toContain('cp -a "$state/." "$seed/"');
+    expect(mount).toContain('cp -a "$seed/." "$state/"');
+    expect(mount).not.toContain('cp -a "$state/." "$seed/" 2>/dev/null || true');
+    expect(mount).not.toContain('cp -a "$seed/." "$state/" 2>/dev/null || true');
     // The resource ladder remains the source of the VM's provisioned disk;
     // this fix must not smuggle in a larger storageMb or a new image size.
     expect(freestyle).not.toContain("storageMb: 65536");
