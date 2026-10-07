@@ -111,6 +111,10 @@ extension SidebarBridge {
             services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url):
             SidebarCardFeed.openUpdateLink(url, services: services)
+        case .tryTip(let id):
+            services.updater.tryTip(id)
+        case .dismissTip(let id):
+            services.updater.dismissTip(id)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
