@@ -407,6 +407,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     // MARK: Store changes
 
+    /// Whose "has notifications silenced" row the transcript shows.
+    private var shownSilencedID: String?
+
     private func storeDidChange(_ change: ConversationStoreChange) {
         if store.hasLoadedNewest, !initialSpinner.isHidden {
             initialSpinner.stopAnimation(nil)
@@ -415,7 +418,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
         if case .connection = change { return }
         if case .readState = change { updateCatchUp(); return }
-        if case .listState = change { return }
+        // List state leaves the transcript alone, except the recipient's
+        // Focus, which adds or removes the "has notifications silenced" row.
+        if case .listState = change, store.info?.silencedRecipient?.id == shownSilencedID { return }
+        shownSilencedID = store.info?.silencedRecipient?.id
         defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)

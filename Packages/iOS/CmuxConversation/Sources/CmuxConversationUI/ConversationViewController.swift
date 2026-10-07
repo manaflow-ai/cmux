@@ -402,6 +402,11 @@ public final class ConversationViewController: UIViewController {
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
+            configuredHeaderTitle = info.title
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+        } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
+            // "… named the conversation": the header takes the new name.
+            configuredHeaderTitle = info.title
             header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
         }
         maybeLoadOlder()
@@ -409,6 +414,7 @@ public final class ConversationViewController: UIViewController {
     }
 
     private var hasConfiguredHeader = false
+    private var configuredHeaderTitle: String?
     private var didFocusEmptyConversation = false
 
     /// A conversation with no messages yet opens with the keyboard up, as a

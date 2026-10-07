@@ -96,6 +96,9 @@ final class MacUnavailabilityRowView: MacFlippedView {
             .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .medium).applying(.init(hierarchicalColor: MacConversationTheme.secondaryText))) {
             let attachment = NSTextAttachment()
             attachment.image = moon
+            // Centered on the cap height so the glyph sits inside the line.
+            let height = font.capHeight + 2
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - height) / 2, width: moon.size.width * height / max(1, moon.size.height), height: height)
             text.append(NSAttributedString(attachment: attachment))
             text.append(NSAttributedString(string: " "))
         }

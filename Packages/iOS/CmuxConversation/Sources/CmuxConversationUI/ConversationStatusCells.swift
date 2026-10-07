@@ -106,7 +106,14 @@ final class UnavailabilityCell: UICollectionViewCell {
         let moon = UIImage(systemName: "moon.fill", withConfiguration: UIImage.SymbolConfiguration(font: font))?
             .withTintColor(ConversationTheme.timestampText, renderingMode: .alwaysOriginal)
         let result = NSMutableAttributedString()
-        if let moon { result.append(NSAttributedString(attachment: NSTextAttachment(image: moon))) }
+        if let moon {
+            // Centered on the cap height so the glyph sits inside the line.
+            let attachment = NSTextAttachment(image: moon)
+            let height = font.capHeight + 2
+            let width = moon.size.width * height / max(1, moon.size.height)
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - height) / 2, width: width, height: height)
+            result.append(NSAttributedString(attachment: attachment))
+        }
         result.append(NSAttributedString(string: " " + ConversationStatusStrings.notificationsSilenced(name), attributes: [
             .font: font, .foregroundColor: ConversationTheme.timestampText,
         ]))
