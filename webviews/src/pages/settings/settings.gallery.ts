@@ -57,7 +57,10 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "choice_or_number") value = 45;
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
-      value = ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
+      value =
+        setting.key === "agents.chats.roots"
+          ? ["/Users/sample/Chats/Atlas", "/Users/sample/Chats/Research"]
+          : ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
     else if (setting.kind === "time_range") value = { start: "22:00", end: "07:30" };
     else if (setting.kind === "url")
       value =
