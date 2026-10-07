@@ -30,6 +30,16 @@ public final class WorkspacesFeature {
 
     var actions: WorkspaceActions { WorkspaceActions(source: source) }
 
+    /// Offline reasons for the control-plane channels (B1).
+    public static var controlPlaneReasons: ControlPlaneChannelReasons {
+        ControlPlaneChannelReasons(
+            macOffline: String(localized: "workspaces.reason.mac-offline", defaultValue: "Mac is offline", bundle: .module),
+            macSleeping: String(localized: "workspaces.reason.sleeping", defaultValue: "Asleep", bundle: .module),
+            macPaused: String(localized: "workspaces.reason.paused", defaultValue: "Paused", bundle: .module),
+            signedOut: String(localized: "workspaces.reason.signed-out", defaultValue: "Sign in to reach your Macs", bundle: .module),
+            refused: String(localized: "workspaces.reason.refused", defaultValue: "Connection refused", bundle: .module))
+    }
+
     /// The offline reason the real source shows while no control-plane
     /// client is registered (B1).
     public static var controlPlaneUnavailable: String {

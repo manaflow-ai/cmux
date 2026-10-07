@@ -51,6 +51,29 @@ import Testing
         #expect(mirror.summaries(hostID: host).map(\.title) == ["first"])
     }
 
+    @Test func newEpochDropsTheMirror() throws {
+        var mirror = HostWorkspaceMirror()
+        var first = wire.snapshot(seq: 1_000, [WireFrames.simple("ws_a", name: "alpha", order: 0)])
+        first.epoch = "ep_1000_aaaa"
+        try mirror.apply(first)
+        var same = wire.event(seq: 1_001, "workspace.remove", ["workspace": .string("ws_a")])
+        same.epoch = "ep_1000_aaaa"
+        var restarted = wire.event(seq: 1_001, "workspace.upsert", ["workspace": WireFrames.simple("ws_z", name: "z", order: 0)])
+        restarted.epoch = "ep_2000_bbbb"
+        // Same seq, other epoch: not a duplicate and not applicable.
+        #expect(mirror.apply(restarted) == .gap)
+        #expect(mirror.summaries(hostID: host).isEmpty)
+        #expect(!mirror.hasSnapshot)
+        #expect(mirror.apply(same) == .awaitingSnapshot)
+        var fresh = wire.snapshot(seq: 2_005, [WireFrames.simple("ws_z", name: "z", order: 0)])
+        fresh.epoch = "ep_2000_bbbb"
+        try mirror.apply(fresh)
+        #expect(mirror.epoch == "ep_2000_bbbb")
+        #expect(mirror.summaries(hostID: host).map(\.id) == ["ws_z"])
+        // Events without an epoch (a relay that strips it) still apply by seq.
+        #expect(mirror.apply(wire.event(seq: 2_006, "workspace.remove", ["workspace": .string("ws_z")])) == .applied)
+    }
+
     @Test func eventsBeforeSnapshotWait() {
         var mirror = HostWorkspaceMirror()
         #expect(mirror.apply(wire.event(seq: 1, "workspace.remove", ["workspace": .string("ws_a")])) == .awaitingSnapshot)

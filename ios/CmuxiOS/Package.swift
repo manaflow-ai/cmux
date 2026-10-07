@@ -25,6 +25,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
         .package(path: "../../Packages/Shared/CmuxMobileWire"),
+        .package(path: "../../Packages/Shared/CmuxControlPlane"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxLink"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -289,6 +290,7 @@ let package = Package(
             dependencies: [
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -299,6 +301,7 @@ let package = Package(
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

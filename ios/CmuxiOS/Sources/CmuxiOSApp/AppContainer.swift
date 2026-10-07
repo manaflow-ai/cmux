@@ -223,10 +223,21 @@ final class AppContainer {
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
                                          identity: InstallIdentity?) -> RealFeatureFactories {
         var factories = factories
-        let unavailable = WorkspacesFeature.controlPlaneUnavailable
+        // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
+        // as this install (b1-control-do.md). Without an API origin each Mac
+        // shows as unreachable instead of as fake data.
+        let channels: any WorkspaceChannelFactory
+        if let base, let identity {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            channels = ControlPlaneWorkspaceChannelFactory(
+                apiBaseURL: base, appVersion: version ?? "0", reasons: WorkspacesFeature.controlPlaneReasons,
+                install: { try await identity.ownerInstall().install },
+                token: { try await identity.token(for: nil) })
+        } else {
+            channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
+        }
         factories.workspaces = { devices in
-            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices),
-                                        channels: UnavailableWorkspaceChannelFactory(reason: unavailable))
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
         }
         return factories
     }

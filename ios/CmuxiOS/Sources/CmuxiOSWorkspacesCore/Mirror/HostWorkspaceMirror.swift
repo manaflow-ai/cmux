@@ -11,6 +11,9 @@ public struct HostWorkspaceMirror: Sendable {
     public private(set) var seq: UInt64?
     /// True after a gap until the next snapshot.
     public private(set) var needsSnapshot = false
+    /// The owner's stream instance this state belongs to (B5 `ep_…`); nil
+    /// when the owner or relay does not send one.
+    public private(set) var epoch: String?
     private(set) var workspaces: [WireWorkspace] = []
 
     public init() {}
@@ -32,11 +35,18 @@ public struct HostWorkspaceMirror: Sendable {
         var seen = Set<String>()
         workspaces = state.workspaces.filter { seen.insert($0.id).inserted }.sorted { $0.order < $1.order }
         seq = snapshot.seq
+        epoch = snapshot.epoch
         needsSnapshot = false
     }
 
     public mutating func apply(_ event: EventFrame) -> MirrorEventResult {
         guard let seq else { return .awaitingSnapshot }
+        if let eventEpoch = event.epoch, let epoch, eventEpoch != epoch {
+            // A new stream instance (the Mac's store restarted): its seqs say
+            // nothing about this state. Drop the mirror and take a snapshot.
+            dropForNewEpoch()
+            return .gap
+        }
         if event.seq <= seq { return .duplicate }
         if needsSnapshot { return .gap }
         guard event.seq == seq + 1, (try? reduce(event)) != nil else {
@@ -50,6 +60,13 @@ public struct HostWorkspaceMirror: Sendable {
     /// Marks the mirror stale (for example when the owner's socket returns
     /// and the stream must be re-read); rows keep their last state.
     public mutating func invalidate() { needsSnapshot = true }
+
+    private mutating func dropForNewEpoch() {
+        workspaces = []
+        seq = nil
+        epoch = nil
+        needsSnapshot = true
+    }
 
     // MARK: Reducer
 

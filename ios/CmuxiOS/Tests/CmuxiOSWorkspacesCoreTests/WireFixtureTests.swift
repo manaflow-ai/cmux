@@ -29,6 +29,7 @@ import Testing
             default: continue
             }
         }
+        #expect(mirror.epoch == "ep_1791331200000_a1b2c3d4")
         let host = HostID("h_mac1A2b")
         let rows = mirror.summaries(hostID: host)
         let main = try #require(rows.first { $0.id == "ws_main01" })
