@@ -38,10 +38,10 @@ pub fn parse_local_app_token(bytes: &[u8]) -> Option<String> {
 /// The token read now from `home` (never cached), None when the file is
 /// missing, unreadable or malformed: the pane then connects as remote-origin.
 pub fn read_local_app_token(home: &Path) -> Option<String> {
-    let path = local_app_token_path(home);
-    let len = std::fs::metadata(&path).ok()?.len();
-    if len > 256 {
-        return None;
-    }
-    parse_local_app_token(&std::fs::read(path).ok()?)
+    use std::io::Read;
+    // One open, at most 257 bytes: a longer file is refused without reading it all.
+    let file = std::fs::File::open(local_app_token_path(home)).ok()?;
+    let mut bytes = Vec::with_capacity(257);
+    file.take(257).read_to_end(&mut bytes).ok()?;
+    parse_local_app_token(&bytes)
 }

@@ -13,4 +13,4 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-unicode-normalization = "0.1"
+unicode-normalization.workspace = true

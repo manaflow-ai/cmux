@@ -1,5 +1,5 @@
 {
-  "description": "What a cmux host lets the agent pane page send to acpmux through the host-owned socket. Data copied from CmuxNextAgentPane AcpmuxPaneMethods.swift and AcpmuxConnection.swift (feat-cmux-next 7dce62f6d14); the Swift parity test (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift) fails when the two differ. Changing it needs the protocol/origin lead's review (ad349).",
+  "description": "What a cmux host lets the agent pane page send to acpmux through the host-owned socket. Data copied from CmuxNextAgentPane AcpmuxPaneMethods.swift, AcpmuxPathPolicy.swift (path_keys) and AcpmuxConnection.swift; the Swift parity test (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift) fails when the two differ. Changing it needs the protocol/origin lead's review (ad349).",
   "pane_origin": "cmux-agent://pane",
   "initialize": "initialize",
   "requests": [
@@ -68,5 +68,7 @@
   "reply_shapes": {
     "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}}
   },
-  "history_replies": ["_acpmux/attach", "_acpmux/events"]
+  "history_replies": ["_acpmux/attach", "_acpmux/events"],
+  "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
+    "folder", "folders", "root", "roots", "worktree", "worktreePath"]
 }

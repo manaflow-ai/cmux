@@ -1,7 +1,11 @@
-//! The decision on one page frame (CmuxNextAgentPane `AcpmuxPaneMethods.decide`,
-//! `decideFrame`, AcpmuxPaneMethods.swift): size, the duplicate-key check
-//! before any parse, JSON-RPC 2.0, a method, C1 (no `mcpServers` to spawn),
-//! `initialize` first and only first, then the allowlist (default deny).
+//! The allowlist step on one page frame (CmuxNextAgentPane
+//! `AcpmuxPaneMethods.decide`, `decideFrame`, AcpmuxPaneMethods.swift): size,
+//! the duplicate-key check before any parse, JSON-RPC 2.0, only the keys
+//! `jsonrpc`, `id`, `method` and `params` (stricter than Swift today: a
+//! known Swift gap, see tests/cases/frames.json `swift_expect`), a method, C1
+//! (no `mcpServers` to spawn), `initialize` first and only first, then the
+//! allowlist (default deny). It is only the first step: a host runs the full
+//! check, [`crate::check::check_frame`].
 
 use crate::data::policy;
 use crate::error::Refusal;
@@ -10,8 +14,8 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 use unicode_normalization::UnicodeNormalization;
 
-/// What the host does with one page frame.
-#[derive(Clone, Debug, PartialEq)]
+/// The allowlist step's answer on one page frame (`AcpmuxPaneMethods.Decision`).
+#[derive(Clone, PartialEq)]
 pub enum Decision {
     /// Send this text (the first frame with the LocalApp token added when
     /// there is one).
@@ -19,6 +23,21 @@ pub enum Decision {
     /// Refuse it. `request_id` is the JSON-RPC id of a refused request as raw
     /// JSON, so the host can answer it with [`refusal_frame`].
     Refuse { refusal: Refusal, method: Option<String>, request_id: Option<String> },
+}
+
+/// Never prints the frame text: the first frame holds the LocalApp token.
+impl std::fmt::Debug for Decision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Decision::Send(text) => write!(f, "Send(<{} bytes>)", text.len()),
+            Decision::Refuse { refusal, method, request_id } => f
+                .debug_struct("Refuse")
+                .field("refusal", refusal)
+                .field("method", method)
+                .field("request_id", request_id)
+                .finish(),
+        }
+    }
 }
 
 /// A refused frame's details (see [`Decision::Refuse`]).
@@ -35,6 +54,10 @@ impl From<Refused> for Decision {
     }
 }
 
+/// The only top-level keys a page frame may have (a request or a
+/// notification; never `result`, `error` or anything else).
+pub const FRAME_KEYS: [&str; 4] = ["jsonrpc", "id", "method", "params"];
+
 /// Whether `set` holds `value` as Swift's `Set<String>` would (canonical
 /// equivalence).
 pub(crate) fn contains(set: &BTreeSet<String>, value: &str) -> bool {
@@ -44,9 +67,13 @@ pub(crate) fn contains(set: &BTreeSet<String>, value: &str) -> bool {
     }
 }
 
-/// The decision for `text`, the connection's first frame or a later one.
-pub fn decide(text: &str, is_first: bool, local_app_token: Option<&str>) -> Decision {
-    match decide_frame(text, is_first) {
+/// The allowlist step for `text`, the connection's first frame or a later one,
+/// with the LocalApp token put into the first frame, as Swift's `decide`
+/// does. `Send` holds the page's own bytes when nothing was added: it is the
+/// allowlist's answer, not a frame to relay. A host relays only what
+/// [`crate::check::check_frame`] returns.
+pub fn allowlist_decision(text: &str, is_first: bool, local_app_token: Option<&str>) -> Decision {
+    match allowlist_check(text, is_first) {
         Err(refused) => refused.into(),
         Ok(object) => {
             let Some(token) = local_app_token.filter(|_| is_first) else {
@@ -68,7 +95,7 @@ pub fn decide(text: &str, is_first: bool, local_app_token: Option<&str>) -> Deci
 
 /// The one parse of a page frame every rule reads: the duplicate check
 /// before it, then the allowlist and C1. The parsed frame on success.
-pub fn decide_frame(text: &str, is_first: bool) -> Result<Map<String, Value>, Refused> {
+pub fn allowlist_check(text: &str, is_first: bool) -> Result<Map<String, Value>, Refused> {
     let p = policy();
     let refuse = |refusal, method: Option<String>, request_id: Option<String>| {
         Err(Refused { refusal, method, request_id })
@@ -89,6 +116,10 @@ pub fn decide_frame(text: &str, is_first: bool) -> Result<Map<String, Value>, Re
         _ => return refuse(Refusal::InvalidFrame, None, None),
     };
     let id = object.get("id").and_then(raw_id);
+    if object.keys().any(|k| !FRAME_KEYS.contains(&k.as_str())) {
+        let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
+        return refuse(Refusal::InvalidFrame, method, id);
+    }
     let Some(method) = object.get("method").and_then(Value::as_str).map(str::to_owned) else {
         return refuse(Refusal::MethodRefused, None, None);
     };

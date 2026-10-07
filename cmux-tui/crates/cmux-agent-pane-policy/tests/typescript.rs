@@ -12,10 +12,13 @@ use cmux_agent_pane_policy::policy;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-fn pane() -> Option<PathBuf> {
+/// The page sources next to this crate in the repository. A checkout without
+/// them fails these tests (they are what the lists are checked against).
+fn pane() -> PathBuf {
     let dir =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../webviews/src/agent-session/acpmux");
-    dir.is_dir().then_some(dir)
+    assert!(dir.is_dir(), "webviews/src/agent-session/acpmux is missing at {}", dir.display());
+    dir
 }
 
 fn read(dir: &Path, file: &str) -> String {
@@ -57,12 +60,7 @@ fn constant(text: &str, name: &str) -> String {
 
 #[test]
 fn the_allowlist_is_what_the_page_sends() {
-    let Some(dir) = pane() else {
-        eprintln!(
-            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
-        );
-        return;
-    };
+    let dir = pane();
     let direct = read(&dir, "direct.ts");
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
     sent.extend(object_values(&read(&dir, "handoff/protocol.ts"), "HANDOFF_OPS"));
@@ -86,12 +84,7 @@ fn the_allowlist_is_what_the_page_sends() {
 
 #[test]
 fn non_trusting_levels_are_the_page_levels_but_trusted() {
-    let Some(dir) = pane() else {
-        eprintln!(
-            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
-        );
-        return;
-    };
+    let dir = pane();
     let trust = read(&dir, "folderTrust.ts");
     let line =
         trust.lines().find(|l| l.contains("const LEVELS")).expect("LEVELS in folderTrust.ts");
@@ -112,12 +105,7 @@ fn trust_cases() -> serde_json::Value {
 /// host that passes the reply through (`unfiltered`) keeps what the page needs.
 #[test]
 fn trust_refusal_reasons_are_the_daemons() {
-    let Some(dir) = pane() else {
-        eprintln!(
-            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
-        );
-        return;
-    };
+    let dir = pane();
     let direct = read(&dir, "direct.ts");
     let start =
         direct.find("export function isTrustRefusal(").expect("isTrustRefusal in direct.ts");
@@ -150,12 +138,7 @@ fn trust_refusal_reasons_are_the_daemons() {
 /// trust_gate.json.
 #[test]
 fn trust_session_id_gap_is_still_open() {
-    let Some(dir) = pane() else {
-        eprintln!(
-            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
-        );
-        return;
-    };
+    let dir = pane();
     let direct = read(&dir, "direct.ts");
     for (function, method) in [("trustGet(", "acp.trust.get"), ("trustSet(", "acp.trust.set")] {
         let start = direct.find(function).unwrap_or_else(|| panic!("{function} in direct.ts"));

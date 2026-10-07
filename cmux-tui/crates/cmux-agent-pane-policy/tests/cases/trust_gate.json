@@ -1,5 +1,5 @@
 {
- "description": "AGENT-TRUST-GATE: what a cmux host must do so acpmux's folder-trust gate (cmux-tui/crates/acpmux/src/server/trust_gate.rs `gated`, 179-186: LocalApp and Web origins are gated, a peer only for `_meta.acpmux.via` app or web) holds for the agent pane. The host makes the pane LocalApp-origin (token into the first frame only, after the rules read the page's frame: AcpmuxPaneMethods.swift `decide` 95-106, `withLocalAppToken` 145-154; AgentPaneTransport+Check.swift 54 and 86), the page cannot write the token or a forward mark (P1, AcpmuxPaneMethods.swift `knownParams` 306-332, `breaksParamsRule` 344), Trust needs a gesture and Don't trust does not (`gestureRules` 207, `needsGesture` 225-227), and the gate's refusals reach the page as acpmux wrote them (AcpmuxRequestIds.swift 75-79: only `replyShapes` methods are rebuilt), where direct.ts `isTrustRefusal` (1719-1722) reads data.reason.",
+ "description": "AGENT-TRUST-GATE: what a cmux host must do so acpmux's folder-trust gate (cmux-tui/crates/acpmux/src/server/trust_gate.rs `gated`: LocalApp and Web origins are gated, a peer only for `_meta.acpmux.via` app or web) holds for the agent pane. The host makes the pane LocalApp-origin (the token goes into the first frame only, after the rules read the page's frame: AcpmuxPaneMethods.swift `decide`, `withLocalAppToken`; AgentPaneTransport+Check.swift `checkOne`), the page cannot write the token or a forward mark (P1: AcpmuxPaneMethods.swift `knownParams`, `breaksParamsRule`), Trust needs a gesture and Don't trust does not (`gestureRules`, `needsGesture`), and the gate's refusals reach the page as acpmux wrote them (AcpmuxRequestIds.swift `toPage`: only `replyShapes` methods are rebuilt), where direct.ts `isTrustRefusal` reads data.reason.",
  "frames": [
   {
    "name": "trust gate: the first initialize gets the host's LocalApp token (LocalApp origin, gated)",
@@ -213,7 +213,7 @@
    "breaks": true
   },
   {
-   "name": "trust gate: session/new may name a peer (the peer gates it: trust_gate.rs 48-55, requests.rs 103-117)",
+   "name": "trust gate: session/new may name a peer (the peer gates it: trust_gate.rs `check`, requests.rs `session/new` peer branch)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "session/new",
@@ -339,7 +339,7 @@
    "breaks": true
   },
   {
-   "name": "trust gate GAP: acp.trust.set with the page's sessionId (direct.ts 800-804) is refused by both hosts",
+   "name": "trust gate GAP: acp.trust.set with the page's sessionId (direct.ts `trustSet`) is refused by both hosts",
    "frame": {
     "jsonrpc": "2.0",
     "method": "acp.trust.set",
@@ -353,7 +353,7 @@
    "breaks": true
   },
   {
-   "name": "trust gate GAP: acp.trust.get with the page's sessionId (direct.ts 792-795) is refused by both hosts",
+   "name": "trust gate GAP: acp.trust.get with the page's sessionId (direct.ts `trustGet`) is refused by both hosts",
    "frame": {
     "jsonrpc": "2.0",
     "method": "acp.trust.get",

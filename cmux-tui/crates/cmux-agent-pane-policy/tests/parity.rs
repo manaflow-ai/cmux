@@ -3,6 +3,9 @@
 //! (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift), so a case that
 //! passes here and fails there is a difference between the two hosts.
 
+use cmux_agent_pane_policy::check::{
+    Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
+};
 use cmux_agent_pane_policy::environment::{default_socket_path, resolve, tag_slug};
 use cmux_agent_pane_policy::gesture::{PermissionOptions, needs_gesture};
 use cmux_agent_pane_policy::params::{
@@ -10,7 +13,7 @@ use cmux_agent_pane_policy::params::{
     take_gesture_ticket,
 };
 use cmux_agent_pane_policy::reply::filtered_reply;
-use cmux_agent_pane_policy::{Decision, connection, decide, policy};
+use cmux_agent_pane_policy::{Decision, Refusal, allowlist_decision, connection, policy};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -30,7 +33,7 @@ fn name(c: &Value) -> &str {
 
 fn check_frame(c: &Value) {
     let text = c["text"].as_str().unwrap();
-    let got = decide(text, c["first"].as_bool().unwrap(), c["token"].as_str());
+    let got = allowlist_decision(text, c["first"].as_bool().unwrap(), c["token"].as_str());
     let expect = &c["expect"];
     match (&got, expect.get("send"), expect.get("refuse")) {
         (Decision::Send(sent), Some(Value::String(s)), _) if s == "unchanged" => {
@@ -71,6 +74,117 @@ fn check_gesture(c: &Value) {
 #[test]
 fn frames() {
     cases("frames.json").as_array().unwrap().iter().for_each(check_frame);
+}
+
+/// The pane's sessions in a case: `sessions`; no handoff is the pane's.
+struct Scope(BTreeSet<String>);
+
+impl PaneScope for Scope {
+    fn contains(&self, session: &str) -> bool {
+        self.0.contains(session)
+    }
+    fn holds_source(&self, params: &Map<String, Value>) -> bool {
+        if params.get("handoffId").and_then(Value::as_str).is_some() {
+            return false;
+        }
+        params.get("sessionId").and_then(Value::as_str).is_some_and(|s| self.0.contains(s))
+    }
+}
+
+fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
+    use cmux_agent_pane_policy::check::SettingAsk;
+    let setting = facts.setting.as_ref().map(|s| {
+        let asked = match &s.asked {
+            SettingAsk::Mode(v) => serde_json::json!({"mode": v}),
+            SettingAsk::Option { id, value } => serde_json::json!({"option": {"id": id, "value": value}}),
+        };
+        serde_json::json!({"session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked})
+    });
+    let pick =
+        facts.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
+    serde_json::json!({
+        "is_first": facts.is_first, "method": facts.method, "page_id": facts.page_id,
+        "ticket": facts.ticket, "other_meta": facts.other_meta, "pick": pick,
+        "session_id": facts.session_id, "needs_gesture": facts.needs_gesture,
+        "needs_path_check": facts.needs_path_check, "setting": setting,
+        "attach_session": facts.attach_session, "foreign_source": facts.foreign_source,
+        "handoff_id": facts.handoff_id, "free": facts.free(),
+    })
+}
+
+/// The full check in Swift's order (tests/cases/check.json; Swift runs the
+/// same file against `AgentPaneTransport.checkOne`).
+#[test]
+fn full_check_order() {
+    for c in cases("check.json").as_array().unwrap() {
+        let s = &c["state"];
+        let modes: Option<BTreeSet<String>> = s["mode_fields"]
+            .as_array()
+            .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
+        let scope = Scope(
+            s["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect(),
+        );
+        let options = PermissionOptions::new();
+        for d in s["denies"].as_array().unwrap() {
+            let pending = serde_json::json!({"method": "_acpmux/permission_pending", "params": {
+                "permissionId": d[0], "request": {"options": [{"optionId": d[1], "kind": "reject_once"}]}}});
+            options.observe(pending.as_object().unwrap(), None);
+        }
+        let state = FrameState {
+            is_first: s["first"].as_bool().unwrap(),
+            local_app_token: s["token"].as_str(),
+            mode_fields: modes.as_ref(),
+            scope: &scope,
+            options: &options,
+        };
+        let got = full_check(c["text"].as_str().unwrap(), &state);
+        let expect = &c["expect"];
+        match (&got, expect.get("refuse")) {
+            (Checked::Refuse { refused, spend }, Some(code)) => {
+                assert_eq!(refused.refusal.code(), code.as_str().unwrap(), "{}", name(c));
+                assert_eq!(
+                    refused.method.as_deref(),
+                    expect["method"].as_str(),
+                    "{} method",
+                    name(c)
+                );
+                assert_eq!(refused.request_id.as_deref(), expect["id"].as_str(), "{} id", name(c));
+                assert_eq!(spend.as_deref(), expect["spend"].as_str(), "{} spend", name(c));
+            }
+            (Checked::Frame { frame, facts }, None) => {
+                assert_eq!(&Value::Object(frame.clone()), &expect["frame"], "{} frame", name(c));
+                assert_eq!(facts_json(facts), expect["facts"], "{} facts", name(c));
+            }
+            _ => panic!("{}: got {got:?}, expected {expect}", name(c)),
+        }
+    }
+    assert_eq!(closes_connection(Refusal::FirstFrameNotInitialize), Some((1008, "first frame")));
+    assert_eq!(closes_connection(Refusal::MethodRefused), None);
+}
+
+/// Debug output never holds the LocalApp token or a ticket.
+#[test]
+fn debug_output_is_redacted() {
+    let token = "c".repeat(64);
+    let first = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
+    let shown = format!("{:?}", allowlist_decision(first, true, Some(&token)));
+    assert!(!shown.contains(&token), "{shown}");
+    let scope = Scope(BTreeSet::new());
+    let options = PermissionOptions::new();
+    let state = FrameState {
+        is_first: true,
+        local_app_token: Some(&token),
+        mode_fields: None,
+        scope: &scope,
+        options: &options,
+    };
+    let shown = format!("{:?}", full_check(first, &state));
+    assert!(!shown.contains(&token), "{shown}");
 }
 
 #[test]
@@ -247,7 +361,7 @@ fn origin_bearer_and_refusal_frame() {
     );
     let frame = cmux_agent_pane_policy::refusal_frame(
         r#""r-1""#,
-        cmux_agent_pane_policy::Refusal::MethodRefused,
+        Refusal::MethodRefused,
         Some("_acpmux/peer_add"),
         true,
     );

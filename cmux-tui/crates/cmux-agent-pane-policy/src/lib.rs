@@ -5,19 +5,36 @@
 //!
 //! The rules are cmux-next's Swift host's (CmuxNextAgentPane), in one place a
 //! Rust host (the GPUI app) and later the Swift app read: the lists are data
-//! (`policy.json`), the checks are functions with no host state. The shared
-//! case files in `tests/cases` run against this crate (`tests/parity.rs`) and
-//! against the Swift functions (CmuxNextAgentPaneTests
-//! `AgentPanePolicyParityTests`); `tests/typescript.rs` checks the lists
-//! against what the page sends (webviews/src/agent-session/acpmux).
+//! (`policy.json`), the checks are functions with no host state. A host runs
+//! one function on every page frame, [`check::check_frame`] (Swift
+//! `AgentPaneTransport.checkOne`, in its order), and relays only the object
+//! it returns ([`check::encode`]). The shared case files in `tests/cases` run
+//! against this crate (`tests/parity.rs`) and against the Swift functions
+//! (CmuxNextAgentPaneTests `AgentPanePolicyParityTests`; `check.json` against
+//! `checkOne`); `tests/typescript.rs` checks the lists against what the page
+//! sends (webviews/src/agent-session/acpmux).
 //!
-//! Not here (host state): the path roots (`AcpmuxPathPolicy`), the pane's
-//! session scope and handoff records (`AcpmuxPaneSessions`), gesture
-//! bookkeeping, the mode confirmation sheet, request id mapping.
+//! Host-owned (state or disk; the Rust host that adopts this crate implements
+//! them, owner: the GPUI lane, cmux2-gpui `apps/cmux2` agent pane host, with
+//! the acpmux owner's review; Swift counterparts in CmuxNextAgentPane):
+//! - the folder check against the pane's roots, which reads the disk
+//!   (`AcpmuxPathPolicy.check`, `canonical`); this crate only says which
+//!   frames wait for it ([`check::needs_path_check`], `policy.json` `path_keys`);
+//! - the pane's session scope, handoff records and the click's scope credit
+//!   (`AcpmuxPaneSessions`: `contains`, `holdsSource`, `observe`, `sent`);
+//!   this crate reads them through [`check::PaneScope`];
+//! - gesture tickets, records and the mode confirmation sheet
+//!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`);
+//! - request ids: the relay id map, the in-flight refusal and the reply id
+//!   rewrite (`AcpmuxRequestIds`); this crate gives the reply filter
+//!   ([`reply`]) and the encoding with a relay id ([`check::encode`]);
+//! - the socket: closing with 1008 on a first frame that is not `initialize`
+//!   ([`check::closes_connection`] says when), the outbound limits.
 //!
 //! Review: the protocol/origin lead (ad349) and the acpmux owner. A change to
 //! `policy.json` needs that review.
 
+pub mod check;
 pub mod connection;
 pub mod data;
 pub mod environment;
@@ -28,6 +45,7 @@ pub mod json_keys;
 pub mod params;
 pub mod reply;
 
+pub use check::{Checked, Facts, FrameState, PaneScope, check_frame};
 pub use data::{GestureRule, Policy, ReplyShape, policy};
 pub use error::Refusal;
-pub use frame::{Decision, Refused, decide, decide_frame, refusal_frame};
+pub use frame::{Decision, Refused, allowlist_check, allowlist_decision, refusal_frame};

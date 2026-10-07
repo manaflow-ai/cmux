@@ -50,6 +50,7 @@ import Testing
         #expect(Self.set(policy["source_scoped"]) == AcpmuxPaneMethods.sourceScoped)
         #expect(Self.set(policy["setting_methods"]) == AcpmuxPaneMethods.settingMethods)
         #expect(Self.set(policy["history_replies"]) == AcpmuxPermissionOptions.historyReplies)
+        #expect(Self.set(policy["path_keys"]) == Set(AcpmuxPathPolicy.keys))
         let rules = try #require(policy["gesture_rules"] as? [String: String])
         #expect(Set(rules.keys) == Set(AcpmuxPaneMethods.gestureRules.keys))
         for (method, rule) in AcpmuxPaneMethods.gestureRules {
@@ -79,11 +80,18 @@ import Testing
         for (method, shape) in AcpmuxPaneMethods.replyShapes { #expect(Self.same(shapes[method], encode(shape)), "\(method)") }
     }
 
+    /// What this host must give for case `c`: `swift_expect` while a stricter crate rule has not
+    /// landed here (`swift_gap` names it; this test then fails when it lands, so the gap is closed
+    /// in the case file), else `expect`.
+    static func expected(_ c: [String: Any]) throws -> [String: Any] {
+        try #require((c["swift_expect"] ?? c["expect"]) as? [String: Any])
+    }
+
     static func checkFrame(_ c: [String: Any]) throws {
         let name = c["name"] as? String ?? "?"
         let text = try #require(c["text"] as? String)
         let got = AcpmuxPaneMethods.decide(text, isFirst: c["first"] as? Bool ?? false, localAppToken: c["token"] as? String)
-        let expect = try #require(c["expect"] as? [String: Any])
+        let expect = try expected(c)
         switch got {
         case .send(let sent):
             if expect["send"] as? String == "unchanged" {
@@ -118,6 +126,79 @@ import Testing
 
     @Test func frames() throws {
         for c in try Self.cases("frames.json") { try Self.checkFrame(c) }
+    }
+
+    /// The facts of a checked frame in the case files' form.
+    static func factsJSON(_ facts: AgentPaneTransport.Facts) -> [String: Any] {
+        func opt(_ value: String?) -> Any { value ?? NSNull() }
+        var pick: Any = NSNull()
+        if let p = facts.pick {
+            var params: Any = NSNull()
+            if let scalars = p.params {
+                params = scalars.mapValues { scalar -> Any in
+                    switch scalar {
+                    case .string(let s): s
+                    case .bool(let b): b
+                    case .number(let n): n
+                    case .null: NSNull()
+                    }
+                }
+            }
+            pick = ["method": opt(p.method), "params": params]
+        }
+        var setting: Any = NSNull()
+        if let s = facts.setting {
+            let asked: [String: Any] = switch s.asked {
+            case .mode(let mode): ["mode": mode]
+            case .option(let id, let value): ["option": ["id": id, "value": value]]
+            }
+            setting = ["session_id": opt(s.sessionId), "config_id": s.configId, "value": opt(s.value), "asked": asked]
+        }
+        return [
+            "is_first": facts.isFirst, "method": opt(facts.method), "page_id": opt(facts.pageID),
+            "ticket": opt(facts.ticket), "other_meta": facts.otherMeta, "pick": pick,
+            "session_id": opt(facts.sessionId), "needs_gesture": facts.needsGesture,
+            "needs_path_check": facts.needsPathCheck, "setting": setting,
+            "attach_session": opt(facts.attachSession), "foreign_source": facts.foreignSource,
+            "handoff_id": opt(facts.handoffId), "free": facts.free,
+        ]
+    }
+
+    /// The full check in order (`tests/cases/check.json`, which the crate's `full_check_order`
+    /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
+    @Test func fullCheckOrder() throws {
+        for c in try Self.cases("check.json") {
+            let name = c["name"] as? String ?? "?"
+            let state = try #require(c["state"] as? [String: Any])
+            let sessions = AcpmuxPaneSessions()
+            for case let s as String in state["sessions"] as? [Any] ?? [] { sessions.add(s) }
+            let options = AcpmuxPermissionOptions()
+            for case let deny as [String] in state["denies"] as? [Any] ?? [] {
+                options.observe(["method": "_acpmux/permission_pending",
+                                 "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
+                                replyTo: nil)
+            }
+            let snapshot = AgentPaneTransport.Snapshot(
+                isFirst: state["first"] as? Bool ?? false, localAppToken: state["token"] as? String,
+                modeFields: (state["mode_fields"] as? [String]).map(Set.init), sessions: sessions, options: options)
+            let expect = try Self.expected(c)
+            switch AgentPaneTransport.checkOne(try #require(c["text"] as? String), snapshot) {
+            case .refuse(let decision, let spend):
+                guard case .refuse(let error, let method, let requestID) = decision else {
+                    Issue.record("\(name): refused with \(decision)")
+                    continue
+                }
+                #expect(error.rawValue == expect["refuse"] as? String, "\(name): \(error.rawValue)")
+                #expect(method == expect["method"] as? String, "\(name) method")
+                #expect(requestID == expect["id"] as? String, "\(name) id")
+                #expect(spend == expect["spend"] as? String, "\(name) spend")
+            case .frame(let facts, let box):
+                #expect(expect["refuse"] == nil, "\(name): not refused")
+                let sent = box.encoded(id: nil).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }
+                #expect(Self.same(sent, expect["frame"]), "\(name) frame")
+                #expect(Self.same(Self.factsJSON(facts), expect["facts"]), "\(name) facts \(Self.factsJSON(facts))")
+            }
+        }
     }
 
     @Test func paramsRule() throws {

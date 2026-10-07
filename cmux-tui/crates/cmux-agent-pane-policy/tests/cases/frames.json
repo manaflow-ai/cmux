@@ -178,10 +178,16 @@
   "first": false,
   "token": null,
   "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": null,
+   "id": "3"
+  },
+  "swift_expect": {
    "refuse": "transport.method_refused",
    "method": null,
    "id": null
-  }
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
  },
  {
   "name": "junk",
@@ -1315,8 +1321,14 @@
   "first": false,
   "token": null,
   "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "session/new",
+   "id": "1"
+  },
+  "swift_expect": {
    "send": "unchanged"
-  }
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
  },
  {
   "name": "string id",
@@ -1357,6 +1369,51 @@
   "first": false,
   "token": null,
   "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key result is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"result\":1}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key error is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"error\":{\"code\":1}}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "unknown top-level key session is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"_acpmux/harnesses\",\"params\":{},\"session\":\"s1\"}",
+  "first": false,
+  "token": null,
+  "expect": {
+   "refuse": "transport.invalid_frame",
+   "method": "_acpmux/harnesses",
+   "id": "30"
+  },
+  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
+  "swift_expect": {
    "send": "unchanged"
   }
  }

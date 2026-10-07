@@ -71,6 +71,7 @@ struct Raw {
     known_params: BTreeMap<String, KnownParams>,
     reply_shapes: BTreeMap<String, Value>,
     history_replies: BTreeSet<String>,
+    path_keys: BTreeSet<String>,
 }
 
 /// The rules.
@@ -103,6 +104,9 @@ pub struct Policy {
     pub reply_shapes: BTreeMap<String, ReplyShape>,
     /// The replies whose `result.events` hold the daemon's history.
     pub history_replies: BTreeSet<String>,
+    /// The params a page frame may name a folder in, at any depth
+    /// (`AcpmuxPathPolicy.keys`): such a frame waits for the host's path check.
+    pub path_keys: BTreeSet<String>,
 }
 
 pub fn policy() -> &'static Policy {
@@ -130,6 +134,7 @@ pub fn policy() -> &'static Policy {
             known_params: raw.known_params,
             reply_shapes,
             history_replies: raw.history_replies,
+            path_keys: raw.path_keys,
         }
     })
 }
