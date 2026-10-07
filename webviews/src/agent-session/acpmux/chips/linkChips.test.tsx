@@ -250,7 +250,10 @@ const FLEET_PATHS = {
 test("the fleet reply: both backticked /tmp paths are outside chips (lock, bold name, full path on hover)", async () => {
   const { container, calls, unmount } = await render(FLEET_REPLY, { paths: FLEET_PATHS });
   const chips = [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")];
-  expect(chips.map((chip) => chip.dataset.path)).toEqual(["/tmp/fleetviz/out/fleet.png", "/tmp/fleetviz/out/fleet.html"]);
+  expect(chips.map((chip) => chip.dataset.path)).toEqual([
+    "/tmp/fleetviz/out/fleet.png",
+    "/tmp/fleetviz/out/fleet.html",
+  ]);
   expect(chips.map((chip) => chip.querySelector(".cv-chip__label")?.textContent)).toEqual(["fleet.png", "fleet.html"]);
   for (const chip of chips) {
     expect(chip.classList.contains("is-outside")).toBe(true);
