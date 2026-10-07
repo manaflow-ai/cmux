@@ -23,6 +23,8 @@ struct SSHClipboardWriteTrustStoreTests {
         #expect(!store.isTrusted(trusted))
         #expect(!store.allowsRemoteClipboardWrites(for: trusted))
         #expect(!store.allowsRemoteClipboardReads(for: trusted))
+        #expect(store.allowsRemoteClipboardWrites(for: .cloud("cloud-machine")))
+        #expect(!store.allowsRemoteClipboardWrites(for: .local))
 
         store.setTrusted(true, for: trusted)
         #expect(store.isTrusted(trusted))
