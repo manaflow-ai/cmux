@@ -25,6 +25,15 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
             SettingDescriptor(
+                ChromeThemeSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
+                help: SettingsText.keyed("settings.appearance.appTheme.help",
+                                        "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
+                kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
+                defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
+                keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
+            ),
+            SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",

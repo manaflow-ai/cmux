@@ -65,7 +65,7 @@ else is image-only: design it so old machines keep working without it.
   where `systemctl restart cmux-tui-daemon` is the only restart (the unit's
   `KillMode=control-group` kills every host).
   Each terminal host runs in its own transient scope
-  (`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`) when the
+  (`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`) when the
   unit sets `CMUX_TUI_HOST_SCOPES=systemd` (baked units do; the daemon moves
   each host it starts with `StartTransientUnit`, through `sudo -n busctl`
   with a fixed argv when it runs as the Cloud user). A `systemctl stop` or
