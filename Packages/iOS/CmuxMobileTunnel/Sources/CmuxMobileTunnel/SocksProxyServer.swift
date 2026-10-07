@@ -128,7 +128,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                 // unauthenticated SOCKS. Select RFC 1929 (0x02) when the
                 // client offered it; no-auth routes retain the old 0x00 path.
                 let method: UInt8
-                if let credential {
+                if credential != nil {
                     let offeredUserPassword = offeredMethods.contains(0x02)
                     method = offeredUserPassword ? 0x02 : 0xFF
                     if offeredUserPassword { state = .authentication }
