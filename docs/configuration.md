@@ -124,6 +124,21 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `tabs.cmdWClosesPinnedTabs`
+
+What Cmd-W does on a pinned tab.
+
+```json
+{
+  "tabs": { "cmdWClosesPinnedTabs": true }
+}
+```
+
+- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
+- `true`: Cmd-W closes a pinned tab like any other tab.
+
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
