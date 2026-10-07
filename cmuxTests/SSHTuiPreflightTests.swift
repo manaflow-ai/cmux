@@ -15,7 +15,10 @@ struct SSHTuiPreflightTests {
     @Test("Runs a prompt-free ssh true over the carrier's route")
     func runsBatchSSHOverTheRoute() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)
-        let connection = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/cm", "ConnectTimeout=5"]))
+        let connection = SSHTuiConnection(
+            configuration: configuration(options: ["ControlPath=/tmp/cm", "ConnectTimeout=5"]),
+            environment: ["PATH": "/usr/bin"]
+        )
         try await SSHTuiPreflight(connection: connection, commands: commands, timeout: 7).run()
         let call = try #require(await commands.calls.first)
         #expect(call.executable == "/usr/bin/ssh")
@@ -103,11 +106,10 @@ struct SSHTuiPreflightTests {
         let disabledPath = disabled.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
 
         #expect(inheritedPath != disabledPath)
-        #expect(disabled.authenticationArguments.contains("IdentityAgent=none"))
     }
 
-    @Test("An explicit disabled agent overrides a caller IdentityAgent option")
-    func disabledAgentOverridesCallerIdentityAgent() throws {
+    @Test("An explicit disabled socket preserves a caller IdentityAgent option")
+    func disabledAgentPreservesCallerIdentityAgent() throws {
         let disabled = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
             destination: "alice@example.invalid", port: 2222, identityFile: nil,
             sshOptions: ["IdentityAgent=/tmp/caller-agent.sock"],
@@ -115,8 +117,8 @@ struct SSHTuiPreflightTests {
             terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
         ))
 
-        #expect(disabled.authenticationArguments.contains("IdentityAgent=none"))
-        #expect(!disabled.authenticationArguments.contains("IdentityAgent=/tmp/caller-agent.sock"))
+        #expect(disabled.authenticationArguments.contains("IdentityAgent=/tmp/caller-agent.sock"))
+        #expect(!disabled.authenticationArguments.contains("IdentityAgent=none"))
     }
 
     @Test("Passes the configured agent socket like the carrier")

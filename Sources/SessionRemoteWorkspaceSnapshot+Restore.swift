@@ -612,14 +612,7 @@ extension SessionRemoteWorkspaceSnapshot {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isLiveAgent: (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> String? {
-        let resolver = SSHAgentSocketResolver(environment: [:])
-        if agentSocketPathOverrideIsSet == true, resolver.normalizedAgentSocketPath(agentSocketPath) == nil {
-            return nil
-        }
-        return [agentSocketPath, environment["SSH_AUTH_SOCK"]]
-            .lazy
-            .compactMap { resolver.normalizedAgentSocketPath($0) }
-            .first(where: isLiveAgent)
+        restoredAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
     }
 
     /// Whether an agent socket has a live listener run by this user or by

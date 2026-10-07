@@ -17,14 +17,15 @@ struct SSHTuiAgentOptionsTests {
         }
     }
 
-    @Test("Explicit disable wins over IdentityAgent in options and SSH config", arguments: [false, true])
-    func disabledSocketOverridesIdentityAgent(explicitOption: Bool) throws {
+    @Test("Explicit disable preserves IdentityAgent in options and SSH config", arguments: [false, true])
+    func disabledSocketPreservesIdentityAgent(explicitOption: Bool) throws {
         let connection = connection(
             agent: "",
             options: explicitOption ? ["IdentityAgent=/tmp/cmux-option-agent.sock"] : []
         )
         for arguments in sshInvocations(connection) {
-            #expect(try resolvedIdentityAgent(arguments) == "none")
+            let expected = explicitOption ? "/tmp/cmux-option-agent.sock" : "/tmp/cmux-config-agent.sock"
+            #expect(try resolvedIdentityAgent(arguments) == expected)
         }
     }
 

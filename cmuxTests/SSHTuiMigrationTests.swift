@@ -194,11 +194,12 @@ struct SSHTuiMigrationTests {
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
-        let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
+        let environment = ["PATH": "/usr/bin"]
+        let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened, environment: environment))
         #expect(openedCarrier["controlmaster"] == "auto")
         let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
         #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
-        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored, environment: environment)) == openedCarrier)
     }
 
     @Test("A restored carrier finds the master an open with an SSH agent authenticated")
@@ -220,8 +221,9 @@ struct SSHTuiMigrationTests {
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
             .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
         #expect(restored.agentSocketPath == agent)
-        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))
-                == resolvedControlSettings(SSHTuiConnection(configuration: opened)))
+        let environment = ["PATH": "/usr/bin"]
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored, environment: environment))
+                == resolvedControlSettings(SSHTuiConnection(configuration: opened, environment: environment)))
     }
 
     @Test("A restored carrier dials the cmux master the CLI keyed by its resolved route")
