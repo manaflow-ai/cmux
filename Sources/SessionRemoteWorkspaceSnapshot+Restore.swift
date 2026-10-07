@@ -53,7 +53,12 @@ extension SessionRemoteWorkspaceSnapshot {
             ?? restorableAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
         let agentSocketPathOverrideIsSet = overrideAgentSocketPath != nil
             || agentSocketPath != nil
-            || self.agentSocketPathOverrideIsSet == true
+            // A saved path is a route hint, not an explicit disable. If it
+            // stopped serving and no inherited agent is live, clear the bit
+            // so a later restore can adopt a newly available agent. A saved
+            // empty value remains an explicit disable.
+            || (self.agentSocketPathOverrideIsSet == true &&
+                SSHAgentSocketResolver(environment: [:]).normalizedAgentSocketPath(self.agentSocketPath) == nil)
         if let configuration = tuiSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,

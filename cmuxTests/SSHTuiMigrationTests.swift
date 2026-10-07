@@ -313,7 +313,6 @@ struct SSHTuiMigrationTests {
             agentSocketPathOverrideIsSet: true,
             preserveAfterTerminalExit: true
         )
-        snapshot.sshSessionOwner = "cmux-tui"
 
         let restored = try #require(snapshot.workspaceConfiguration(
             environment: [:],
@@ -329,6 +328,14 @@ struct SSHTuiMigrationTests {
         ))
         #expect(resumed.agentSocketPath == current)
         #expect(resumed.agentSocketPathOverrideIsSet)
+
+        snapshot.sshSessionOwner = "cmux-tui"
+        let restoredCarrier = try #require(snapshot.workspaceConfiguration(
+            environment: [:],
+            isLiveAgent: { _ in false }
+        ))
+        #expect(restoredCarrier.agentSocketPath == nil)
+        #expect(!restoredCarrier.agentSocketPathOverrideIsSet)
     }
 
     @Test("A saved agent path that no longer serves never beats a live agent")

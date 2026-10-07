@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 
 extension SessionRemoteWorkspaceSnapshot {
@@ -42,7 +43,12 @@ extension SessionRemoteWorkspaceSnapshot {
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, configuredRemoteCommand: configuredRemoteCommand,
             agentSocketPath: agentSocketPath,
-            agentSocketPathOverrideIsSet: agentSocketPath != nil || self.agentSocketPathOverrideIsSet == true,
+            // A saved socket that is no longer live must not turn into a
+            // permanent explicit disable. Empty saved values still disable
+            // inheritance by design.
+            agentSocketPathOverrideIsSet: agentSocketPath != nil ||
+                (self.agentSocketPathOverrideIsSet == true &&
+                 SSHAgentSocketResolver(environment: [:]).normalizedAgentSocketPath(self.agentSocketPath) == nil),
             preserveAfterTerminalExit: true
         )
     }
