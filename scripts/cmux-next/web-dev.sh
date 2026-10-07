@@ -18,11 +18,13 @@ base_port="${CMUX_WEB_DEV_BASE_PORT:-4200}"
 agent_port="${CMUX_WEB_DEV_AGENT_PORT:-4176}"
 preview_port="${CMUX_WEB_DEV_PREVIEW_PORT:-4175}"
 settings_port="${CMUX_WEB_DEV_SETTINGS_PORT:-4177}"
+gallery_port="${CMUX_WEB_DEV_GALLERY_PORT:-4178}"
 index_port="${CMUX_WEB_DEV_INDEX_PORT:-4199}"
 base_origin="http://127.0.0.1:$base_port"
 agent_origin="http://127.0.0.1:$agent_port"
 preview_origin="http://127.0.0.1:$preview_port"
 settings_origin="http://127.0.0.1:$settings_port"
+gallery_origin="http://127.0.0.1:$gallery_port"
 index_origin="http://127.0.0.1:$index_port"
 
 server_pids=()
@@ -142,10 +144,15 @@ start_daemon() {
   exec {ready_fd}>"$ready_file"
   local started
   started="$(now_ms)"
+  local -a origin_args=(
+    --allow-dev-origin "$base_origin"
+    --allow-dev-origin "$agent_origin"
+    --allow-dev-origin "$preview_origin"
+    --allow-dev-origin "$settings_origin"
+  )
+  if [[ "${gallery_enabled:-0}" -eq 1 ]]; then origin_args+=(--allow-dev-origin "$gallery_origin"); fi
   ACPMUX_HOME="$daemon_home" "$acpmux_bin" daemon run --listen 127.0.0.1:0 --token "$token" \
-    --ready-fd "$ready_fd" --dev \
-    --allow-dev-origin "$base_origin" --allow-dev-origin "$agent_origin" \
-    --allow-dev-origin "$preview_origin" --allow-dev-origin "$settings_origin" \
+    --ready-fd "$ready_fd" --dev "${origin_args[@]}" \
     >"$work_dir/acpmux.log" 2>&1 &
   daemon_pid="$!"
   exec {ready_fd}>&-
@@ -203,10 +210,17 @@ start_vite "webviews" env CMUX_WEBVIEWS_DEV_PORT="$base_port" bun run dev
 start_vite "agent-pane" env CMUX_AGENT_PANE_DEV_PORT="$agent_port" bun run dev:agent-pane
 start_vite "preview" env CMUX_PREVIEW_DEV_PORT="$preview_port" bun run preview:dev
 start_vite "settings" env CMUX_SETTINGS_DEV_PORT="$settings_port" bun run dev:settings
+gallery_enabled=0
+if [[ -f "$webviews_root/vite.config.gallery.ts" ]]; then
+  gallery_enabled=1
+  start_vite "gallery" env CMUX_GALLERY_DEV_PORT="$gallery_port" bunx vp dev \
+    --config vite.config.gallery.ts --host 127.0.0.1 --port "$gallery_port"
+fi
 wait_http "$base_origin/"
 wait_http "$agent_origin/"
 wait_http "$preview_origin/"
 wait_http "$settings_origin/"
+if [[ "$gallery_enabled" -eq 1 ]]; then wait_http "$gallery_origin/"; fi
 measure_hmr
 
 start_daemon
@@ -218,7 +232,7 @@ cat >"$index_dir/index.html" <<EOF
 <title>cmux-next web dev</title>
 <style>body{font:15px system-ui,sans-serif;line-height:1.6;margin:2rem;max-width:60rem}li{margin:.35rem 0}code{font-size:.9em}</style>
 <h1>cmux-next web dev</h1>
-<p>All surfaces are local and hot reload through Vite.</p>
+<p>All surfaces are local and hot reload through Vite. Capture the gallery matrix remotely with <code>scripts/gallery-matrix</code>; do not run a headless browser on this laptop.</p>
 <ul>
   <li><a href="$agent_origin/#$daemon_fragment">Agent pane (real local acpmux)</a></li>
   <li><a href="$preview_origin/">Agent pane preview fixtures</a></li>
@@ -226,6 +240,7 @@ cat >"$index_dir/index.html" <<EOF
   <li><a href="$base_origin/markdown?pick">Markdown editor</a></li>
   <li><a href="$base_origin/editor?pick">Code editor</a></li>
   <li><a href="$settings_origin/">Settings</a></li>
+$(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
   <li><a href="$base_origin/history/?mock">History</a> · <a href="$base_origin/apps/?mock">Apps</a> · <a href="$base_origin/cloud/?mock">Cloud</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts</a></li>
 </ul>
 <p><small>Measured React edit → Vite HMR update: <strong>$hmr_seconds</strong>. ACPMUX iteration: fleet build + artifact fetch <strong>$fleet_seconds</strong>, daemon readiness <strong>$daemon_seconds</strong>.</small></p>
