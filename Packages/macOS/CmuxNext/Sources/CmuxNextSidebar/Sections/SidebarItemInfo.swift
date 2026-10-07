@@ -58,8 +58,6 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
-        case .newWorkspace: "plus"
-        case .importSync: "square.and.arrow.down"
         case .searchChats: "magnifyingglass"
         }
     }
@@ -78,8 +76,6 @@ extension SidebarBuiltIn {
         case .newBrowser: .browserNew
         case .newAgentChat: .agentChatNew
         case .customize: .theme
-        case .newWorkspace: .workspaceNew
-        case .importSync: .actionDownload
         case .searchChats: .search
         }
     }
@@ -103,8 +99,6 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
-        case .newWorkspace: SectionStrings.newWorkspace
-        case .importSync: SectionStrings.importSync
         case .searchChats: SectionStrings.searchChats
         }
     }
@@ -113,8 +107,6 @@ extension SidebarBuiltIn {
     public var caption: String? {
         switch self {
         case .appStore: SectionStrings.appStoreCaption
-        case .newWorkspace: SectionStrings.newWorkspaceCaption
-        case .importSync: SectionStrings.importSyncCaption
         default: nil
         }
     }

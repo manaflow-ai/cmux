@@ -13,6 +13,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showCountsPath = ["sidebar", "showCounts"]
+    public static let showWorkspaceDirectoryPath = ["sidebar", "showWorkspaceDirectory"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -43,6 +44,15 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.showCounts", "Show Tab Counts"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showCounts),
                           keywords: ["sidebar", "workspace", "tabs", "count", "number"])
+    }
+
+    static func showWorkspaceDirectoryDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showWorkspaceDirectoryPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showWorkspaceDirectory", "Show Workspace Folder"),
+                          help: SettingsText.keyed("settings.sidebar.showWorkspaceDirectory.help",
+                                                   "Shows each workspace's folder under its name. A live agent status always shows."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceDirectory),
+                          keywords: ["sidebar", "workspace", "folder", "directory", "cwd", "path", "subtitle", "branch"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -94,6 +104,7 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
+        result.showWorkspaceDirectory = flag(root, showWorkspaceDirectoryPath, fallback: result.showWorkspaceDirectory, &diagnostics)
         return result
     }
 

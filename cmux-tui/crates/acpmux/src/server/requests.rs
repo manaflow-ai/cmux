@@ -67,6 +67,7 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    super::trust_gate::check(hub, conn.origin, m, &params).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = dispatch_request(hub, conn, m, params).await;
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
@@ -477,30 +478,7 @@ async fn dispatch_request(
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_HARNESSES => {
-            let cfg = hub.config.read().await;
-            let mut agents = serde_json::Map::new();
-            for (name, p) in &cfg.harnesses {
-                let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
-                if let Some(o) = v.as_object_mut() {
-                    o.insert("family".into(), json!(crate::config::derive_family(name, p)));
-                    if let Some(r) = cfg.unavailable.get(name) {
-                        o.insert("unavailable".into(), json!(r));
-                    }
-                    if let Some(r) = hub.probe_errors.lock().unwrap().get(name) {
-                        o.insert("probeError".into(), json!(r));
-                    }
-                    let d = cfg.defaults_for(name);
-                    if !d.is_empty() {
-                        o.insert("defaults".into(), json!(d));
-                    }
-                }
-                agents.insert(name.clone(), v);
-            }
-            Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}),
-            )
-        }
+        method::MUX_HARNESSES => Ok(hub.harnesses_view().await),
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
@@ -796,25 +774,7 @@ async fn dispatch_request(
             Ok(hub.session_summary(&s))
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
-            let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
-            let setting = m == method::ACP_TRUST_SET;
-            // Small files, read and written off the runtime threads.
-            let reply = tokio::task::spawn_blocking(move || {
-                let paths = crate::trust::Paths::current()
-                    .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
-                if setting {
-                    crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
-                } else {
-                    crate::trust::get(&paths, &cwd)
-                }
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-            reply.map_err(|failure| match failure {
-                crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
-                crate::trust::Failure::Record(message) => RpcError::internal(message),
-            })
+            super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;

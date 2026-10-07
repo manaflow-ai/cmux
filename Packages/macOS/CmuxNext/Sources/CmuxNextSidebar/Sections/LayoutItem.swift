@@ -16,11 +16,10 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case newAgentChat = "new_agent_chat"
     /// Customize Appearance (opens Settings > Appearance).
     case customize
-    /// A new workspace, as a sidebar launcher.
-    case newWorkspace = "new_workspace"
-    /// The import menu: classic cmux sessions, agent chats, browser data.
-    case importSync = "import_sync"
-    /// Search Chats: a palette page over the agent chats.
+    // Retired (S1, DOGFOOD-CALL-2026-10-06): "new_workspace" and
+    // "import_sync" were sidebar items; their actions stay in the palette
+    // and menus, and stored layouts drop them (`retiredItemOps`).
+    /// Search Chats: the command palette's agent chats page.
     case searchChats = "search_chats"
 }
 

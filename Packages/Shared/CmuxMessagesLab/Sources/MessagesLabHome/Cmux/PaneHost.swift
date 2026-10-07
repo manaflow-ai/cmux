@@ -152,7 +152,8 @@ final class HostView: NSView {
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
-        scrollView.placeScroller(bottom: bounds.height - demo.anchorY)
+        // MessagesLab de36498: the scroller's track from under the header to just above the field (host coordinates).
+        scrollView.placeScroller(top: Fixture.headerHeight, bottom: demo.fieldTop - 0.5)
         scrollView.syncFromModel()
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
         let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)

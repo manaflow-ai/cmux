@@ -253,6 +253,10 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
@@ -829,6 +833,10 @@ path = "tests/test_backend_migration_flow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_complexity_scope.py"
 lane = "linux-guard"
 
@@ -985,6 +993,10 @@ path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_regenerate_bundles_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"
 
@@ -1034,4 +1046,24 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_cmux_tui_resolve.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_release_notes_fetch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_host_release_package.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_host_release_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"

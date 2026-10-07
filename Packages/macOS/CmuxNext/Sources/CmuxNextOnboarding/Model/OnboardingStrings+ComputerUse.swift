@@ -33,5 +33,10 @@ extension OnboardingStrings {
         String(localized: "onboarding.computerUse.helper.drag",
                defaultValue: "Drag this into the list in System Settings, then turn it on.", bundle: .module)
     }
+    /// No Developer ID signed helper (a dev build): the fix is a release helper.
+    static var computerUseHelperUnavailable: String {
+        String(localized: "onboarding.computerUse.helper.unavailable",
+               defaultValue: "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it.", bundle: .module)
+    }
     static var computerUseHelperClose: String { String(localized: "onboarding.computerUse.helper.close", defaultValue: "Close", bundle: .module) }
 }

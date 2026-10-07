@@ -66,11 +66,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K searches chats only while an agent chat has the keyboard,
-                // so the simulator's Cmd-K keeps its meaning.
-                defaultShortcut: Shortcut("k", modifiers: [.command]),
-                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane]
+                // Decision K1: no default shortcut (Cmd-K clears the terminal). The command
+                // palette's chats page lists every chat; this opens it from anywhere.
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
