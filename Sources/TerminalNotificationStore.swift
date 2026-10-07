@@ -2847,6 +2847,7 @@ final class TerminalNotificationStore: ObservableObject {
                 if granted {
                     publishAuthorizationState(.authorized)
                 } else {
+                    publishAuthorizationState(.denied)
                     refreshAuthorizationStatus()
                 }
                 logAuthorization(
@@ -2856,6 +2857,7 @@ final class TerminalNotificationStore: ObservableObject {
                     granted ? .authorized : .denied
                 completion(granted, effectiveState)
             case .failure(let error):
+                publishAuthorizationState(.unknown)
                 refreshAuthorizationStatus()
                 logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=false error=\(String(describing: error)) mapped=\(authorizationState.statusLabel)"
