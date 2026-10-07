@@ -2031,13 +2031,34 @@
     async press(combo, options = {}) {
       const tokens = splitKeyCombo(combo);
       const key = tokens.pop();
-      for (const t of tokens) await this.down(t);
-      await this.down(key);
+      // The modifiers this press holds, released on every exit: a shortcut
+      // the driver refuses (Undo in a tab that shows a blocked frame, Copy
+      // in a user's tab), a timeout or any other error must not leave Meta
+      // held, which would turn the next key into Meta+key. A key-down the
+      // driver delivered and then refused is released by the driver.
+      const held = [];
+      let pressed = false;
+      try {
+        for (const t of tokens) {
+          await this.down(t);
+          held.push(t);
+        }
+        await this.down(key);
+        pressed = true;
+      } finally {
+        if (!pressed) {
+          const detached = !!this._page._heldDialog;
+          for (const t of held.reverse()) await this._release(t, detached).catch(() => {});
+        }
+      }
       // A key that opened a dialog is released once the dialog is answered.
       const detached = !!this._page._heldDialog;
       if (options.delay && !detached) await this._page._session.sleep(options.delay);
-      await this._release(key, detached);
-      for (const t of tokens.reverse()) await this._release(t, detached);
+      try {
+        await this._release(key, detached);
+      } finally {
+        for (const t of held.reverse()) await this._release(t, detached).catch(() => {});
+      }
     }
     async _release(key, detached) {
       const desc = describeKey(key, this._modifiers);
