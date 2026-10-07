@@ -892,9 +892,16 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
+  // Repository context follows the selected session, connection origin and cwd. A reconnect
+  // handshake for an existing session deliberately omits cwd, so key this lookup from the live
+  // snapshot instead of clearing a valid repository while the daemon is being replaced.
+  const githubRepositoryContext =
+    snapshot.origin === "local" && snapshot.summary?.cwd
+      ? `${snapshot.sessionId ?? snapshot.summary.sessionId}:local:${snapshot.summary.cwd}`
+      : undefined;
   useEffect(() => {
     const cwd = snapshot.summary?.cwd;
-    if (!cwd || snapshot.origin !== "local") {
+    if (!githubRepositoryContext || !cwd) {
       setGithubRepository(undefined);
       return;
     }
@@ -908,7 +915,7 @@ function AcpmuxPane() {
     return () => {
       current = false;
     };
-  }, [snapshot.origin, snapshot.summary?.cwd]);
+  }, [githubRepositoryContext, snapshot.summary?.cwd]);
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
@@ -1495,9 +1502,14 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
-        setGithubRepository(
-          typeof host.githubRepository === "string" && host.githubRepository ? host.githubRepository : undefined,
-        );
+        // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
+        // repository until the snapshot effect observes a new session/origin/cwd; a fresh ready
+        // handshake has no prior context and must clear it when the host has no GitHub origin.
+        if (typeof host.githubRepository === "string" && host.githubRepository) {
+          setGithubRepository(host.githubRepository);
+        } else if (!reconnect) {
+          setGithubRepository(undefined);
+        }
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
