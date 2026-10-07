@@ -53,19 +53,30 @@ public struct ComputerUseHelperTrust: Sendable {
     /// when no Developer ID signed helper is available. Reads signatures on
     /// disk, so callers run it off the main actor.
     func installSource(nested: URL?) -> URL? {
-        nested
+        if let nested, isSigned(nested) { return nested }
+        return installedCandidates().first { candidate in
+            candidate.standardizedFileURL != nested?.standardizedFileURL && isSigned(candidate)
+        }
     }
 
     /// Whether `url` is a Developer ID signed helper this build may launch.
     func isTrusted(_ url: URL) -> Bool {
-        true
+        isSigned(url)
     }
 
     /// Reads the bundle's signature on disk (no launch, no prompt). It must be
     /// valid for every architecture and nested code and satisfy
     /// ``requirementText``. An ad-hoc signature has no certificate, so it fails.
     static func satisfiesRequirement(_ url: URL) -> Bool {
-        true
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(requirementText as CFString, [], &requirement) == errSecSuccess,
+              let requirement else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
     }
 
     /// Where an installed release helper can be, most preferred first: the

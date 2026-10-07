@@ -894,8 +894,7 @@ public final class ComputerUseRuntimeService {
 
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled,
-              helperInstallRetry.allowsAttempt(at: uptime()),
-              let bundledHelperAppURL else { return nil }
+              helperInstallRetry.allowsAttempt(at: uptime()) else { return nil }
         var installed = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
@@ -905,9 +904,30 @@ public final class ComputerUseRuntimeService {
         }
         guard prepareRuntimeForLaunch() else { return nil }
         let destination = paths.installedHelperAppURL
+        // Only a Developer ID signed helper may be installed: this build's own
+        // nested helper in a release, else an installed NIGHTLY, RC or release
+        // helper. An ad-hoc copy cannot satisfy the TCC rows of
+        // com.cmuxterm.cua, and a grant to it replaces the release row.
+        let trust = helperTrust
+        let nested = bundledHelperAppURL
+        let sourceTask = Task.detached(priority: .userInitiated) {
+            trust.installSource(nested: nested)
+        }
+        let resolvedSource = await withTaskCancellationHandler {
+            await sourceTask.value
+        } onCancel: {
+            sourceTask.cancel()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        guard let source = resolvedSource else {
+            helperUnavailableInThisBuild = true
+            await removeUntrustedInstalledHelper(at: destination)
+            return nil
+        }
+        helperUnavailableInThisBuild = false
         let currentCheckTask = Task.detached(priority: .userInitiated) {
             let staging = ComputerUseHelperStaging()
-            let isCurrent = staging.isCurrent(nested: bundledHelperAppURL, destination: destination)
+            let isCurrent = staging.isCurrent(nested: source, destination: destination)
             if isCurrent {
                 // A copy staged by an earlier build can still carry the empty
                 // record #13602 wrote; release it in place instead of restaging.
@@ -936,7 +956,7 @@ public final class ComputerUseRuntimeService {
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
             ComputerUseHelperStaging().install(
-                nested: bundledHelperAppURL,
+                nested: source,
                 destination: destination,
                 directory: directory
             )
@@ -959,6 +979,25 @@ public final class ComputerUseRuntimeService {
             helperBuildReplacedHandler?()
         }
         return result
+    }
+
+    /// Stops and deletes an ad-hoc helper an earlier dev build installed at
+    /// this build's helper path, so it is neither launched nor offered in
+    /// Privacy & Security. A Developer ID copy stays.
+    private func removeUntrustedInstalledHelper(at destination: URL) async {
+        installedHelperURL = nil
+        guard FileManager.default.fileExists(atPath: destination.path) else { return }
+        let trust = helperTrust
+        let trustTask = Task.detached(priority: .userInitiated) { trust.isTrusted(destination) }
+        guard !(await trustTask.value), acceptsNewLaunches, !Task.isCancelled else { return }
+        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
+        let directory = paths.installedHelperDirectoryURL
+        let removal = Task.detached(priority: .userInitiated) {
+            ComputerUseHelperStaging().removeInstalled(destination: destination, directory: directory)
+        }
+        if await removal.value {
+            NSWorkspace.shared.noteFileSystemChanged(destination.path)
+        }
     }
 
     func startIfNeededWithinLifecycle() async {

@@ -10819,6 +10819,65 @@
         }
       }
     },
+    "computerUse.onboarding.helperUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このdevビルドではComputer Useを使用できません。使用するにはcmux NIGHTLYをインストールしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ist in diesem Dev-Build nicht verfügbar. Installiere cmux NIGHTLY, um es zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use no está disponible en esta compilación de desarrollo. Instala cmux NIGHTLY para usarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use n’est pas disponible dans cette version de développement. Installez cmux NIGHTLY pour l’utiliser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 개발 빌드에서는 Computer Use를 사용할 수 없습니다. 사용하려면 cmux NIGHTLY를 설치하세요."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الكمبيوتر غير متاح في إصدار التطوير هذا. ثبّت cmux NIGHTLY لاستخدامه."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此开发版本无法使用 Computer Use。请安装 cmux NIGHTLY 后使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此開發版本無法使用 Computer Use。請安裝 cmux NIGHTLY 後使用。"
+          }
+        }
+      }
+    },
     "computerUse.onboarding.hero.confirmCapture": {
       "extractionState": "manual",
       "localizations": {

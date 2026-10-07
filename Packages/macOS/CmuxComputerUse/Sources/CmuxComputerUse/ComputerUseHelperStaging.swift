@@ -110,6 +110,20 @@ struct ComputerUseHelperStaging {
             }
     }
 
+    /// Removes the published helper (an untrusted ad-hoc copy) under the
+    /// install lease. Returns whether nothing remains at `destination`.
+    @discardableResult
+    nonisolated func removeInstalled(destination: URL, directory: URL) -> Bool {
+        do {
+            return try ComputerUseHelperDirectory(fileManager: fileManager)
+                .withExclusiveAccess(to: directory, createIfMissing: false) {
+                    removeStagedBundle(at: destination)
+                }
+        } catch {
+            return modeBits(at: destination) == nil
+        }
+    }
+
     /// Removes orphaned hidden staging bundles in the helper directory.
     ///
     /// Only the fixed scratch slot and legacy UUID-shaped directories are
