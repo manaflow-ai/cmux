@@ -54,10 +54,9 @@ public final class WebRTCDatagramListener: Sendable {
 
     private func accept(_ incoming: SignalRouter.Incoming) async {
         let ice = (try? await iceCache.configuration(for: hostID)) ?? .stunOnly
-        let (events, sink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
         guard let peer = try? WebRTCPeer(
             factory: WebRTCFactory.shared(for: configuration.network, host: true), mode: .datagram, ice: ice,
-            limits: PeerSendLimits(configuration), frameSink: sink
+            limits: PeerSendLimits(configuration)
         ) else {
             await router.unregister(incoming.session)
             return
@@ -73,6 +72,6 @@ public final class WebRTCDatagramListener: Sendable {
         } catch {
             return
         }
-        incomingSink.yield(WebRTCDatagramChannel(raw: events, connection: connection))
+        incomingSink.yield(WebRTCDatagramChannel(inbox: peer.inbox, connection: connection))
     }
 }

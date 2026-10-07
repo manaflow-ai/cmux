@@ -8,19 +8,19 @@ extension WebRTCPeer: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
 
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        eventSink.yield(.negotiationNeeded)
+        emit(.negotiationNeeded)
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        eventSink.yield(.iceState(newState))
+        emit(.iceState(newState))
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
-        if newState == .complete { eventSink.yield(.gatheringComplete) }
+        if newState == .complete { emit(.gatheringComplete) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        eventSink.yield(.candidate(ICECandidateInit(
+        emit(.candidate(ICECandidateInit(
             candidate: candidate.sdp, sdpMid: candidate.sdpMid, sdpMLineIndex: Int(candidate.sdpMLineIndex)
         )))
     }
@@ -38,10 +38,10 @@ extension WebRTCPeer: RTCPeerConnectionDelegate {
         lastReceivedMs lastDataReceivedMs: Int32,
         changeReason reason: String
     ) {
-        eventSink.yield(.selectedPair(local: local.sdp, remote: remote.sdp))
+        emit(.selectedPair(local: local.sdp, remote: remote.sdp))
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
-        if let track = rtpReceiver.track { eventSink.yield(.remoteTrack(RemoteTrackBox(track: track))) }
+        if let track = rtpReceiver.track { emit(.remoteTrack(RemoteTrackBox(track: track))) }
     }
 }

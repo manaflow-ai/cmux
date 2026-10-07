@@ -4,9 +4,15 @@ import os
 @preconcurrency import WebRTC
 
 /// The bridge to one `RTCPeerConnection`: owns its data channels, maps lanes
-/// to channels, delivers frames straight into the transport's event stream
+/// to channels, delivers frames straight into the transport's bounded inbox
 /// (callback order, no hop), and reports everything else as `PeerEvent`s to
 /// the driver. libwebrtc calls the delegates on its signaling thread.
+///
+/// Receive credit (E1): reliable bytes are credited to the sender when the
+/// consumer takes their frame from the inbox, plus the pieces of frames still
+/// being reassembled (so a frame larger than the window always completes).
+/// A consumer that stops reading therefore stops the credit, and the sender's
+/// in-flight window holds it; the inbox never holds more than about one window.
 final class WebRTCPeer: NSObject, @unchecked Sendable {
     struct State {
         var connection: RTCPeerConnection?
@@ -34,9 +40,15 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         /// Reliable lane message bytes we sent, and the peer's last credit.
         var sentBytes = 0
         var creditedBytes = 0
-        /// Reliable lane message bytes we received, and what we credited.
-        var receivedBytes = 0
-        var receivedCredited = 0
+        /// Reliable lane message bytes of frames the consumer took, pieces of
+        /// frames still reassembling (per channel and in total), and the
+        /// highest credit sent. Credit = consumed + reassembling.
+        var consumedBytes = 0
+        var partialBytes: [ObjectIdentifier: Int] = [:]
+        var partialTotal = 0
+        var creditSent = 0
+        /// Why the peer ended itself (receive overflow, event backlog).
+        var abortReason: String?
     }
 
     // carve-out: libwebrtc calls the delegates synchronously on its own
@@ -51,27 +63,35 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     /// drained. Newest-one buffering, so a wake is never lost and never piles up.
     let wakes: AsyncStream<Void>
     let wakeSink: AsyncStream<Void>.Continuation
-    /// Driver events.
+    /// Driver events. Bounded: a driver that falls this far behind (or a
+    /// peer flooding carrier control messages) ends the peer.
     let events: AsyncStream<PeerEvent>
     let eventSink: AsyncStream<PeerEvent>.Continuation
-    /// Frames for the transport's event stream.
-    let frameSink: AsyncStream<TransportEvent>.Continuation
+    static let eventBacklogLimit = 4096
+    /// The transport's bounded event inbox (frames, path, rtt, closed).
+    let inbox: TransportInbox
 
     init(
         factory: WebRTCFactory,
         mode: PeerMode = .lanes,
         ice: ICEConfiguration,
         limits: PeerSendLimits,
-        frameSink: AsyncStream<TransportEvent>.Continuation
+        inboxLimits: TransportInbox.Limits = TransportInbox.Limits()
     ) throws {
         self.factory = factory
         self.mode = mode
         self.limits = limits
         chunker = MessageChunker(maxMessageBytes: limits.maxMessageBytes)
         (wakes, wakeSink) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        self.frameSink = frameSink
-        (events, eventSink) = AsyncStream.makeStream(of: PeerEvent.self, bufferingPolicy: .unbounded)
+        inbox = TransportInbox(limits: inboxLimits)
+        (events, eventSink) = AsyncStream.makeStream(
+            of: PeerEvent.self, bufferingPolicy: .bufferingOldest(Self.eventBacklogLimit)
+        )
         super.init()
+        inbox.setConsumeHandler { [weak self] frame, cost in
+            guard frame.lane.reliability.isReliable else { return }
+            self?.consumed(cost)
+        }
         let configuration = factory.configuration(ice: ice)
         guard let connection = factory.factory.peerConnection(
             with: configuration, constraints: factory.constraints(), delegate: self
@@ -168,7 +188,29 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             state.finExpected = counts
             return Self.finSatisfied(&state)
         }
-        if satisfied { eventSink.yield(.finSatisfied) }
+        if satisfied { emit(.finSatisfied) }
+    }
+
+    /// Reports one event to the driver; a full backlog ends the peer.
+    func emit(_ event: PeerEvent) {
+        if case .dropped = eventSink.yield(event) { abort("carrier event backlog over \(Self.eventBacklogLimit)") }
+    }
+
+    var abortReason: String? { state.withLockUnchecked { $0.abortReason } }
+
+    /// Ends the transport from inside the peer: `.closed(.pathLost)` reaches
+    /// the consumer after what is queued, and the driver sees its event
+    /// stream end (WebRTCConnection finishes with `abortReason`).
+    func abort(_ reason: String) {
+        let first = state.withLockUnchecked { state -> Bool in
+            guard state.abortReason == nil, !state.closed else { return false }
+            state.abortReason = reason
+            return true
+        }
+        guard first else { return }
+        inbox.yield(.closed(.pathLost(reason)))
+        inbox.finish()
+        close()
     }
 
     private static func finSatisfied(_ state: inout State) -> Bool {
@@ -289,7 +331,7 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             }
             return true
         }
-        if registered, isControl, channel.readyState == .open { eventSink.yield(.controlOpen) }
+        if registered, isControl, channel.readyState == .open { emit(.controlOpen) }
         if registered, !isControl { wakeSink.yield() }
     }
 
@@ -314,10 +356,10 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         guard let entry, entry.label == nil else { return }
         switch readyState {
         case .open:
-            eventSink.yield(.controlOpen)
+            emit(.controlOpen)
         case .closed:
             if closeNow { close() }
-            eventSink.yield(.controlClosed)
+            emit(.controlClosed)
         default:
             break
         }
@@ -336,36 +378,49 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     func received(_ data: Data, on channel: RTCDataChannel) {
         let id = ObjectIdentifier(channel)
         let maxFrame = TransportCapabilities.stream.maxFrameBytes
-        let (entry, frame, satisfied) = state.withLockUnchecked { state -> (PeerChannelEntry?, Data?, Bool) in
-            guard !state.closed, let entry = state.entries[id] else { return (nil, nil, false) }
-            guard let label = entry.label else { return (entry, data, false) }
-            if label.lane.reliability.isReliable { state.receivedBytes += data.count }
+        let (entry, frame, cost, satisfied) = state.withLockUnchecked { state -> (PeerChannelEntry?, Data?, Int, Bool) in
+            guard !state.closed, let entry = state.entries[id] else { return (nil, nil, 0, false) }
+            guard let label = entry.label else { return (entry, data, 0, false) }
+            let reliable = label.lane.reliability.isReliable
+            if reliable {
+                state.partialBytes[id, default: 0] += data.count
+                state.partialTotal += data.count
+            }
             // Taken out of the dictionary so appending to its buffer does not
             // copy it (copy-on-write) on every piece.
             var reassembly = state.reassembly.removeValue(forKey: id) ?? MessageReassembly(maxFrameBytes: maxFrame)
             let frame = reassembly.receive(data)
             state.reassembly[id] = reassembly
-            guard let frame, label.lane.reliability.isReliable else { return (entry, frame, false) }
+            guard let frame, reliable else { return (entry, frame, 0, false) }
+            // The frame's pieces stop counting as reassembling; they are
+            // credited again when the consumer takes the frame.
+            let cost = state.partialBytes.removeValue(forKey: id) ?? 0
+            state.partialTotal -= cost
             state.receivedCounts[label.label, default: 0] += 1
-            return (entry, frame, Self.finSatisfied(&state))
+            return (entry, frame, cost, Self.finSatisfied(&state))
         }
         guard let entry else { return }
-        // Credit on every message, not only on completed frames: a frame
+        // Pieces of an incomplete frame are credited as they arrive: a frame
         // larger than the window would otherwise never complete.
         if entry.label != nil { creditIfDue() }
         guard let frame else { return }
         if let label = entry.label {
-            frameSink.yield(.frame(TransportFrame(lane: label.lane, bytes: frame)))
+            let event = TransportEvent.frame(TransportFrame(lane: label.lane, bytes: frame))
+            if inbox.yield(event, cost: cost) == .overflow {
+                abort("receive buffer overflow: the peer ignored credit")
+                return
+            }
         } else if mode == .datagram {
-            frameSink.yield(.frame(TransportFrame(lane: PeerMode.datagramLane, bytes: frame)))
+            // Unreliable: past the inbox budget it drops (and is counted).
+            inbox.yield(.frame(TransportFrame(lane: PeerMode.datagramLane, bytes: frame)))
         } else if let message = CarrierControlMessage(data: frame) {
             if case let .credit(received) = message {
                 credited(received)
             } else {
-                eventSink.yield(.control(message))
+                emit(.control(message))
             }
         }
-        if satisfied { eventSink.yield(.finSatisfied) }
+        if satisfied { emit(.finSatisfied) }
     }
 
     // MARK: Teardown
