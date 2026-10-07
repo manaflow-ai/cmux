@@ -129,7 +129,11 @@ describe("agent diff worker rendering", () => {
         ),
       ),
     );
-    for (let tries = 0; tries < 100 && !SlowWorker.all.some((worker) => worker.messages.some((m) => m.type === "diff")); tries += 1)
+    for (
+      let tries = 0;
+      tries < 100 && !SlowWorker.all.some((worker) => worker.messages.some((m) => m.type === "diff"));
+      tries += 1
+    )
       await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
 
     expect(SlowWorker.all.some((worker) => worker.messages.some((m) => m.type === "diff"))).toBe(true);
@@ -141,6 +145,14 @@ describe("agent diff worker rendering", () => {
           .map((message) => message.renderOptions.lineDiffType),
       ),
     ).toEqual(new Set(["none", "word-alt"]));
+    expect(
+      SlowWorker.all
+        .flatMap((worker) => worker.messages)
+        .filter((message) => message.type === "initialize")
+        .every((message) =>
+          message.resolvedLanguages?.some((language: { name: string }) => language.name === "typescript"),
+        ),
+    ).toBe(true);
     expect(dom.window.document.querySelectorAll("diffs-container")).toHaveLength(2);
     expect(
       [...dom.window.document.querySelectorAll("diffs-container")].every(
