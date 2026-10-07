@@ -16,7 +16,7 @@ import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
-import { ReplyImage } from "../chips/ReplyImage";
+import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 
@@ -426,15 +426,41 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   return out;
 }
 
-/// `![alt](src)`: a data URL image draws inline; a web image the pane cannot load draws as a link
-/// to it, named by its alt text or file name.
+/// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
+/// recursion into bold, italic, strikethrough and link text (so code never counts), the same
+/// stand-ins for long data URLs, and none of the reply's images past its budget (`overBudget`).
+export function inlineImages(
+  source: string,
+  overBudget: ReadonlySet<string> = new Set(),
+  outerRefs: string[] = [],
+): { src: string; alt: string }[] {
+  const found: string[] = [];
+  const text = capDataUrls(source, found);
+  const refs = found.length ? found : outerRefs;
+  const out: { src: string; alt: string }[] = [];
+  const inner = (part: string) => inlineImages(part, overBudget, refs);
+  for (const m of text.matchAll(INLINE_RE)) {
+    const t = m[0];
+    if (m[2] || m[3]) out.push(...inner(t.slice(2, -2)));
+    else if (m[4]) out.push(...inner(t.slice(1, -1)));
+    else if (m[5]?.startsWith("!")) {
+      const [, alt = "", written = ""] = t.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+      const src = written.startsWith(DATA_REF) ? (refs[Number(written.slice(DATA_REF.length))] ?? "") : written;
+      if (INLINE_IMAGE.test(src) && src.length <= MAX_DATA_URL_LENGTH && !overBudget.has(src)) out.push({ src, alt });
+    } else if (m[5]) out.push(...inner(t.match(/^\[([^\]]+)\]/)?.[1] ?? ""));
+  }
+  return out;
+}
+
+/// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
+/// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
   const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
   const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const href = safeHref(src);
   const fallback = !href ? (

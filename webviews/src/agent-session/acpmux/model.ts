@@ -70,6 +70,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 

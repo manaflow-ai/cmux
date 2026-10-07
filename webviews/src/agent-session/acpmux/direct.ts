@@ -232,6 +232,7 @@ export function mergeToolItem(
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
         update.content === undefined
           ? placeDiffs(before?.diffs, update.locations)
@@ -273,6 +274,25 @@ function textFromContent(content: any): string {
   if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
+}
+
+/// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
+const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
+
+/// The data URLs of ACP `image` content blocks (`{type: "image", mimeType, data}`, bare or in a
+/// `content` wrapper), images only and each under the cap.
+function imagesFromContent(content: any): string[] | undefined {
+  const found: string[] = [];
+  const visit = (block: any) => {
+    if (Array.isArray(block)) return block.forEach(visit);
+    if (block?.type === "content") return visit(block.content);
+    if (block?.type !== "image" || typeof block.data !== "string") return;
+    const type = String(block.mimeType ?? "");
+    if (/^image\/(png|jpeg|gif|webp)$/.test(type) && block.data.length <= MAX_TOOL_IMAGE_LENGTH)
+      found.push(`data:${type};base64,${block.data}`);
+  };
+  visit(content);
+  return found.length ? found : undefined;
 }
 
 function sessionUpdate(event: EventRecord): any | undefined {
