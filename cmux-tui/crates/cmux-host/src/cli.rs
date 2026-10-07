@@ -392,7 +392,7 @@ mod tests {
         for mode in [InstallMode::User, InstallMode::System] {
             let argv = cmux_server_core::units::host_run_argv_with_mode("cmux", mode);
             assert_eq!(argv[1..3], ["host", "run"]);
-            assert_eq!(split_mode(&argv[3..].to_vec()), Ok((Some(mode), s(&[]))));
+            assert_eq!(split_mode(&argv[3..]), Ok((Some(mode), s(&[]))));
         }
     }
 
