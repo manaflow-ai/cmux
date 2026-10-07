@@ -124,6 +124,14 @@ export class MockPasswordsProvider implements PageClient {
 
   private async answer(op: string, p: Record<string, unknown>): Promise<unknown> {
     const profile = typeof p.profile === "string" ? p.profile : "default";
+    if (op === "cmux.app.action.run") {
+      // The app's import actions: the mock records the run (in `calls`) and checks the gesture.
+      this.gate();
+      if (p.action !== "importFromBrowser" && p.action !== "password.importCSV") {
+        throw pageError("cmux.app.action_refused", `${String(p.action)} is not an action of this page`);
+      }
+      return { ran: true };
+    }
     if (op !== PasswordOps.state && !this.data.profiles.some((known) => known.id === profile)) {
       throw pageError("cmux.protocol.invalid_params", `unknown profile ${profile}`);
     }
