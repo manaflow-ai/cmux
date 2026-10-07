@@ -37,8 +37,9 @@ public final class PageRouter {
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
 
-    /// Rebinds a pooled router to a new document descriptor and route table.
+    /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
+        reset()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
