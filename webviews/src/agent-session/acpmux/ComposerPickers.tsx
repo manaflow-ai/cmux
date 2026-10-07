@@ -146,6 +146,25 @@ export function ComposerPickers({
     const choice = { id: option.value, name: option.name || option.value };
     return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
   });
+  const fastOption = snapshot.summary?.configOptions?.find(
+    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
+  );
+  const fastOn =
+    fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
+  const fastOff =
+    fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
+  const fastMode =
+    fastOption?.name && fastOn && fastOff && fastOn.value !== fastOff.value
+      ? {
+          name: fastOption.name,
+          currentValue: fastOption.currentValue,
+          onValue: fastOn.value,
+          offValue: fastOff.value,
+          onLabel: fastOn.name ?? fastOn.value,
+          offLabel: fastOff.name ?? fastOff.value,
+          onPick: (value: string) => onEffort(fastOption.id, value),
+        }
+      : undefined;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -227,7 +246,7 @@ export function ComposerPickers({
 
   return (
     <div className="acpmux-chips">
-      {models.length > 0 && (
+      {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
         <ModelPicker
           catalog={snapshot.catalog}
           harness={harness}
@@ -243,6 +262,7 @@ export function ComposerPickers({
           }}
           onHarness={onHarness}
           onHarnessHint={onHarnessHint}
+          fastMode={fastMode}
           harnessNotes={
             snapshot.switching?.phase === "failed"
               ? { [snapshot.switching.harness]: t("switch.failedShort") }

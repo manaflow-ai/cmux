@@ -7,7 +7,12 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(
+  ["window", "document", "navigator", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
+);
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
@@ -60,7 +65,10 @@ const snapshot = (): AcpmuxSnapshot => ({
     {
       id: "codex",
       name: "Codex",
-      models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }, { id: "o3", name: "o3" }],
+      models: [
+        { id: "gpt-6-astra", name: "GPT-6-Astra" },
+        { id: "o3", name: "o3" },
+      ],
     },
   ],
   summary: { sessionId: "s", harness: "claude", model: "claude-opus-5-5", configOptions: [effort] },
@@ -76,7 +84,7 @@ describe("T3 model picker", () => {
           snapshot: value,
           onModel: (model: string) => calls.push(`model ${model}`),
           onMode: () => {},
-          onEffort: () => {},
+          onEffort: (config: string, value: string) => calls.push(`config ${config} ${value}`),
           onHarness: (harness: string) => calls.push(`harness ${harness}`),
         }),
       ),
@@ -85,9 +93,15 @@ describe("T3 model picker", () => {
   const menu = () => doc.querySelector<HTMLElement>(".acpmux-mp");
   const modelRows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-mp-models .acpmux-mp-row")];
   const key = (target: Element, name: string) =>
-    act(async () => target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+    act(async () =>
+      target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })),
+    );
   const ctrlKey = (target: Element, name: string) =>
-    act(async () => target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, ctrlKey: true, bubbles: true, cancelable: true })));
+    act(async () =>
+      target.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, ctrlKey: true, bubbles: true, cancelable: true }),
+      ),
+    );
 
   beforeEach(() => {
     calls = [];
@@ -105,7 +119,10 @@ describe("T3 model picker", () => {
     await act(async () => modelButton().click());
     expect(menu()).not.toBeNull();
     expect(menu()!.querySelectorAll(".acpmux-mp-harness")).toHaveLength(2);
-    expect([...menu()!.querySelectorAll(".acpmux-mp-harness")].map((row) => row.textContent)).toEqual(["Claude Code", "Codex"]);
+    expect([...menu()!.querySelectorAll(".acpmux-mp-harness")].map((row) => row.textContent)).toEqual([
+      "Claude Code",
+      "Codex",
+    ]);
   });
 
   test("focuses the real search input and keeps model order stable across opens", async () => {
@@ -140,7 +157,9 @@ describe("T3 model picker", () => {
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
     await render();
     await act(async () => modelButton().click());
-    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find((row) => row.textContent === "Codex")!;
+    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
     await act(async () => codex.click());
     expect([...modelRows()].map((row) => row.textContent)).toEqual(["o3", "GPT-6-Astra"]);
     await act(async () => modelRows()[0]!.click());
@@ -155,8 +174,42 @@ describe("T3 model picker", () => {
     await act(async () => modelButton().click());
     expect(modelButton().getAttribute("aria-expanded")).toBe("false");
     await act(async () => {
-      dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, shiftKey: true, bubbles: true }));
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
     });
     expect(modelButton().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("shows the harness fast-mode toggle when ACP exposes it", async () => {
+    await render({
+      ...snapshot(),
+      summary: {
+        ...snapshot().summary!,
+        configOptions: [
+          effort,
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      },
+    });
+    await act(async () => modelButton().click());
+    const fast = doc.querySelector<HTMLButtonElement>(".acpmux-mp-fast")!;
+    expect(fast.textContent).toContain("Off");
+    await act(async () => fast.click());
+    expect(calls).toEqual(["config fast-mode on"]);
   });
 });

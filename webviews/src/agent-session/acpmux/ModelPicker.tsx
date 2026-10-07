@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
@@ -11,6 +20,7 @@ import { usePopoverTrigger } from "./popoverTrigger";
 
 type HarnessChoice = {
   id: string;
+  ids: string[];
   name: string;
   models: { id: string; name?: string; unavailable?: string }[];
   unavailable?: string;
@@ -62,11 +72,12 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     const name = agentName(entry.id, entry.name);
     const existing = byName.get(name);
     if (!existing) {
-      const next = { id: entry.id, name, models: [...entry.models], unavailable: entry.unavailable };
+      const next = { id: entry.id, ids: [entry.id], name, models: [...entry.models], unavailable: entry.unavailable };
       result.push(next);
       byName.set(name, next);
       continue;
     }
+    existing.ids.push(entry.id);
     const known = new Set(existing.models.map((model) => model.id));
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
     existing.unavailable ??= entry.unavailable;
@@ -88,15 +99,17 @@ function matches(model: ModelChoice, query: string): boolean {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
-  const { catalog, harness, label, onLand, onHarness, onHarnessHint } = props;
+  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode } = props;
   const t = useT();
-  const modelText = t(PICKER_LABELS.model) === PICKER_LABELS.model ? "Model" : t(PICKER_LABELS.model);
-  const searchText = t("picker.search") === "picker.search" ? "Search models" : t("picker.search");
-  const harnessText = t("picker.harness") === "picker.harness" ? "Harness" : t("picker.harness");
-  const noMatchesText = t("picker.noMatches") === "picker.noMatches" ? "No matching models" : t("picker.noMatches");
-  const unavailableText = t("picker.unavailable") === "picker.unavailable" ? "Unavailable" : t("picker.unavailable");
+  const modelText = t(PICKER_LABELS.model);
+  const searchText = t("picker.search");
+  const harnessText = t("picker.harness");
+  const noMatchesText = t("picker.noMatches");
+  const unavailableText = t("picker.unavailable");
+  const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
   const [selectedHarness, setSelectedHarness] = useState(harness);
+  const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
@@ -105,23 +118,38 @@ export function ModelPicker(props: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
-  const current = harnesses.find((entry) => entry.id === harness) ?? harnesses[0];
-  const selected = harnesses.find((entry) => entry.id === selectedHarness) ?? current;
+  const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
+  const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
   const visible = useMemo(() => (query ? models.filter((model) => matches(model, query)) : models), [models, query]);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
-  const close = useCallback(() => {
-    setOpen(false);
-    onHarnessHint?.(undefined);
-  }, [onHarnessHint]);
+  const close = useCallback(
+    (focus = true) => {
+      setOpen(false);
+      onHarnessHint?.(undefined);
+      if (focus) trigger.current?.focus();
+    },
+    [onHarnessHint],
+  );
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
+    setActiveHarness(
+      Math.max(
+        0,
+        harnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
+      ),
+    );
     setQuery("");
-    setActive(Math.max(0, models.findIndex((model) => model.id === props.model)));
+    setActive(
+      Math.max(
+        0,
+        models.findIndex((model) => model.id === props.model),
+      ),
+    );
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current?.id, harness, models, open, props.model]);
+  }, [current?.id, harness, harnesses, models, open, props.model]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -133,9 +161,9 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) close();
+      if (!root.current?.contains(event.target as Node)) close(false);
     };
-    const blur = () => close();
+    const blur = () => close(false);
     document.addEventListener("pointerdown", away);
     window.addEventListener("blur", blur);
     return () => {
@@ -155,11 +183,15 @@ export function ModelPicker(props: ModelPickerProps) {
     return () => window.removeEventListener("keydown", key);
   }, []);
   useEffect(() => {
+    if (!open) setSelectedHarness(harness);
+  }, [harness, open]);
+  useEffect(() => {
     if (active >= visible.length) setActive(Math.max(visible.length - 1, 0));
   }, [active, visible.length]);
 
   const selectModel = (model: ModelChoice) => {
-    if (selected?.id !== harness) {
+    if (model.unavailable) return;
+    if (!selected?.ids.includes(harness ?? "")) {
       onHarness?.(selected?.id ?? "");
       close();
       return;
@@ -180,6 +212,9 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       move(-1);
+    } else if (event.key === "ArrowLeft" && !query) {
+      event.preventDefault();
+      menu.current?.querySelector<HTMLElement>(`.acpmux-mp-harness:nth-child(${activeHarness + 1})`)?.focus();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -196,7 +231,7 @@ export function ModelPicker(props: ModelPickerProps) {
       trigger.current?.focus();
     }
   };
-  const modelLabel = selected?.id === harness ? label : selected?.name ?? label;
+  const modelLabel = selected?.ids.includes(harness ?? "") ? label : (selected?.name ?? label);
   return (
     <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
       <button
@@ -247,6 +282,7 @@ export function ModelPicker(props: ModelPickerProps) {
               aria-label={searchText}
               aria-autocomplete="list"
               aria-controls={`${menuId}-models`}
+              aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
               aria-expanded="true"
               value={query}
               placeholder={searchText}
@@ -259,23 +295,39 @@ export function ModelPicker(props: ModelPickerProps) {
           </div>
           <div className="acpmux-mp-columns">
             <div className="acpmux-mp-harnesses" role="listbox" aria-label={harnessText}>
-              {harnesses.map((entry) => (
+              {harnesses.map((entry, index) => (
                 <button
                   type="button"
                   role="option"
                   key={entry.name}
-                  aria-selected={entry.id === selected?.id}
+                  aria-selected={entry.ids.includes(selectedHarness ?? "")}
                   className="acpmux-mp-harness"
+                  tabIndex={index === activeHarness ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      event.preventDefault();
+                      const step = event.key === "ArrowDown" ? 1 : -1;
+                      const next = (index + step + harnesses.length) % harnesses.length;
+                      setActiveHarness(next);
+                      setSelectedHarness(harnesses[next]?.id);
+                      harnesses[next] && setQuery("");
+                      (event.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
+                    } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                      event.preventDefault();
+                      search.current?.focus();
+                    }
+                  }}
                   onPointerEnter={() => onHarnessHint?.(entry.id)}
                   onClick={() => {
                     setSelectedHarness(entry.id);
+                    setActiveHarness(index);
                     setQuery("");
                     setActive(0);
                   }}
                 >
                   <AgentMark agent={entry.id} size={16} />
                   <span>{entry.name}</span>
-                  {entry.id === harness && <CheckIcon />}
+                  {entry.ids.includes(harness ?? "") && <CheckIcon />}
                 </button>
               ))}
             </div>
@@ -293,11 +345,13 @@ export function ModelPicker(props: ModelPickerProps) {
                     type="button"
                     role="option"
                     key={model.id}
+                    id={modelRowId(model.id)}
                     data-key={`model:${model.id}`}
                     aria-selected={index === active}
                     aria-checked={model.id === props.model}
                     className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
                     onPointerEnter={() => setActive(index)}
+                    disabled={Boolean(model.unavailable)}
                     onClick={() => selectModel(model)}
                   >
                     <span className="acpmux-menu-label">{model.name}</span>
@@ -308,6 +362,21 @@ export function ModelPicker(props: ModelPickerProps) {
               )}
             </div>
           </div>
+          {fastMode && (
+            <button
+              type="button"
+              className="acpmux-mp-fast"
+              aria-pressed={fastMode.currentValue === fastMode.onValue}
+              onClick={() =>
+                fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
+              }
+            >
+              <span>{fastMode.name}</span>
+              <span className="acpmux-menu-description">
+                {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </span>

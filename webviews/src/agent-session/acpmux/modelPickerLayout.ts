@@ -24,6 +24,15 @@ export type ModelPickerProps = {
   recents: Combo[];
   onLand(model: string, effort?: string): void;
   onEffort(value: string): void;
+  fastMode?: {
+    name: string;
+    currentValue?: string;
+    onValue: string;
+    offValue: string;
+    onLabel: string;
+    offLabel: string;
+    onPick(value: string): void;
+  };
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
