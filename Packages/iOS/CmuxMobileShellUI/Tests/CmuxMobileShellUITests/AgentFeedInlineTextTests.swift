@@ -72,7 +72,11 @@ import UIKit
         #expect(text.attributedText.string.hasSuffix("… See more"))
         #expect(!text.attributedText.string.contains("**"))
         #expect(!text.attributedText.string.contains("�"))
-        let bold = try #require(text.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        // TextKit resolves the leading emoji to Apple Color Emoji during
+        // layout; check the bold word rather than the emoji fallback font.
+        let boldRange = (text.attributedText.string as NSString).range(of: "Bold")
+        try #require(boldRange.location != NSNotFound)
+        let bold = try #require(text.attributedText.attribute(.font, at: boldRange.location, effectiveRange: nil) as? UIFont)
         #expect(bold.fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
