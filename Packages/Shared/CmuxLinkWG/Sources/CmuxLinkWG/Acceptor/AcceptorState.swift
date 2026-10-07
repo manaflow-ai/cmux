@@ -124,7 +124,8 @@ actor AcceptorState {
             localAddress: OverlayAddress(id: hostID),
             remoteAddress: OverlayAddress(id: authorized.installID),
             configuration: configuration,
-            clock: clock
+            clock: clock,
+            peerInstall: authorized.installID
         )
         live[ObjectIdentifier(transport)] = transport
         let sink = self.sink

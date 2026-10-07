@@ -14,6 +14,11 @@ public final class DirectTransport: LinkTransport {
     public var capabilities: TransportCapabilities { Self.capabilities }
     /// The authenticated key of the other end.
     public let remoteKey: DirectPublicKey
+    /// The Noise static key the handshake proved (a3-link.md section 8). No
+    /// install: the host resolves the key through its trust store (B5).
+    public var peerIdentity: LinkPeerIdentity? {
+        LinkPeerIdentity(carrier: .direct, keyKind: .x25519, publicKey: remoteKey.rawRepresentation)
+    }
     let core: DirectTransportCore
 
     init(
