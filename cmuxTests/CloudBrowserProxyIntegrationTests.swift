@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import AppKit
 import CryptoKit
 import Foundation
@@ -104,6 +105,80 @@ struct CloudBrowserProxyIntegrationTests {
         let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
         #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? "missing")")
         await model.retire()
+    }
+
+    @Test("Managed SSH loopback navigation preserves a POST through its remote browser proxy")
+    func managedSSHLoopbackPOSTUsesRemoteProxy() async throws {
+        let server = try CloudBrowserProxyTestServer(
+            address: "127.0.0.1", marker: "ssh-loopback", servicePort: 3000
+        )
+        try await server.start()
+        defer { server.stop() }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(), renderInitialNavigation: false, websiteDataStore: .nonPersistent()
+        )
+        defer { panel.close() }
+
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
+            coordinator: nil, wake: {},
+            startForward: { _ in
+                Issue.record("Managed SSH browser navigation must not create a local port forward")
+                return 1
+            },
+            stopForward: {}, startBrowserProxy: { server.endpoint }, allowsLoopback: true
+        )
+        defer { Task { await model.retire() } }
+
+        let url = try #require(URL(string: "http://127.0.0.1:3000/echo"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("from-managed-ssh".utf8)
+        let resourceID = SurfaceResourceID(machine: .ssh("ssh-loopback-test"), kind: .browser, key: "port:3000")
+        panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID, request: request)
+
+        let requestDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < requestDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let proxiedRequest = try #require(server.requests.first { $0.method == "POST" })
+        #expect(server.authorizedTargets.contains("127.0.0.1:3000"))
+        #expect(proxiedRequest.target == "/echo")
+        #expect(proxiedRequest.host == "127.0.0.1:3000")
+        #expect(proxiedRequest.body == "from-managed-ssh")
+
+        let pageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !panel.cloudAccess.showsPage && ContinuousClock.now < pageDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(panel.cloudAccess.showsPage, "The proxied SSH page must finish loading")
+        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).body") as? String == "from-managed-ssh")
+        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).host") as? String == "127.0.0.1:3000")
+        #expect(try await panel.webView.evaluateJavaScript("JSON.parse(document.body.textContent).machine") as? String == "ssh-loopback")
+
+        await model.retire()
+        let ipv6URL = try #require(URL(string: "http://[::1]:3000/echo"))
+        let ipv6Model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "::1", port: 3000),
+            coordinator: nil, wake: {}, startForward: { _ in 1 }, stopForward: {},
+            startBrowserProxy: { server.endpoint }, allowsLoopback: true
+        )
+        defer { Task { await ipv6Model.retire() } }
+        panel.configureCloudBrowser(
+            model: ipv6Model, url: ipv6URL,
+            resourceID: resourceID, request: URLRequest(url: ipv6URL)
+        )
+
+        let ipv6Deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !server.requests.contains(where: { $0.method == "GET" && $0.host.contains("::1") }),
+              ContinuousClock.now < ipv6Deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.authorizedTargets.contains(where: { $0.contains("::1") }),
+                "Changing the loopback alias must update host matching on the same authenticated proxy")
+        #expect(server.requests.contains(where: { $0.method == "GET" && $0.host.contains("::1") }))
     }
 
     @Test("Cloud websites keep the pane background while styles load, then restore normal page rendering",
