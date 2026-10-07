@@ -28,6 +28,13 @@ final class AppContainer {
     let router: ShellRouter
     /// The one toast owner; feature screens get it from here.
     let toasts = ToastCenter()
+    /// B1 fills this when the control plane serves `config.snapshot`; nil
+    /// keeps the mock (an empty config).
+    var remoteConfigFactory: (@Sendable () -> any RemoteConfigSource)?
+    private let remoteConfigCache = RemoteConfigCache()
+    private var remoteConfigTask: Task<Void, Never>?
+    /// The account's remote config (flags, Mac floor, demo content).
+    private(set) var remoteConfig = RemoteConfig.empty
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).
@@ -124,10 +131,39 @@ final class AppContainer {
                 Logger(subsystem: "dev.cmux.ios", category: "identity").error("install revoke failed")
             }
         }
+        // The last account's config applies before auth restores; sign-out clears it.
+        if let cached = remoteConfigCache.load() { applyRemoteConfig(cached) }
         feedResponder.openItem = { item in
             // The feed list is not on iPhone yet; Home stays in front.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+    }
+
+    /// Follows the account's remote config until sign-out.
+    private func startRemoteConfig() {
+        remoteConfigTask?.cancel()
+        let source = remoteConfigFactory?() ?? MockRemoteConfigSource(remoteConfigCache.load() ?? .empty)
+        remoteConfigTask = Task { [weak self] in
+            for await snapshot in await source.updates() {
+                guard !Task.isCancelled else { return }
+                self?.applyRemoteConfig(snapshot.value)
+            }
+        }
+    }
+
+    private func applyRemoteConfig(_ config: RemoteConfig) {
+        guard config != remoteConfig else { return }
+        remoteConfig = config
+        remoteConfigCache.save(config)
+        flags.applyRemote(config)
+    }
+
+    private func stopRemoteConfig() {
+        remoteConfigTask?.cancel()
+        remoteConfigTask = nil
+        remoteConfigCache.clear()
+        remoteConfig = .empty
+        flags.applyRemote(.empty)
     }
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
@@ -194,6 +230,7 @@ final class AppContainer {
     /// Signing out drops the account's Home mirror.
     func signedIn(account: SignedInAccount) {
         diagnostics.info("auth", "signed in")
+        startRemoteConfig()
         let coordinator = auth.coordinator
         let identity = self.identity
         let push = self.push
@@ -212,6 +249,7 @@ final class AppContainer {
 
     func signedOut() {
         diagnostics.info("auth", "signed out")
+        stopRemoteConfig()
         let identity = self.identity
         let push = self.push
         let previous = accountChanges
