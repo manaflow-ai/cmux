@@ -44,8 +44,9 @@ export const mintTurnCredentials = async (env: Pick<Env, "CLOUDFLARE_TURN_KEY_ID
     res = await fetcher(`${TURN_API}/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      // customIdentifier ties the credential to the install in Cloudflare's usage data (no secret).
-      body: JSON.stringify({ ttl: TURN_TTL_SECONDS, customIdentifier: install.slice(0, 64) })
+      // Keep this request to Cloudflare's documented contract. The install identity is already
+      // enforced and rate-limited by the Worker; it must not be sent to the TURN provider.
+      body: JSON.stringify({ ttl: TURN_TTL_SECONDS })
     })
   } catch {
     return { ok: false, code: "signal.turn_unavailable", message: "TURN provider unreachable", retryable: true }

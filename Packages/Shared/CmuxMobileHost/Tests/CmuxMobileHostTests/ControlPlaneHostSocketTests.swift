@@ -44,7 +44,7 @@ struct ControlPlaneHostSocketTests {
 
         let code = try await within {
             while await connection.closeCode == nil { await Task.yield() }
-            return await connection.closeCode
+            return try #require(await connection.closeCode)
         }
         #expect(code == 1013)
     }

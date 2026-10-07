@@ -23,7 +23,7 @@ describe("Cloudflare Realtime TURN credentials", () => {
     expect(r).toEqual({ ok: true, value: { ice_servers: [{ urls: ["stun:stun.cloudflare.com:3478", "turn:turn.cloudflare.com:3478?transport=udp"], username: "u1", credential: "c1" }], expires_at: 1000 + TURN_TTL_SECONDS * 1000 } })
     expect(seen[0]!.url).toBe("https://rtc.live.cloudflare.com/v1/turn/keys/key-id-test/credentials/generate-ice-servers")
     expect((seen[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer token-test")
-    expect(JSON.parse(seen[0]!.init.body as string)).toEqual({ ttl: TURN_TTL_SECONDS, customIdentifier: "in_phone01" })
+    expect(JSON.parse(seen[0]!.init.body as string)).toEqual({ ttl: TURN_TTL_SECONDS })
   })
 
   it("reports upstream failures as retryable and accepts the single-object answer", async () => {
