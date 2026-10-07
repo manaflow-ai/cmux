@@ -165,13 +165,23 @@ impl DockMode {
 }
 
 /// The dock flag of one viewport column, as stored and as sent on the wire
-/// (`{"edge":"left"|"right","mode":"docked"|"overlay"}`).
+/// (`{"edge":"left"|"right","mode":"docked"|"overlay","permanent":true?}`).
 /// Unknown members are ignored so a later build may add one without making
 /// this build unable to read the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ColumnDock {
     pub edge: DockEdge,
     pub mode: DockMode,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every
+    /// client (no undock, other edge, replacement, or a close or move that
+    /// would remove it; see `mux::dock_columns`). Omitted when false, so
+    /// records and clients without the capability read it as before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub permanent: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// True when the dock flags satisfy the column invariants: no flag on a
