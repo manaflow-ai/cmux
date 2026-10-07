@@ -27,7 +27,7 @@ pub(super) fn restore_registry_viewport(
             None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
         };
         let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
+        let creation_order_auto_layout = column
             .auto_layout
             .as_ref()
             .map(|members| {
@@ -41,7 +41,7 @@ pub(super) fn restore_registry_viewport(
                     .collect::<anyhow::Result<Vec<_>>>()
             })
             .transpose()?;
-        let mut restored = LayoutColumn::new(id, column.width, root, zellij_auto_layout);
+        let mut restored = LayoutColumn::new(id, column.width, root, creation_order_auto_layout);
         restored.dock = column.dock;
         restored.rows = restore_rows(&column.rows, splits, allocate)?;
         columns.push(restored);

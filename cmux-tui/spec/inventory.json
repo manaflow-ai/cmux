@@ -170,6 +170,7 @@
     "window_record.delete",
     "window_record.list",
     "window_record.put",
+    "workspace.agent_folder.set",
     "workspace.close",
     "workspace.create",
     "workspace.ensure_home",
@@ -406,6 +407,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "subscribe-activity",
       "set-terminal-command-history",
       "register-browser-provider",
       "get-browser-provider",
@@ -422,6 +424,7 @@
       "conversation-typing",
       "conversation-bind",
       "conversation-agent-token",
+      "conversation-import",
       "browser-host-provider",
       "cloud-session-set",
       "cloud-session-clear",
@@ -433,7 +436,9 @@
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
-      "cloud-conversation-unsubscribe"
+      "cloud-conversation-unsubscribe",
+      "conversation-attachment-upload",
+      "conversation-attachment-read"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -757,6 +762,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "activity-changed",
       "streams": [
         "control"
       ]

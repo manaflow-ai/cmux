@@ -24,6 +24,68 @@ struct FakeDriver {
     fetch_routes: Mutex<std::collections::HashMap<String, Value>>,
     /// frame.focused: the focused frame the engine reports (Null: none).
     focused_frame: Mutex<Value>,
+    /// A page model for captures: the values its fields show and whether
+    /// the capture mask hid each one. Empty: the mask steps answer as
+    /// `mask_held` says.
+    page_fields: Mutex<Vec<(String, bool)>>,
+    /// The needles each capture token's mask step got.
+    mask_needles: Mutex<std::collections::HashMap<u64, Vec<String>>>,
+    /// Runs inside the next `tab.screenshot` (what another session does
+    /// while the capture is taken).
+    during_capture: Mutex<Option<DuringCapture>>,
+}
+
+/// What another session does while a capture is taken (`during_capture`).
+type DuringCapture = Box<dyn FnOnce(&FakeDriver) + Send>;
+
+impl FakeDriver {
+    fn needles(args: &Value) -> Vec<String> {
+        args.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// The capture mask steps on the page model, as the host world's
+    /// scripts do: the mask hides the fields that hold one of its needles;
+    /// the check fails on a field that holds a needle it was given (else
+    /// the mask's) and is not hidden.
+    fn capture_step(&self, source: &str, args: &Value) -> Value {
+        let token = args.as_array().and_then(|a| a.iter().find_map(Value::as_u64));
+        let mut fields = self.page_fields.lock().unwrap();
+        if source.contains("cmux-capture-mask") {
+            let needles = Self::needles(&args[0]);
+            let mut hidden = 0;
+            for (value, is_hidden) in fields.iter_mut() {
+                if needles.iter().any(|n| value.contains(n.as_str())) {
+                    *is_hidden = true;
+                    hidden += 1;
+                }
+            }
+            self.mask_needles.lock().unwrap().insert(token.unwrap_or(0), needles);
+            return json!(hidden);
+        }
+        if source.contains("cmux-capture-held") {
+            let given = args.as_array().and_then(|a| a.iter().find(|v| v.is_array()));
+            let needles = match given {
+                Some(given) => Self::needles(given),
+                None => self
+                    .mask_needles
+                    .lock()
+                    .unwrap()
+                    .get(&token.unwrap_or(0))
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            for (value, is_hidden) in fields.iter() {
+                if !is_hidden && needles.iter().any(|n| value.contains(n.as_str())) {
+                    return json!("a new element holds a secret");
+                }
+            }
+            return json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst));
+        }
+        for (_, is_hidden) in fields.iter_mut() {
+            *is_hidden = false;
+        }
+        json!(0)
+    }
 }
 
 impl FakeDriver {
@@ -66,7 +128,10 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-capture-held") {
+                if source.contains("cmux-capture-") && !self.page_fields.lock().unwrap().is_empty()
+                {
+                    Ok(self.capture_step(source, &params["args"]))
+                } else if source.contains("cmux-capture-held") {
                     Ok(json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst)))
                 } else if source.contains("cmux-capture-mask") {
                     Ok(json!(1))
@@ -75,6 +140,13 @@ impl Driver for FakeDriver {
                 }
             }
             "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
+            "tab.screenshot" => {
+                let during = self.during_capture.lock().unwrap().take();
+                if let Some(during) = during {
+                    during(self);
+                }
+                Ok(Value::Null)
+            }
             "tab.info" => Ok(json!({"title": self.page_text, "url": "https://peer.test/page"})),
             "cookies.get" => Ok(json!([
                 {"name": "p", "value": "1", "domain": ".peer.test", "path": "/"},
@@ -110,6 +182,10 @@ impl Driver for FakeDriver {
                     .as_str()
                     .and_then(|url| self.fetch_routes.lock().unwrap().get(url).cloned());
                 Ok(routed.unwrap_or_else(|| self.fetch_reply.lock().unwrap().clone()))
+            }
+            // An engine with proxy stores: new tabs use the proxy.
+            "session.configure" => {
+                Ok(json!({"proxy": params.get("proxy").is_some_and(|proxy| !proxy.is_null())}))
             }
             _ => Ok(Value::Null),
         }
@@ -173,6 +249,9 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
         fetch_routes: Mutex::new(std::collections::HashMap::new()),
         focused_frame: Mutex::new(Value::Null),
+        page_fields: Mutex::new(Vec::new()),
+        mask_needles: Mutex::new(std::collections::HashMap::new()),
+        during_capture: Mutex::new(None),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -641,6 +720,32 @@ fn captures_mask_secret_fields_and_are_refused_when_the_mask_is_dropped() {
     assert!(refused.message.contains("refused"), "{}", refused.message);
     let pdf = gate.driver_call("tab.pdf", json!({"targetId": "T"})).unwrap_err();
     assert_eq!(pdf.code, ErrorCode::Invalid, "{pdf}");
+}
+
+/// Another session types a secret into the tab while this session's
+/// capture is between its mask and its shot: the other session records the
+/// secret for the tab (before its input is sent), the mask did not know it,
+/// and the field shows it in the shot. The check after the shot looks for
+/// every secret the tab has now, so the capture is refused instead of
+/// returned.
+#[test]
+fn a_secret_typed_by_another_session_during_a_capture_refuses_it() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "example.com");
+    let tab_secrets = Arc::new(TabSecrets::default());
+    let gate = gate.with_tab_secrets(tab_secrets.clone());
+    driver.page_fields.lock().unwrap().push(("s3cret-value".into(), false));
+    // Nothing typed meanwhile: the capture is returned.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+    *driver.during_capture.lock().unwrap() = Some(Box::new(move |page: &FakeDriver| {
+        tab_secrets.record("T", "other", "typed-by-other-7f3a");
+        page.page_fields.lock().unwrap().push(("typed-by-other-7f3a".into(), false));
+    }));
+    let refused = gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Invalid, "{refused}");
+    assert!(refused.message.contains("a new element holds a secret"), "{}", refused.message);
+    // The next capture knows the secret and hides its field.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
 }
 
 #[test]
@@ -1284,4 +1389,79 @@ fn a_redirect_hop_without_its_address_is_logged() {
     gate.driver_call("net.fetch", json!({"url": "https://a.test/r2"})).unwrap();
     let log = policy(&gate, "corsLog", json!({})).unwrap();
     assert!(!log.to_string().contains("https://a.test/r2"), "{log}");
+}
+
+/// FETCH-PRIVATE-RANGES under a proxy (browser-egress.md 7.3): a remote
+/// (relay) session sets no proxy, and a proxy's own address meets the range
+/// rule (link-local is refused to every session).
+#[test]
+fn a_proxy_meets_the_range_rule_and_remote_sessions_set_none() {
+    let (_, driver) = make_gate(Value::Null, false);
+    let remote = Gate::new(driver, Grants { remote: true, ..Grants::default() });
+    for server in ["http://203.0.113.7:3128", "127.0.0.1:8080", "socks5://10.0.0.2:1080"] {
+        let refused = remote
+            .driver_call("session.configure", json!({"proxy": {"server": server}}))
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{server}: {refused}");
+    }
+    assert!(remote.driver_call("session.configure", json!({"proxy": null})).is_ok());
+    let (local, driver) = make_gate(Value::Null, false);
+    let local = local.with_resolver(Arc::new(|host: &str, _| match host {
+        "metadata-proxy.test" => vec!["169.254.169.254".parse().unwrap()],
+        _ => Vec::new(),
+    }));
+    for server in [
+        "http://169.254.169.254:80",
+        "169.254.10.1:3128",
+        "http=127.0.0.1:1;https=metadata-proxy.test:3128",
+        "http://metadata.google.internal:80",
+    ] {
+        let refused = local
+            .driver_call("session.configure", json!({"proxy": {"server": server}}))
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{server}: {refused}");
+    }
+    assert!(
+        !driver.calls.lock().unwrap().iter().any(|(m, _)| m == "session.configure"),
+        "no refused proxy reached the engine"
+    );
+    let answer = local
+        .driver_call("session.configure", json!({"proxy": {"server": "http://127.0.0.1:3128"}}))
+        .expect("a loopback proxy for a local session");
+    assert_eq!(answer["proxy"], true);
+}
+
+/// A proxied response reports the proxy's address (Chromium, browser-egress
+/// 7.3), so the after-the-fact check never sees where a name went: while the
+/// session's new tabs use a proxy, a name this machine resolves into a
+/// refused range is refused before dispatch.
+#[test]
+fn a_proxied_session_is_refused_a_name_that_resolves_to_metadata() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let gate = gate.with_resolver(Arc::new(|host: &str, _| match host {
+        "meta.test" => vec!["169.254.169.254".parse().unwrap()],
+        "lan.test" => vec!["10.0.0.5".parse().unwrap()],
+        _ => Vec::new(),
+    }));
+    // Without a proxy the engine resolves; the response check applies.
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://meta.test/"})).is_ok());
+    gate.driver_call("session.configure", json!({"proxy": {"server": "http://127.0.0.1:3128"}}))
+        .unwrap();
+    for (method, params) in [
+        ("tabs.open", json!({"url": "http://meta.test/latest/meta-data/"})),
+        ("tab.navigate", json!({"targetId": "T", "url": "http://meta.test/"})),
+        ("net.fetch", json!({"targetId": "T", "url": "http://meta.test/x"})),
+    ] {
+        let refused = gate.driver_call(method, params).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{method}: {refused}");
+        assert!(refused.message.contains("169.254.169.254"), "{refused}");
+    }
+    // A local session may reach private ranges; a name that does not
+    // resolve here is the proxy's to resolve.
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://lan.test/"})).is_ok());
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://elsewhere.test/"})).is_ok());
+    gate.driver_call("session.configure", json!({"proxy": null})).unwrap();
+    assert!(gate.driver_call("tabs.open", json!({"url": "http://meta.test/"})).is_ok());
+    let opened = driver.calls.lock().unwrap().iter().filter(|(m, _)| m == "tabs.open").count();
+    assert_eq!(opened, 4, "the refused calls never reached the engine");
 }

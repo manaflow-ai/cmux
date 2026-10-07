@@ -50,6 +50,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledg
 import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
+  bakedPrograms,
   aptPinArgs,
   basePackageProblems,
   CURRENT_BIN,
@@ -271,7 +272,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  for (const p of lock.programs) {
+  for (const p of bakedPrograms(lock)) {
     await L.step(vm, `store-${p.name}`, programInstallCommand(p));
   }
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
@@ -439,6 +440,10 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
     throw new Error(`daemon.json is not a real identify answer: ${out.trim().slice(0, 300)}`);
   }
   ctx.result.daemonInfo = info;
+  // Coordinator condition for the activity pin: the daemon serves vm-activity-v1 and the agent's
+  // own activity stream connects to it. A bake without both fails.
+  const probe = await L.step(vm, "daemon-activity-probe", `/usr/local/bin/bun ${VM_AGENT_PATH} --probe-activity`);
+  ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
 async function startDaemon(ctx: Ctx): Promise<void> {

@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
+import type { OmnibarContext } from "./omnibar";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
@@ -308,30 +309,30 @@ test("the default toggle shows what Cmd-T opens and cycles through the choices",
   await act(async () => root.unmount());
 });
 
-test("file and app action suggestions use their host callbacks and keep agent Enter as a prompt", async () => {
+// The original page (NEW-TAB-PAGE-RESTORED): the bar suggests tabs, workspaces, sessions, folders,
+// commands and history only, and the Agent kind names its agent beside the field.
+test("the bar offers no file or app action rows, and Agent shows its agent", async () => {
+  // A host may still send files and app actions; the page does not offer them.
+  const hostOmnibar = {
+    tabs: [],
+    workspaces: [],
+    sessions: [],
+    folders: [],
+    commands: [],
+    history: [],
+    files: [{ path: "/src/app/README.md", title: "Project guide" }],
+    actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+  };
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  const submitted: string[] = [];
-  const opened: string[] = [];
-  const actions: string[] = [];
   await act(async () =>
     root.render(
       createElement(NewTabPage, {
         snapshot,
         initialKind: "agent",
-        omnibar: {
-          tabs: [],
-          workspaces: [],
-          sessions: [],
-          folders: [],
-          commands: [],
-          history: [],
-          files: [{ path: "/src/app/README.md", title: "Project guide" }],
-          actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
-        },
-        onSubmit: (kind: string, text: string) => submitted.push(`${kind}:${text}`),
-        onOpenFile: (path: string) => opened.push(path),
-        onAction: (id: string) => actions.push(id),
+        omnibar: hostOmnibar as OmnibarContext,
+        projects: [{ cwd: "/src/app", label: "app" }],
+        onSubmit: () => {},
         onOpenSession: () => {},
         onShowAll: () => {},
       }),
@@ -339,32 +340,19 @@ test("file and app action suggestions use their host callbacks and keep agent En
   );
   const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  const titles = () => [...container.querySelectorAll(".acpmux-omni-title")].map((row) => row.textContent);
   const type = (value: string) =>
     act(async () => {
       setValue.call(field, value);
       edited(field);
     });
-  const key = (name: string) =>
-    act(async () => {
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
-    });
-  const submit = () =>
-    act(async () => {
-      container
-        .querySelector("form")!
-        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
-    });
   await type("README");
-  await submit();
-  expect(submitted).toEqual(["agent:README"]);
-  await key("ArrowUp");
-  await submit();
-  expect(opened).toEqual(["/src/app/README.md"]);
+  expect(titles()).not.toContain("Project guide");
   await type("preferences");
-  await key("ArrowUp");
-  await submit();
-  expect(actions).toEqual(["settings"]);
-  expect(submitted).toEqual(["agent:README"]);
+  expect(titles()).not.toContain("Settings");
+  // One folder chooser and the agent chip; the agent is never swapped for a second project chooser.
+  expect(container.querySelectorAll(".acpmux-newtab-context .acpmux-project-button").length).toBe(1);
+  expect([...container.querySelectorAll(".acpmux-newtab-chip")].map((chip) => chip.textContent)).toEqual(["Agent"]);
   await act(async () => root.unmount());
 });
 

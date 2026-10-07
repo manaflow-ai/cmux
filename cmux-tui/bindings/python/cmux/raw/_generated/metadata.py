@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326'
+IR_SHA256 = '574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e'
 
 
 @dataclass(frozen=True)
@@ -605,6 +605,46 @@ COMMANDS = {
             'participant': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-attachment-read': CommandMetadata(
+        'conversation-attachment-read',
+        'local-admin',
+        12,
+        'local-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'length': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-attachment-upload': CommandMetadata(
+        'conversation-attachment-upload',
+        'local-admin',
+        12,
+        'local-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'byte_count': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'data': CommandFieldMetadata(None, None),
+            'duration_ms': CommandFieldMetadata(None, None),
+            'height': CommandFieldMetadata(None, None),
+            'mime_type': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'piece': CommandFieldMetadata(None, None),
+            'poster': CommandFieldMetadata(None, None),
+            'preview': CommandFieldMetadata(None, None),
+            'sha256': CommandFieldMetadata(None, None),
+            'upload': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-bind': CommandMetadata(
         'conversation-bind',
         'local-admin',
@@ -642,6 +682,18 @@ COMMANDS = {
             'before_seq': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-import': CommandMetadata(
+        'conversation-import',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'messages': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-list': CommandMetadata(
@@ -2714,6 +2766,16 @@ COMMANDS = {
             'tree_events': CommandFieldMetadata(7, None),
         },
     ),
+    'subscribe-activity': CommandMetadata(
+        'subscribe-activity',
+        'local-admin',
+        12,
+        'vm-activity-v1',
+        ('local-admin',),
+        'subscribe',
+        {
+        },
+    ),
     'swap-pane': CommandMetadata(
         'swap-pane',
         'control',
@@ -3087,6 +3149,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),

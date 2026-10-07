@@ -1,6 +1,5 @@
 import AppKit
 import CmuxHomeCore
-import ImageIO
 
 /// What the intake reads from a pasteboard: `NSPasteboard` (drop and
 /// paste), or a value in tests (a ci-step mini has no pasteboard server).
@@ -48,30 +47,5 @@ enum HomeAttachmentIntake {
 
     private static func acceptedPictureType(_ board: any HomePasteboardContents) -> NSPasteboard.PasteboardType? {
         pictureTypes.first { board.hasType([$0]) && HomeAttachmentPolicy.accepts(typeIdentifier: $0.rawValue) }
-    }
-}
-
-/// A draft attachment in the composer tray.
-struct HomeDraftAttachment {
-    var prepared: LocalAttachment
-    /// A small decoded picture for the tray (and the first frame of the send morph).
-    var thumbnail: CGImage?
-
-    var ref: AttachmentRef { prepared.ref }
-
-    /// The tray picture: the poster or the image itself, decoded off the main actor.
-    static func thumbnail(for prepared: LocalAttachment, maxPixel: Int = 640) async -> CGImage? {
-        let type = prepared.ref.mimeType.lowercased()
-        let url: URL? = prepared.posterURL ?? (type.hasPrefix("image/") ? prepared.fileURL : nil)
-        guard let url else { return nil }
-        return await Task.detached(priority: .userInitiated) {
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-            ]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        }.value
     }
 }

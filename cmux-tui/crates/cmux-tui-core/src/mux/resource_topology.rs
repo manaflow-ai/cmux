@@ -23,6 +23,7 @@ use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
 mod column_update;
+mod emptied_workspace;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
@@ -164,6 +165,8 @@ pub(super) struct TerminalExitDetachProjection {
     pub(super) changes: Value,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
+    /// The workspace the detach emptied, closed in the same commit.
+    pub(super) workspace_close: Option<ResourceWorkspaceClose>,
 }
 
 pub(super) struct TerminalExitDetachEffects {
@@ -180,8 +183,12 @@ impl TerminalExitDetachProjection {
         mut self,
         state: &mut State,
         resource_revision: u64,
+        workspace_revision: Option<u64>,
     ) -> TerminalExitDetachEffects {
         self.state.resource_revision = resource_revision;
+        if let Some(revision) = workspace_revision {
+            self.state.workspace_revision = revision;
+        }
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
         *state = self.state;
@@ -1910,8 +1917,7 @@ impl Mux {
                     LayoutOpKind::MoveTabToNewWorkspace {
                         tab: surface,
                         // The in-group index places the workspace among its
-                        // group's members; the model does not compare the
-                        // workspace order.
+                        // group's members; the model does not compare the workspace order.
                         index: None,
                         new_workspace: target_ws_slot,
                         new_screen: target_screen,
@@ -1934,7 +1940,7 @@ impl Mux {
                     root: Node::Leaf(target_pane),
                     active_pane: target_pane,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![target_pane]),
+                    creation_order_auto_layout: Some(vec![target_pane]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -2444,7 +2450,7 @@ impl Mux {
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
-                        target.zellij_auto_layout = layout.zellij_auto_layout;
+                        target.creation_order_auto_layout = layout.creation_order_auto_layout;
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
@@ -3009,6 +3015,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
+                mutation.origin != terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
             )?;
             (target, plan)
         } else {
@@ -3072,8 +3079,9 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            plan.workspace_close.as_ref(),
         )?;
-        let (terminal, resource) = match committed {
+        let (terminal, resource, workspace_revision) = match committed {
             TerminalResourceCloseCommit::TerminalReplay(terminal) => {
                 let result = TerminalCloseResult {
                     surface: None,
@@ -3107,7 +3115,9 @@ impl Mux {
                 drop(_creation_handoff);
                 return Ok(Some(result));
             }
-            TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
+            TerminalResourceCloseCommit::Committed { terminal, resource, workspace_revision } => {
+                (terminal, resource, workspace_revision)
+            }
         };
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
@@ -3116,9 +3126,10 @@ impl Mux {
         if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
-        let effects = plan.install(&mut state, resource.revision, None);
+        let mut effects = plan.install(&mut state, resource.revision, workspace_revision);
         let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
         drop(state);
+        self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
@@ -3188,7 +3199,14 @@ impl Mux {
             !projected.terminal_catalog.contains_key(terminal_public_id),
             "terminal exit retained its catalog runtime"
         );
-        let selection_resync = selection_before != active_tree_selection(&projected);
+        // A process end detaches the last view: the tab closes, and so does
+        // the workspace it emptied (LAST-TAB-CLOSES-WORKSPACE).
+        let workspace_close =
+            self.close_emptied_workspaces_locked(registry, state, &mut projected, None)?;
+        let selection_resync = match &workspace_close {
+            Some(emptied) => emptied.was_active && !projected.workspaces.is_empty(),
+            None => selection_before != active_tree_selection(&projected),
+        };
         let mut projection =
             self.resource_effect_projection_locked(registry, &mut projected, json!({}))?;
 
@@ -3245,6 +3263,7 @@ impl Mux {
             changes: projection.changes,
             changed_screens,
             selection_resync,
+            workspace_close: workspace_close.map(|emptied| emptied.close),
         }))
     }
 
@@ -3292,8 +3311,14 @@ impl Mux {
                 "topology close target changed workspaces before commit"
             );
         }
-        let mut plan =
-            self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
+        let mut plan = self.resource_close_plan_locked(
+            operation,
+            slots,
+            &registry,
+            &state,
+            &notifications,
+            true,
+        )?;
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         // Full projection derives terminal tombstones from detached tabs, but
@@ -3328,19 +3353,7 @@ impl Mux {
         if close.terminal_batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
         }
-        if matches!(
-            &effects.tree_publication,
-            ResourceCloseTreePublication::PendingDelta(delta)
-                if delta.workspace_revision.is_some()
-        ) {
-            let ResourceCloseTreePublication::PendingDelta(delta) = std::mem::replace(
-                &mut effects.tree_publication,
-                ResourceCloseTreePublication::Published,
-            ) else {
-                unreachable!("revisioned workspace close publication was checked above");
-            };
-            self.emit_committed_workspace_delta(&registry, delta, effects.selection_resync);
-        }
+        self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
@@ -3392,13 +3405,14 @@ impl Mux {
         registry: &WorkspaceRegistry,
         state: &State,
         notifications: &TreeDecorations,
+        close_emptied_workspaces: bool,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
         let ResourceCloseInputs {
             surface_ids,
             mut delta,
-            changed_screens,
+            mut changed_screens,
             workspace_metadata,
             terminal_runtime,
             terminal_batch,
@@ -3562,39 +3576,25 @@ impl Mux {
         let mut workspace_close = None;
         let mut workspace_was_active = false;
         if let Some((workspace, index, workspace_key)) = workspace_metadata {
-            // `home_not_closable`: refused before any terminal ends.
-            registry.read_state(|connection| {
-                crate::state::home_store::refuse_close_key(connection, &workspace_key)
-            })?;
-            workspace_was_active = projected.active_workspace == index;
-            let previous_active = projected.active_pane();
-            let active_id =
-                projected.workspaces.get(projected.active_workspace).map(|workspace| workspace.id);
-            anyhow::ensure!(
-                projected.workspaces.get(index).is_some_and(|item| item.id == workspace),
-                "workspace disappeared while planning close"
-            );
-            projected.remove_workspace(index);
-            projected.active_workspace = active_id
-                .and_then(|id| projected.workspace_index(id))
-                .unwrap_or_else(|| projected.workspaces.len().saturating_sub(1));
-            stamp_changed_active_pane(self, &mut projected, previous_active);
-            let active_workspace = projected
-                .workspaces
-                .get(projected.active_workspace)
-                .map(|workspace| workspace.public_id.clone());
-            workspace_close = Some(ResourceWorkspaceClose {
-                workspace_key: workspace_key.clone(),
-                remaining_workspaces: self.registry_projection(&projected),
-                active_workspace,
-                legacy_result: json!({
-                    "workspace":workspace,
-                    "key":workspace_key,
-                    "index":index,
-                    "changed":true,
-                }),
-            });
+            workspace_was_active = self.remove_workspace_for_close(
+                registry,
+                &mut projected,
+                workspace,
+                &workspace_key,
+            )?;
+            workspace_close =
+                Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             split_index_changed = true;
+        } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
+            registry,
+            state,
+            &mut projected,
+            notifications,
+            close_emptied_workspaces,
+        )? {
+            (delta, changed_screens, workspace_was_active) =
+                (emptied.delta, emptied.changed_screens, emptied.was_active);
+            workspace_close = Some(emptied.close);
         }
         if split_index_changed {
             Self::rebuild_split_screen_index(&mut projected);
@@ -4930,7 +4930,7 @@ impl Mux {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -4955,7 +4955,7 @@ impl Mux {
                 if in_viewport_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             } else if screen.layout_columns_active() {
                 let column = screen
@@ -4968,7 +4968,7 @@ impl Mux {
             } else {
                 append_to_auto_layout(
                     &mut screen.root,
-                    &mut screen.zellij_auto_layout,
+                    &mut screen.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -5503,7 +5503,7 @@ fn parse_resource_layout_document(
         root,
         active_pane,
         zoomed_pane,
-        zellij_auto_layout: None,
+        creation_order_auto_layout: None,
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
@@ -6204,7 +6204,7 @@ fn registry_screen_from_layout(
     };
     let layout_node = registry_layout_node(state, &layout.root)?;
     let auto_layout = layout
-        .zellij_auto_layout
+        .creation_order_auto_layout
         .as_ref()
         .map(|panes| {
             panes.iter().map(|pane| public_pane(*pane)).collect::<anyhow::Result<Vec<_>>>()
@@ -6224,7 +6224,7 @@ fn registry_screen_from_layout(
                 width: column.width,
                 layout: registry_layout_node(state, &column.root)?,
                 auto_layout: column
-                    .zellij_auto_layout
+                    .creation_order_auto_layout
                     .as_ref()
                     .map(|panes| {
                         panes
@@ -6343,7 +6343,7 @@ fn set_layout_split_ratio(
         changed
     };
     anyhow::ensure!(changed, "unknown split");
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     Ok(())
 }
 
@@ -6368,13 +6368,13 @@ fn swap_layout_panes(
     for column in &mut layout.layout_columns {
         if column.root.contains(first) || column.root.contains(second) {
             column.root.swap_leaf_ids(first, second);
-            column.zellij_auto_layout = None;
+            column.creation_order_auto_layout = None;
         }
     }
     if !layout.layout_columns.is_empty() {
         sync_layout_column_projection(layout);
     }
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if !both_present {
         if layout.active_pane == first {
             layout.active_pane = second;
@@ -6400,7 +6400,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.root = layout.root;
     screen.active_pane = layout.active_pane;
     screen.zoomed_pane = layout.zoomed_pane;
-    screen.zellij_auto_layout = layout.zellij_auto_layout;
+    screen.creation_order_auto_layout = layout.creation_order_auto_layout;
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;

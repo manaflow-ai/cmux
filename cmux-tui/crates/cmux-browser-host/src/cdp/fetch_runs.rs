@@ -72,6 +72,20 @@ impl Runs {
         }
     }
 
+    /// The fetch that runs in (or keeps) `target`, if any.
+    pub(super) fn fetch_in(&self, target: &str) -> Option<String> {
+        self.running
+            .iter()
+            .find(|(_, run)| run.target.as_deref() == Some(target))
+            .map(|(id, _)| id.clone())
+            .or_else(|| {
+                self.kept
+                    .iter()
+                    .find(|(_, shells)| shells.iter().any(|(_, t)| t == target))
+                    .map(|(id, _)| id.clone())
+            })
+    }
+
     /// The shell a fetch keeps for `origin`, if any.
     pub(super) fn kept_shell(&self, id: &str, origin: &str) -> Option<String> {
         self.kept.get(id)?.iter().find(|(o, _)| o == origin).map(|(_, target)| target.clone())

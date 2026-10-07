@@ -60,6 +60,8 @@ extension TopPageRoute {
         case .home: return .home
         case .appStore: return .page(.appStore)
         case .settings: return .page(.settings)
+        case .history: return .page(.history)
+        case .bookmarks: return .page(.bookmarks)
         default: return nil
         }
     }

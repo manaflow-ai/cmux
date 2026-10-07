@@ -64,7 +64,8 @@ typedef struct {
 // Runs the process: helper processes return their exit code at once; the
 // browser process initializes CEF with --cmux-remote-presentation, calls
 // on_ready and runs the message loop until rb_shim_quit. `cache_dir` holds the
-// profile. Returns the process exit code.
+// profile. Returns the process exit code. rb_shim_quit closes every tab and
+// ends the loop when the last one is closed (CefShutdown needs them closed).
 int rb_shim_run(int argc, char** argv, const char* cache_dir,
                 int external_begin_frames,
                 const rb_shim_callbacks_t* callbacks);
@@ -72,6 +73,9 @@ void rb_shim_quit(void);
 
 // Runs fn(ctx) on the CEF UI thread (any thread may call this).
 void rb_shim_post(void (*fn)(void*), void* ctx);
+// Runs fn(ctx) on the CEF UI thread after `delay_ms` (bounded waits of the
+// smoke mode; runtime code paces on frame and begin-frame signals).
+void rb_shim_post_delayed(void (*fn)(void*), void* ctx, int64_t delay_ms);
 
 // The headless screen (DIP and scale; cmux_rp_set_screen).
 int rb_shim_set_screen(int width_dip, int height_dip, double scale);

@@ -25,7 +25,9 @@ use std::collections::HashSet;
 use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
-/// Runs the request; keeps the body in the host world under an id.
+/// Runs the request; keeps the body in the host world under an id. The id
+/// comes from `crypto.getRandomValues`, which (unlike `crypto.randomUUID`)
+/// exists in an insecure context too (an http page that is not loopback).
 const START: &str = "async (req) => { \
     const store = globalThis.__cmuxFetch || (globalThis.__cmuxFetch = new Map()); \
     const ctls = globalThis.__cmuxFetchCtl || (globalThis.__cmuxFetchCtl = new Map()); \
@@ -42,7 +44,7 @@ const START: &str = "async (req) => { \
       if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; touch(); size += value.length; \
         if (size > req.maxBytes) { ctl.abort(); throw new Error('the response body is larger than 64 MiB; download it in a tab'); } chunks.push(value); } \
       const all = new Uint8Array(size); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } \
-      const id = crypto.randomUUID(); store.set(id, all); \
+      const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''); store.set(id, all); \
       return { id, size, type: r.type, url: r.url, status: r.status, statusText: r.statusText, redirected: r.redirected, headers: [...r.headers] }; \
     } finally { clearTimeout(timer); clearTimeout(idle); if (req.fetchId) ctls.delete(req.fetchId); } }";
 
@@ -170,7 +172,16 @@ impl Inner {
         let target = match reused {
             Some(target) => target,
             None => {
-                let deadline = Instant::now() + timeout_of(params);
+                // Opening and loading the shell is no progress of the fetch:
+                // the idle limit bounds it too, also without a total limit
+                // (a navigation Chromium never answers must not hold the
+                // call forever).
+                let mut deadline = Instant::now() + timeout_of(params);
+                if let Some(idle) =
+                    params.get("idleTimeoutMs").and_then(Value::as_u64).filter(|ms| *ms > 0)
+                {
+                    deadline = deadline.min(Instant::now() + Duration::from_millis(idle));
+                }
                 let mut shell = self.open_shell(&shell_url, deadline)?;
                 self.run_in(run_id, &shell.target)?;
                 let left =
@@ -484,5 +495,13 @@ impl Inner {
         })
         .ok()
         .filter(|ip| !ip.is_empty())
+    }
+}
+
+impl super::CdpDriver {
+    /// The `fetchId` of the host fetch whose shell is `target` (a shared
+    /// browser applies that fetch's session filter to the shell).
+    pub fn shell_fetch_id(&self, target: &str) -> Option<String> {
+        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.fetch_in(target)
     }
 }

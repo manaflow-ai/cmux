@@ -293,6 +293,21 @@ class ViewAttachmentOutcome(str, Enum):
 
 
 @dataclass(frozen=True)
+class ActivitySnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySnapshot'
+    attached_clients: int
+    last_agent_action_at_ms: Union[int, None]
+    last_user_input_at_ms: Union[int, None]
+    live_agents: int
+
+
+@dataclass(frozen=True)
+class ActivitySubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySubscribeResult'
+    activity: ActivitySnapshot
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -497,6 +512,16 @@ class ConversationChange:
 
 
 @dataclass(frozen=True)
+class ConversationImportMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationImportMessage'
+    author: str
+    client_msg_id: str
+    created_at: str
+    parts: List[ConversationPart]
+    id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationMessage:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationMessage'
     author: str
@@ -517,7 +542,7 @@ class ConversationPart:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
     type: str
     host: Union[str, MissingType] = field(default=MISSING)
-    preview: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, MissingType] = field(default=MISSING)
     runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
     session: Union[str, MissingType] = field(default=MISSING)
     status: Union[str, MissingType] = field(default=MISSING)
@@ -922,6 +947,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2199,6 +2225,82 @@ class ConversationAgentTokenResult:
 
 
 @dataclass(frozen=True)
+class ConversationAttachmentReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/request'
+    conversation: str
+    hash: str
+    length: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentReadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/result'
+    byte_count: int
+    data: str
+    eof: bool
+    hash: str
+    mime_type: str
+    offset: int
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/request'
+    op: str
+    byte_count: Union[int, None, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    duration_ms: Union[int, None, MissingType] = field(default=MISSING)
+    height: Union[int, None, MissingType] = field(default=MISSING)
+    mime_type: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    piece: Union[str, None, MissingType] = field(default=MISSING)
+    poster: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    sha256: Union[str, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result'
+    needs: Union[List[str], None, MissingType] = field(default=MISSING)
+    received: Union[int, None, MissingType] = field(default=MISSING)
+    stored: Union[ConversationAttachmentUploadResultStored, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStored:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+    poster: Union[ConversationAttachmentUploadResultStoredPoster, None, MissingType] = field(default=MISSING)
+    preview: Union[ConversationAttachmentUploadResultStoredPreview, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPoster:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/poster/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPreview:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/preview/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
 class ConversationBindRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
     participant: str
@@ -2239,6 +2341,21 @@ class ConversationHistoryRequest:
 class ConversationHistoryResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
     messages: List[ConversationMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/request'
+    conversation: str
+    messages: List[ConversationImportMessage]
+
+
+@dataclass(frozen=True)
+class ConversationImportResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-import/result'
+    conversation: ConversationSummary
+    imported: List[int]
+    skipped: int
 
 
 @dataclass(frozen=True)
@@ -3691,6 +3808,12 @@ class SubscribeRequest:
 
 
 @dataclass(frozen=True)
+class SubscribeActivityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/subscribe-activity/request'
+    pass
+
+
+@dataclass(frozen=True)
 class SwapPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/swap-pane/request'
     pane: Id
@@ -3930,6 +4053,14 @@ class ZoomPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/zoom-pane/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['toggle', 'on', 'off'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ActivityChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/activity-changed/payload'
+    activity: ActivitySnapshot
+    event: Literal['activity-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
 @dataclass(frozen=True)
@@ -4680,7 +4811,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4716,6 +4847,8 @@ __all__ = [
     'TerminalKeyAction',
     'TerminalLifecycle',
     'ViewAttachmentOutcome',
+    'ActivitySnapshot',
+    'ActivitySubscribeResult',
     'AgentRecord',
     'AgentSessionSource',
     'AppliedPane',
@@ -4738,6 +4871,7 @@ __all__ = [
     'CloseTerminalResult',
     'ColumnPin',
     'ConversationChange',
+    'ConversationImportMessage',
     'ConversationMessage',
     'ConversationPart',
     'ConversationPartRef',
@@ -4920,12 +5054,21 @@ __all__ = [
     'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
+    'ConversationAttachmentReadRequest',
+    'ConversationAttachmentReadResult',
+    'ConversationAttachmentUploadRequest',
+    'ConversationAttachmentUploadResult',
+    'ConversationAttachmentUploadResultStored',
+    'ConversationAttachmentUploadResultStoredPoster',
+    'ConversationAttachmentUploadResultStoredPreview',
     'ConversationBindRequest',
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
+    'ConversationImportRequest',
+    'ConversationImportResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',
@@ -5094,6 +5237,7 @@ __all__ = [
     'SnapshotRequestRequest',
     'SplitRequest',
     'SubscribeRequest',
+    'SubscribeActivityRequest',
     'SwapPaneRequest',
     'TerminalClipboardReplyRequest',
     'TerminalClipboardSubscribeRequest',
@@ -5125,6 +5269,7 @@ __all__ = [
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
+    'ActivityChangedEvent',
     'AgentChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',

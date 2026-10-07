@@ -6,8 +6,6 @@ nonisolated public enum UpdateFlowEffect: Equatable, Sendable {
     case install
     /// Download the update that waits for the click.
     case download
-    /// Show the CmuxDialog that installs although work runs.
-    case confirmInterrupt(UpdateBlockers)
     /// Let the quit go on.
     case quit(UpdateQuitAction)
 }
@@ -27,17 +25,9 @@ nonisolated public enum UpdateFlowEvent: Equatable, Sendable {
     case sparkle(UpdateIndicatorPhase)
     /// The user asked to check (palette, menu, CLI).
     case checkRequested
-    /// A click on the card, or `cmux update install`.
+    /// A click on the footer pill, the palette's Install Available Update,
+    /// or `cmux update install`.
     case installRequested
-    /// The waiting card's "Install Now".
-    case installNowRequested
-    /// The dialog confirmed installing although work runs.
-    case interruptConfirmed
-    /// The dialog's "Wait".
-    case interruptDeclined
-    /// "Later" on the waiting card: forget the click, keep the update ready.
-    case later
-    case blockersChanged(UpdateBlockers)
     case quitRequested
     /// A note's display time ended.
     case noteExpired

@@ -168,9 +168,8 @@ async fn each_harness_starts_and_stays_in_a_reviewed_asking_mode_for_the_web() {
     let mut local = Client::new(&hub, Origin::Local);
     // (harness, its asking default, a mode it offers that does not ask)
     for (harness, asking, loose) in [
+        // Codex and opencode have no row: tests/remote_guard_refused_families.rs.
         ("fclaude", "default", "bypassPermissions"),
-        ("fcodex", "read-only", "agent"),
-        ("fopencode", "plan", "build"),
     ] {
         // A new Web session is moved to the asking default.
         let s = id(&web.new_on(&d, harness, json!({})).await);

@@ -1,15 +1,13 @@
 //! Engines the host opens on demand.
 //!
-//! Headless Chromium: one browser process and throwaway profile per session
-//! (CDP allows one event handler per connection, and per-session profiles
-//! keep sessions' cookies apart). In-app CEF and WebKit tabs arrive through
+//! Headless Chromium: one browser process per (host, profile), shared by
+//! every headless session of that profile (headless_source.rs, item 4b).
+//! In-app CEF and WebKit tabs arrive through
 //! the app's provider connection (step c); until a provider is connected
 //! those engines answer `engine_unavailable`.
 
-use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, ErrorCode};
-use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -56,6 +54,9 @@ pub struct HostEngines {
     provider_changed: Arc<std::sync::Condvar>,
     #[cfg(unix)]
     provider_wait: std::time::Duration,
+    /// The shared headless browsers, by profile.
+    #[cfg(unix)]
+    headless: crate::headless_source::HeadlessBrowsers,
 }
 
 impl HostEngines {
@@ -68,6 +69,8 @@ impl HostEngines {
             provider_changed: Arc::default(),
             #[cfg(unix)]
             provider_wait: PROVIDER_WAIT,
+            #[cfg(unix)]
+            headless: Arc::default(),
         }
     }
 
@@ -159,42 +162,6 @@ fn unavailable(engine: &str, reason: &str) -> DriverError {
     DriverError::new(ErrorCode::Closed, format!("engine_unavailable: {engine}: {reason}"))
 }
 
-#[cfg(unix)]
-struct HeadlessDriver {
-    driver: CdpDriver,
-    _browser: crate::cdp::pipe::HeadlessChromium,
-}
-
-#[cfg(unix)]
-impl Driver for HeadlessDriver {
-    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
-        self.driver.call(method, params)
-    }
-
-    fn capabilities(&self) -> Vec<&'static str> {
-        self.driver.capabilities()
-    }
-
-    // Without these the trait defaults applied: no request filter (every
-    // call under a domain policy failed closed) and no end of session.
-    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
-        self.driver.set_request_filter(filter)
-    }
-
-    fn end_session(&self) {
-        self.driver.end_session();
-    }
-
-    fn call_reply_announced(
-        &self,
-        method: &str,
-        params: &Value,
-        announce: &mut dyn FnMut(),
-    ) -> Result<crate::driver::Reply, DriverError> {
-        self.driver.call_reply_announced(method, params, announce)
-    }
-}
-
 impl crate::host::Engines for HostEngines {
     fn driver(
         &self,
@@ -203,7 +170,7 @@ impl crate::host::Engines for HostEngines {
         session: &crate::host::SessionContext,
     ) -> Result<Arc<dyn Driver>, DriverError> {
         match engine {
-            "auto" | "headless" => self.headless(events),
+            "auto" | "headless" => self.headless(events, session),
             "cef" | "webkit" => self.provider(engine, events, session),
             other => Err(DriverError::invalid(format!(
                 "engine: expected auto, headless, cef or webkit, got {other:?}"
@@ -214,36 +181,45 @@ impl crate::host::Engines for HostEngines {
 
 impl HostEngines {
     #[cfg(unix)]
-    fn headless(&self, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
-        use crate::cdp::pipe::HeadlessChromium;
-        let Some(binary) = chromium_candidates().into_iter().find(|p| p.is_file()) else {
-            return Err(unavailable(
-                "headless",
-                "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
-            ));
+    fn headless(
+        &self,
+        events: EventSink,
+        session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
+        use crate::headless_source::{HeadlessSession, HeadlessSource, browser_for};
+        let source = browser_for(&self.headless, &session.profile, || {
+            let Some(binary) = chromium_candidates().into_iter().find(|p| p.is_file()) else {
+                return Err(unavailable(
+                    "headless",
+                    "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
+                ));
+            };
+            HeadlessSource::launch(
+                &headless_options(binary),
+                self.agent_source.clone(),
+                &session.profile,
+            )
+        })?;
+        let lease = crate::lease::LeaseCaller {
+            session: session.name.clone(),
+            actor: session.caller.actor.clone(),
+            on_behalf_of: session.caller.on_behalf_of.clone(),
+            origin: session.caller.origin.clone(),
+            label: session.label.clone(),
+            implicit_session: false,
+            engine: "headless".to_owned(),
         };
-        let browser = HeadlessChromium::launch(&headless_options(binary))
-            .map_err(|e| unavailable("headless", &e.to_string()))?;
-        let driver = CdpDriver::attach_browser(
-            browser.connection().clone(),
-            self.agent_source.clone(),
-            events,
-        )?;
-        driver.save_downloads_in(browser.downloads_dir())?;
-        // Chromium opens a start tab; it is no session's tab, so the session
-        // starts with none (headless Chromium keeps running without tabs).
-        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
-            for tab in tabs {
-                if let Some(target) = tab["targetId"].as_str() {
-                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
-                }
-            }
-        }
-        Ok(Arc::new(HeadlessDriver { driver, _browser: browser }))
+        let driver =
+            HeadlessSession::new(source, &self.headless, self.agent_source.clone(), events, lease)?;
+        Ok(Arc::new(driver))
     }
 
     #[cfg(not(unix))]
-    fn headless(&self, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+    fn headless(
+        &self,
+        _events: EventSink,
+        _session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
         Err(unavailable("headless", "headless Chromium over a pipe needs a Unix host"))
     }
 }

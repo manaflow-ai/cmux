@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::remote_relay::participants::{device_id_refused, is_device_id};
 use super::{Mux, MuxEvent, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
+use crate::conversation_store::attachments::AttachmentRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -96,6 +97,15 @@ pub(super) struct AgentTokenParams {
     participant: String,
 }
 
+/// `conversation-import`: history moved from another store, appended once
+/// with its own authors and times (conversation_import.rs). Trusted local
+/// user connections only; never a remote or an agent-bound connection.
+#[derive(Deserialize)]
+pub(super) struct ImportParams {
+    conversation: String,
+    messages: Vec<crate::conversation_store::ImportedMessage>,
+}
+
 /// The actor of a write is the connection's principal, stamped by the owner.
 /// A request may still name it; naming anyone else is refused.
 fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Result<String> {
@@ -114,12 +124,16 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ConversationSearchRejected>().map(|r| r.0.code().to_string())
         })
+        .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     let rejected = error.downcast_ref::<ConversationRejected>().is_some()
         || error.downcast_ref::<ConversationSearchRejected>().is_some();
+    if error.downcast_ref::<AttachmentRejected>().is_some() {
+        return Some(AttachmentRejected::CODE.to_string());
+    }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
@@ -177,6 +191,34 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
         },
     )?;
     Ok(json!({"conversation": outcome.summary, "replayed": outcome.replayed}))
+}
+
+pub(super) fn import(mux: &Mux, client: u64, params: ImportParams) -> anyhow::Result<Value> {
+    anyhow::ensure!(!mux.is_remote_client(client), "conversation-import is local only");
+    require_local(mux, client)?;
+    anyhow::ensure!(
+        mux.conversation_principal(client) == LOCAL_USER,
+        "only the local user imports conversation history"
+    );
+    let ImportParams { conversation, messages } = params;
+    let outcome = mux.conversation_write(
+        |store| store.import(&conversation, &messages),
+        |outcome| {
+            if outcome.imported.is_empty() {
+                return None;
+            }
+            let change = Change::Conversation { conversation: Box::new(outcome.summary.clone()) };
+            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                conversation: outcome.summary.id.clone(),
+                rev: outcome.summary.rev,
+                transaction: None,
+                change: serde_json::to_value(change).ok()?,
+            })))
+        },
+    )?;
+    Ok(
+        json!({"conversation": outcome.summary, "imported": outcome.imported, "skipped": outcome.skipped}),
+    )
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
@@ -334,3 +376,7 @@ pub(super) fn agent_token(
 #[cfg(test)]
 #[path = "conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversation_attachment_tests.rs"]
+mod attachment_tests;

@@ -37,6 +37,8 @@ public final class SettingsApplier {
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
         let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
         if design.density != density { design.density = density }
+        let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
+        if design.uiScale != uiScale { design.uiScale = uiScale }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
@@ -105,20 +107,8 @@ public final class SettingsApplier {
         appliedShortcutIDs = applied
         diagnostics += applyKeyTiers(snapshot.keyTiers)
 
-        diagnostics += tabBarDiagnostics(snapshot.tabBar)
         diagnostics += Self.conflictDiagnostics(in: registry)
         return diagnostics
-    }
-
-    /// Buttons whose action is neither a cmux.json action nor in the registry.
-    private func tabBarDiagnostics(_ tabBar: SurfaceTabBarConfig) -> [SettingsDiagnostic] {
-        tabBar.buttons.compactMap { button in
-            let id = ActionID(rawValue: button.actionID)
-            if button.actionID.hasPrefix(ConfigCommandAction.actionIDPrefix)
-                || registry.descriptor(for: id) != nil || registry.isBound(id) { return nil }
-            return SettingsDiagnostic(kind: .unknownAction, path: "ui.surfaceTabBar.buttons",
-                                      message: "no action '\(button.actionID)' for button '\(button.id)'")
-        }
     }
 
     /// `shortcuts.tiers`: a removed entry restores the catalog tier.

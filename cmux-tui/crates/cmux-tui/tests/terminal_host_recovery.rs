@@ -17,8 +17,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
@@ -342,19 +343,11 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
 fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
     let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
     let marker = format!("fast-journal-marker-{}", std::process::id());
-    let created = resource_request(
+    let workspace = &create_empty_workspace(
         &harness.socket,
         "journal-initial-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Journal initial output",
-            "initial_content":"empty",
-        }),
-        Some("journal-initial-workspace"),
+        "Journal initial output",
     );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
     let run = resource_request(
         &harness.socket,
         "journal-initial-run",
@@ -465,19 +458,7 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
 fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart() {
     let mut harness = RecoveryHarness::start("keep-on-exit");
     let marker = format!("keep-on-exit-marker-{}", std::process::id());
-    let created = resource_request(
-        &harness.socket,
-        "keep-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Keep on exit",
-            "initial_content":"empty",
-        }),
-        Some("keep-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace = &create_empty_workspace(&harness.socket, "keep-workspace", "Keep on exit");
 
     // The catalog constrains on_exit to its supported enum values.
     let unsupported = request_response(
@@ -906,19 +887,8 @@ fn output_read(
 #[test]
 fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     let harness = RecoveryHarness::start("output-read");
-    let created = resource_request(
-        &harness.socket,
-        "output-read-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Output read",
-            "initial_content":"empty",
-        }),
-        Some("output-read-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-workspace", "Output read");
 
     // The command prints colored output, waits for one input line so the
     // live window is observable, then prints more colored output and exits
@@ -1055,6 +1025,12 @@ fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     assert_eq!(drained["start_offset"], stream_end.to_string());
     assert_eq!(drained["next_offset"], stream_end.to_string());
     assert_eq!(drained["complete"], true);
+
+    // The close policy took the workspace's only tab, so the workspace
+    // closed with it (LAST-TAB-CLOSES-WORKSPACE): the keep-policy run gets
+    // a new one.
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-kept-workspace", "Output read kept");
 
     // Keep policy: the exited terminal retains its views, and the same read
     // serves its output without escapes.
@@ -3340,6 +3316,118 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
 }
 
 #[test]
+fn viewer_size_priority_renderer_wins_until_it_releases_or_disconnects() {
+    let harness = RecoveryHarness::start("viewer-size-priority");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let connect = |id: u64, flags: u32| {
+        let grant = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":id,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            }),
+        );
+        assert_eq!(grant["supports_viewer_size_priority"], true, "{grant}");
+        let connection = connect_host_detailed_with_flags(
+            grant["endpoint"].as_str().unwrap(),
+            grant["terminal_id"].as_str().unwrap(),
+            grant["token"].as_str().unwrap(),
+            ClientRole::Renderer,
+            CapabilityRights::RENDERER,
+            flags,
+        )
+        .unwrap();
+        connection.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        connection
+    };
+    let mut legacy = connect(2, FLAG_VIEWER_SIZE_ACKS);
+    assert_eq!(legacy.hello_flags, FLAG_VIEWER_SIZE_ACKS);
+    let mut preferred = connect(3, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+    assert_eq!(preferred.hello_flags, FLAG_VIEWER_SIZE_ACKS | FLAG_VIEWER_SIZE_PRIORITY);
+
+    // The larger preferred size wins instead of the 80x24 legacy reservation.
+    send_viewer_size(&mut preferred, 61, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 61, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // A legacy report no longer reduces the grid; its ack carries the winner.
+    send_viewer_size(&mut legacy, 51, 80, 24);
+    expect_resize_ack(&mut legacy, 51, 120, 40, false);
+
+    // Releasing hands the grid back to the legacy minimum.
+    write_frame(&mut preferred.stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new()))
+        .unwrap();
+    expect_resized_pair(&mut preferred, 80, 24);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    // Priority belongs to the connection, so a new report wins again.
+    send_viewer_size(&mut preferred, 62, 120, 40);
+    expect_resized_pair(&mut preferred, 120, 40);
+    expect_resize_ack(&mut preferred, 62, 120, 40, true);
+    expect_resized_pair(&mut legacy, 120, 40);
+    wait_for_vt_size(&harness.socket, surface, 120, 40);
+
+    // Disconnecting the preferred renderer restores the legacy size.
+    drop(preferred);
+    expect_resized_pair(&mut legacy, 80, 24);
+    wait_for_vt_size(&harness.socket, surface, 80, 24);
+
+    close_terminal_surface(&harness.socket, surface, 4);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+fn send_viewer_size(connection: &mut DirectHostConnection, request_id: u64, cols: u16, rows: u16) {
+    let mut frame = Frame::new(MessageKind::ViewerSize, Vec::new());
+    frame.request_id = request_id;
+    frame.payload.extend_from_slice(&cols.to_le_bytes());
+    frame.payload.extend_from_slice(&rows.to_le_bytes());
+    write_frame(&mut connection.stream, &frame).unwrap();
+}
+
+/// Reads the sequenced Resized + Colors pair of one canonical grid change.
+fn expect_resized_pair(connection: &mut DirectHostConnection, cols: u16, rows: u16) {
+    let resized = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(resized.request_id, 0);
+    assert_eq!(resized.sequence, connection.next_sequence);
+    assert_eq!(&resized.payload[..2], &cols.to_le_bytes());
+    assert_eq!(&resized.payload[2..4], &rows.to_le_bytes());
+    let colors = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.sequence, connection.next_sequence.wrapping_add(1));
+    connection.next_sequence = connection.next_sequence.wrapping_add(2);
+}
+
+fn expect_resize_ack(
+    connection: &mut DirectHostConnection,
+    request_id: u64,
+    cols: u16,
+    rows: u16,
+    changed: bool,
+) {
+    let ack = read_frame(&mut connection.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::ResizeAck);
+    assert_eq!(ack.request_id, request_id);
+    assert_eq!(ack.sequence, 0);
+    let flags = if changed { RESIZE_ACK_CANONICAL_CHANGED } else { 0 };
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&cols.to_le_bytes());
+    payload.extend_from_slice(&rows.to_le_bytes());
+    payload.extend_from_slice(&flags.to_le_bytes());
+    assert_eq!(ack.payload, payload);
+}
+
+#[test]
 fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-crash", 2_000);
     let stream = transport::connect(&harness.socket).unwrap();
@@ -4132,9 +4220,9 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .expect("Ctrl-D removed the workspace identity");
-    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id));
+    // Its only tab went, so the workspace closed too (LAST-TAB-CLOSES-WORKSPACE).
+    assert!(workspace.is_none(), "Ctrl-D left an empty workspace behind: {tree}");
 }
 
 #[test]
@@ -5310,19 +5398,8 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
     harness.child = Some(command.spawn().unwrap());
     wait_for_socket(&harness.socket);
-    let created = resource_request(
-        &harness.socket,
-        "ack-backlog-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Input ack backlog",
-            "initial_content":"empty",
-        }),
-        Some("ack-backlog-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "ack-backlog-workspace", "Input ack backlog");
     // Twenty separate output bursts (8 s of delayed apply), then a reader.
     let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
                   echo bursts-done; read line; echo got-$line";

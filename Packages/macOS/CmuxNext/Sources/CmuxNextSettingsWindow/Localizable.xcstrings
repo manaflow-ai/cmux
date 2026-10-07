@@ -2627,127 +2627,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Problems in cmux-next.json"
+            "value": "Problems in %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-next.json の問題"
+            "value": "%@ の問題"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مشكلات في cmux-next.json"
+            "value": "مشكلات في %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemi u cmux-next.json"
+            "value": "Problemi u %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemer i cmux-next.json"
+            "value": "Problemer i %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Probleme in cmux-next.json"
+            "value": "Probleme in %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemas en cmux-next.json"
+            "value": "Problemas en %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problèmes dans cmux-next.json"
+            "value": "Problèmes dans %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemi in cmux-next.json"
+            "value": "Problemi in %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ហាក្នុង cmux-next.json"
+            "value": "បញ្ហាក្នុង %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-next.json의 문제"
+            "value": "%@의 문제"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemer i cmux-next.json"
+            "value": "Problemer i %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemy w cmux-next.json"
+            "value": "Problemy w %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemas no cmux-next.json"
+            "value": "Problemas no %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проблемы в cmux-next.json"
+            "value": "Проблемы в %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปัญหาใน cmux-next.json"
+            "value": "ปัญหาใน %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-next.json’daki Sorunlar"
+            "value": "%@’daki Sorunlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проблеми в cmux-next.json"
+            "value": "Проблеми в %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vấn đề trong cmux-next.json"
+            "value": "Vấn đề trong %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-next.json 中的问题"
+            "value": "%@ 中的问题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-next.json 中的問題"
+            "value": "%@ 中的問題"
           }
         }
       }
@@ -13238,127 +13238,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every setting and shortcut in cmux.json goes back to its default. Custom actions stay."
+            "value": "Every setting and shortcut in %@ goes back to its default. Custom actions stay."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json のすべての設定とショートカットがデフォルトに戻ります。カスタムアクションは残ります。"
+            "value": "%@ のすべての設定とショートカットがデフォルトに戻ります。カスタムアクションは残ります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعود كل إعداد واختصار في cmux.json إلى قيمته الافتراضية. تبقى الإجراءات المخصصة."
+            "value": "يعود كل إعداد واختصار في %@ إلى قيمته الافتراضية. تبقى الإجراءات المخصصة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svaka postavka i prečica u cmux.json vraća se na zadano. Prilagođene radnje ostaju."
+            "value": "Svaka postavka i prečica u %@ vraća se na zadano. Prilagođene radnje ostaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle indstillinger og genveje i cmux.json nulstilles til standard. Tilpassede handlinger bevares."
+            "value": "Alle indstillinger og genveje i %@ nulstilles til standard. Tilpassede handlinger bevares."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Einstellungen und Kurzbefehle in cmux.json werden auf den Standard zurückgesetzt. Eigene Aktionen bleiben."
+            "value": "Alle Einstellungen und Kurzbefehle in %@ werden auf den Standard zurückgesetzt. Eigene Aktionen bleiben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos los ajustes y atajos de cmux.json vuelven a su valor predeterminado. Las acciones personalizadas se mantienen."
+            "value": "Todos los ajustes y atajos de %@ vuelven a su valor predeterminado. Las acciones personalizadas se mantienen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chaque réglage et raccourci de cmux.json revient à sa valeur par défaut. Les actions personnalisées sont conservées."
+            "value": "Chaque réglage et raccourci de %@ revient à sa valeur par défaut. Les actions personnalisées sont conservées."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ogni impostazione e scorciatoia in cmux.json torna al valore predefinito. Le azioni personalizzate restano."
+            "value": "Ogni impostazione e scorciatoia in %@ torna al valore predefinito. Le azioni personalizzate restano."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រាល់ការកំណត់ និងផ្លូវកាត់ក្នុង cmux.json ត្រឡប់ទៅលំនាំដើម។ សកម្មភាពផ្ទាល់ខ្លួននៅដដែល។"
+            "value": "រាល់ការកំណត់ និងផ្លូវកាត់ក្នុង %@ ត្រឡប់ទៅលំនាំដើម។ សកម្មភាពផ្ទាល់ខ្លួននៅដដែល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json의 모든 설정과 단축키가 기본값으로 돌아갑니다. 사용자 설정 동작은 유지됩니다."
+            "value": "%@의 모든 설정과 단축키가 기본값으로 돌아갑니다. 사용자 설정 동작은 유지됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle innstillinger og hurtigtaster i cmux.json tilbakestilles til standard. Tilpassede handlinger beholdes."
+            "value": "Alle innstillinger og hurtigtaster i %@ tilbakestilles til standard. Tilpassede handlinger beholdes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszystkie ustawienia i skróty w cmux.json wracają do wartości domyślnych. Własne czynności zostają."
+            "value": "Wszystkie ustawienia i skróty w %@ wracają do wartości domyślnych. Własne czynności zostają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos os ajustes e atalhos do cmux.json voltam ao padrão. Ações personalizadas são mantidas."
+            "value": "Todos os ajustes e atalhos do %@ voltam ao padrão. Ações personalizadas são mantidas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все настройки и сочетания клавиш в cmux.json вернутся к значениям по умолчанию. Пользовательские действия сохранятся."
+            "value": "Все настройки и сочетания клавиш в %@ вернутся к значениям по умолчанию. Пользовательские действия сохранятся."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การตั้งค่าและปุ่มลัดทั้งหมดใน cmux.json จะกลับเป็นค่าเริ่มต้น การทำงานที่กำหนดเองยังคงอยู่"
+            "value": "การตั้งค่าและปุ่มลัดทั้งหมดใน %@ จะกลับเป็นค่าเริ่มต้น การทำงานที่กำหนดเองยังคงอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json’daki tüm ayarlar ve kısayollar varsayılana döner. Özel eylemler korunur."
+            "value": "%@’daki tüm ayarlar ve kısayollar varsayılana döner. Özel eylemler korunur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі параметри та комбінації клавіш у cmux.json повернуться до типових. Власні дії залишаться."
+            "value": "Усі параметри та комбінації клавіш у %@ повернуться до типових. Власні дії залишаться."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mọi cài đặt và phím tắt trong cmux.json trở về mặc định. Tác vụ tùy chỉnh được giữ lại."
+            "value": "Mọi cài đặt và phím tắt trong %@ trở về mặc định. Tác vụ tùy chỉnh được giữ lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 中的所有设置和快捷键都会恢复默认值。自定义操作会保留。"
+            "value": "%@ 中的所有设置和快捷键都会恢复默认值。自定义操作会保留。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 中的所有設定和快速鍵都會恢復預設值。自訂動作會保留。"
+            "value": "%@ 中的所有設定和快速鍵都會恢復預設值。自訂動作會保留。"
           }
         }
       }
@@ -14679,127 +14679,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Problems in cmux.json"
+            "value": "Problems in %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json の問題"
+            "value": "%@ の問題"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مشكلات في cmux.json"
+            "value": "مشكلات في %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemi u cmux.json"
+            "value": "Problemi u %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemer i cmux.json"
+            "value": "Problemer i %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Probleme in cmux.json"
+            "value": "Probleme in %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemas en cmux.json"
+            "value": "Problemas en %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problèmes dans cmux.json"
+            "value": "Problèmes dans %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemi in cmux.json"
+            "value": "Problemi in %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ហាក្នុង cmux.json"
+            "value": "បញ្ហាក្នុង %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json의 문제"
+            "value": "%@의 문제"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemer i cmux.json"
+            "value": "Problemer i %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemy w cmux.json"
+            "value": "Problemy w %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Problemas no cmux.json"
+            "value": "Problemas no %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проблемы в cmux.json"
+            "value": "Проблемы в %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปัญหาใน cmux.json"
+            "value": "ปัญหาใน %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json’daki Sorunlar"
+            "value": "%@’daki Sorunlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проблеми в cmux.json"
+            "value": "Проблеми в %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vấn đề trong cmux.json"
+            "value": "Vấn đề trong %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 中的问题"
+            "value": "%@ 中的问题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 中的問題"
+            "value": "%@ 中的問題"
           }
         }
       }
@@ -15334,127 +15334,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux.json"
+            "value": "Open %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json を開く"
+            "value": "%@ を開く"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "فتح cmux.json"
+            "value": "فتح %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvori cmux.json"
+            "value": "Otvori %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn cmux.json"
+            "value": "Åbn %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json öffnen"
+            "value": "%@ öffnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir cmux.json"
+            "value": "Abrir %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrir cmux.json"
+            "value": "Ouvrir %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri cmux.json"
+            "value": "Apri %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក cmux.json"
+            "value": "បើក %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 열기"
+            "value": "%@ 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne cmux.json"
+            "value": "Åpne %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz cmux.json"
+            "value": "Otwórz %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir cmux.json"
+            "value": "Abrir %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Открыть cmux.json"
+            "value": "Открыть %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด cmux.json"
+            "value": "เปิด %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json dosyasını aç"
+            "value": "%@ dosyasını aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрити cmux.json"
+            "value": "Відкрити %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở cmux.json"
+            "value": "Mở %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打开 cmux.json"
+            "value": "打开 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打開 cmux.json"
+            "value": "打開 %@"
           }
         }
       }

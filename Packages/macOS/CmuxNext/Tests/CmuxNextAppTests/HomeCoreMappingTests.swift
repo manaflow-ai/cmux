@@ -32,4 +32,32 @@ import Testing
         #expect(parts == [.text("@Chief hi", runs: [ConversationTextRun(start: 0, length: 6, mention: "agent_mux")])])
         #expect(HomeCoreMapping.op(.createChief(name: "x"), key: key) == nil)
     }
+
+    /// An image part of the local owner is a Home attachment (not the text
+    /// "attachment"), and a Home send with an attachment keeps it as an
+    /// attachment part on the wire, with its preview.
+    @Test func attachmentPartsMapBothWays() throws {
+        let hash = String(repeating: "a", count: 64), preview = String(repeating: "b", count: 64)
+        let json = #"""
+        {"id":"msg_1","conversation":"conv_A","seq":1,"client_msg_id":"c1","author":"user_local","created_at":"2026-10-05T12:00:00.000Z",
+         "parts":[{"type":"attachment","hash":"\#(hash)","name":"shot.png","mime_type":"image/png","byte_count":1234,"width":640,"height":480,
+                   "preview":{"hash":"\#(preview)","mime_type":"image/jpeg","byte_count":99}},{"type":"text","text":"what does this say?"}],
+         "reactions":[]}
+        """#
+        let message = try JSONDecoder().decode(ConversationMessage.self, from: Data(json.utf8))
+        let ref = AttachmentRef(hash: hash, name: "shot.png", mimeType: "image/png", byteCount: 1234, width: 640, height: 480,
+                                preview: AttachmentDerivedImage(hash: preview, mimeType: "image/jpeg", byteCount: 99))
+        #expect(HomeCoreMapping.message(message).parts == [.attachment(ref), .text("what does this say?")])
+
+        let op = HomeOp.sendMessage(conversation: ConversationID("conv_A"), parts: [.attachment(ref), .text("what does this say?")])
+        let mapped = try #require(HomeCoreMapping.op(op, key: IdempotencyKey("c1")))
+        guard case .send(_, let parts, nil) = mapped.op else { Issue.record("not a send"); return }
+        let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(parts)) as? [[String: Any]])
+        #expect(wire.first?["type"] as? String == "attachment")
+        #expect(wire.first?["hash"] as? String == hash)
+        #expect(wire.first?["mime_type"] as? String == "image/png")
+        #expect(wire.first?["byte_count"] as? Int == 1234)
+        #expect((wire.first?["preview"] as? [String: Any])?["hash"] as? String == preview)
+        #expect(wire.last?["type"] as? String == "text")
+    }
 }

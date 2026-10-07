@@ -8,6 +8,16 @@ import QuartzCore
 class SidebarRowView: NSView {
     var key: SidebarRowKey
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
+    /// The row is the sidebar's selected item and paints the selection fill.
+    /// A selection change paints at once, never fades or travels
+    /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION); hover alone fades.
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            fadesNextFill = false
+            needsDisplay = true
+        }
+    }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -48,6 +58,7 @@ class SidebarRowView: NSView {
         configuredContent = nil
         self.key = key
         isHovered = false
+        isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
         layer?.removeAnimation(forKey: "backgroundColor")

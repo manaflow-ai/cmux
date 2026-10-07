@@ -11,6 +11,10 @@
 # fetch list (every package directory in zig-pkg/ and the cache) and fails
 # when a forbidden dependency (iterm2_themes) was fetched.
 set -euo pipefail
+# zig builds Ghostty: fleet or GitHub runner only.
+# shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
+cmux_next_require_fleet check-ghostty-fetch-list.sh "zig build" "cmux-next source archive (dry run) / archive"
 [[ $# -eq 1 && ( "$1" == vt || "$1" == helper ) ]] || { echo "usage: $0 vt|helper" >&2; exit 2; }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mode="$1"

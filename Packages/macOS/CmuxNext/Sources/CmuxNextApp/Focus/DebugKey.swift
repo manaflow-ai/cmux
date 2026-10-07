@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -13,7 +14,9 @@ import CmuxNextTerminal
 /// `"target": "page"` the key goes to the Chromium page window of `pane`
 /// (default: the focused pane), as when that page window is key.
 /// Lets automation verify key routing and focus on a window that is never
-/// key (`CMUX_NEXT_NO_ACTIVATE=1`). Never touches another app.
+/// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
+/// local event monitors as a real key does (DebugNativeInput), so a key in an
+/// agent pane records the user's gesture. Never touches another app.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -98,13 +101,20 @@ enum DebugKey {
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
-                return ("app", services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null)
+                return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
                 return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
             }
-            window.sendEvent(event)
+            // As a real key: through the app and its local monitors when the window is key, else
+            // the panes' gesture monitors and then the window (DebugNativeInput).
+            if DebugNativeInput.usesAppKitPath(window) {
+                DebugNativeInput.sendThroughApp([event])
+            } else {
+                DebugNativeInput.runPaneMonitors(event, in: window, services: services)
+                window.sendEvent(event)
+            }
             return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
@@ -134,8 +144,19 @@ enum DebugKey {
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
-        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
-                        "trace": .array(trace.map(JSONValue.string))])
+        var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
+                                           "trace": .array(trace.map(JSONValue.string))]
+        if handledBy == "app", let interception = services.keyRouter.lastInterception {
+            report.merge(verdict(interception)) { _, new in new }
+        }
+        return .object(report)
+    }
+
+    /// What debug.key reports for an intercepted chord: the action when it ran.
+    /// A refused run reports no action and names it as `refused_action`.
+    static func verdict(_ interception: (action: ActionID, window: String, ran: Bool)) -> [String: JSONValue] {
+        interception.ran ? ["action": .string(interception.action.rawValue)]
+            : ["action": .null, "refused_action": .string(interception.action.rawValue)]
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what

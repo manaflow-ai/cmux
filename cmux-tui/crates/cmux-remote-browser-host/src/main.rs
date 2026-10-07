@@ -12,6 +12,21 @@ fn main() -> std::process::ExitCode {
     let args: Vec<CString> =
         std::env::args().map(|a| CString::new(a).unwrap_or_default()).collect();
     let mut argv: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr().cast_mut()).collect();
+    // `--smoke OUT_DIR` (browser process only; helpers carry --type=).
+    let helper = std::env::args().any(|a| a.starts_with("--type="));
+    let smoke_out = if helper {
+        None
+    } else {
+        let a: Vec<String> = std::env::args().collect();
+        a.iter()
+            .position(|x| x == "--smoke")
+            .and_then(|i| a.get(i + 1))
+            .map(std::path::PathBuf::from)
+    };
+    if let Some(out) = smoke_out {
+        let code = cmux_remote_browser_host::smoke::run(&mut argv, out);
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     let cache = std::env::var("CMUX_RB_CACHE_DIR").unwrap_or_else(|_| "/tmp/cmux-rb-host".into());
     let cache = CString::new(cache).unwrap_or_default();
     let callbacks = RbCallbacks {

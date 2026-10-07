@@ -266,14 +266,14 @@ def stage_update(app, label):
     s = wait(lambda: staged(app), 900, 2)
     log = "\n".join(app.status().get("log", []))
     record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
-    # A staged update is the Settings row control ("badge"), never a card
+    # A staged update is the footer pill ("badge" = its label), never a card
     # (Lawrence 2026-10-05, "more minimal").
     if s is not None and "badge" in s:
         ok = bool(s.get("badge")) and s.get("card") is None
-        record(f"{label}: the Settings control shows the staged update, no card", ok,
+        record(f"{label}: the footer pill shows the staged update, no card", ok,
                json.dumps({"badge": s.get("badge"), "card": s.get("card")}))
     elif s is not None:
-        record(f"{label}: the Settings control shows the staged update, no card", "PENDING", "this build predates the control")
+        record(f"{label}: the footer pill shows the staged update, no card", "PENDING", "this build predates the pill")
     return s, log
 
 

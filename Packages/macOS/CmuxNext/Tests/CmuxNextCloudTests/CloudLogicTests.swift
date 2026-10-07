@@ -105,9 +105,50 @@ import Testing
         ]
         let env = ["CMUX_DOGFOOD_STACK_EMAIL": "e@x", "CMUX_DOGFOOD_STACK_PASSWORD": "ep"]
         // The file has a dogfood email without a password: skip it, take the env pair.
-        #expect(DogfoodCredentials.resolve(environment: env, home: "/h", read: { files[$0] }) == DogfoodCredentials(email: "e@x", password: "ep"))
-        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "agent"], home: "/h", read: { files[$0] })
-            == DogfoodCredentials(email: "u@x", password: "up"))
+        #expect(DogfoodCredentials.resolve(environment: env.merging(["CMUX_DEV_AUTH_ACCOUNT": "e@x"]) { $1 }, home: "/h",
+                                           read: { files[$0] }) == DogfoodCredentials(email: "e@x", password: "ep"))
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "agent", "CMUX_DEV_AUTH_ACCOUNT": "u@x"], home: "/h",
+                                           read: { files[$0] }) == DogfoodCredentials(email: "u@x", password: "up"))
         #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "bogus"], home: "/h", read: { files[$0] }) == nil)
+    }
+
+    /// hmdm1 on cmux-lawrence-2 (2026-10-06): a tagged build signed in
+    /// from the machine's own ~/.secrets/cmuxterm-dev.env, whose pair named
+    /// another person. Coordinator decision: the ambient files (and shell
+    /// exports) sign in only the machine's declared owner account
+    /// (~/.config/cmux/dev-account, or CMUX_DEV_AUTH_ACCOUNT); without a
+    /// declaration, or on a mismatch, the build starts signed out and says why.
+    static let ambient = ["/h/.secrets/cmuxterm-dev.env":
+        "CMUX_DOGFOOD_STACK_EMAIL=Other@X\nCMUX_DOGFOOD_STACK_PASSWORD=p\nCMUX_UITEST_STACK_EMAIL=agent@x\nCMUX_UITEST_STACK_PASSWORD=a\n"]
+
+    @Test func withoutADeclaredOwnerTheAmbientFileSignsInNobody() {
+        let files = Self.ambient
+        let none = DogfoodCredentials.decide(environment: [:], home: "/h", read: { files[$0] })
+        #expect(none.credentials == nil)
+        #expect(none.refusal == .noDeclaredAccount)
+        let profile = DogfoodCredentials.decide(environment: ["CMUX_DEV_AUTH_PROFILE": "personal"], home: "/h", read: { files[$0] })
+        #expect(profile.credentials == nil, "an explicit profile still reads the ambient file")
+    }
+
+    @Test func theDeclaredOwnerFileAllowsOnlyItsAccount() {
+        var files = Self.ambient
+        files["/h/.config/cmux/dev-account"] = " other@x \n"
+        #expect(DogfoodCredentials.resolve(environment: [:], home: "/h", read: { files[$0] })
+            == DogfoodCredentials(email: "Other@X", password: "p"), "the owner's personal pair, case aside")
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "agent"], home: "/h", read: { files[$0] }) == nil,
+                "the agent pair is another account")
+        files["/h/.config/cmux/dev-account"] = "me@x"
+        let mismatch = DogfoodCredentials.decide(environment: [:], home: "/h", read: { files[$0] })
+        #expect(mismatch.credentials == nil)
+        #expect(mismatch.refusal == .accountMismatch(found: "Other@X", declared: "me@x"))
+    }
+
+    /// CMUX_DEV_AUTH_ACCOUNT declares the account too, and wins over the file.
+    @Test func anExpectedAccountRefusesEveryOtherAccount() {
+        var files = Self.ambient
+        files["/h/.config/cmux/dev-account"] = "other@x"
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "agent", "CMUX_DEV_AUTH_ACCOUNT": "agent@x"],
+                                           home: "/h", read: { files[$0] }) == DogfoodCredentials(email: "agent@x", password: "a"))
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_ACCOUNT": "me@x"], home: "/h", read: { files[$0] }) == nil)
     }
 }

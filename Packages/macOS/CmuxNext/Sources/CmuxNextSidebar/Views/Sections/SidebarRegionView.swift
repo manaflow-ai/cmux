@@ -21,7 +21,6 @@ final class SidebarRegionView: NSView {
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
     /// An item's trailing control was pressed.
-    var onAccessory: ((LayoutItemID) -> Void)?
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
@@ -143,12 +142,13 @@ final class SidebarRegionView: NSView {
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
-                // rests on the tile fill in every arrangement (R97).
+                // has no fill until hover in every arrangement (Lawrence
+                // 2026-10-05: "account icon should not have bg unless i hover").
                 case .tile:
                     switch SectionFlow.mode(section, look: content.look) {
                     case .tiles?: .favorite
-                    case .grid?: .tile
-                    default: item.ref.builtIn != nil ? .tile : .icon
+                    case .grid?: item.ref.builtIn != nil ? .icon : .tile
+                    default: .icon
                     }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
@@ -205,7 +205,6 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
-        view.onAccessory = { [weak self] in self?.onAccessory?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in

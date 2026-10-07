@@ -49,9 +49,11 @@ import Testing
             #expect(SettingsSchema.descriptor(for: path) == nil, "\(key)")
             #expect(!SettingsSchema.all.contains { $0.path == path }, "\(key)")
         }
+        // A row's `key` is its dotted path; a retired key's last component
+        // may name a live setting elsewhere (notifications.quietHours).
         let export = try SettingsSchemaExport().json(catalog: SettingsSchemaExportTests.catalog())
         for key in SettingsSchema.retiredKeys.keys {
-            #expect(!export.contains(key.split(separator: ".").last.map(String.init) ?? key), "\(key) in settings-schema.json")
+            #expect(!export.contains("\"\(key)\""), "\(key) in settings-schema.json")
         }
     }
 

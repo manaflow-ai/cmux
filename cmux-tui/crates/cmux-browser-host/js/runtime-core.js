@@ -36,6 +36,27 @@
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
+  // An agent-world function run inside the page agent's `reply`
+  // (page-agent.js), which settles the cuts the read made and cuts a reply
+  // past the reply budget (`limit`, default the agent's MAX_REPLY).
+  const sealAgentSource = (source, limit) =>
+    `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
+    `return A.reply((${source})(...a), ${typeof limit === "number" ? limit : "undefined"}); }`;
+  // The key of the page agent's cut marker (page-agent.js, `reply`).
+  const REPLY_CUT = "__cmuxReplyCut";
+  // A reply the page agent cut at its budget fails with core.readCutNote's
+  // words; `what` names the read in them.
+  // A whole-frame read the host's sensitive-field scan could not finish
+  // (frame.observe, `scope: "frame"`) can be read in parts.
+  const SCOPE_HINT = '; scope the read to a part of the page: snapshot(ref) or snapshot(locator), such as snapshot(page.locator("main"))';
+  function uncutReply(r, what) {
+    if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) {
+      const cut = r[REPLY_CUT];
+      throw new Error(`Error: ${readCutNote(what || "the page reply", cut)}${cut.scope === "frame" ? SCOPE_HINT : ""}`);
+    }
+    return r;
+  }
+
   // ---------------------------------------------------------------------------
   // Errors
 
@@ -914,9 +935,10 @@
     }
     emitTabCreated() {}
     // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
-    // that data store instead of the session's default one.
-    async newPage(url, { background, dataStore } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
+    // that data store instead of the session's default one; `incognito`
+    // opens it in a store that keeps nothing (driver-protocol.md).
+    async newPage(url, { background, dataStore, incognito } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }), ...(incognito === undefined ? {} : { incognito: !!incognito }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;
@@ -995,18 +1017,24 @@
     }
     // Script cannot run while a JavaScript dialog is open, so calls fail fast
     // with the way out instead of hanging until the evaluation timeout.
-    _call(world, source, args, handles) {
+    //
+    // Every agent-world reply goes through the page agent's `reply`
+    // (page-agent.js): the call's function runs inside it, so the cuts a
+    // read made are settled before the reply leaves the page.
+    _call(world, source, args, handles, what) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
-      return this._page._raceDialog(this._session.call("frame.evaluate", {
+      const sealed = world !== "agent" ? source : sealAgentSource(source, this._session._replyLimit);
+      const call = this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
-        source,
+        source: sealed,
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
       }), true);
+      return world === "agent" ? call.then((r) => uncutReply(r, what)) : call;
     }
     // A user function in the page world. JSON has no undefined, so a function
     // that returns undefined sends a marker the result turns back into it,
@@ -1024,13 +1052,16 @@
     // the call's error.
     _agent(method, ...args) {
       if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
-      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
     }
+    // The host's observe script runs the read inside the agent's reply with
+    // the default reply budget.
     async _observe(method, args) {
       const blocked = this._page._blockedError();
       if (blocked) throw blocked;
+      let r;
       try {
-        return await this._page._raceDialog(this._session.call("frame.observe", {
+        r = await this._page._raceDialog(this._session.call("frame.observe", {
           targetId: this._page._targetId,
           frameId: this._id || undefined,
           method,
@@ -1039,8 +1070,9 @@
       } catch (e) {
         if (!e || e.code !== "unsupported") throw e;
         this._session._observeUnsupported = true;
-        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
       }
+      return uncutReply(r, method);
     }
     async _contentFrame(handle) {
       try {
@@ -2063,6 +2095,10 @@
     }
   }
 
+  // How long Download.path() waits for download.finished after the driver
+  // reported the saved path (the event travels apart from the reply).
+  const DOWNLOAD_FINISHED_WAIT_MS = 30000;
+
   class Download {
     constructor(page, payload) {
       this._page = page;
@@ -2082,6 +2118,24 @@
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
+      // The reply can overtake the download.finished event (they travel
+      // apart): answer once the event is in, so state read after path()
+      // (session.downloads()) is current. The driver answered, so the
+      // download finished and its event is on the way; a lost event fails
+      // with `timeout` after DOWNLOAD_FINISHED_WAIT_MS (host clock).
+      if (!this._outcome) {
+        const session = this._page._session;
+        const expired = {};
+        let timer;
+        const late = new Promise((resolve) => (timer = session.host.setTimeout(() => resolve(expired), DOWNLOAD_FINISHED_WAIT_MS)));
+        const outcome = await Promise.race([this._finished, late]);
+        if (session.host.clearTimeout) session.host.clearTimeout(timer);
+        if (outcome === expired) {
+          const error = new TimeoutError(`download.path: download ${this._p.downloadId} (${this._p.suggestedFilename}) is saved, but its download.finished event did not arrive within ${DOWNLOAD_FINISHED_WAIT_MS}ms`);
+          error.code = "timeout";
+          throw error;
+        }
+      }
       if (this._page._session.onDownloadPath) this._page._session.onDownloadPath(path);
       return path;
     }
@@ -3125,8 +3179,24 @@
     return MIME[ext] || "application/octet-stream";
   }
 
+  // The note for a page read cut at the page-read budget (page-agent.js,
+  // readBudget): `cut` is { truncated: "nodes" | "size" | "time" |
+  // "frames", maxNodes, maxSize, frames }. Every read that stops there says
+  // so in these words (classic runtime-core.js).
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  function readCutNote(what, cut) {
+    const why =
+      cut.truncated === "time" ? "after 8 s of reading"
+      : cut.truncated === "size" ? `after ${groupDigits(cut.maxSize)} characters`
+      : cut.truncated === "frames" ? `after ${groupDigits(cut.frames)} frames`
+      : `after ${groupDigits(cut.maxNodes)} nodes`;
+    return `the page is too large to read whole: ${what} stopped ${why}`;
+  }
+
   ns.core = {
+    readCutNote,
     Session,
+    sealAgentSource,
     Page,
     Frame,
     Locator,

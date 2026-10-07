@@ -60,9 +60,13 @@ import Testing
         #expect(registry.shortcutDisplay(for: "selectWorkspaceByNumber") == "⌘1…9")
     }
 
-    @Test func paneResizeUsesControlCommandArrowsAndVimKeys() {
+    /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS: Cmd-Ctrl-H/J/K/L focus
+    /// the pane in that direction (aliases of Cmd-Opt-arrows), Ctrl-Shift-H/J/K/L
+    /// resize it (catalog default) and Cmd-Ctrl-arrows stay resize aliases.
+    @Test func paneFocusUsesControlCommandVimKeysAndResizeUsesControlShift() {
         let registry = ActionRegistry.standard()
-        for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
+        for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown",
+                             "focusLeft", "focusRight", "focusUp", "focusDown"] {
             registry.bind(id) {}
         }
         registry.bind("focusHistoryBack") {}
@@ -73,18 +77,21 @@ import Testing
             (Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]), "resizePaneRight"),
             (Shortcut(Shortcut.upArrowKey, modifiers: [.control, .command]), "resizePaneUp"),
             (Shortcut(Shortcut.downArrowKey, modifiers: [.control, .command]), "resizePaneDown"),
-            (Shortcut("h", modifiers: [.control, .command]), "resizePaneLeft"),
-            (Shortcut("l", modifiers: [.control, .command]), "resizePaneRight"),
-            (Shortcut("k", modifiers: [.control, .command]), "resizePaneUp"),
-            (Shortcut("j", modifiers: [.control, .command]), "resizePaneDown"),
+            (Shortcut("h", modifiers: [.control, .shift]), "resizePaneLeft"),
+            (Shortcut("l", modifiers: [.control, .shift]), "resizePaneRight"),
+            (Shortcut("k", modifiers: [.control, .shift]), "resizePaneUp"),
+            (Shortcut("j", modifiers: [.control, .shift]), "resizePaneDown"),
+            (Shortcut("h", modifiers: [.control, .command]), "focusLeft"),
+            (Shortcut("l", modifiers: [.control, .command]), "focusRight"),
+            (Shortcut("k", modifiers: [.control, .command]), "focusUp"),
+            (Shortcut("j", modifiers: [.control, .command]), "focusDown"),
+            (Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), "focusLeft"),
+            (Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), "focusRight"),
         ]
         for (shortcut, action) in expected {
             #expect(registry.keyWinner(shortcut)?.command == action, "Expected \(shortcut.displayString) to resolve to \(action)")
         }
-
-        for key in ["h", "j", "k", "l"] {
-            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .shift])) == nil)
-        }
+        #expect(registry.effectiveShortcut(for: "resizePaneLeft") == Shortcut("h", modifiers: [.control, .shift]))
 
         #expect(registry.keyWinner(Shortcut("-", modifiers: [.control]))?.command == "focusHistoryBack")
         #expect(registry.keyWinner(Shortcut("-", modifiers: [.control, .shift]))?.command == "focusHistoryForward")
@@ -94,7 +101,7 @@ import Testing
         let registry = ActionRegistry.standard()
         registry.bind("resizePaneLeft") {}
         let arrow = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
-        let vim = Shortcut("h", modifiers: [.control, .command])
+        let vim = Shortcut("h", modifiers: [.control, .shift])
         let custom = Shortcut("h", modifiers: [.control, .option])
         #expect(registry.keyWinner(arrow)?.command == "resizePaneLeft")
 
@@ -110,6 +117,29 @@ import Testing
         registry.removeShortcutOverride(for: "resizePaneLeft")
         #expect(registry.keyWinner(arrow)?.command == "resizePaneLeft")
         #expect(registry.keyWinner(vim)?.command == "resizePaneLeft")
+    }
+
+    /// A cmux.json override or unbind of a focus action removes its
+    /// Cmd-Ctrl-H/J/K/L alias too, like the resize arrow aliases.
+    @Test func paneFocusAliasFollowsOverrideAndUnbindThroughTheTable() {
+        let registry = ActionRegistry.standard()
+        registry.bind("focusLeft") {}
+        let vim = Shortcut("h", modifiers: [.control, .command])
+        let arrow = Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command])
+        let custom = Shortcut("y", modifiers: [.control, .option])
+        #expect(registry.keyWinner(vim)?.command == "focusLeft")
+
+        registry.setShortcutOverride(custom, for: "focusLeft")
+        #expect(registry.keyWinner(vim) == nil)
+        #expect(registry.keyWinner(arrow) == nil)
+        #expect(registry.keyWinner(custom)?.command == "focusLeft")
+
+        registry.setShortcutOverride(nil, for: "focusLeft")
+        #expect(registry.keyWinner(vim) == nil)
+
+        registry.removeShortcutOverride(for: "focusLeft")
+        #expect(registry.keyWinner(vim)?.command == "focusLeft")
+        #expect(registry.keyWinner(arrow)?.command == "focusLeft")
     }
 
     @Test func overridesDriveResolutionAndDisplay() {

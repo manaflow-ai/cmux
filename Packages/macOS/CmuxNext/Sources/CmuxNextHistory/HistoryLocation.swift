@@ -42,10 +42,25 @@ public nonisolated struct HistoryLocation: Hashable, Sendable, Codable {
     public var cwd: String?
     /// True for an incognito window's location: never written to disk.
     public var isIncognito: Bool
+    /// A top page the window showed in place of its workspace (an app route:
+    /// `home`, `page:<id>`; TOP-SECTION-ITEMS-ARE-PAGES), else nil. Such an
+    /// entry's key is `{top-page, <route>}` with no workspace or pane, and its
+    /// content is `other`, so a build without pages decodes the trail and
+    /// skips the entry (its "tab" does not exist).
+    public var page: String?
+
+    /// The machine id of a page entry's key.
+    public static let pageMachine = "top-page"
+
+    /// The trail entry of top page `route` shown in `window`.
+    public static func page(_ route: String, window: String, title: String, isIncognito: Bool = false) -> HistoryLocation {
+        HistoryLocation(key: Key(machine: pageMachine, tab: route), window: window, workspace: "", pane: "", content: .other,
+                        title: title, isIncognito: isIncognito, page: route)
+    }
 
     public init(key: Key, window: String, workspace: String, pane: String, screen: String? = nil,
                 room: String? = nil, content: Content, title: String, workspaceTitle: String? = nil,
-                machineName: String? = nil, url: String? = nil, cwd: String? = nil, isIncognito: Bool = false) {
+                machineName: String? = nil, url: String? = nil, cwd: String? = nil, isIncognito: Bool = false, page: String? = nil) {
         self.key = key
         self.window = window
         self.workspace = workspace
@@ -59,5 +74,6 @@ public nonisolated struct HistoryLocation: Hashable, Sendable, Codable {
         self.url = url
         self.cwd = cwd
         self.isIncognito = isIncognito
+        self.page = page
     }
 }

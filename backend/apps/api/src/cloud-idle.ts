@@ -4,8 +4,11 @@ import type { MachineRow } from "./domains/cloud.ts"
 /**
  * Idle pause decision (coordinator, 2026-10-05). Idle counts only from the VM's own activity report,
  * applied now: a running machine, an idle policy above 0, no open sessions, and the newest of the reported
- * input or agent action (never later than now) and the last start or bind older than the idle policy. A report without activity
- * times, or no report at all, is unknown and never idle. Off unless the team policy cloud.idlePause is on.
+ * input or agent action (never later than now) and the last start or bind older than the idle policy. A capable
+ * report without activity times means nobody acted since the VM started: the idle period starts at the last
+ * start or bind (hq-ff auto7, 2026-10-06: before this, a machine nobody typed into never paused, also not by
+ * the 24 h backstop, because its reports kept resetting the no_report clock). No report at all is unknown and
+ * never idle here (the no_report backstop covers it). A threshold under 24 h needs team policy cloud.idlePause.
  */
 export interface ReportedActivity {
   readonly active_sessions: number
@@ -21,9 +24,10 @@ export const idleFromReport = (row: MachineRow | undefined, activity: ReportedAc
   if (!row || row.status !== "running" || !activity) return false
   if (!(idleSeconds > 0) || activity.active_sessions !== 0) return false
   const times = [activity.last_user_input_at, activity.last_agent_action_at].filter((t): t is number => typeof t === "number")
-  if (times.length === 0) return false
   // A start or bind restarts the idle period: a resumed VM keeps its old times in memory (review P2).
-  const last = Math.max(Math.min(Math.max(...times), now), row.last_power_at ?? 0)
+  // With no times, the start or bind (else the create) is the last activity.
+  const powered = row.last_power_at ?? row.created_at
+  const last = times.length === 0 ? powered : Math.max(Math.min(Math.max(...times), now), powered)
   return now - last >= idleSeconds * 1000
 }
 

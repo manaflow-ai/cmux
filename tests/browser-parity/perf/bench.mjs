@@ -328,6 +328,14 @@ function hostHeadlessBackend() {
   };
 }
 
+// A bench page that fails for a recorded reason on a backend
+// (known-failures.json, key "perf:<page>"): its reason, else null.
+function knownBench(backend, page) {
+  const known = JSON.parse(fs.readFileSync(path.join(here, "..", "known-failures.json"), "utf8"));
+  const entry = known[process.platform]?.[backend]?.[`perf:${page}`] ?? known["*"]?.[backend]?.[`perf:${page}`];
+  return entry ? entry.reason : null;
+}
+
 // ---------------------------------------------------------------------------
 
 function summarize(result) {
@@ -385,7 +393,9 @@ async function main() {
       for (const [tool, v] of Object.entries(byTool)) {
         if (v && v !== r) summarize(v);
         const cr = v?.closedRoots;
-        const line = v?.error ? `ERROR ${v.error.split("\n")[0].slice(0, 200)}` : `p50 ${v.p50}ms p95 ${v.p95}ms first ${v.firstMs}ms tree ${v.treeBytes}B ${v.treeTokens}tok printed ${v.printedBytes}B diff ${v.diff?.snapMs}ms/${v.diff?.diffChars}ch locator ${v.locatorMs}ms` + (v.breakdown ? ` [agent ${v.breakdown.agentMs.toFixed(0)} transport ${v.breakdown.transportMs.toFixed(0)} host ${v.breakdown.hostMs.toFixed(0)} diff ${v.breakdown.diffMs.toFixed(0)}]` : "") + (cr ? ` closed-roots ${cr.walks} walks ${cr.walkMs.toFixed(0)}ms (${cr.walks ? (cr.walkMs / cr.walks).toFixed(1) : 0}ms each) ${cr.roots} roots ${cr.domEvents} dom-events` : "");
+        const known = v?.error && knownBench(tool, p.name);
+        if (known) v.known = known;
+        const line = known ? `KNOWN ${known.slice(0, 160)}` : v?.error ? `ERROR ${v.error.split("\n")[0].slice(0, 200)}` : `p50 ${v.p50}ms p95 ${v.p95}ms first ${v.firstMs}ms tree ${v.treeBytes}B ${v.treeTokens}tok printed ${v.printedBytes}B diff ${v.diff?.snapMs}ms/${v.diff?.diffChars}ch locator ${v.locatorMs}ms` + (v.breakdown ? ` [agent ${v.breakdown.agentMs.toFixed(0)} transport ${v.breakdown.transportMs.toFixed(0)} host ${v.breakdown.hostMs.toFixed(0)} diff ${v.breakdown.diffMs.toFixed(0)}]` : "") + (cr ? ` closed-roots ${cr.walks} walks ${cr.walkMs.toFixed(0)}ms (${cr.walks ? (cr.walkMs / cr.walks).toFixed(1) : 0}ms each) ${cr.roots} roots ${cr.domEvents} dom-events` : "");
         console.log(`${p.name.padEnd(22)} ${tool.padEnd(10)} ${line} (${Date.now() - t}ms)`);
       }
       results.pages[p.name] = r;

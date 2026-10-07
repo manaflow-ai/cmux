@@ -300,16 +300,22 @@ def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     next_workflow = workflow("cmux-next.yml")
-    # Every step that waits for the same-tree cmux-tui (the gate's `wait` and
-    # each job's `fetch`) uses the full bounded wait, pull requests included.
-    waiting = [
+    jobs = yaml.safe_load(next_workflow)["jobs"]
+    # No step waits for the same-tree cmux-tui: path routing probes it once
+    # (pull requests included: the base push's tree when the merge keeps it,
+    # else the pull request's own), and each tree job's `fetch` runs only on a
+    # published tree, so its bound is a download's.
+    assert not re.search(r"pin-cmux-tui\.sh wait\b", next_workflow)
+    fetching = [
         step
-        for job in yaml.safe_load(next_workflow)["jobs"].values()
+        for job in jobs.values()
         for step in job.get("steps", [])
-        if re.search(r"pin-cmux-tui\.sh (?:fetch|wait)\b", step.get("run", ""))
+        if re.search(r"pin-cmux-tui\.sh fetch\b", step.get("run", ""))
     ]
-    assert len(waiting) >= 3
-    assert all(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS") == "2700" for step in waiting)
+    assert len(fetching) >= 2
+    assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
+    probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+    assert probes and all("CMUX_TUI_TREE_PR_NUMBER" in step.get("env", {}) for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
@@ -1523,7 +1529,6 @@ def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
 def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
     sdk_ci = workflow("cmux-tui-sdks.yml")
     guarded = (
-        "cmux-tui-nightly.yml",
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
@@ -1598,13 +1603,6 @@ def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
             "Verify every PyPI wheel after upload",
             "${{ inputs.version }}",
         ),
-        (
-            "cmux-tui-nightly.yml",
-            "publish-pypi",
-            "Publish nightly package distributions to PyPI",
-            "Verify every nightly PyPI wheel after upload",
-            "${{ needs.version.outputs.pypi_version }}",
-        ),
     )
 
     for name, job_name, publish_name, verify_name, version in cases:
@@ -1647,19 +1645,11 @@ def test_tui_pypi_reconciliation_behavior_test_is_in_tui_ci() -> None:
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
     for name in (
         "tui-publish-npm.yml",
-        "cmux-tui-nightly.yml",
         "sdk-release-cut.yml",
     ):
         text = workflow(name)
         assert "npm install -g npm@11.5.1" in text
         assert "npm@^11.5.1" not in text
-
-
-def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
-    text = workflow("cmux-tui-nightly.yml")
-    assert "ref: ${{ github.sha }}" in text
-    assert 'if [[ "$head_sha" != "$GITHUB_SHA" ]]' in text
-    assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
 
 
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
@@ -1830,10 +1820,9 @@ def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> 
 
 
 def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
-    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
-        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
-        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
-        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    document = yaml.load(workflow("cmux-tui-release.yml"), Loader=yaml.BaseLoader)
+    assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+    assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
     publisher = workflow("tui-publish-npm.yml")
     assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
     platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
@@ -1843,21 +1832,20 @@ def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> N
 
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
-    # family. If the coordinated TUI publish or the nightly lane ever grows a
-    # cmux-relay npm publish back, a routine TUI release could silently take
-    # over cmux-relay@latest from the shipping relay (chatmux relay Rust
-    # cutover, chatmux docs/RELAY-RUST.md).
-    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
-        text = workflow(name)
-        assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
-        assert (
-            "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
-            not in text
-        )
-        publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
-        assert publish_lists
-        for block in publish_lists:
-            assert "cmux-relay" not in block
+    # family. If the coordinated TUI publish ever grows a cmux-relay npm
+    # publish back, a routine TUI release could silently take over
+    # cmux-relay@latest from the shipping relay (chatmux relay Rust cutover,
+    # chatmux docs/RELAY-RUST.md).
+    text = workflow("tui-publish-npm.yml")
+    assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
+    assert (
+        "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
+        not in text
+    )
+    publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
+    assert publish_lists
+    for block in publish_lists:
+        assert "cmux-relay" not in block
 
 
 def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
@@ -2163,10 +2151,6 @@ def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
     assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> str:
     """Renders a group string with `${{ ... }}` expressions (cmux-tui-artifacts.yml).
 
@@ -2189,11 +2173,14 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
-def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> None:
-    # Only the newest commit's tree matters, and macOS runners are scarce (2026-10-06:
-    # 30 runs queued behind ~3 macos-15 slots). With cancel-in-progress false a
-    # concurrency group keeps one running and one pending run: a newer push replaces
-    # the pending one and never cancels a running publish (immutable objects).
+def test_cmux_tui_artifacts_never_replaces_a_queued_feat_cmux_next_push() -> None:
+    # 2026-10-07: with one group per branch, each feat-cmux-next push replaced the
+    # pending run before its preflight started (01:31 to 02:11: 13 runs cancelled,
+    # 1 publish), so a base tree rarely got artifacts and every PR's same-tree wait
+    # timed out at 45 min. Each feat-cmux-next push now has its own group: its
+    # preflight skips a complete tree, and the jobs' owner election (tree-owner-wait,
+    # per-run job groups) keeps one builder per tree key. Pin branches keep one
+    # pending run per branch, since each publishes one tree on purpose.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     assert concurrency["cancel-in-progress"] == "false"
@@ -2206,14 +2193,19 @@ def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> 
         )
 
     feat = "refs/heads/feat-cmux-next"
-    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
+    assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
+    assert "a" * 40 in evaluate("push", feat, "a" * 40)
     pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
-    pin_b = evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
-    assert pin_a != pin_b and evaluate("push", feat, "a" * 40) not in (pin_a, pin_b)
+    assert pin_a == evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "b" * 40)
+    assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
+    assert evaluate("push", feat, "a" * 40) != pin_a
     assert evaluate("push", "refs/heads/main", "a" * 40) == "cmux-tui-artifacts-main"
     assert evaluate("pull_request_target", feat, "a" * 40, pr=7) == "cmux-tui-artifacts-pr-7"
     assert evaluate("pull_request_target", feat, "a" * 40, pr=7) != evaluate("pull_request_target", feat, "a" * 40, pr=8)
-    # A manual republish of one commit is never superseded by a branch push.
+    # A manual republish of one commit never shares a group with a branch push.
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
+
+if __name__ == "__main__":
+    unittest.main()

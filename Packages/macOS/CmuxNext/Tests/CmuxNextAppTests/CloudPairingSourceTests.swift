@@ -29,6 +29,8 @@ import Testing
         let source = CloudPairingSource(
             inner: MockServerSource(scenario: .healthyMac),
             call: { path, body in
+                // The panel's read of where the Chief runs (start) is not part of pairing.
+                if body["op"] as? String == "chief.list" { return ["value": ["chiefs": [], "tombstones": []]] }
                 recorder.calls.append((path, body))
                 if body["op"] as? String == "team.policy.get" { return ["value": ["team": Self.workerTeam]] }
                 return try reply(body)
@@ -110,6 +112,7 @@ import Testing
         let source = CloudPairingSource(
             inner: MockServerSource(scenario: .healthyMac),
             call: { path, body in
+                if body["op"] as? String == "chief.list" { return ["value": ["chiefs": [], "tombstones": []]] }
                 recorder.calls.append((path, body))
                 switch body["op"] as? String {
                 case "team.policy.get" where !ensured:

@@ -925,21 +925,20 @@ mod tests {
                 1,
                 "{operation:?} public events"
             );
-            let expected_workspace =
-                before_workspace + u64::from(operation == ResourceOperation::WorkspaceClose);
+            // Each close takes the workspace's only tab, so the workspace
+            // closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
+            let expected_workspace = before_workspace + 1;
             assert_eq!(
                 mux.with_state(|state| state.workspace_revision),
                 expected_workspace,
                 "{operation:?} workspace revision"
             );
-            if operation == ResourceOperation::WorkspaceClose {
-                let event = mux
-                    .workspace_registry_event(expected_workspace)
-                    .unwrap()
-                    .expect("workspace close event");
-                assert_eq!(event.kind, "workspace-closed");
-                assert_eq!(event.mutation_id, key);
-            }
+            let event = mux
+                .workspace_registry_event(expected_workspace)
+                .unwrap()
+                .expect("workspace close event");
+            assert_eq!(event.kind, "workspace-closed", "{operation:?}");
+            assert_eq!(event.mutation_id, key, "{operation:?}");
             let (terminal_snapshot, terminal_events) =
                 mux.terminal_registry_events_page(before_terminal).unwrap();
             assert_eq!(terminal_snapshot.revision, before_terminal, "{operation:?}");

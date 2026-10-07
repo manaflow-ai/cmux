@@ -548,3 +548,81 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     assert_eq!(reply["error"]["data"]["reason"], "remote.mode_not_asking", "{reply}");
     assert_eq!(reply["error"]["data"]["mode"], "bypassPermissions", "{reply}");
 }
+
+/// LAUNCH-NO-TCC-PROMPTS: an agent nobody asked for (a prewarm, a warm) never
+/// starts without a folder or in `/`, and a session without a folder is
+/// refused instead of running in the home folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_agent_starts_unasked_in_root_or_without_a_folder() {
+    let daemon = Daemon::new("guard", 0);
+    let mut rpc = daemon.rpc().await;
+    let none = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "wait": true})).await;
+    assert_eq!(none["accepted"], false, "{none}");
+    let root =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": "/", "wait": true})).await;
+    assert_eq!(root["accepted"], false, "{root}");
+    assert!(daemon.pool_records().is_empty(), "nothing was pooled");
+
+    let refused = rpc.call_err("session/new", json!({"mcpServers": []})).await;
+    assert!(refused.contains("no folder"), "{refused}");
+
+    // A person may name `/`; a later warm still leaves it alone.
+    let made = rpc.call("session/new", json!({"cwd": "/", "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let warmed = rpc.call("_acpmux/warm", json!({"sessionIds": [id], "limit": 3})).await;
+    assert_eq!(warmed["warmed"], json!([]), "{warmed}");
+}
+
+/// `acpmux daemon shutdown` (the CLI, as rollback scripts run it) stops the
+/// daemon and every agent host it owns: the user session's host and the
+/// pooled one. It returns only after they all exited and reports the counts.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
+    let mut daemon = Daemon::new("cli", 0);
+    let home = daemon.home.clone();
+    let mut rpc = daemon.rpc().await;
+    let (session, _) = new_session(&mut rpc, &home, "fake").await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    drop(rpc);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !daemon.host_records().iter().any(|r| r["session_id"] == session.as_str()) {
+        assert!(Instant::now() < deadline, "the session never got an agent host");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let records: Vec<Value> =
+        daemon.host_records().into_iter().chain(daemon.pool_records()).collect();
+    assert!(records.len() >= 2, "a session host and a pooled host: {records:#?}");
+    let pids: Vec<i64> = records
+        .iter()
+        .flat_map(|r| [r["host_pid"].as_i64(), r["harness_pid"].as_i64()])
+        .flatten()
+        .collect();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["--json", "daemon", "shutdown"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux daemon shutdown");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "shutdown failed: {stdout} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    daemon.wait_exit();
+    for pid in pids {
+        // The command returned after every host exited; only a zombie's
+        // reaping may still be in flight.
+        assert!(
+            gone_within(pid, Duration::from_secs(2)),
+            "pid {pid} outlived `daemon shutdown`: {stdout}"
+        );
+    }
+    let report: Value = serde_json::from_str(stdout.trim()).expect("JSON report");
+    assert_eq!(report["stopped"], true, "{report}");
+    assert_eq!(report["endAgents"], true, "{report}");
+    assert!(report["agentHosts"]["before"].as_u64().unwrap() >= 2, "{report}");
+    assert_eq!(report["agentHosts"]["left"], json!([]), "{report}");
+}

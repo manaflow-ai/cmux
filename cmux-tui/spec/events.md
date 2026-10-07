@@ -71,6 +71,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `activity-changed` | control (targeted) | session | protocol 12 additive extension; capability `vm-activity-v1`; only to `subscribe-activity` connections |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -952,6 +953,28 @@ Example:
 
 ```json
 {"event":"window-title-requested","title":"hello"}
+```
+
+### activity-changed
+
+| Field | Value |
+| --- | --- |
+| event | `activity-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `vm-activity-v1` |
+
+Payload:
+
+```text
+object{event:"activity-changed",activity:ActivitySnapshot}
+```
+
+Meaning: The daemon's activity facts changed (a person's input, an agent action, a person's client attached or detached, an agent became live or not live). Sent only to `subscribe-activity` connections, at most one per second; the body is the same object the `subscribe-activity` reply carries.
+
+Example:
+
+```json
+{"event":"activity-changed","activity":{"attached_clients":0,"live_agents":1,"last_user_input_at_ms":1791246114793,"last_agent_action_at_ms":1791246120001}}
 ```
 
 ### machine-usage-changed

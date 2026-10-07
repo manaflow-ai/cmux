@@ -271,6 +271,17 @@ each cut how to get the rest.
   printed and how to get more:
   `# condensed to 19,657 of 62,822 characters (368 of 626 refs not shown): …`.
   Refs in the cut part are real and work in locators.
+- **Depth:** the snapshot reads at most 1,000 elements deep over the whole
+  stitched tree (an iframe's frame starts at the iframe's depth), as
+  classic does: a deeper element prints as `generic [ref=e9] [not read:
+  nested deeper than 1000 elements; snapshot this ref to read it]`, and an
+  iframe at the bound is not read and says the same. `page.markdown` leaves
+  parts deeper than 1,000 levels out and ends with `<!-- not read: parts of
+  the page nested deeper than 1000 elements -->`. The page agent walks
+  without recursion and sends the tree as a pre-order list of
+  `[depth, node]` entries (Chromium's CDP refuses a result nested deeper
+  than about 300 levels); the host stitches, shapes and prints it without
+  recursion too (the session VM's stack holds about 1,300 calls).
 - **A diff too large for the budget** prints the condensed tree with a note
   that `.diff` has the changes.
 - **Per call**, the REPL prints at most 25,000 characters

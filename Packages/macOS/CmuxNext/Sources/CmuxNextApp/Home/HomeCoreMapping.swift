@@ -35,9 +35,32 @@ nonisolated enum HomeCoreMapping {
         case .work(let session, let host, let status, let preview):
             return .work(WorkRef(session: session, host: host, title: session,
                                  status: WorkRef.Status(rawValue: status) ?? .running, preview: preview))
+        case .attachment(let attachment):
+            return .attachment(Self.ref(attachment))
         case .unknown(let type, _):
             return .text(type)
         }
+    }
+
+    /// The owner's attachment part as a Home attachment ref (same fields).
+    static func ref(_ attachment: ConversationAttachment) -> AttachmentRef {
+        let derived = { (image: ConversationDerivedImage) in
+            AttachmentDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
+        }
+        return AttachmentRef(hash: attachment.hash, name: attachment.name, mimeType: attachment.mimeType,
+                             byteCount: attachment.byteCount, width: attachment.width, height: attachment.height,
+                             durationMs: attachment.durationMs, poster: attachment.poster.map(derived),
+                             preview: attachment.preview.map(derived))
+    }
+
+    /// A Home attachment ref as the owner's attachment part.
+    static func attachment(_ ref: AttachmentRef) -> ConversationAttachment {
+        let derived = { (image: AttachmentDerivedImage) in
+            ConversationDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
+        }
+        return ConversationAttachment(hash: ref.hash, name: ref.name, mimeType: ref.mimeType, byteCount: ref.byteCount,
+                                      width: ref.width, height: ref.height, durationMs: ref.durationMs,
+                                      poster: ref.poster.map(derived), preview: ref.preview.map(derived))
     }
 
     static func reaction(_ reaction: ConversationReaction) -> Reaction {
@@ -65,7 +88,8 @@ nonisolated enum HomeCoreMapping {
             readCursors: Dictionary(uniqueKeysWithValues: summary.readCursors.map { (ParticipantID($0.key), $0.value) }))
     }
 
-    /// The text parts an op sends. Only text and work parts exist on the local owner.
+    /// The parts an op sends. The local owner stores text, work and
+    /// attachment parts (`local-attachments-v1`); other kinds go as text.
     static func parts(_ parts: [MessagePart]) -> [ConversationPart] {
         parts.map { part in
             switch part {
@@ -75,8 +99,10 @@ nonisolated enum HomeCoreMapping {
                 })
             case .work(let work):
                 return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
-            case .approval, .attachment, .linkPreview, .location:
-                // The local owner stores only text and work parts.
+            case .attachment(let ref):
+                return .attachment(Self.attachment(ref))
+            case .approval, .linkPreview, .location:
+                // The local owner has no approval, link preview or location parts.
                 return .text(part.plainText, runs: [])
             }
         }
@@ -95,7 +121,7 @@ nonisolated enum HomeCoreMapping {
             case .emoji(let emoji): .emoji(emoji)
             }
             return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: kind))
-        case .createGroup, .createChief, .startConversation, .invite, .setPinned, .setMuted, .setTyping:
+        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
             return nil
         }
     }
